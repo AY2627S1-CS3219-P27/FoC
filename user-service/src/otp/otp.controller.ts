@@ -8,6 +8,6 @@ export class OtpController {
   @Post()
   async request(@Body() requestOtpDto: RequestOtpDto) {
     await this.otpService.createOtpRequest(requestOtpDto.email);
-    return 'Received email: ' + requestOtpDto.email;
+    return { message: 'If this email is valid, an OTP has been sent.' };
   }
 }
