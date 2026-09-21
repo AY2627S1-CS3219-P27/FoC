@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { OtpService } from './otp.service.js';
+import { OtpService, CREATE_OTP_SCRIPT } from './otp.service.js';
 import { REDIS } from '../redis/redis.provider.js';
 import { SecretService } from '../secret/secret.service.js';
 import { hashValue } from '../common/hash/hash.js';
@@ -11,29 +11,16 @@ vi.mock('../common/hash/hash.js', () => ({
 describe('OtpService', () => {
   let service: OtpService;
   let redis: {
-    multi: ReturnType<typeof vi.fn>;
+    eval: ReturnType<typeof vi.fn>;
     get: ReturnType<typeof vi.fn>;
     hgetall: ReturnType<typeof vi.fn>;
-    chain: {
-      incr: ReturnType<typeof vi.fn>;
-      expire: ReturnType<typeof vi.fn>;
-      hset: ReturnType<typeof vi.fn>;
-      exec: ReturnType<typeof vi.fn>;
-    };
   };
 
   beforeEach(async () => {
-    const chain = {
-      incr: vi.fn(() => chain),
-      expire: vi.fn(() => chain),
-      hset: vi.fn(() => chain),
-      exec: vi.fn(),
-    };
     redis = {
-      multi: vi.fn(() => chain),
+      eval: vi.fn(),
       get: vi.fn(),
       hgetall: vi.fn(),
-      chain,
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -55,13 +42,8 @@ describe('OtpService', () => {
   });
 
   describe('createOtpRequest', () => {
-    it('bumps the generation counter and stores the record with its generation', async () => {
-      redis.chain.exec
-        .mockResolvedValueOnce([[null, 3]]) // incr result
-        .mockResolvedValueOnce([
-          [null, 3], // hset result
-          [null, 1], // expire result
-        ]);
+    it('bumps the counter and stores the record in a single atomic script', async () => {
+      redis.eval.mockResolvedValue(1);
 
       await service.createOtpRequest('eve@example.com');
 
@@ -71,46 +53,59 @@ describe('OtpService', () => {
         16,
       );
 
-      // Counter batch: incr + expire on the generation key.
-      expect(redis.chain.incr).toHaveBeenCalledWith(
+      // One script, both keys, TTLs and the issuedAt stamp, in one round trip.
+      expect(redis.eval).toHaveBeenCalledTimes(1);
+      expect(redis.eval).toHaveBeenCalledWith(
+        CREATE_OTP_SCRIPT,
+        2,
         'otp:count:eve@example.com',
-      );
-      expect(redis.chain.expire).toHaveBeenCalledWith(
-        'otp:count:eve@example.com',
+        'otp:deadbeef',
         3600,
+        expect.any(String),
+        600,
       );
-
-      // Record batch: hset + expire on the derived record key.
-      expect(redis.chain.hset).toHaveBeenCalledWith('otp:deadbeef', {
-        count: 3,
-        issuedAt: expect.any(String),
-      });
-      expect(redis.chain.expire).toHaveBeenCalledWith('otp:deadbeef', 600);
     });
 
-    it('keeps an existing OTP for the email valid only through its new generation', async () => {
-      // First request issues generation 1...
-      redis.chain.exec
-        .mockResolvedValueOnce([[null, 1]])
-        .mockResolvedValueOnce([
-          [null, 1],
-          [null, 1],
-        ]);
+    it('stamps records with the incremented generation inside the script', () => {
+      // The atomicity contract: the record's count comes from the INCR executed
+      // inside the script, not from a client-read value. This is the behaviour
+      // a host-side Redis guarantees, so it is pinned here at the unit level.
+      expect(CREATE_OTP_SCRIPT).toContain(
+        "local count = redis.call('INCR', KEYS[1])",
+      );
+      expect(CREATE_OTP_SCRIPT).toContain("'count', count, 'issuedAt'");
+    });
+
+    it('issues each request on the shared counter with its own record key', async () => {
+      vi.mocked(hashValue)
+        .mockResolvedValueOnce('deadbeef1')
+        .mockResolvedValueOnce('deadbeef2');
+      redis.eval.mockResolvedValue(1);
+
+      await service.createOtpRequest('eve@example.com');
       await service.createOtpRequest('eve@example.com');
 
-      // ...a second request bumps it to 2.
-      redis.chain.exec
-        .mockResolvedValueOnce([[null, 2]])
-        .mockResolvedValueOnce([
-          [null, 2],
-          [null, 1],
-        ]);
-      await service.createOtpRequest('eve@example.com');
-
-      const firstRecord = redis.chain.hset.mock.calls[0][1];
-      const secondRecord = redis.chain.hset.mock.calls[1][1];
-      expect(firstRecord.count).toBe(1);
-      expect(secondRecord.count).toBe(2);
+      // One atomic script per request: the email's counter is shared so
+      // generations accumulate, while each OTP gets its own record key.
+      expect(redis.eval).toHaveBeenCalledTimes(2);
+      expect(redis.eval.mock.calls[0]).toEqual([
+        CREATE_OTP_SCRIPT,
+        2,
+        'otp:count:eve@example.com',
+        'otp:deadbeef1',
+        3600,
+        expect.any(String),
+        600,
+      ]);
+      expect(redis.eval.mock.calls[1]).toEqual([
+        CREATE_OTP_SCRIPT,
+        2,
+        'otp:count:eve@example.com',
+        'otp:deadbeef2',
+        3600,
+        expect.any(String),
+        600,
+      ]);
     });
   });
 });
