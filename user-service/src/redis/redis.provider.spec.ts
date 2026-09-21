@@ -59,4 +59,30 @@ describe('RedisProvider', () => {
       'Environment variable REDIS_HOST is not set',
     );
   });
+
+  it('throws when REDIS_PORT is not a number', () => {
+    setEnv({
+      REDIS_PORT: 'abcd6379',
+      REDIS_HOST: 'redis',
+      REDIS_USERNAME: 'default',
+      REDIS_DB_INDEX: '0',
+    });
+
+    expect(() => RedisProvider.useFactory()).toThrow(
+      'Environment variable REDIS_PORT must be a valid port',
+    );
+  });
+
+  it('throws when REDIS_DB_INDEX is negative', () => {
+    setEnv({
+      REDIS_PORT: '6379',
+      REDIS_HOST: 'redis',
+      REDIS_USERNAME: 'default',
+      REDIS_DB_INDEX: '-1',
+    });
+
+    expect(() => RedisProvider.useFactory()).toThrow(
+      'Environment variable REDIS_DB_INDEX must be a valid DB index',
+    );
+  });
 });
