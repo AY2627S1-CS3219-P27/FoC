@@ -34,7 +34,10 @@ export async function hashValue(
 
   return new Promise((resolve, reject) => {
     argon2('argon2id', parameters, (err, derivedKey) => {
-      if (err) reject(err);
+      if (err) {
+        reject(err);
+        return;
+      }
       resolve(derivedKey.toString('hex'));
     });
   });
