@@ -2,8 +2,10 @@ import { Injectable, Inject } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { hashValue } from '../common/hash/hash.js';
 import { REDIS } from '../redis/redis.provider.js';
-import type { Redis } from 'ioredis';
 import { SecretService } from '../secret/secret.service.js';
+import type { Redis } from 'ioredis';
+
+const OTP_PREFIX = 'otp';
 
 @Injectable()
 export class OtpService {
@@ -13,31 +15,58 @@ export class OtpService {
   ) {}
 
   private readonly OtpLength = 6;
-  private readonly OtpExpiry = 600;
+  private readonly OtpExpiry = 600; // record TTL (seconds)
+  private readonly TimerExpiry = 3600; // generation counter TTL (seconds)
   private readonly OtpHashLen = 16;
 
   async createOtpRequest(email: string) {
-    var generatedOtp = this.generateOtp();
-    var hashKey = email + ':' + generatedOtp;
+    const otp = this.generateOtp();
 
-    // hash & store otp
-    const salt = this.secretService.getServerSecret();
-    const value = await hashValue(hashKey, salt, this.OtpHashLen);
-    console.log(value);
+    const recordKey = await this.recordKey(email, otp);
+    const counterKey = `${OTP_PREFIX}:count:${email}`;
+
+    // Bump the generation counter and refresh its TTL atomically.
+    // The counter TTL is comfortably longer than the record TTL so it is
+    // guaranteed alive for the lifetime of any pending record.
+    const results = await this.redis
+      .multi()
+      .incr(counterKey)
+      .expire(counterKey, this.TimerExpiry)
+      .exec();
+    const count = Number(results?.[0]?.[1]);
+
+    // Store record
+    // We implicitly revoke older OTPs
+    // by storing them with their count.
+    //
+    // On validation, we ensure that the
+    // OTP being validated matches with the
+    // count of the email.
     await this.redis
       .multi()
-      .hset(value, { created: new Date().toISOString() })
-      .expire(value, this.OtpExpiry)
+      .hset(recordKey, {
+        count,
+        issuedAt: new Date().toISOString(),
+        // consumedAt / revokedAt are set when those events happen
+      })
+      .expire(recordKey, this.OtpExpiry)
       .exec();
 
-    // send email with otp
+    // TODO: send the OTP to email
     console.log(email);
-    return;
+  }
+
+  /**
+   * Generates and returns a key to store and validate OTPs with
+   */
+  private async recordKey(email: string, otp: string): Promise<string> {
+    const salt = this.secretService.getServerSecret();
+    const key = await hashValue(`${email}:${otp}`, salt, this.OtpHashLen);
+    return `${OTP_PREFIX}:${key}`;
   }
 
   /**
    * Generates an OTP using node:crypto library
-   *
    */
   generateOtp() {
     const bytes = randomBytes(this.OtpLength);
