@@ -1,7 +1,7 @@
 {
-  "name": "nest-app",
+  "name": "credit-service",
   "version": "0.0.1",
-  "description": "",
+  "description": "Credit service for Friend on Campus",
   "author": "",
   "private": true,
   "license": "UNLICENSED",
@@ -23,9 +23,11 @@
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",
+    "@nestjs/config": "^12.0.0",
     "@nestjs/core": "^12.0.1",
     "@nestjs/observe": "^0.1.8",
     "@nestjs/platform-express": "^12.0.1",
+    "joi": "^18.2.9",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
   },
