@@ -8,7 +8,7 @@ vi.mock('node:fs', async (importOriginal) => ({
 }));
 
 const SERVER_SECRET_VAR = 'SERVER_SECRET_FILE';
-const DB_PASSWORD_VAR = 'DB_PASSWORD_FILE_CLIENT';
+const DB_PASSWORD_VAR = 'DB_PASSWORD_FILE';
 
 describe('SecretService', () => {
   let service: SecretService;
@@ -44,7 +44,7 @@ describe('SecretService', () => {
     );
   });
 
-  it('reads the db password from the DB_PASSWORD_FILE_CLIENT path and trims it', () => {
+  it('reads the db password from the DB_PASSWORD_FILE path and trims it', () => {
     expect(service.getDbPassword()).toBe('secret-value');
 
     expect(vi.mocked(readFileSync)).toHaveBeenCalledWith(
