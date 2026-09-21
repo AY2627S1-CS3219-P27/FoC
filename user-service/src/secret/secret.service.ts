@@ -28,7 +28,7 @@ export class SecretService {
 
   getDbPassword(): string {
     if (this.dbPassword === undefined) {
-      this.dbPassword = readSecretFile('DB_PASSWORD_FILE_CLIENT');
+      this.dbPassword = readSecretFile('DB_PASSWORD_FILE');
     }
     return this.dbPassword;
   }
