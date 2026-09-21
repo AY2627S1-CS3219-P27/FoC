@@ -1,0 +1,60 @@
+services:
+  user-service:
+    build: .
+    command: npm run start:dev
+    ports:
+      - '3000:3000'
+    depends_on:
+      - user-db
+      - redis
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_DATABASE=${DB_DATABASE}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_USERNAME=${REDIS_USERNAME}
+      - REDIS_DB_INDEX=${REDIS_DB_INDEX}
+      - DB_PASSWORD_FILE=${DB_PASSWORD_FILE_CLIENT}
+    secrets:
+      - db_password
+    develop:
+      watch:
+        - action: sync
+          path: .
+          target: /usr/src/app
+          ignore:
+            - node_modules/
+            - dist/
+            - test/
+            - docs/
+            - .env
+            - '*.secret'
+        - action: rebuild
+          path: package.json
+
+  user-db:
+    image: postgres:latest
+    ports:
+      - '${DB_PORT}:5432'
+    environment:
+      - POSTGRES_USER=${DB_USERNAME}
+      - POSTGRES_PASSWORD_FILE=${DB_PASSWORD_FILE}
+      - POSTGRES_DB=${DB_DATABASE}
+    volumes:
+      - user-db-data:/var/lib/postgresql/data
+    secrets:
+      - db_password
+
+  redis:
+    image: redis:latest
+    ports:
+      - '${REDIS_PORT}:6379'
+
+volumes:
+  user-db-data:
+
+secrets:
+  db_password:
+    file: db_password.secret
