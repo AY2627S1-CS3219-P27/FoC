@@ -16,6 +16,7 @@ export default defineConfig({
       DB_USERNAME: 'credit_service',
       DB_DATABASE: 'credit_service',
       DB_PASSWORD_FILE: '/run/secrets/credit_db_password',
+      RABBITMQ_URL: 'amqp://credit_service:test@credit-rabbitmq:5672',
     },
   },
 });
