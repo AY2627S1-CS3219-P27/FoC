@@ -7,6 +7,26 @@ import type { Redis } from 'ioredis';
 
 const OTP_PREFIX = 'otp';
 
+// Bumps the generation counter and writes the OTP record as one atomic unit.
+// The INCR's result is used inside the script to stamp the record with the
+// generation, which a client-side MULTI cannot do (queued command arguments
+// are fixed before EXEC; results are only available after). The counter TTL
+// is comfortably longer than the record TTL so the counter is guaranteed
+// alive for the lifetime of any pending record.
+//
+// KEYS[1] = generation counter key
+// KEYS[2] = otp record key
+// ARGV[1] = counter TTL (seconds)
+// ARGV[2] = issuedAt ISO string
+// ARGV[3] = record TTL (seconds)
+export const CREATE_OTP_SCRIPT = `
+  local count = redis.call('INCR', KEYS[1])
+  redis.call('EXPIRE', KEYS[1], ARGV[1])
+  redis.call('HSET', KEYS[2], 'count', count, 'issuedAt', ARGV[2])
+  redis.call('EXPIRE', KEYS[2], ARGV[3])
+  return count
+`;
+
 @Injectable()
 export class OtpService {
   constructor(
@@ -25,32 +45,18 @@ export class OtpService {
     const recordKey = await this.recordKey(email, otp);
     const counterKey = `${OTP_PREFIX}:count:${email}`;
 
-    // Bump the generation counter and refresh its TTL atomically.
-    // The counter TTL is comfortably longer than the record TTL so it is
-    // guaranteed alive for the lifetime of any pending record.
-    const results = await this.redis
-      .multi()
-      .incr(counterKey)
-      .expire(counterKey, this.TimerExpiry)
-      .exec();
-    const count = Number(results?.[0]?.[1]);
-
-    // Store record
-    // We implicitly revoke older OTPs
-    // by storing them with their count.
-    //
-    // On validation, we ensure that the
-    // OTP being validated matches with the
-    // count of the email.
-    await this.redis
-      .multi()
-      .hset(recordKey, {
-        count,
-        issuedAt: new Date().toISOString(),
-        // consumedAt / revokedAt are set when those events happen
-      })
-      .expire(recordKey, this.OtpExpiry)
-      .exec();
+    // Atomic bump-and-store. Older OTPs are implicitly revoked by stamping
+    // the new generation onto the record; validation later matches an OTP's
+    // generation against the counter.
+    await this.redis.eval(
+      CREATE_OTP_SCRIPT,
+      2,
+      counterKey,
+      recordKey,
+      this.TimerExpiry,
+      new Date().toISOString(),
+      this.OtpExpiry,
+    );
 
     // TODO: send the OTP to email
     console.log(email);
