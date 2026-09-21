@@ -1,8 +1,6 @@
 import { Module } from '@nestjs/common';
 import { createObserveModule } from '@nestjs/observe';
 import { OtpModule } from './otp/otp.module.js';
-import { RedisProvider } from './redis/redis.provider.js';
-import { SecretService } from './secret/secret.service.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 

@@ -20,14 +20,14 @@ export class SecretService {
   private dbPassword: string;
 
   getServerSecret(): string {
-    if (this.serverSecret === null) {
+    if (this.serverSecret === undefined) {
       this.serverSecret = readSecretFile('SERVER_SECRET_FILE');
     }
     return this.serverSecret;
   }
 
   getDbPassword(): string {
-    if (this.dbPassword === null) {
+    if (this.dbPassword === undefined) {
       this.dbPassword = readSecretFile('DB_PASSWORD_FILE_CLIENT');
     }
     return this.dbPassword;
