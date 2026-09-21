@@ -1,0 +1,30 @@
+services:
+  email-service:
+    build: .
+    ports:
+      - '3001:3000'
+    environment:
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_SECURE=${SMTP_SECURE}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS_FILE=${SMTP_PASS_FILE}
+      - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL}
+    develop:
+      watch:
+        - action: sync+restart
+          path: .
+          target: /usr/src/app
+          ignore:
+            - node_modules/
+    secrets:
+      - smtp_password
+
+  papercut:
+    image: changemakerstudiosus/papercut-smtp:latest
+    ports:
+      - '3050:8080'
+      - '25:2525'
+secrets:
+  smtp_password:
+    file: smtp_password.secret
