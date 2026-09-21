@@ -72,16 +72,17 @@ describe('OtpService', () => {
       );
 
       // Counter batch: incr + expire on the generation key.
-      expect(redis.chain.incr).toHaveBeenCalledWith('otp:gen:eve@example.com');
+      expect(redis.chain.incr).toHaveBeenCalledWith(
+        'otp:count:eve@example.com',
+      );
       expect(redis.chain.expire).toHaveBeenCalledWith(
-        'otp:gen:eve@example.com',
+        'otp:count:eve@example.com',
         3600,
       );
 
       // Record batch: hset + expire on the derived record key.
       expect(redis.chain.hset).toHaveBeenCalledWith('otp:deadbeef', {
-        gen: 3,
-        consumed: '0',
+        count: 3,
         issuedAt: expect.any(String),
       });
       expect(redis.chain.expire).toHaveBeenCalledWith('otp:deadbeef', 600);
@@ -108,8 +109,8 @@ describe('OtpService', () => {
 
       const firstRecord = redis.chain.hset.mock.calls[0][1];
       const secondRecord = redis.chain.hset.mock.calls[1][1];
-      expect(firstRecord.gen).toBe(1);
-      expect(secondRecord.gen).toBe(2);
+      expect(firstRecord.count).toBe(1);
+      expect(secondRecord.count).toBe(2);
     });
   });
 });

@@ -1,29 +1,40 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
-import request from 'supertest';
-import { App } from 'supertest/types';
-import { AppModule } from './../src/app.module.js';
+import { AppModule } from '../src/app.module.js';
+import { REDIS } from '../src/redis/redis.provider.js';
+import { SecretService } from '../src/secret/secret.service.js';
 
-describe('AppController (e2e)', () => {
-  let app: INestApplication<App>;
+// TODO(e2e): Replace this smoke test with real endpoint coverage once the
+// OTP/account APIs are finalised and a test Redis container is available.
+// Booting the full AppModule now pulls in RedisProvider/SecretService (which
+// read env-configured secrets) and registers the Observe agent, so this is
+// deliberately limited to verifying the app boots.
+describe('user-service (e2e)', () => {
+  let app: INestApplication;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(REDIS)
+      .useValue({})
+      .overrideProvider(SecretService)
+      .useValue({
+        getServerSecret: () => 'test-server-secret',
+        getDbPassword: () => 'test-db-password',
+      })
+      .compile();
 
     app = moduleFixture.createNestApplication();
     await app.init();
   });
 
-  it('/ (GET)', () => {
-    return request(app.getHttpServer())
-      .get('/')
-      .expect(200)
-      .expect('Hello World!');
+  afterAll(async () => {
+    await app.close();
   });
 
-  afterEach(async () => {
-    await app.close();
+  it('boots the application', () => {
+    expect(app).toBeDefined();
+    expect(app.getHttpServer()).toBeDefined();
   });
 });
