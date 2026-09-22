@@ -4,6 +4,7 @@ import { hashValue } from '../common/hash/hash.js';
 import { REDIS } from '../redis/redis.provider.js';
 import { SecretService } from '../secret/secret.service.js';
 import type { Redis } from 'ioredis';
+import { ConfigService } from '@nestjs/config';
 
 const OTP_PREFIX = 'otp';
 
@@ -32,6 +33,7 @@ export class OtpService {
   constructor(
     @Inject(REDIS) private redis: Redis,
     private secretService: SecretService,
+    private configService: ConfigService,
   ) {}
 
   private readonly OtpLength = 6;
@@ -59,32 +61,43 @@ export class OtpService {
       this.OtpExpiry,
     );
 
-    this.sendOtpEmail(email, otp);
+    await this.sendOtpEmail(email, otp);
 
     return;
   }
 
   private async sendOtpEmail(recipient: string, otp: string) {
-    const email_endpoint = process.env.EMAIL_SERVICE_ENDPOINT;
-    if (email_endpoint === undefined) {
-      throw Error('Email var empty');
-    }
+    const emailEndpoint = this.configService.getOrThrow<string>(
+      'EMAIL_SERVICE_ENDPOINT',
+    );
 
-    await fetch(email_endpoint, {
-      method: 'POST',
-      body: JSON.stringify({
-        type: 'OTP',
-        content: {
-          subject: 'Your OTP Sires',
-          expiry: this.OtpExpiryMinutes,
-          otp: otp,
+    // Email delivery is best-effort: a failure here must not fail the OTP
+    // request, since the OTP record was already stored in Redis.
+    try {
+      const response = await fetch(emailEndpoint, {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'OTP',
+          content: {
+            subject: 'Your OTP',
+            expiry: this.OtpExpiryMinutes,
+            otp: otp,
+          },
+          recipient,
+        }),
+        headers: {
+          'Content-Type': 'application/json',
         },
-        recipient,
-      }),
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
+      });
+
+      if (!response.ok) {
+        console.warn(
+          `OTP email delivery failed with status ${response.status}`,
+        );
+      }
+    } catch (error) {
+      console.warn('OTP email delivery failed:', error);
+    }
   }
 
   /**

@@ -1,4 +1,5 @@
 import { RedisProvider, REDIS } from './redis.provider.js';
+import { ConfigService } from '@nestjs/config';
 import { Redis } from 'ioredis';
 
 vi.mock('ioredis', () => ({ Redis: vi.fn() }));
@@ -15,6 +16,17 @@ function setEnv(overrides: Record<string, string>) {
   Object.assign(process.env, overrides);
 }
 
+function configService() {
+  // Mirrors ConfigModule: Joi's convert pref coerces numeric keys.
+  const numbers = new Set(['REDIS_PORT', 'REDIS_DB_INDEX']);
+  return {
+    get: (key: string): unknown => {
+      const value = process.env[key];
+      return numbers.has(key) && value !== undefined ? Number(value) : value;
+    },
+  } as unknown as ConfigService;
+}
+
 describe('RedisProvider', () => {
   afterEach(() => {
     for (const key of ENV_VARS) delete process.env[key];
@@ -29,7 +41,11 @@ describe('RedisProvider', () => {
     expect(RedisProvider.provide).toBe(REDIS);
   });
 
-  it('constructs a Redis client from the environment', () => {
+  it('injects the ConfigService', () => {
+    expect(RedisProvider.inject).toEqual([ConfigService]);
+  });
+
+  it('constructs a Redis client from the configured values', async () => {
     setEnv({
       REDIS_PORT: '6379',
       REDIS_HOST: 'redis',
@@ -37,7 +53,7 @@ describe('RedisProvider', () => {
       REDIS_DB_INDEX: '0',
     });
 
-    const client = RedisProvider.useFactory();
+    const client = await RedisProvider.useFactory(configService());
 
     expect(vi.mocked(Redis)).toHaveBeenCalledWith({
       port: 6379,
@@ -48,41 +64,22 @@ describe('RedisProvider', () => {
     expect(client).toBeDefined();
   });
 
-  it('throws when REDIS_HOST is missing', () => {
-    setEnv({
-      REDIS_PORT: '6379',
-      REDIS_USERNAME: 'default',
-      REDIS_DB_INDEX: '0',
-    });
-
-    expect(() => RedisProvider.useFactory()).toThrow(
-      'Environment variable REDIS_HOST is not set',
-    );
-  });
-
-  it('throws when REDIS_PORT is not a number', () => {
-    setEnv({
-      REDIS_PORT: 'abcd6379',
-      REDIS_HOST: 'redis',
-      REDIS_USERNAME: 'default',
-      REDIS_DB_INDEX: '0',
-    });
-
-    expect(() => RedisProvider.useFactory()).toThrow(
-      'Environment variable REDIS_PORT must be a valid port',
-    );
-  });
-
-  it('throws when REDIS_DB_INDEX is negative', () => {
+  it('passes through unset config values to the Redis client', async () => {
     setEnv({
       REDIS_PORT: '6379',
       REDIS_HOST: 'redis',
       REDIS_USERNAME: 'default',
-      REDIS_DB_INDEX: '-1',
+      REDIS_DB_INDEX: '0',
     });
+    delete process.env.REDIS_HOST;
 
-    expect(() => RedisProvider.useFactory()).toThrow(
-      'Environment variable REDIS_DB_INDEX must be a valid DB index',
-    );
+    await RedisProvider.useFactory(configService());
+
+    expect(vi.mocked(Redis)).toHaveBeenCalledWith({
+      port: 6379,
+      host: undefined,
+      username: 'default',
+      db: 0,
+    });
   });
 });
