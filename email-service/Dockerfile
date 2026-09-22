@@ -14,6 +14,3 @@ RUN npm install
 
 # Command to run the application
 CMD ["node", "app.ts"]
-
-# Expose the application port
-EXPOSE 3000

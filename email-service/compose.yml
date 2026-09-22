@@ -1,8 +1,6 @@
 services:
   email-service:
     build: .
-    ports:
-      - '3001:3000'
     environment:
       - SMTP_HOST=${SMTP_HOST}
       - SMTP_PORT=${SMTP_PORT}
@@ -10,6 +8,15 @@ services:
       - SMTP_USER=${SMTP_USER}
       - SMTP_PASS_FILE=${SMTP_PASS_FILE}
       - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL}
+      - RABBITMQ_USER=${RABBITMQ_USER}
+      - RABBITMQ_HOST=${RABBITMQ_HOST}
+      - RABBITMQ_PORT=${RABBITMQ_PORT}
+      - RABBITMQ_VHOST=${RABBITMQ_VHOST}
+      - RABBITMQ_PASSWORD_FILE=${RABBITMQ_PASSWORD_FILE}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_USERNAME=${REDIS_USERNAME}
+      - REDIS_DB_INDEX=${REDIS_DB_INDEX}
       - LOG_LEVEL=${LOG_LEVEL:-info}
     develop:
       watch:
@@ -20,6 +27,7 @@ services:
             - node_modules/
     secrets:
       - smtp_password
+      - rabbitmq_password_email_service
 
   papercut:
     image: changemakerstudiosus/papercut-smtp:latest
@@ -29,3 +37,5 @@ services:
 secrets:
   smtp_password:
     file: smtp_password.secret
+  rabbitmq_password_email_service:
+    file: rabbitmq_password.secret
