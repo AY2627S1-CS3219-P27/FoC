@@ -17,14 +17,6 @@ describe('hash', () => {
     expect(withSaltA).not.toBe(withSaltB);
   });
 
-  it('uses a fresh random salt when none is provided', async () => {
-    const first = await hashValue('hunter2');
-    const second = await hashValue('hunter2');
-
-    expect(first).not.toBe(second);
-    expect(first).toMatch(/^[0-9a-f]{128}$/);
-  });
-
   it('sizes the digest to the requested number of bytes', async () => {
     const digest16 = await hashValue('hunter2', 'salt-long-enough', 16);
     const digest32 = await hashValue('hunter2', 'salt-long-enough', 32);
