@@ -18,6 +18,7 @@ services:
       - REDIS_DB_INDEX=${REDIS_DB_INDEX}
       - DB_PASSWORD_FILE=${DB_PASSWORD_FILE_CLIENT}
       - SERVER_SECRET_FILE=${SERVER_SECRET_FILE}
+      - EMAIL_SERVICE_ENDPOINT=${EMAIL_SERVICE_ENDPOINT}
     secrets:
       - db_password
       - server_secret
