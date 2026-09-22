@@ -10,8 +10,9 @@ WORKDIR /usr/src/app
 ARG NPM_VERSION=11.18.0
 RUN npm install --global "npm@${NPM_VERSION}"
 
-# Copy package.json and package-lock.json to the working directory
-COPY package*.json ./
+# The build context is the repository root so canonical contracts are
+# available without relying on host-generated files.
+COPY credit-service/package*.json ./
 
 # Install the exact dependency versions from package-lock.json
 RUN npm ci
@@ -19,7 +20,8 @@ RUN npm ci
 # Development image with source code and watch mode
 FROM dependencies AS development
 
-COPY . .
+COPY credit-service/ .
+COPY contracts/schemas/ /usr/src/contracts/schemas/
 
 EXPOSE 3000
 
@@ -28,7 +30,8 @@ CMD ["npm", "run", "start:dev"]
 # Build the application and remove development dependencies
 FROM dependencies AS build
 
-COPY . .
+COPY credit-service/ .
+COPY contracts/schemas/ /usr/src/contracts/schemas/
 
 RUN npm run build
 RUN npm prune --omit=dev

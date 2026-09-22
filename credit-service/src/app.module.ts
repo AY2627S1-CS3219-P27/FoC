@@ -4,6 +4,7 @@ import { AccountModule } from './account/account.module.js';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { environmentSchema } from './config/environment.js';
+import { ContractsModule } from './contracts/contracts.module.js';
 import { DatabaseModule } from './database/database.module.js';
 
 @Module({
@@ -15,6 +16,7 @@ import { DatabaseModule } from './database/database.module.js';
     }),
     DatabaseModule,
     AccountModule,
+    ContractsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

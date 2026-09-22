@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://foc.local/schemas/credit-account-initialised.v1.schema.json",
+  "title": "CreditAccountInitialisedV1",
+  "allOf": [
+    {
+      "$ref": "https://foc.local/schemas/event-envelope.v1.schema.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "const": "CreditAccountInitialised"
+        },
+        "publisher": {
+          "const": "credit-service"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["userId", "creditAmountAllocated", "creditAllocationId"],
+          "properties": {
+            "userId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "creditAmountAllocated": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "creditAllocationId": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      }
+    }
+  ]
+}
