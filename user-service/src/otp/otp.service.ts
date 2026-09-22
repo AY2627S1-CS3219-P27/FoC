@@ -1,5 +1,7 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'crypto';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
 import { hashValue } from '../common/hash/hash.js';
 import { REDIS } from '../redis/redis.provider.js';
 import { SecretService } from '../secret/secret.service.js';
@@ -9,58 +11,18 @@ import { EMAIL_SERVICE } from '../broker/broker.module.js';
 
 const OTP_PREFIX = 'otp';
 
-// Bumps the generation counter and writes the OTP record as one atomic unit.
-// The INCR's result is used inside the script to stamp the record with the
-// generation, which a client-side MULTI cannot do (queued command arguments
-// are fixed before EXEC; results are only available after). The counter TTL
-// is comfortably longer than the record TTL so the counter is guaranteed
-// alive for the lifetime of any pending record.
-//
-// KEYS[1] = generation counter key
-// KEYS[2] = otp record key
-// ARGV[1] = counter TTL (seconds)
-// ARGV[2] = issuedAt ISO string
-// ARGV[3] = record TTL (seconds)
-export const CREATE_OTP_SCRIPT = `
-  local count = redis.call('INCR', KEYS[1])
-  redis.call('EXPIRE', KEYS[1], ARGV[1])
-  redis.call('HSET', KEYS[2], 'count', count, 'issuedAt', ARGV[2])
-  redis.call('EXPIRE', KEYS[2], ARGV[3])
-  return count
-`;
+// Redis scripts live as raw Lua files in ./scripts so they can be edited with
+// Lua IDE tooling (language server, luacheck, etc.). The Nest CLI copies them
+// into dist alongside the compiled output (see nest-cli.json `assets`), so the
+// same relative path resolves both in src (tests) and dist (production).
+const loadScript = (name: string) =>
+  readFileSync(
+    fileURLToPath(new URL(`./scripts/${name}`, import.meta.url)),
+    'utf8',
+  );
 
-// Validates an OTP against F1.4 and consumes it atomically if valid.
-//
-// Every rejected condition (unknown/expired, revoked, already consumed)
-// collapses to a single `0`, so callers cannot tell which F1.4 check failed.
-// On success, consumption is stamped before the script returns, so the
-// associated action only runs after the OTP is recorded as consumed.
-//
-// Validity period is implicit: records carry a TTL (set at issue time), so a
-// live record exists only while it is within its validity window.
-//
-// KEYS[1] = otp record key
-// KEYS[2] = generation counter key
-// ARGV[1] = consumedAt ISO string
-export const VALIDATE_OTP_SCRIPT = `
-  local record = redis.call('HGETALL', KEYS[1])
-  if #record == 0 then
-    return 0
-  end
-  local fields = {}
-  for i = 1, #record, 2 do
-    fields[record[i]] = record[i + 1]
-  end
-  if fields['consumedAt'] ~= nil then
-    return 0
-  end
-  local counter = redis.call('GET', KEYS[2])
-  if not counter or tonumber(counter) ~= tonumber(fields['count']) then
-    return 0
-  end
-  redis.call('HSET', KEYS[1], 'consumedAt', ARGV[1])
-  return 1
-`;
+export const CREATE_OTP_SCRIPT = loadScript('create-otp.lua');
+export const VALIDATE_OTP_SCRIPT = loadScript('validate-otp.lua');
 
 @Injectable()
 export class OtpService {
@@ -125,6 +87,7 @@ export class OtpService {
       new Date().toISOString(),
     );
 
+    // if result is 1, carry on with rest of validation flow
     return result === 1;
   }
 

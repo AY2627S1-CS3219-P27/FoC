@@ -19,7 +19,6 @@ export class OtpController {
       validateOtpDto.otp,
     );
     if (!valid) {
-      // Deliberately uniform: never reveal which F1.4 condition failed.
       throw new BadRequestException('Invalid OTP.');
     }
     return { message: 'OTP validated.' };
