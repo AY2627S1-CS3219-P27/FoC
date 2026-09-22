@@ -21,8 +21,18 @@
     "test:cov": "vitest run --coverage",
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
+    "test:integration": "vitest run --config ./vitest.config.integration.ts",
+    "db:test:up": "docker compose --profile test up -d --wait credit-db-test",
+    "db:test:down": "docker compose --profile test rm -sfv credit-db-test",
     "typeorm": "typeorm-ts-node-esm",
-    "migration:create": "typeorm-ts-node-esm migration:create"
+    "migration:create": "typeorm-ts-node-esm migration:create",
+    "migration:generate": "typeorm-ts-node-esm -d src/database/data-source.ts migration:generate",
+    "migration:run": "typeorm-ts-node-esm -d src/database/data-source.ts migration:run --transaction all",
+    "migration:show": "typeorm-ts-node-esm -d src/database/data-source.ts migration:show",
+    "migration:revert": "typeorm-ts-node-esm -d src/database/data-source.ts migration:revert --transaction all",
+    "migration:run:prod": "typeorm -d dist/database/data-source.js migration:run --transaction all",
+    "migration:show:prod": "typeorm -d dist/database/data-source.js migration:show",
+    "migration:revert:prod": "typeorm -d dist/database/data-source.js migration:revert --transaction all"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",
@@ -34,6 +44,7 @@
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "amqplib": "^2.0.1",
+    "dotenv": "^17.4.2",
     "joi": "^18.2.9",
     "pg": "^8.23.0",
     "reflect-metadata": "^0.2.2",

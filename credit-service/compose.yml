@@ -85,6 +85,29 @@ services:
       timeout: 3s
       retries: 10
 
+  credit-db-test:
+    image: postgres:18-alpine
+    profiles: ['test']
+    ports:
+      - '${DB_TEST_HOST_PORT:-5436}:5432'
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-credit_service}
+      POSTGRES_DB: credit_service_test
+      POSTGRES_PASSWORD_FILE: /run/secrets/credit_db_password
+    tmpfs:
+      - /var/lib/postgresql
+    secrets:
+      - credit_db_password
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"',
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
   credit-rabbitmq:
     image: rabbitmq:4.3.6-management-alpine
     restart: unless-stopped

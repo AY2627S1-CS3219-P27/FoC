@@ -6,18 +6,15 @@ export default defineConfig({
   test: {
     globals: true,
     root: './',
-    include: ['**/*.e2e-spec.ts'],
+    include: ['test/**/*.integration-spec.ts'],
     fileParallelism: false,
     env: {
       NODE_ENV: 'test',
-      PORT: '3000',
-      LOG_LEVEL: 'error',
       DB_HOST: '127.0.0.1',
       DB_PORT: '5436',
       DB_USERNAME: 'credit_service',
       DB_DATABASE: 'credit_service_test',
       DB_PASSWORD_FILE: './secrets/credit_db_password.secret',
-      RABBITMQ_URL: 'amqp://credit_service:test@credit-rabbitmq:5672',
     },
   },
 });
