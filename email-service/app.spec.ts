@@ -3,7 +3,13 @@ import request from 'supertest';
 import type { Express } from 'express';
 import type { Logger } from 'pino';
 
+const { readFileSyncMock } = vi.hoisted(() => ({ readFileSyncMock: vi.fn() }));
 const sendMail = vi.fn();
+
+vi.mock('node:fs', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:fs')>()),
+  readFileSync: readFileSyncMock,
+}));
 
 vi.mock('nodemailer', () => ({
   default: {
@@ -20,15 +26,20 @@ beforeAll(async () => {
   process.env.SMTP_PORT = '2525';
   process.env.SMTP_SECURE = 'false';
   process.env.SMTP_USER = 'test';
-  process.env.SMTP_PASS_FILE = new URL(
-    './smtp_password.secret',
-    import.meta.url,
-  ).pathname;
+  process.env.SMTP_PASS_FILE = '/run/secrets/smtp_password';
+  readFileSyncMock.mockReturnValue('test-password\n');
   process.env.SMTP_FROM_EMAIL = 'test@foc.com';
   process.env.LOG_LEVEL = 'error';
 
   ({ app, logger } = await import('./app.ts'));
   logger.level = 'silent';
+
+  // Pin the secret-file contract at load time: the SMTP password must come
+  // from SMTP_PASS_FILE, read with a trailing-newline trim.
+  expect(readFileSyncMock).toHaveBeenCalledWith(
+    '/run/secrets/smtp_password',
+    'utf8',
+  );
 });
 
 beforeEach(() => {
