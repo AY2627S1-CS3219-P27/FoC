@@ -29,6 +29,39 @@ export const CREATE_OTP_SCRIPT = `
   return count
 `;
 
+// Validates an OTP against F1.4 and consumes it atomically if valid.
+//
+// Every rejected condition (unknown/expired, revoked, already consumed)
+// collapses to a single `0`, so callers cannot tell which F1.4 check failed.
+// On success, consumption is stamped before the script returns, so the
+// associated action only runs after the OTP is recorded as consumed.
+//
+// Validity period is implicit: records carry a TTL (set at issue time), so a
+// live record exists only while it is within its validity window.
+//
+// KEYS[1] = otp record key
+// KEYS[2] = generation counter key
+// ARGV[1] = consumedAt ISO string
+export const VALIDATE_OTP_SCRIPT = `
+  local record = redis.call('HGETALL', KEYS[1])
+  if #record == 0 then
+    return 0
+  end
+  local fields = {}
+  for i = 1, #record, 2 do
+    fields[record[i]] = record[i + 1]
+  end
+  if fields['consumedAt'] ~= nil then
+    return 0
+  end
+  local counter = redis.call('GET', KEYS[2])
+  if not counter or tonumber(counter) ~= tonumber(fields['count']) then
+    return 0
+  end
+  redis.call('HSET', KEYS[1], 'consumedAt', ARGV[1])
+  return 1
+`;
+
 @Injectable()
 export class OtpService {
   constructor(
@@ -73,6 +106,26 @@ export class OtpService {
     });
 
     return;
+  }
+
+  /**
+   * Validates an OTP against F1.4 and, on success, atomically records its
+   * consumption before this method resolves. Returns false for every rejected
+   * condition (no match / expired, revoked, already consumed) alike.
+   */
+  async validateOtp(email: string, otp: string): Promise<boolean> {
+    const recordKey = await this.recordKey(email, otp);
+    const counterKey = `${OTP_PREFIX}:count:${email}`;
+
+    const result = await this.redis.eval(
+      VALIDATE_OTP_SCRIPT,
+      2,
+      recordKey,
+      counterKey,
+      new Date().toISOString(),
+    );
+
+    return result === 1;
   }
 
   /**
