@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { SecretService } from './secret.service.js';
 import { readFileSync } from 'node:fs';
 
@@ -20,7 +21,15 @@ describe('SecretService', () => {
     vi.mocked(readFileSync).mockReturnValue('secret-value\n');
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [SecretService],
+      providers: [
+        SecretService,
+        // The env vars above feed straight into the config values the
+        // service reads, keeping the test body in terms of process.env.
+        {
+          provide: ConfigService,
+          useValue: { get: (key: string) => process.env[key] },
+        },
+      ],
     }).compile();
 
     service = module.get<SecretService>(SecretService);

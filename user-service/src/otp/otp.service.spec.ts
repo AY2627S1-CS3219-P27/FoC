@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { OtpService, CREATE_OTP_SCRIPT } from './otp.service.js';
 import { REDIS } from '../redis/redis.provider.js';
 import { SecretService } from '../secret/secret.service.js';
@@ -30,6 +31,12 @@ describe('OtpService', () => {
         {
           provide: SecretService,
           useValue: { getServerSecret: () => 'test-secret' },
+        },
+        {
+          // No email is sent in these tests: an unset endpoint makes
+          // sendOtpEmail warn and skip delivery.
+          provide: ConfigService,
+          useValue: { get: () => undefined },
         },
       ],
     }).compile();
