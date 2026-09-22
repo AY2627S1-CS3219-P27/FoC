@@ -84,11 +84,11 @@ describe('POST /email', () => {
     expect(html).not.toContain('<b>');
   });
 
-  it('sends a generic text-only email for non-OTP types', async () => {
+  it('sends a generic text-only email for the GENERIC type', async () => {
     const res = await request(app)
       .post('/email')
       .send({
-        type: 'NOTICE',
+        type: 'GENERIC',
         recipient: 'student@example.com',
         content: { message: 'Hello there', subject: 'Hi' },
       });
@@ -101,10 +101,111 @@ describe('POST /email', () => {
     expect(mail.html).toBeUndefined();
   });
 
-  it('returns 400 when required fields are missing', async () => {
+  it('rejects email types outside the whitelist', async () => {
+    const res = await request(app)
+      .post('/email')
+      .send({
+        type: 'NOTICE',
+        recipient: 'student@example.com',
+        content: { message: 'Hello', subject: 'Hi' },
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ errors: expect.any(Array) });
+    expect(sendMail).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid recipient email', async () => {
+    const res = await request(app)
+      .post('/email')
+      .send({
+        type: 'OTP',
+        recipient: 'not-an-email',
+        content: { otp: '123456', expiry: 10, subject: 'Your OTP' },
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.errors.length).toBeGreaterThan(0);
+    expect(sendMail).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 with validation errors when required fields are missing', async () => {
     const res = await request(app).post('/email').send({ type: 'OTP' });
 
     expect(res.status).toBe(400);
+    expect(res.body.errors.length).toBeGreaterThan(0);
+    expect(sendMail).not.toHaveBeenCalled();
+  });
+
+  it('rejects OTP emails without a content.otp code', async () => {
+    const res = await request(app)
+      .post('/email')
+      .send({
+        type: 'OTP',
+        recipient: 'student@example.com',
+        content: { subject: 'Your OTP', expiry: 10 },
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'content.otp' }),
+      ]),
+    );
+    expect(sendMail).not.toHaveBeenCalled();
+  });
+
+  it('rejects OTP emails with a non-integer expiry', async () => {
+    const res = await request(app)
+      .post('/email')
+      .send({
+        type: 'OTP',
+        recipient: 'student@example.com',
+        content: { otp: '123456', subject: 'Your OTP', expiry: 'ten' },
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'content.expiry' }),
+      ]),
+    );
+    expect(sendMail).not.toHaveBeenCalled();
+  });
+
+  it('rejects emails without a subject', async () => {
+    const res = await request(app)
+      .post('/email')
+      .send({
+        type: 'GENERIC',
+        recipient: 'student@example.com',
+        content: { message: 'Hello there' },
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'content.subject' }),
+      ]),
+    );
+    expect(sendMail).not.toHaveBeenCalled();
+  });
+
+  it('rejects GENERIC emails without content.message', async () => {
+    const res = await request(app)
+      .post('/email')
+      .send({
+        type: 'GENERIC',
+        recipient: 'student@example.com',
+        content: { subject: 'Hi' },
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'content.message' }),
+      ]),
+    );
     expect(sendMail).not.toHaveBeenCalled();
   });
 
