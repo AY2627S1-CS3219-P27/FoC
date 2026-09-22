@@ -1,0 +1,3 @@
+include:
+  - path: user-service/compose.yml
+  - path: email-service/compose.yml
