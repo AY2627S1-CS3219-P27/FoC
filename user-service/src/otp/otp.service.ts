@@ -36,6 +36,7 @@ export class OtpService {
 
   private readonly OtpLength = 6;
   private readonly OtpExpiry = 600; // record TTL (seconds)
+  private readonly OtpExpiryMinutes = Math.floor(this.OtpExpiry / 60);
   private readonly TimerExpiry = 3600; // generation counter TTL (seconds)
   private readonly OtpHashLen = 16;
 
@@ -58,8 +59,32 @@ export class OtpService {
       this.OtpExpiry,
     );
 
-    // TODO: send the OTP to email
-    console.log(email);
+    this.sendOtpEmail(email, otp);
+
+    return;
+  }
+
+  private async sendOtpEmail(recipient: string, otp: string) {
+    const email_endpoint = process.env.EMAIL_SERVICE_ENDPOINT;
+    if (email_endpoint === undefined) {
+      throw Error('Email var empty');
+    }
+
+    await fetch(email_endpoint, {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'OTP',
+        content: {
+          subject: 'Your OTP Sires',
+          expiry: this.OtpExpiryMinutes,
+          otp: otp,
+        },
+        recipient,
+      }),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
   }
 
   /**
