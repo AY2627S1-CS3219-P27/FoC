@@ -17,8 +17,10 @@ services:
       - REDIS_USERNAME=${REDIS_USERNAME}
       - REDIS_DB_INDEX=${REDIS_DB_INDEX}
       - DB_PASSWORD_FILE=${DB_PASSWORD_FILE_CLIENT}
+      - SERVER_SECRET_FILE=${SERVER_SECRET_FILE}
     secrets:
       - db_password
+      - server_secret
     develop:
       watch:
         - action: sync
@@ -58,3 +60,5 @@ volumes:
 secrets:
   db_password:
     file: db_password.secret
+  server_secret:
+    file: server.secret
