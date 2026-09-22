@@ -1,0 +1,112 @@
+{
+  "permissions": [
+    { "configure": ".*", "read": ".*", "user": "guest", "vhost": "/", "write": ".*" },
+    {
+      "configure": "^(foc\\.(retry|dlq|back)|otp_emails(\\.retry|\\.dlq)?)$",
+      "read": "^otp_emails$",
+      "user": "email-service",
+      "vhost": "/foc",
+      "write": "^foc\\.(retry|dlq)$"
+    },
+    { "configure": ".*", "read": ".*", "user": "guest", "vhost": "/foc", "write": ".*" },
+    {
+      "configure": "^foc\\.events$",
+      "read": "^$",
+      "user": "user-service",
+      "vhost": "/foc",
+      "write": "^foc\\.events$"
+    }
+  ],
+  "rabbitmq_version": "4.3.6",
+  "product_name": "RabbitMQ",
+  "product_version": "4.3.6",
+  "rabbit_version": "4.3.6",
+  "exchanges": [
+    { "arguments": {}, "auto_delete": false, "durable": true, "name": "amq.rabbitmq.log", "type": "topic", "vhost": "/" },
+    { "arguments": {}, "auto_delete": false, "durable": true, "name": "foc.events", "type": "direct", "vhost": "/foc" },
+    {
+      "arguments": {},
+      "auto_delete": false,
+      "durable": true,
+      "name": "foc.retry",
+      "type": "direct",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "auto_delete": false,
+      "durable": true,
+      "name": "foc.dlq",
+      "type": "direct",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "auto_delete": false,
+      "durable": true,
+      "name": "foc.back",
+      "type": "direct",
+      "vhost": "/foc"
+    }
+  ],
+  "vhosts": [
+    { "limits": {}, "metadata": { "description": "", "tags": [], "default_queue_type": "classic" }, "name": "/foc" },
+    {
+      "limits": {},
+      "metadata": { "description": "Default virtual host", "tags": [], "default_queue_type": "classic" },
+      "name": "/"
+    }
+  ],
+  "users": [
+    {
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "limits": {},
+      "name": "email-service",
+      "password_hash": "9x8oOUzthUw3yuT4Y419+YFmpz5I0wlI344cZEuItwWrRqwe",
+      "tags": []
+    },
+    {
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "limits": {},
+      "name": "guest",
+      "password_hash": "5pkk/tlvaty/zBRkWRl3NAdOOdjkfXJOBACccdIddAYYV/Ic",
+      "tags": ["administrator"]
+    },
+    {
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "limits": {},
+      "name": "user-service",
+      "password_hash": "aZjxvyiX+QPAl8WbNLq04VI3OAf1myY0IMh8FyhngraRlhZH",
+      "tags": []
+    }
+  ],
+  "global_parameters": [{ "name": "cluster_tags", "value": [] }],
+  "parameters": [],
+  "policies": [],
+  "topic_permissions": [],
+  "explanation": "Definitions of cluster 'rabbit@9e314706fc82'",
+  "rabbitmq_definition_format": "cluster",
+  "original_cluster_name": "rabbit@9e314706fc82",
+  "queues": [
+    { "arguments": { "x-queue-type": "classic" }, "auto_delete": false, "durable": true, "name": "otp_emails", "type": "classic", "vhost": "/foc" },
+    {
+      "arguments": {
+        "x-queue-type": "classic",
+        "x-dead-letter-exchange": "foc.back",
+        "x-message-ttl": 480000
+      },
+      "auto_delete": false,
+      "durable": true,
+      "name": "otp_emails.retry",
+      "type": "classic",
+      "vhost": "/foc"
+    },
+    { "arguments": { "x-queue-type": "classic" }, "auto_delete": false, "durable": true, "name": "otp_emails.dlq", "type": "classic", "vhost": "/foc" }
+  ],
+  "bindings": [
+    { "arguments": {}, "destination": "otp_emails", "destination_type": "queue", "routing_key": "otp.email", "source": "foc.events", "vhost": "/foc" },
+    { "arguments": {}, "destination": "otp_emails.retry", "destination_type": "queue", "routing_key": "otp.email", "source": "foc.retry", "vhost": "/foc" },
+    { "arguments": {}, "destination": "otp_emails.dlq", "destination_type": "queue", "routing_key": "otp.email", "source": "foc.dlq", "vhost": "/foc" },
+    { "arguments": {}, "destination": "otp_emails", "destination_type": "queue", "routing_key": "otp.email", "source": "foc.back", "vhost": "/foc" }
+  ]
+}
