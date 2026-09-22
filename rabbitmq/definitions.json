@@ -3,10 +3,10 @@
     { "configure": ".*", "read": ".*", "user": "guest", "vhost": "/", "write": ".*" },
     {
       "configure": "^(foc\\.(retry|dlq|back)|otp_emails(\\.retry|\\.dlq)?)$",
-      "read": "^otp_emails$",
+      "read": "^(foc\\.(retry|dlq|back)|otp_emails(\\.retry)?)$",
       "user": "email-service",
       "vhost": "/foc",
-      "write": "^foc\\.(retry|dlq)$"
+      "write": "^(foc\\.(retry|dlq|back)|otp_emails(\\.retry|\\.dlq)?)$"
     },
     { "configure": ".*", "read": ".*", "user": "guest", "vhost": "/foc", "write": ".*" },
     {

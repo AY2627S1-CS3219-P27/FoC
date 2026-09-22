@@ -119,6 +119,14 @@ silent-loss failure (e.g. retry exchange missing) into a loud startup error, and
 lets the service run against a broker provisioned from scratch. The scope is
 enforced by the AMQP user's configure/write/read permissions.
 
+RabbitMQ classifies a binding as a `write` on the destination queue plus a
+`read` on the source exchange (not `configure`), so the `email-service` ACL
+grants write over `otp_emails`, `otp_emails.retry` and `otp_emails.dlq` to allow
+the startup binds, even though the service never publishes to those queues
+directly. Declaring `otp_emails.retry` with its `foc.back` DLX also requires
+write on `foc.back` and read on the queue when the queue is newly created, so
+`foc.back` is included in write too. `foc.events` stays outside the ACL.
+
 **Shared Redis dedup.** An in-process cache is per instance and per process; it
 cannot suppress a crash-redelivery that lands on a different instance or after a
 restart. Redis is a single atomic `SET NX EX` round trip and is already part of
