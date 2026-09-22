@@ -10,6 +10,7 @@ services:
       - SMTP_USER=${SMTP_USER}
       - SMTP_PASS_FILE=${SMTP_PASS_FILE}
       - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
     develop:
       watch:
         - action: sync+restart
