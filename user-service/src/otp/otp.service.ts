@@ -1,10 +1,11 @@
 import { Injectable, Inject } from '@nestjs/common';
-import { randomBytes } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { hashValue } from '../common/hash/hash.js';
 import { REDIS } from '../redis/redis.provider.js';
 import { SecretService } from '../secret/secret.service.js';
 import type { Redis } from 'ioredis';
-import { ConfigService } from '@nestjs/config';
+import { ClientProxy } from '@nestjs/microservices';
+import { EMAIL_SERVICE } from '../broker/broker.module.js';
 
 const OTP_PREFIX = 'otp';
 
@@ -32,8 +33,8 @@ export const CREATE_OTP_SCRIPT = `
 export class OtpService {
   constructor(
     @Inject(REDIS) private redis: Redis,
+    @Inject(EMAIL_SERVICE) private emailClient: ClientProxy,
     private secretService: SecretService,
-    private configService: ConfigService,
   ) {}
 
   private readonly OtpLength = 6;
@@ -61,43 +62,17 @@ export class OtpService {
       this.OtpExpiry,
     );
 
-    await this.sendOtpEmail(email, otp);
+    // Emitted once per request with a stable id the email service uses to
+    // suppress duplicate sends on broker redelivery.
+    this.emailClient.emit('otp.email', {
+      messageId: randomUUID(),
+      recipient: email,
+      otp: otp,
+      subject: 'Your OTP is here',
+      expiry: this.OtpExpiryMinutes,
+    });
 
     return;
-  }
-
-  private async sendOtpEmail(recipient: string, otp: string) {
-    const emailEndpoint = this.configService.getOrThrow<string>(
-      'EMAIL_SERVICE_ENDPOINT',
-    );
-
-    // Email delivery is best-effort: a failure here must not fail the OTP
-    // request, since the OTP record was already stored in Redis.
-    try {
-      fetch(emailEndpoint, {
-        method: 'POST',
-        body: JSON.stringify({
-          type: 'OTP',
-          content: {
-            subject: 'Your OTP',
-            expiry: this.OtpExpiryMinutes,
-            otp: otp,
-          },
-          recipient,
-        }),
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      }).then((response) => {
-        if (!response.ok) {
-          console.warn(
-            `OTP email delivery failed with status ${response.status}`,
-          );
-        }
-      });
-    } catch (error) {
-      console.warn('OTP email delivery failed:', error);
-    }
   }
 
   /**

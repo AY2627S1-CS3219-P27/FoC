@@ -29,6 +29,7 @@ describe('user-service (e2e)', () => {
       .useValue({
         getServerSecret: () => 'test-server-secret',
         getDbPassword: () => 'test-db-password',
+        getRabbitMqPassword: () => 'test-rabbitmq-password',
       })
       .compile();
 

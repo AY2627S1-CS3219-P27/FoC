@@ -25,7 +25,11 @@ export const environmentSchema = Joi.object({
   REDIS_USERNAME: Joi.string().min(1).required(),
   REDIS_DB_INDEX: Joi.number().min(0).required(),
   SERVER_SECRET_FILE: Joi.string().min(1).required(),
-  EMAIL_SERVICE_ENDPOINT: Joi.string().uri().required(),
+  RABBITMQ_USER: Joi.string().min(1).required(),
+  RABBITMQ_HOST: Joi.string().hostname().required(),
+  RABBITMQ_PORT: Joi.number().port().required(),
+  RABBITMQ_VHOST: Joi.string().min(1).required(),
+  RABBITMQ_PASSWORD_FILE: Joi.string().min(1).required(),
 })
   .unknown(true)
   .prefs({ abortEarly: false, convert: true });
