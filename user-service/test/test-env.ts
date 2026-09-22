@@ -16,5 +16,9 @@ export function seedTestEnvironment(): void {
   process.env.REDIS_USERNAME = 'default';
   process.env.REDIS_DB_INDEX = '0';
   process.env.SERVER_SECRET_FILE = '/run/secrets/server_secret';
-  process.env.EMAIL_SERVICE_ENDPOINT = 'http://email-service:3000/email';
+  process.env.RABBITMQ_USER = 'user-service';
+  process.env.RABBITMQ_HOST = 'localhost';
+  process.env.RABBITMQ_PORT = '5672';
+  process.env.RABBITMQ_VHOST = '/foc';
+  process.env.RABBITMQ_PASSWORD_FILE = '/run/secrets/rabbitmq_password';
 }

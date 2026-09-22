@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 export class SecretService {
   private serverSecret: string;
   private dbPassword: string;
+  private rabbitMqPassword: string;
 
   constructor(private configService: ConfigService) {}
 
@@ -25,6 +26,13 @@ export class SecretService {
       this.dbPassword = this.readSecretFile('DB_PASSWORD_FILE');
     }
     return this.dbPassword;
+  }
+
+  getRabbitMqPassword(): string {
+    if (this.rabbitMqPassword === undefined) {
+      this.rabbitMqPassword = this.readSecretFile('RABBITMQ_PASSWORD_FILE');
+    }
+    return this.rabbitMqPassword;
   }
 
   private readSecretFile(envVar: string): string {
