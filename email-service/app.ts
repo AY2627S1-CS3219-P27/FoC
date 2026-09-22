@@ -43,7 +43,11 @@ app.post('/email', async (req: Request, res: Response) => {
   try {
     const { type, content, recipient } = req.body;
 
-    if (type === undefined || content === undefined || recipient === undefined) {
+    if (
+      type === undefined ||
+      content === undefined ||
+      recipient === undefined
+    ) {
       res.status(400).send('type, content and recipient are required');
       return;
     }
