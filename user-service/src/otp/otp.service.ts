@@ -74,7 +74,7 @@ export class OtpService {
     // Email delivery is best-effort: a failure here must not fail the OTP
     // request, since the OTP record was already stored in Redis.
     try {
-      const response = await fetch(emailEndpoint, {
+      fetch(emailEndpoint, {
         method: 'POST',
         body: JSON.stringify({
           type: 'OTP',
@@ -88,13 +88,13 @@ export class OtpService {
         headers: {
           'Content-Type': 'application/json',
         },
+      }).then((response) => {
+        if (!response.ok) {
+          console.warn(
+            `OTP email delivery failed with status ${response.status}`,
+          );
+        }
       });
-
-      if (!response.ok) {
-        console.warn(
-          `OTP email delivery failed with status ${response.status}`,
-        );
-      }
     } catch (error) {
       console.warn('OTP email delivery failed:', error);
     }
