@@ -1,26 +1,20 @@
-import { argon2, randomBytes } from 'crypto';
+import { argon2 } from 'crypto';
 
-export async function hashValue(value: string): Promise<string>;
-export async function hashValue(value: string, bytes: number): Promise<string>;
+export async function hashValue(value: string, salt: string): Promise<string>;
+export async function hashValue(
+  value: string,
+  salt: string,
+  bytes: number,
+): Promise<string>;
 export async function hashValue(
   value: string,
   salt: string,
   bytes?: number,
-): Promise<string>;
-export async function hashValue(
-  value: string,
-  bytesOrSalt?: number | string,
-  bytes?: number,
 ): Promise<string> {
-  let salt: string;
-  let hashBytes: number;
+  let hashBytes: number = 64;
 
-  if (typeof bytesOrSalt === 'string') {
-    salt = bytesOrSalt;
-    hashBytes = bytes ?? 64;
-  } else {
-    salt = randomBytes(16).toString('hex');
-    hashBytes = bytesOrSalt ?? 64;
+  if (bytes !== undefined) {
+    hashBytes = bytes;
   }
 
   const parameters = {
