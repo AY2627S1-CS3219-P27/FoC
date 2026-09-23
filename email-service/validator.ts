@@ -18,16 +18,7 @@ const envSchema = z.object({
 
   // Logging (pino)
   LOG_LEVEL: z
-    .enum([
-      'trace',
-      'debug',
-      'info',
-      'warn',
-      'error',
-      'fatal',
-      'log',
-      'verbose',
-    ])
+    .enum(['debug', 'info', 'warn', 'error', 'fatal'])
     .default('info'),
 
   // RabbitMQ broker

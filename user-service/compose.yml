@@ -23,6 +23,7 @@ services:
       - RABBITMQ_PORT=${RABBITMQ_PORT}
       - RABBITMQ_VHOST=${RABBITMQ_VHOST}
       - RABBITMQ_PASSWORD_FILE=${RABBITMQ_PASSWORD_FILE}
+      - LOG_LEVEL=${LOG_LEVEL}
     secrets:
       - db_password
       - server_secret
