@@ -2,11 +2,11 @@
   "permissions": [
     { "configure": ".*", "read": ".*", "user": "guest", "vhost": "/", "write": ".*" },
     {
-      "configure": "^(foc\\.(retry|dlq|back)|otp_emails(\\.retry|\\.dlq)?)$",
-      "read": "^(foc\\.(retry|dlq|back)|otp_emails(\\.retry)?)$",
+      "configure": "^(foc\\.(retry|dlq|back)|email_retry_\\d+s|otp_emails(\\.dlq)?)$",
+      "read": "^(foc\\.(retry|dlq|back)|email_retry_\\d+s|otp_emails)$",
       "user": "email-service",
       "vhost": "/foc",
-      "write": "^(foc\\.(retry|dlq|back)|otp_emails(\\.retry|\\.dlq)?)$"
+      "write": "^(foc\\.(retry|dlq|back)|email_retry_\\d+s|otp_emails(\\.dlq)?)$"
     },
     { "configure": ".*", "read": ".*", "user": "guest", "vhost": "/foc", "write": ".*" },
     {
@@ -29,7 +29,7 @@
       "auto_delete": false,
       "durable": true,
       "name": "foc.retry",
-      "type": "direct",
+      "type": "headers",
       "vhost": "/foc"
     },
     {
@@ -93,11 +93,47 @@
       "arguments": {
         "x-queue-type": "classic",
         "x-dead-letter-exchange": "foc.back",
+        "x-message-ttl": 60000
+      },
+      "auto_delete": false,
+      "durable": true,
+      "name": "email_retry_60s",
+      "type": "classic",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {
+        "x-queue-type": "classic",
+        "x-dead-letter-exchange": "foc.back",
+        "x-message-ttl": 120000
+      },
+      "auto_delete": false,
+      "durable": true,
+      "name": "email_retry_120s",
+      "type": "classic",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {
+        "x-queue-type": "classic",
+        "x-dead-letter-exchange": "foc.back",
+        "x-message-ttl": 240000
+      },
+      "auto_delete": false,
+      "durable": true,
+      "name": "email_retry_240s",
+      "type": "classic",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {
+        "x-queue-type": "classic",
+        "x-dead-letter-exchange": "foc.back",
         "x-message-ttl": 480000
       },
       "auto_delete": false,
       "durable": true,
-      "name": "otp_emails.retry",
+      "name": "email_retry_480s",
       "type": "classic",
       "vhost": "/foc"
     },
@@ -105,7 +141,10 @@
   ],
   "bindings": [
     { "arguments": {}, "destination": "otp_emails", "destination_type": "queue", "routing_key": "otp.email", "source": "foc.events", "vhost": "/foc" },
-    { "arguments": {}, "destination": "otp_emails.retry", "destination_type": "queue", "routing_key": "otp.email", "source": "foc.retry", "vhost": "/foc" },
+    { "arguments": { "x-match": "all", "foc-delay": "60000" }, "destination": "email_retry_60s", "destination_type": "queue", "routing_key": "", "source": "foc.retry", "vhost": "/foc" },
+    { "arguments": { "x-match": "all", "foc-delay": "120000" }, "destination": "email_retry_120s", "destination_type": "queue", "routing_key": "", "source": "foc.retry", "vhost": "/foc" },
+    { "arguments": { "x-match": "all", "foc-delay": "240000" }, "destination": "email_retry_240s", "destination_type": "queue", "routing_key": "", "source": "foc.retry", "vhost": "/foc" },
+    { "arguments": { "x-match": "all", "foc-delay": "480000" }, "destination": "email_retry_480s", "destination_type": "queue", "routing_key": "", "source": "foc.retry", "vhost": "/foc" },
     { "arguments": {}, "destination": "otp_emails.dlq", "destination_type": "queue", "routing_key": "otp.email", "source": "foc.dlq", "vhost": "/foc" },
     { "arguments": {}, "destination": "otp_emails", "destination_type": "queue", "routing_key": "otp.email", "source": "foc.back", "vhost": "/foc" }
   ]

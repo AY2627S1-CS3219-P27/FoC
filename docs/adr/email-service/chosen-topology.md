@@ -20,14 +20,17 @@ anyway (availability over strict dedup).
 
 **Retry.** A message gets at most 5 delivery attempts. A failed send is
 republished into `foc.retry` with the next attempt stamped in the
-`x-foc-attempt` header and the per-message TTL for this hop:
+`x-foc-attempt` header and the hop's delay in the `foc-delay` header.
+`foc.retry` is a headers exchange: per-delay header bindings route the copy
+into the matching parking-lot queue, whose queue-level TTL parks it for
+exactly that delay before dead-lettering it back:
 
-| Attempts | Backoff (per-message TTL)       |
+| Attempts | Backoff (parking-lot queue TTL) |
 | -------- | ------------------------------- |
-| 1 → 2    | 60s                             |
-| 2 → 3    | 120s                            |
-| 3 → 4    | 240s                            |
-| 4 → 5    | 480s                            |
+| 1 → 2    | `email_retry_60s`  — 60s        |
+| 2 → 3    | `email_retry_120s` — 120s       |
+| 3 → 4    | `email_retry_240s` — 240s       |
+| 4 → 5    | `email_retry_480s` — 480s       |
 | 5 fails  | dead-letter to `otp_emails.dlq` |
 
 Malformed/poison messages are dropped immediately and never retried.
@@ -37,10 +40,12 @@ Malformed/poison messages are dropped immediately and never retried.
 - `foc.events` (producer-owned direct exchange) — binding `otp.email` →
   `otp_emails`
 - `otp_emails` — the consumer queue
-- `foc.retry` (direct) — binding `otp.email` → `otp_emails.retry`
-- `otp_emails.retry` — TTL parking lot; `x-message-ttl: 480000` safety cap,
-  `x-dead-letter-exchange: foc.back`
-- `foc.back` (dedicated direct exchange) — binding `otp.email` → `otp_emails`
+- `foc.retry` (headers exchange) — per-delay bindings (header `foc-delay`)
+  → `email_retry_60s` / `email_retry_120s` / `email_retry_240s` /
+  `email_retry_480s`
+- `email_retry_<delay>s` — one generic parking-lot queue per backoff hop;
+  `x-message-ttl: <delay>`, `x-dead-letter-exchange: foc.back`
+- `foc.back` (direct) — binding `otp.email` → `otp_emails`
 - `foc.dlq` (direct) — binding `otp.email` → `otp_emails.dlq`
 - `otp_emails.dlq` — inspectable sink, no consumer
 
@@ -80,19 +85,29 @@ SMTP.class: svc
 "otp_emails" -> "email-service": "deliver (attempt N)"
 "email-service" -> SMTP: "sendMail (every attempt)"
 
-# Send failure before attempt 5: republish with the next attempt number and
-# this hop's TTL; the retry queue parks the copy, then dead-letters it back
-# through foc.back into the main queue for the next attempt.
+# Send failure before attempt 5: republish with the next attempt number and the
+# hop's delay header; foc.retry routes it into the matching parking-lot queue,
+# which parks it for exactly the queue TTL and dead-letters it back through
+# foc.back into the main queue for the next attempt.
 "foc.retry".class: exchange
-"otp_emails.retry".class: queue
+"email_retry_60s".class: queue
+"email_retry_120s".class: queue
+"email_retry_240s".class: queue
+"email_retry_480s".class: queue
 "foc.back".class: exchange
 "foc.dlq".class: exchange
 "otp_emails.dlq".class: queue
 
-"email-service" -> "foc.retry": "republish (attempt+1, TTL)"
-"foc.retry" -> "otp_emails.retry": "otp.email"
-"otp_emails.retry" -> "foc.back": "expiry -> dead-letter"
-"foc.back" -> "otp_emails": "otp.email"
+"email-service" -> "foc.retry": "republish (attempt+1, foc-delay)"
+"foc.retry" -> "email_retry_60s": "foc-delay=60000"
+"foc.retry" -> "email_retry_120s": "foc-delay=120000"
+"foc.retry" -> "email_retry_240s": "foc-delay=240000"
+"foc.retry" -> "email_retry_480s": "foc-delay=480000"
+"email_retry_60s" -> "foc.back": "TTL expiry -> dead-letter"
+"email_retry_120s" -> "foc.back": "TTL expiry -> dead-letter"
+"email_retry_240s" -> "foc.back": "TTL expiry -> dead-letter"
+"email_retry_480s" -> "foc.back": "TTL expiry -> dead-letter"
+"foc.back" -> "otp_emails": "otp.email (preserved key)"
 
 # Attempt 5 failure is terminal: dead-letter for inspection, out of the loop.
 "email-service" -> "foc.dlq": "attempt 5 fails"
@@ -101,12 +116,12 @@ SMTP.class: svc
 
 ## Rationale
 
-**One consumer, one pipeline.** The retry queue has no consumer; it is a timer
-that parks a message for its per-message TTL and dead-letters it back to
-`otp_emails`. Retried attempts therefore run through the same parse → dedup →
-render → send → ack path as the first attempt, distinguished only by the
-`x-foc-attempt` header. A second consumer on the retry queue would duplicate
-this pipeline and let the two paths drift.
+**One consumer, one pipeline.** The parking-lot queues have no consumer; they
+are timers that park a message for their queue-level TTL and dead-letter it
+back to `otp_emails`. Retried attempts therefore run through the same parse →
+dedup → render → send → ack path as the first attempt, distinguished only by
+the `x-foc-attempt` header. A consumer on the retry queues would duplicate this
+pipeline and let the two paths drift.
 
 **Dedicated `foc.back` return exchange.** Routing retries through the producer's
 `foc.events` (as the original design did) would couple the retry loop to a
@@ -121,11 +136,12 @@ enforced by the AMQP user's configure/write/read permissions.
 
 RabbitMQ classifies a binding as a `write` on the destination queue plus a
 `read` on the source exchange (not `configure`), so the `email-service` ACL
-grants write over `otp_emails`, `otp_emails.retry` and `otp_emails.dlq` to allow
-the startup binds, even though the service never publishes to those queues
-directly. Declaring `otp_emails.retry` with its `foc.back` DLX also requires
-write on `foc.back` and read on the queue when the queue is newly created, so
-`foc.back` is included in write too. `foc.events` stays outside the ACL.
+grants write over `otp_emails`, the `email_retry_*` parking-lot queues and
+`otp_emails.dlq` to allow the startup binds, even though the service never
+publishes to those queues directly. Declaring each `email_retry_*` queue with
+its `foc.back` DLX also requires write on `foc.back` and read on the queue when
+the queue is newly created, so `foc.back` (and the retry queues) are included in
+the regex too. `foc.events` stays outside the ACL.
 
 **Shared Redis dedup.** An in-process cache is per instance and per process; it
 cannot suppress a crash-redelivery that lands on a different instance or after a
@@ -133,9 +149,24 @@ restart. Redis is a single atomic `SET NX EX` round trip and is already part of
 the platform. Fail-open is deliberate: an OTP email is worth an occasional
 duplicate, never worth being lost.
 
-**Per-message expiration for progressive backoff.** Dead-lettering alone only
-supports a fixed per-queue TTL. Setting `expiration` on each republished copy
-gives per-hop growth (60s → 480s) with a single retry queue.
+**Per-hop parking-lot queues for exact backoff.** Queue-level TTL is uniform for
+every message in a queue, so a message parked in `email_retry_60s` is delayed
+60s, one in `email_retry_480s` is delayed 480s — regardless of what else is
+parked. A single retry queue with per-message `expiration` cannot make this
+guarantee: RabbitMQ only expires per-message TTLs at the head of the queue, so a
+long-TTL message in front blocks shorter-TTL messages behind it and backoff
+timing silently drifts under concurrent retries. The retry queues and the
+`foc.retry` header bindings are generic (owned by the email service, keyed by
+delay, not by message type), so additional email types only add their own
+`foc.back` binding — the same parking-lot queues serve every type.
+
+**Headless-matching trap.** RabbitMQ's headers exchange ignores binding-argument
+keys that start with `x-` when `x-match` is `all`/`any` (only `all-with-x` /
+`any-with-x` match them). A delay header named `x-foc-delay` therefore matches
+every binding and fans a retry out to all four parking-lot queues. The header is
+deliberately named `foc-delay` (no `x-` prefix); the startup topology asserts
+cannot catch this class of bug because it verifies resource existence, not
+routing semantics.
 
 **Known tradeoffs.** (a) At-least-once territory: an SMTP timeout that actually
 delivered will produce a duplicate on the next attempt — dedup only covers

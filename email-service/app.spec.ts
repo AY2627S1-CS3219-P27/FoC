@@ -49,9 +49,10 @@ let RETRY_EXCHANGE: string;
 let DLQ_EXCHANGE: string;
 let BACK_EXCHANGE: string;
 let OTP_QUEUE: string;
-let RETRY_QUEUE: string;
 let DLQ_QUEUE: string;
 let OTP_EMAIL_ROUTING_KEY: string;
+let RETRY_STEPS: readonly { queue: string; delayMs: number }[];
+let MAX_OTP_EMAIL_ATTEMPTS: number;
 
 const UUID_A = '3f2a8c1e-6b4d-4f9a-8e2b-1a2b3c4d5e6f';
 const UUID_B = '7d1f9e0a-2c5b-4d8e-a9f0-4b5c6d7e8f90';
@@ -98,9 +99,10 @@ beforeAll(async () => {
     DLQ_EXCHANGE,
     BACK_EXCHANGE,
     OTP_QUEUE,
-    RETRY_QUEUE,
     DLQ_QUEUE,
     OTP_EMAIL_ROUTING_KEY,
+    RETRY_STEPS,
+    MAX_OTP_EMAIL_ATTEMPTS,
   } = await import('./app.ts'));
   (await import('./logger.ts')).logger.level = 'silent';
 
@@ -300,8 +302,23 @@ describe('retry topology', () => {
     expect(DLQ_EXCHANGE).toBe('foc.dlq');
     expect(BACK_EXCHANGE).toBe('foc.back');
     expect(OTP_QUEUE).toBe('otp_emails');
-    expect(RETRY_QUEUE).toBe('otp_emails.retry');
     expect(DLQ_QUEUE).toBe('otp_emails.dlq');
     expect(OTP_EMAIL_ROUTING_KEY).toBe('otp.email');
+  });
+
+  it('derives one generic parking-lot queue per backoff hop', () => {
+    // Each step holds its queue name and delay together, so the retry queue
+    // name and the foc-delay/x-message-ttl value can't drift out of sync.
+    // The queues are keyed by delay, not by message type, so future email
+    // types reuse them (only a foc.back binding is added per type).
+    expect(RETRY_STEPS).toEqual([
+      { queue: 'email_retry_60s', delayMs: 60_000 },
+      { queue: 'email_retry_120s', delayMs: 120_000 },
+      { queue: 'email_retry_240s', delayMs: 240_000 },
+      { queue: 'email_retry_480s', delayMs: 480_000 },
+    ]);
+    // One delivery per step plus the final attempt that dead-letters.
+    expect(MAX_OTP_EMAIL_ATTEMPTS).toBe(RETRY_STEPS.length + 1);
+    expect(MAX_OTP_EMAIL_ATTEMPTS).toBe(5);
   });
 });

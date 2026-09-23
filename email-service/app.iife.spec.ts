@@ -92,6 +92,7 @@ type UnknownFn = (...args: unknown[]) => void;
 
 let handler: Handler;
 let ATTEMPT_HEADER: typeof import('./app.ts').ATTEMPT_HEADER;
+let DELAY_HEADER: typeof import('./app.ts').DELAY_HEADER;
 let RETRY_EXCHANGE: typeof import('./app.ts').RETRY_EXCHANGE;
 let DLQ_EXCHANGE: typeof import('./app.ts').DLQ_EXCHANGE;
 let OTP_QUEUE: typeof import('./app.ts').OTP_QUEUE;
@@ -133,15 +134,16 @@ function otpMessageBody(overrides: Record<string, unknown> = {}): Buffer {
   );
 }
 
-/** Minimal `ConsumeMessage` stand-in carrying content and headers. */
+/** Minimal `ConsumeMessage` stand-in carrying content, headers and routing key. */
 function fakeMessage(
   content: Buffer,
   headers?: Record<string, unknown>,
+  routingKey = OTP_EMAIL_ROUTING_KEY,
 ): ConsumeMessage {
   return {
     content,
     properties: { headers },
-    fields: {},
+    fields: { routingKey },
   } as unknown as ConsumeMessage;
 }
 
@@ -176,6 +178,7 @@ beforeAll(async () => {
 
   const app = await import('./app.ts');
   ATTEMPT_HEADER = app.ATTEMPT_HEADER;
+  DELAY_HEADER = app.DELAY_HEADER;
   RETRY_EXCHANGE = app.RETRY_EXCHANGE;
   DLQ_EXCHANGE = app.DLQ_EXCHANGE;
   OTP_QUEUE = app.OTP_QUEUE;
@@ -236,17 +239,50 @@ describe('startup IIFE', () => {
   it('asserts the retry/DLQ exchanges on the channel', () => {
     expect(wiring.createChannelCount).toBe(1);
     expect(wiring.assertExchangeCalls).toEqual([
-      ['foc.retry', 'direct', { durable: true }],
+      ['foc.retry', 'headers', { durable: true }],
       ['foc.dlq', 'direct', { durable: true }],
       ['foc.back', 'direct', { durable: true }],
     ]);
   });
 
-  it('asserts the otp, retry and DLQ queues', () => {
+  it('asserts the otp, per-hop retry and DLQ queues', () => {
     expect(wiring.assertQueueCalls).toEqual([
       ['otp_emails', { durable: true, arguments: { 'x-queue-type': 'classic' } }],
       [
-        'otp_emails.retry',
+        'email_retry_60s',
+        {
+          durable: true,
+          arguments: {
+            'x-queue-type': 'classic',
+            'x-dead-letter-exchange': 'foc.back',
+            'x-message-ttl': 60_000,
+          },
+        },
+      ],
+      [
+        'email_retry_120s',
+        {
+          durable: true,
+          arguments: {
+            'x-queue-type': 'classic',
+            'x-dead-letter-exchange': 'foc.back',
+            'x-message-ttl': 120_000,
+          },
+        },
+      ],
+      [
+        'email_retry_240s',
+        {
+          durable: true,
+          arguments: {
+            'x-queue-type': 'classic',
+            'x-dead-letter-exchange': 'foc.back',
+            'x-message-ttl': 240_000,
+          },
+        },
+      ],
+      [
+        'email_retry_480s',
         {
           durable: true,
           arguments: {
@@ -264,9 +300,12 @@ describe('startup IIFE', () => {
     expect(wiring.consumeQueue).toBe(OTP_QUEUE);
   });
 
-  it('binds the service-owned routes', () => {
+  it('binds each backoff hop to foc.retry by delay header, and the key routes back', () => {
     expect(wiring.bindQueueCalls).toEqual([
-      ['otp_emails.retry', 'foc.retry', 'otp.email'],
+      ['email_retry_60s', 'foc.retry', '', { 'x-match': 'all', 'foc-delay': '60000' }],
+      ['email_retry_120s', 'foc.retry', '', { 'x-match': 'all', 'foc-delay': '120000' }],
+      ['email_retry_240s', 'foc.retry', '', { 'x-match': 'all', 'foc-delay': '240000' }],
+      ['email_retry_480s', 'foc.retry', '', { 'x-match': 'all', 'foc-delay': '480000' }],
       ['otp_emails.dlq', 'foc.dlq', 'otp.email'],
       ['otp_emails', 'foc.back', 'otp.email'],
     ]);
@@ -322,7 +361,7 @@ describe('consume handler dispatch', () => {
     expect(mocks.sendMail).not.toHaveBeenCalled();
   });
 
-  it('republishes with the next attempt and backoff TTL on send failure', async () => {
+  it('republishes with the next attempt and backoff delay on send failure', async () => {
     mocks.sendMail.mockRejectedValueOnce(new Error('smtp down'));
     const body = otpMessageBody();
     const msg = fakeMessage(body, { 'x-trace': 'abc', [ATTEMPT_HEADER]: 1 });
@@ -335,8 +374,11 @@ describe('consume handler dispatch', () => {
       OTP_EMAIL_ROUTING_KEY,
       body,
       {
-        headers: { 'x-trace': 'abc', [ATTEMPT_HEADER]: 2 },
-        expiration: '60000',
+        headers: {
+          'x-trace': 'abc',
+          [ATTEMPT_HEADER]: 2,
+          [DELAY_HEADER]: '60000',
+        },
         persistent: true,
       },
     );
@@ -356,8 +398,11 @@ describe('consume handler dispatch', () => {
       OTP_EMAIL_ROUTING_KEY,
       body,
       {
-        headers: { 'x-trace': 'abc', [ATTEMPT_HEADER]: 2 },
-        expiration: '60000',
+        headers: {
+          'x-trace': 'abc',
+          [ATTEMPT_HEADER]: 2,
+          [DELAY_HEADER]: '60000',
+        },
         persistent: true,
       },
     );

@@ -39,27 +39,58 @@ const brokerUrl =
   `${encodeURIComponent(RABBITMQ_PASS)}@` +
   `${envs.RABBITMQ_HOST}:${envs.RABBITMQ_PORT}/${encodeURIComponent(envs.RABBITMQ_VHOST)}`;
 
-export const MAX_OTP_EMAIL_ATTEMPTS = 5;
-export const RETRY_BACKOFF_MS: readonly number[] = [
-  60_000, 120_000, 240_000, 480_000,
+/** One generic parking-lot queue per backoff hop, shared by every message type the email service handles (OTP today, others later). */
+export interface RetryStep {
+  /** Name of the retry queue; served by foc.retry's headers exchange. */
+  queue: string;
+  /**
+   * Hop delay for this step. It is the queue's `x-message-ttl` AND the
+   * `foc-delay` header value on a republished message — held together here
+   * so the two can't be maintained out of sync.
+   */
+  delayMs: number;
+}
+
+/**
+ * One retry step per delivery attempt below the last (the final attempt
+ * dead-letters instead). A queue's delay (its `x-message-ttl`) is uniform for
+ * all of its messages, so expiry is exact — unlike per-message TTL on a shared
+ * queue, where a long-TTL head message blocks short-TTL messages behind it.
+ */
+export const RETRY_STEPS: readonly RetryStep[] = [
+  { queue: 'email_retry_60s', delayMs: 60_000 },
+  { queue: 'email_retry_120s', delayMs: 120_000 },
+  { queue: 'email_retry_240s', delayMs: 240_000 },
+  { queue: 'email_retry_480s', delayMs: 480_000 },
 ];
+
+/** One delivery per retry step, plus the final attempt that dead-letters. */
+export const MAX_OTP_EMAIL_ATTEMPTS = RETRY_STEPS.length + 1;
 
 /** Header carrying the delivery-attempt counter across republish hops. */
 export const ATTEMPT_HEADER = 'x-foc-attempt';
+
+/**
+ * Header selecting the backoff hop for a retried message.
+ *
+ * NOTE: the key deliberately does NOT start with `x-`. RabbitMQ's headers
+ * exchange ignores binding-argument keys beginning with `x-` (except
+ * `x-match`) when `x-match` is `all`/`any`, so such a header would match every
+ * binding and fan the retry out to every parking-lot queue. Keep this key
+ * free of the `x-` prefix.
+ *
+ * foc.retry matches this against per-hop header bindings, leaving the
+ * message's own routing key untouched so the return hop (retry queue DLX ->
+ * foc.back) can route back to the originating queue by key.
+ */
+export const DELAY_HEADER = 'foc-delay';
 
 export const RETRY_EXCHANGE = 'foc.retry';
 export const DLQ_EXCHANGE = 'foc.dlq';
 export const BACK_EXCHANGE = 'foc.back';
 export const OTP_QUEUE = 'otp_emails';
-export const RETRY_QUEUE = 'otp_emails.retry';
 export const DLQ_QUEUE = 'otp_emails.dlq';
 export const OTP_EMAIL_ROUTING_KEY = 'otp.email';
-
-/**
- * Queue-level TTL on the retry queue: a safety cap so a republished message
- * without (or past) its per-message expiration cannot sit forever.
- * */
-const RETRY_QUEUE_TTL_CAP_MS = RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1];
 
 /** Coerce a delivery-attempt header value into the 1..MAX range. */
 export function attemptOf(value: unknown): number {
@@ -88,38 +119,7 @@ export function attemptOf(value: unknown): number {
     logger.error(`Uncaught exception in channel ${event} listener:` + err);
   });
 
-  // Assert the full topology — exchanges, queues and bindings — before
-  // consuming, so a misconfigured broker fails fast instead of silently
-  // dropping retries and dead-letters. The args must match the
-  // rabbitmq/definitions.json seed (assert* errors loudly on mismatch) and
-  // binding the routes makes an unroutable publish impossible — a publish
-  // with no bound queue would otherwise vanish without a trace.
-  await ch1.assertExchange(RETRY_EXCHANGE, 'direct', { durable: true });
-  await ch1.assertExchange(DLQ_EXCHANGE, 'direct', { durable: true });
-  await ch1.assertExchange(BACK_EXCHANGE, 'direct', { durable: true });
-  await ch1.assertQueue(OTP_QUEUE, {
-    durable: true,
-    arguments: { 'x-queue-type': 'classic' },
-  });
-  await ch1.assertQueue(RETRY_QUEUE, {
-    durable: true,
-    arguments: {
-      'x-queue-type': 'classic',
-      // Items in retry queue die after their TTL and
-      // get handed back to the BACK_EXCHANGE which routes it to the
-      // main OTP_QUEUE. This allows us to use the same
-      // handler for retries.
-      'x-dead-letter-exchange': BACK_EXCHANGE,
-      'x-message-ttl': RETRY_QUEUE_TTL_CAP_MS,
-    },
-  });
-  await ch1.assertQueue(DLQ_QUEUE, {
-    durable: true,
-    arguments: { 'x-queue-type': 'classic' },
-  });
-  await ch1.bindQueue(RETRY_QUEUE, RETRY_EXCHANGE, OTP_EMAIL_ROUTING_KEY);
-  await ch1.bindQueue(DLQ_QUEUE, DLQ_EXCHANGE, OTP_EMAIL_ROUTING_KEY);
-  await ch1.bindQueue(OTP_QUEUE, BACK_EXCHANGE, OTP_EMAIL_ROUTING_KEY);
+  await assertTopology(ch1);
 
   // Listener
   ch1.consume(OTP_QUEUE, async (msg) => {
@@ -141,19 +141,21 @@ export function attemptOf(value: unknown): number {
         break;
       case 'retry': {
         // Re-enter the retry loop with the next attempt number and this hop's
-        // delay as a per-message TTL in the retry queue; the retry queue DLX
-        // routes the copy back to `otp_emails` for the next attempt.
+        // delay in the foc-delay header. foc.retry (headers exchange) routes
+        // the copy into the matching parking-lot queue, whose x-message-ttl
+        // expiries it and dead-letters it back to foc.back; foc.back routes it
+        // to `otp_emails` by the preserved routing key for the next attempt.
         try {
           const published = ch1.publish(
             RETRY_EXCHANGE,
-            OTP_EMAIL_ROUTING_KEY,
+            msg.fields.routingKey,
             msg.content,
             {
               headers: {
                 ...msg.properties.headers,
                 [ATTEMPT_HEADER]: outcome.nextAttempt,
+                [DELAY_HEADER]: String(outcome.delayMs),
               },
-              expiration: String(outcome.delayMs),
               persistent: true,
             },
           );
@@ -174,7 +176,7 @@ export function attemptOf(value: unknown): number {
         try {
           const published = ch1.publish(
             DLQ_EXCHANGE,
-            OTP_EMAIL_ROUTING_KEY,
+            msg.fields.routingKey,
             msg.content,
             {
               headers: msg.properties.headers,
@@ -245,7 +247,7 @@ export async function processOtpEmailMessage(
     if (attempt < MAX_OTP_EMAIL_ATTEMPTS) {
       return {
         action: 'retry',
-        delayMs: RETRY_BACKOFF_MS[attempt - 1],
+        delayMs: RETRY_STEPS[attempt - 1].delayMs,
         nextAttempt: attempt + 1,
       };
     }
@@ -305,4 +307,44 @@ async function forgetMessageId(messageId: string): Promise<void> {
   } catch (err) {
     logger.warn({ err }, 'Failed to clear dedup mark');
   }
+}
+
+/**
+ * Ensure that full RMQ topology is in its expected shape
+ * before starting to consume events.
+ *
+ * This is so that misconfigured brokers fail fast.
+ */
+async function assertTopology(ch1: amqplib.Channel) {
+  await ch1.assertExchange(RETRY_EXCHANGE, 'headers', { durable: true });
+  await ch1.assertExchange(DLQ_EXCHANGE, 'direct', { durable: true });
+  await ch1.assertExchange(BACK_EXCHANGE, 'direct', { durable: true });
+  await ch1.assertQueue(OTP_QUEUE, {
+    durable: true,
+    arguments: { 'x-queue-type': 'classic' },
+  });
+
+  // Check retry queues have expected TTL and DLEs
+  for (const step of RETRY_STEPS) {
+    await ch1.assertQueue(step.queue, {
+      durable: true,
+      arguments: {
+        'x-queue-type': 'classic',
+        'x-dead-letter-exchange': BACK_EXCHANGE,
+        'x-message-ttl': step.delayMs,
+      },
+    });
+    // Header binding maps each hop's delay to its parking-lot queue.
+    await ch1.bindQueue(step.queue, RETRY_EXCHANGE, '', {
+      'x-match': 'all',
+      [DELAY_HEADER]: String(step.delayMs),
+    });
+  }
+
+  await ch1.assertQueue(DLQ_QUEUE, {
+    durable: true,
+    arguments: { 'x-queue-type': 'classic' },
+  });
+  await ch1.bindQueue(DLQ_QUEUE, DLQ_EXCHANGE, OTP_EMAIL_ROUTING_KEY);
+  await ch1.bindQueue(OTP_QUEUE, BACK_EXCHANGE, OTP_EMAIL_ROUTING_KEY);
 }
