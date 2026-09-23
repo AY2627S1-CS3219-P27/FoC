@@ -1,13 +1,19 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { OtpService, CREATE_OTP_SCRIPT } from './otp.service.js';
+import {
+  OtpService,
+  CREATE_OTP_SCRIPT,
+  VALIDATE_OTP_SCRIPT,
+} from './otp.service.js';
 import { REDIS } from '../redis/redis.provider.js';
 import { SecretService } from '../secret/secret.service.js';
 import { EMAIL_SERVICE } from '../broker/broker.module.js';
-import { hashValue } from '../common/hash/hash.js';
+import { hmacValue } from '../common/hash/hash.js';
 
 vi.mock('../common/hash/hash.js', () => ({
-  hashValue: vi.fn(async () => 'deadbeef'),
+  hmacValue: vi.fn(() => 'deadbeef'),
 }));
+
+const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 describe('OtpService', () => {
   let service: OtpService;
@@ -40,6 +46,10 @@ describe('OtpService', () => {
     }).compile();
 
     service = module.get<OtpService>(OtpService);
+
+    // The hashing helper is module-mocked; clear call history between tests so
+    // call-count assertions only see the test under execution.
+    vi.mocked(hmacValue).mockClear();
   });
 
   it('should be defined', () => {
@@ -52,7 +62,7 @@ describe('OtpService', () => {
 
       await service.createOtpRequest('eve@example.com');
 
-      expect(vi.mocked(hashValue)).toHaveBeenCalledWith(
+      expect(vi.mocked(hmacValue)).toHaveBeenCalledWith(
         expect.stringMatching(/^eve@example\.com:/),
         'test-secret',
         16,
@@ -76,15 +86,15 @@ describe('OtpService', () => {
       // inside the script, not from a client-read value. This is the behaviour
       // a host-side Redis guarantees, so it is pinned here at the unit level.
       expect(CREATE_OTP_SCRIPT).toContain(
-        "local count = redis.call('INCR', KEYS[1])",
+        'local count = redis.call("INCR", KEYS[1])',
       );
-      expect(CREATE_OTP_SCRIPT).toContain("'count', count, 'issuedAt'");
+      expect(CREATE_OTP_SCRIPT).toContain('"count", count, "issuedAt"');
     });
 
     it('issues each request on the shared counter with its own record key', async () => {
-      vi.mocked(hashValue)
-        .mockResolvedValueOnce('deadbeef1')
-        .mockResolvedValueOnce('deadbeef2');
+      vi.mocked(hmacValue)
+        .mockReturnValueOnce('deadbeef1')
+        .mockReturnValueOnce('deadbeef2');
       redis.eval.mockResolvedValue(1);
 
       await service.createOtpRequest('eve@example.com');
@@ -138,6 +148,86 @@ describe('OtpService', () => {
         service.createOtpRequest('eve@example.com'),
       ).resolves.toBeUndefined();
       expect(redis.eval).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('validateOtpAndIssueToken', () => {
+    it('derives the record and token keys and evals the validation script', async () => {
+      redis.eval.mockResolvedValue(1);
+
+      const issued = await service.validateOtpAndIssueToken(
+        'eve@example.com',
+        'Ab3_-x9',
+      );
+
+      // OTP record key and registration token key, one hash each.
+      expect(vi.mocked(hmacValue)).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(hmacValue)).toHaveBeenCalledWith(
+        'eve@example.com:Ab3_-x9',
+        'test-secret',
+        16,
+      );
+      expect(vi.mocked(hmacValue)).toHaveBeenCalledWith(
+        expect.stringMatching(TOKEN_PATTERN),
+        'test-secret',
+        32,
+      );
+
+      expect(redis.eval).toHaveBeenCalledTimes(1);
+      expect(redis.eval).toHaveBeenCalledWith(
+        VALIDATE_OTP_SCRIPT,
+        3,
+        'otp:deadbeef',
+        'otp:count:eve@example.com',
+        'regtoken:deadbeef',
+        expect.any(String),
+        600,
+        'eve@example.com',
+      );
+
+      // The validity reported back matches the TTL stamped inside the script,
+      // so a cookie derived from it can never drift from the Redis expiry.
+      expect(issued).toEqual(
+        expect.objectContaining({
+          token: expect.stringMatching(TOKEN_PATTERN),
+          validForSeconds: 600,
+        }),
+      );
+    });
+
+    it('returns the issued token and its validity', async () => {
+      redis.eval.mockResolvedValue(1);
+
+      const issued = await service.validateOtpAndIssueToken(
+        'eve@example.com',
+        'Ab3_-x9',
+      );
+
+      expect(issued).toMatchObject({
+        token: expect.stringMatching(TOKEN_PATTERN),
+        validForSeconds: 600,
+      });
+    });
+
+    it('returns null when any F1.4 condition fails', async () => {
+      redis.eval.mockResolvedValue(0);
+
+      await expect(
+        service.validateOtpAndIssueToken('eve@example.com', 'Ab3_-x9'),
+      ).resolves.toBeNull();
+    });
+
+    it('never deletes or extends the OTP record', () => {
+      expect(VALIDATE_OTP_SCRIPT).not.toContain('"DEL"');
+      expect(VALIDATE_OTP_SCRIPT).not.toContain('"EXPIRE", KEYS[1]');
+    });
+
+    it('does not touch the email broker', async () => {
+      redis.eval.mockResolvedValue(1);
+
+      await service.validateOtpAndIssueToken('eve@example.com', 'Ab3_-x9');
+
+      expect(emailClient.emit).not.toHaveBeenCalled();
     });
   });
 });
