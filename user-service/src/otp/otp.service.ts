@@ -2,7 +2,7 @@ import { Injectable, Inject } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'crypto';
 import { REDIS } from '../redis/redis.provider.js';
 import { SecretService } from '../secret/secret.service.js';
-import type { Redis } from 'ioredis';
+import type { RedisClientType } from 'redis';
 import { ClientProxy } from '@nestjs/microservices';
 import { EMAIL_SERVICE } from '../broker/broker.module.js';
 import {
@@ -27,7 +27,7 @@ export interface IssuedRegistrationToken {
 @Injectable()
 export class OtpService {
   constructor(
-    @Inject(REDIS) private redis: Redis,
+    @Inject(REDIS) private redis: RedisClientType,
     @Inject(EMAIL_SERVICE) private emailClient: ClientProxy,
     private secretService: SecretService,
   ) {}
@@ -53,15 +53,14 @@ export class OtpService {
     // Atomic bump-and-store. Older OTPs are implicitly revoked by stamping
     // the new generation onto the record; validation later matches an OTP's
     // generation against the counter.
-    await this.redis.eval(
-      CREATE_OTP_SCRIPT,
-      2,
-      counterKey,
-      recordKey,
-      this.TimerExpiry,
-      new Date().toISOString(),
-      this.OtpExpiry,
-    );
+    await this.redis.eval(CREATE_OTP_SCRIPT, {
+      keys: [counterKey, recordKey],
+      arguments: [
+        String(this.TimerExpiry),
+        new Date().toISOString(),
+        String(this.OtpExpiry),
+      ],
+    });
 
     // Emitted once per request with a stable id the email service uses to
     // suppress duplicate sends on broker redelivery.
@@ -107,16 +106,14 @@ export class OtpService {
       this.secretService.getServerSecret(),
     );
 
-    const result = await this.redis.eval(
-      VALIDATE_OTP_SCRIPT,
-      3,
-      otpRecordKeyValue,
-      counterKey,
-      tokenKey,
-      new Date().toISOString(),
-      this.RegistrationTokenExpiry,
-      email,
-    );
+    const result = await this.redis.eval(VALIDATE_OTP_SCRIPT, {
+      keys: [otpRecordKeyValue, counterKey, tokenKey],
+      arguments: [
+        new Date().toISOString(),
+        String(this.RegistrationTokenExpiry),
+        email,
+      ],
+    });
 
     return result === 1
       ? { token, validForSeconds: this.RegistrationTokenExpiry }

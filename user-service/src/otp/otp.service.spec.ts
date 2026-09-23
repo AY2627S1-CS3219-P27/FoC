@@ -70,15 +70,10 @@ describe('OtpService', () => {
 
       // One script, both keys, TTLs and the issuedAt stamp, in one round trip.
       expect(redis.eval).toHaveBeenCalledTimes(1);
-      expect(redis.eval).toHaveBeenCalledWith(
-        CREATE_OTP_SCRIPT,
-        2,
-        'otp:count:eve@example.com',
-        'otp:deadbeef',
-        3600,
-        expect.any(String),
-        600,
-      );
+      expect(redis.eval).toHaveBeenCalledWith(CREATE_OTP_SCRIPT, {
+        keys: ['otp:count:eve@example.com', 'otp:deadbeef'],
+        arguments: ['3600', expect.any(String), '600'],
+      });
     });
 
     it('stamps records with the incremented generation inside the script', () => {
@@ -105,21 +100,17 @@ describe('OtpService', () => {
       expect(redis.eval).toHaveBeenCalledTimes(2);
       expect(redis.eval.mock.calls[0]).toEqual([
         CREATE_OTP_SCRIPT,
-        2,
-        'otp:count:eve@example.com',
-        'otp:deadbeef1',
-        3600,
-        expect.any(String),
-        600,
+        {
+          keys: ['otp:count:eve@example.com', 'otp:deadbeef1'],
+          arguments: ['3600', expect.any(String), '600'],
+        },
       ]);
       expect(redis.eval.mock.calls[1]).toEqual([
         CREATE_OTP_SCRIPT,
-        2,
-        'otp:count:eve@example.com',
-        'otp:deadbeef2',
-        3600,
-        expect.any(String),
-        600,
+        {
+          keys: ['otp:count:eve@example.com', 'otp:deadbeef2'],
+          arguments: ['3600', expect.any(String), '600'],
+        },
       ]);
     });
 
@@ -174,16 +165,14 @@ describe('OtpService', () => {
       );
 
       expect(redis.eval).toHaveBeenCalledTimes(1);
-      expect(redis.eval).toHaveBeenCalledWith(
-        VALIDATE_OTP_SCRIPT,
-        3,
-        'otp:deadbeef',
-        'otp:count:eve@example.com',
-        'regtoken:deadbeef',
-        expect.any(String),
-        600,
-        'eve@example.com',
-      );
+      expect(redis.eval).toHaveBeenCalledWith(VALIDATE_OTP_SCRIPT, {
+        keys: [
+          'otp:deadbeef',
+          'otp:count:eve@example.com',
+          'regtoken:deadbeef',
+        ],
+        arguments: [expect.any(String), '600', 'eve@example.com'],
+      });
 
       // The validity reported back matches the TTL stamped inside the script,
       // so a cookie derived from it can never drift from the Redis expiry.

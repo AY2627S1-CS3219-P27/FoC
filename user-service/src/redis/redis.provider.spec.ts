@@ -1,8 +1,13 @@
 import { RedisProvider, REDIS } from './redis.provider.js';
 import { ConfigService } from '@nestjs/config';
-import { Redis } from 'ioredis';
+import { createClient } from 'redis';
 
-vi.mock('ioredis', () => ({ Redis: vi.fn() }));
+vi.mock('redis', () => ({
+  createClient: vi.fn().mockImplementation(() => ({
+    on: vi.fn(),
+    connect: vi.fn().mockResolvedValue(undefined),
+  })),
+}));
 
 const ENV_VARS = [
   'REDIS_PORT',
@@ -27,10 +32,21 @@ function configService() {
   } as unknown as ConfigService;
 }
 
+interface MockedClient {
+  on: ReturnType<typeof vi.fn>;
+  connect: ReturnType<typeof vi.fn>;
+}
+
+/** Client instance most recently handed out by the mocked createClient. */
+function lastClient(): MockedClient {
+  const value = vi.mocked(createClient).mock.results.at(-1)?.value;
+  return value as MockedClient;
+}
+
 describe('RedisProvider', () => {
   afterEach(() => {
     for (const key of ENV_VARS) delete process.env[key];
-    vi.mocked(Redis).mockClear();
+    vi.mocked(createClient).mockClear();
   });
 
   it('exports a REDIS injection token', () => {
@@ -55,13 +71,38 @@ describe('RedisProvider', () => {
 
     const client = await RedisProvider.useFactory(configService());
 
-    expect(vi.mocked(Redis)).toHaveBeenCalledWith({
-      port: 6379,
-      host: 'redis',
+    expect(vi.mocked(createClient)).toHaveBeenCalledWith({
+      socket: { port: 6379, host: 'redis' },
       username: 'default',
-      db: 0,
+      database: 0,
     });
     expect(client).toBeDefined();
+  });
+
+  it('attaches an error listener (node-redis crashes without one)', async () => {
+    setEnv({
+      REDIS_PORT: '6379',
+      REDIS_HOST: 'redis',
+      REDIS_USERNAME: 'default',
+      REDIS_DB_INDEX: '0',
+    });
+
+    await RedisProvider.useFactory(configService());
+
+    expect(lastClient().on).toHaveBeenCalledWith('error', expect.any(Function));
+  });
+
+  it('awaits connect so an unreachable store fails fast at bootstrap', async () => {
+    setEnv({
+      REDIS_PORT: '6379',
+      REDIS_HOST: 'redis',
+      REDIS_USERNAME: 'default',
+      REDIS_DB_INDEX: '0',
+    });
+
+    await RedisProvider.useFactory(configService());
+
+    expect(lastClient().connect).toHaveBeenCalledTimes(1);
   });
 
   it('passes through unset config values to the Redis client', async () => {
@@ -75,11 +116,10 @@ describe('RedisProvider', () => {
 
     await RedisProvider.useFactory(configService());
 
-    expect(vi.mocked(Redis)).toHaveBeenCalledWith({
-      port: 6379,
-      host: undefined,
+    expect(vi.mocked(createClient)).toHaveBeenCalledWith({
+      socket: { port: 6379, host: undefined },
       username: 'default',
-      db: 0,
+      database: 0,
     });
   });
 });

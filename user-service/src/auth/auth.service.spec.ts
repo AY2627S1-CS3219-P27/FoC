@@ -52,12 +52,10 @@ describe('AuthService', () => {
 
     // One script, one key and the consumption stamp, in one round trip.
     expect(redis.eval).toHaveBeenCalledTimes(1);
-    expect(redis.eval).toHaveBeenCalledWith(
-      REGISTER_USER_SCRIPT,
-      1,
-      'regtoken:deadbeef',
-      expect.any(String),
-    );
+    expect(redis.eval).toHaveBeenCalledWith(REGISTER_USER_SCRIPT, {
+      keys: ['regtoken:deadbeef'],
+      arguments: [expect.any(String)],
+    });
   });
 
   it('returns the email bound to the token on success', async () => {
@@ -72,12 +70,15 @@ describe('AuthService', () => {
     expect(email).toBe('eve@example.com');
   });
 
-  it('returns null when any validation condition fails', async () => {
+  it('rejects when any validation condition fails', async () => {
     redis.eval.mockResolvedValue(0);
 
+    // The service deliberately 401s on an invalid/consumed token: a null
+    // result from the script collapses every rejection condition into a
+    // single UnauthorizedException, so registerWithToken never resolves null.
     await expect(
       service.registerWithToken('some-token', 'Eve', 'StrongPassw0rd!'),
-    ).resolves.toBeNull();
+    ).rejects.toThrow('Invalid Registration Token');
   });
 
   it('validates and consumes the token atomically in one script', () => {

@@ -1,5 +1,5 @@
 import { Injectable, Inject, UnauthorizedException } from '@nestjs/common';
-import type { Redis } from 'ioredis';
+import type { RedisClientType } from 'redis';
 import { REDIS } from '../redis/redis.provider.js';
 import { SecretService } from '../secret/secret.service.js';
 import { registrationTokenRecordKey } from '../common/hash/token-keys.js';
@@ -10,7 +10,7 @@ export const REGISTER_USER_SCRIPT = getRegisterUserScript();
 @Injectable()
 export class AuthService {
   constructor(
-    @Inject(REDIS) private redis: Redis,
+    @Inject(REDIS) private redis: RedisClientType,
     private secretService: SecretService,
   ) {}
 
@@ -38,12 +38,10 @@ export class AuthService {
       this.secretService.getServerSecret(),
     );
 
-    const result = await this.redis.eval(
-      REGISTER_USER_SCRIPT,
-      1,
-      registrationKey,
-      new Date().toISOString(),
-    );
+    const result = await this.redis.eval(REGISTER_USER_SCRIPT, {
+      keys: [registrationKey],
+      arguments: [new Date().toISOString()],
+    });
 
     if (result === 0) {
       throw new UnauthorizedException('Invalid Registration Token');
