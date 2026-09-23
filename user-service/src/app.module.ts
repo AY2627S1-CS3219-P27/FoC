@@ -28,7 +28,10 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     SecretModule,
     TypeOrmModule.forRootAsync({
       inject: [ConfigService, SecretService],
-      useFactory: (configService: ConfigService, secretService: SecretService) => ({
+      useFactory: (
+        configService: ConfigService,
+        secretService: SecretService,
+      ) => ({
         type: 'postgres',
         host: configService.get<string>('DB_HOST'),
         port: configService.get<number>('DB_PORT'),
@@ -36,9 +39,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
         password: secretService.getDbPassword(),
         database: configService.get<string>('DB_DATABASE'),
         entities: [User],
-        // Dev convenience only: derive the schema from the entities on startup.
-        // Production should move to explicit migrations.
-        synchronize: configService.get<string>('NODE_ENV') === 'development',
+        synchronize: configService.get<boolean>('DB_SYNCHRONIZE'),
       }),
     }),
     OtpModule,
