@@ -4,6 +4,7 @@ import { AccountInitializationModule } from './account-initialization/account-in
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { environmentSchema } from './config/environment.js';
+import { OutboxModule } from './outbox/outbox.module.js';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { environmentSchema } from './config/environment.js';
       validationSchema: environmentSchema,
     }),
     AccountInitializationModule,
+    OutboxModule,
   ],
   controllers: [AppController],
   providers: [AppService],

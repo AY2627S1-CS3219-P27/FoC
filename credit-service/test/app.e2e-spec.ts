@@ -3,6 +3,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from './../src/app.module.js';
 import { RabbitMqConsumerTransport } from './../src/messaging/rabbitmq-consumer.transport.js';
+import { OutboxRelay } from './../src/outbox/outbox.relay.js';
 
 describe('AppController (e2e)', () => {
   let app: INestApplication;
@@ -14,6 +15,8 @@ describe('AppController (e2e)', () => {
       // HTTP smoke tests should not require a broker. Transport behavior has
       // its own real-RabbitMQ integration suite.
       .overrideProvider(RabbitMqConsumerTransport)
+      .useValue({ start: vi.fn(), close: vi.fn() })
+      .overrideProvider(OutboxRelay)
       .useValue({ start: vi.fn(), close: vi.fn() })
       .compile();
 
