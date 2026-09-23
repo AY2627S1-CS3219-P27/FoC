@@ -42,7 +42,7 @@ export async function hashValue(
  * avoid plaintext at rest: OTPs and registration tokens.
  *
  * We slice it to a (bytes)-long sequence of hex values. This is still
- * cryptographically safe, as the algorithm distributes entropy evently.
+ * cryptographically safe, as the algorithm distributes entropy evenly.
  */
 export function hmacValue(value: string, key: string, bytes = 32): string {
   return createHmac('sha256', key)
