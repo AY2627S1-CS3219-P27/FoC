@@ -5,8 +5,10 @@ services:
     ports:
       - '3000:3000'
     depends_on:
-      - user-db
-      - redis
+      user-db:
+        condition: service_healthy
+      redis:
+        condition: service_started
     environment:
       - NODE_ENV=${NODE_ENV-development}
       - DB_HOST=${DB_HOST}
@@ -46,7 +48,7 @@ services:
           path: package.json
 
   user-db:
-    image: postgres:latest
+    image: postgres:18-alpine
     ports:
       - '${DB_PORT}:5432'
     environment:
@@ -57,6 +59,15 @@ services:
       - user-db-data:/var/lib/postgresql
     secrets:
       - db_password
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   redis:
     image: redis:latest
