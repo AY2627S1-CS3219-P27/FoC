@@ -48,7 +48,11 @@ describe('AuthController', () => {
   });
 
   it('rejects a token with no matching record', async () => {
-    authService.registerWithToken.mockResolvedValue(null);
+    // Registration rejects are raised inside the service; the controller just
+    // propagates them together with the response it received.
+    authService.registerWithToken.mockRejectedValue(
+      new UnauthorizedException('Invalid Registration Token'),
+    );
 
     const request = {
       cookies: { registration_token: 'unknown-token' },
@@ -58,5 +62,26 @@ describe('AuthController', () => {
     await expect(
       controller.register(request as never, registerDto as never),
     ).rejects.toThrow(UnauthorizedException);
+  });
+
+  it('returns the provisioned user from the service', async () => {
+    authService.registerWithToken.mockResolvedValue({
+      id: 7,
+      email: 'eve@example.com',
+      displayName: 'Eve',
+    });
+
+    const request = {
+      cookies: { registration_token: 'issued-token' },
+    };
+    const registerDto = { displayName: 'Eve', password: 'StrongPassw0rd!' };
+
+    await expect(
+      controller.register(request as never, registerDto as never),
+    ).resolves.toEqual({
+      id: 7,
+      email: 'eve@example.com',
+      displayName: 'Eve',
+    });
   });
 });

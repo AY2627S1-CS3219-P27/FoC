@@ -23,16 +23,10 @@ export class AuthController {
       throw new UnauthorizedException('Cookie not present.');
     }
 
-    const record = await this.authService.registerWithToken(
+    return this.authService.registerWithToken(
       request.cookies[REGISTRATION_TOKEN_COOKIE],
       registerDto.displayName,
       registerDto.password,
     );
-
-    if (record === null) {
-      throw new UnauthorizedException('Token invalid or expired.');
-    }
-
-    return record;
   }
 }

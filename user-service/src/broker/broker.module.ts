@@ -7,7 +7,6 @@ export const EMAIL_SERVICE = Symbol('Email Service');
 
 @Module({
   providers: [
-    SecretService,
     {
       provide: EMAIL_SERVICE,
       useFactory: (secrets: SecretService, config: ConfigService) => {

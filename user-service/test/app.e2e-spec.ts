@@ -1,14 +1,16 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
+import { DataSource } from 'typeorm';
 import { REDIS } from '../src/redis/redis.provider.js';
 import { SecretService } from '../src/secret/secret.service.js';
 import { seedTestEnvironment } from './test-env.js';
 
 // TODO(e2e): Replace this smoke test with real endpoint coverage once the
-// OTP/account APIs are finalised and a test Redis container is available.
-// Booting the full AppModule now pulls in RedisProvider/SecretService (which
-// read env-configured secrets) and registers the Observe agent, so this is
-// deliberately limited to verifying the app boots.
+// OTP/account APIs are finalised and a test Redis/Postgres container is
+// available. Booting the full AppModule now pulls in RedisProvider/SecretService
+// (which read env-configured secrets), the TypeORM DataSource and the Observe
+// agent, so this is deliberately limited to verifying the app boots with the
+// heavy providers stubbed out.
 describe('user-service (e2e)', () => {
   let app: INestApplication;
 
@@ -25,6 +27,15 @@ describe('user-service (e2e)', () => {
     })
       .overrideProvider(REDIS)
       .useValue({})
+      // The TypeORM DataSource factory would otherwise try to reach the
+      // Postgres container during app.init(); the stub only needs to satisfy
+      // the repository providers that inject it.
+      .overrideProvider(DataSource)
+      .useValue({
+        entityMetadatas: [],
+        options: { type: 'postgres' },
+        getRepository: () => ({}),
+      })
       .overrideProvider(SecretService)
       .useValue({
         getServerSecret: () => 'test-server-secret',
