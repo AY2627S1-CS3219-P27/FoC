@@ -35,6 +35,8 @@
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "pretest:integration": "npm run contracts:sync:source",
     "test:integration": "vitest run --config ./vitest.config.integration.ts",
+    "pretest:messaging": "npm run contracts:sync:source",
+    "test:messaging": "vitest run --config ./vitest.config.messaging.ts",
     "db:test:up": "docker compose --profile test up -d --wait credit-db-test",
     "db:test:down": "docker compose --profile test rm -sfv credit-db-test",
     "typeorm": "typeorm-ts-node-esm",
