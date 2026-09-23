@@ -2,7 +2,7 @@ import { Injectable, Inject } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'crypto';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
-import { hashValue } from '../common/hash/hash.js';
+import { hmacValue } from '../common/hash/hash.js';
 import { REDIS } from '../redis/redis.provider.js';
 import { SecretService } from '../secret/secret.service.js';
 import type { Redis } from 'ioredis';
@@ -46,7 +46,7 @@ export class OtpService {
   private readonly OtpHashLen = 16;
 
   private readonly RegistrationTokenBytes = 32;
-  private readonly RegistrationTokenHashLen = 64;
+  private readonly RegistrationTokenHashLen = 32;
   private readonly RegistrationTokenExpiry = 600; // record TTL (seconds)
 
   async createOtpRequest(email: string) {
@@ -158,8 +158,7 @@ export class OtpService {
   }
 
   private async generateKey(token: string, length: number) {
-    const salt = this.secretService.getServerSecret();
-    const key = await hashValue(token, salt, length);
-    return key;
+    const secret = this.secretService.getServerSecret();
+    return hmacValue(token, secret, length);
   }
 }

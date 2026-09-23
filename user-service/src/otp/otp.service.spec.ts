@@ -7,10 +7,10 @@ import {
 import { REDIS } from '../redis/redis.provider.js';
 import { SecretService } from '../secret/secret.service.js';
 import { EMAIL_SERVICE } from '../broker/broker.module.js';
-import { hashValue } from '../common/hash/hash.js';
+import { hmacValue } from '../common/hash/hash.js';
 
 vi.mock('../common/hash/hash.js', () => ({
-  hashValue: vi.fn(async () => 'deadbeef'),
+  hmacValue: vi.fn(() => 'deadbeef'),
 }));
 
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
@@ -49,7 +49,7 @@ describe('OtpService', () => {
 
     // The hashing helper is module-mocked; clear call history between tests so
     // call-count assertions only see the test under execution.
-    vi.mocked(hashValue).mockClear();
+    vi.mocked(hmacValue).mockClear();
   });
 
   it('should be defined', () => {
@@ -62,7 +62,7 @@ describe('OtpService', () => {
 
       await service.createOtpRequest('eve@example.com');
 
-      expect(vi.mocked(hashValue)).toHaveBeenCalledWith(
+      expect(vi.mocked(hmacValue)).toHaveBeenCalledWith(
         expect.stringMatching(/^eve@example\.com:/),
         'test-secret',
         16,
@@ -92,9 +92,9 @@ describe('OtpService', () => {
     });
 
     it('issues each request on the shared counter with its own record key', async () => {
-      vi.mocked(hashValue)
-        .mockResolvedValueOnce('deadbeef1')
-        .mockResolvedValueOnce('deadbeef2');
+      vi.mocked(hmacValue)
+        .mockReturnValueOnce('deadbeef1')
+        .mockReturnValueOnce('deadbeef2');
       redis.eval.mockResolvedValue(1);
 
       await service.createOtpRequest('eve@example.com');
@@ -161,16 +161,16 @@ describe('OtpService', () => {
       );
 
       // OTP record key and registration token key, one hash each.
-      expect(vi.mocked(hashValue)).toHaveBeenCalledTimes(2);
-      expect(vi.mocked(hashValue)).toHaveBeenCalledWith(
+      expect(vi.mocked(hmacValue)).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(hmacValue)).toHaveBeenCalledWith(
         'eve@example.com:Ab3_-x9',
         'test-secret',
         16,
       );
-      expect(vi.mocked(hashValue)).toHaveBeenCalledWith(
+      expect(vi.mocked(hmacValue)).toHaveBeenCalledWith(
         expect.stringMatching(TOKEN_PATTERN),
         'test-secret',
-        64,
+        32,
       );
 
       expect(redis.eval).toHaveBeenCalledTimes(1);
