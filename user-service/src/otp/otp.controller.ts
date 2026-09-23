@@ -6,8 +6,8 @@ import {
   Res,
 } from '@nestjs/common';
 import type { Response } from 'express';
-import { RequestOtpDto } from './DTO/RequestOtp.dto.js';
-import { ValidateOtpDto } from './DTO/ValidateOtp.dto.js';
+import { RequestOtpDto } from './DTO/request-otp.dto.js';
+import { ValidateOtpDto } from './DTO/validate-otp.dto.js';
 import { ConfigService } from '@nestjs/config';
 import { OtpService } from './otp.service.js';
 import { REGISTRATION_TOKEN_COOKIE } from '../common/constants.js';

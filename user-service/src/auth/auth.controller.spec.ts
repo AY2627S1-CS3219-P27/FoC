@@ -1,7 +1,13 @@
+import 'reflect-metadata';
 import { Test, TestingModule } from '@nestjs/testing';
-import { UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  UnauthorizedException,
+  ValidationPipe,
+} from '@nestjs/common';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
+import { RegisterDto } from './DTO/Register.dto.js';
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -83,5 +89,91 @@ describe('AuthController', () => {
       email: 'eve@example.com',
       displayName: 'Eve',
     });
+  });
+});
+
+describe('request body validation', () => {
+  const pipe = new ValidationPipe({ whitelist: true, transform: true });
+  const bodyMetadata = (metatype: Function) =>
+    ({ type: 'body', metatype }) as const;
+
+  it('accepts a valid registration body', async () => {
+    const value = await pipe.transform(
+      { displayName: 'Eve', password: 'StrongPassw0rd!' },
+      bodyMetadata(RegisterDto),
+    );
+    expect(value).toBeInstanceOf(RegisterDto);
+    expect(value).toMatchObject({
+      displayName: 'Eve',
+      password: 'StrongPassw0rd!',
+    });
+  });
+
+  it('accepts a one-character display name', async () => {
+    const value = await pipe.transform(
+      { displayName: 'a', password: 'StrongPassw0rd!' },
+      bodyMetadata(RegisterDto),
+    );
+    expect(value).toBeInstanceOf(RegisterDto);
+  });
+
+  it('accepts a 255-character display name', async () => {
+    const value = await pipe.transform(
+      { displayName: 'a'.repeat(255), password: 'StrongPassw0rd!' },
+      bodyMetadata(RegisterDto),
+    );
+    expect(value).toBeInstanceOf(RegisterDto);
+  });
+
+  it('rejects an empty display name before the handler runs', async () => {
+    await expect(
+      pipe.transform(
+        { displayName: '', password: 'StrongPassw0rd!' },
+        bodyMetadata(RegisterDto),
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a display name over 255 characters before the handler runs', async () => {
+    await expect(
+      pipe.transform(
+        { displayName: 'a'.repeat(256), password: 'StrongPassw0rd!' },
+        bodyMetadata(RegisterDto),
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('accepts a 12-character password', async () => {
+    const value = await pipe.transform(
+      { displayName: 'Eve', password: 'a'.repeat(12) },
+      bodyMetadata(RegisterDto),
+    );
+    expect(value).toBeInstanceOf(RegisterDto);
+  });
+
+  it('accepts a 255-character password', async () => {
+    const value = await pipe.transform(
+      { displayName: 'Eve', password: 'a'.repeat(255) },
+      bodyMetadata(RegisterDto),
+    );
+    expect(value).toBeInstanceOf(RegisterDto);
+  });
+
+  it('rejects a password shorter than 12 characters before the handler runs', async () => {
+    await expect(
+      pipe.transform(
+        { displayName: 'Eve', password: 'a'.repeat(11) },
+        bodyMetadata(RegisterDto),
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a password longer than 255 characters before the handler runs', async () => {
+    await expect(
+      pipe.transform(
+        { displayName: 'Eve', password: 'a'.repeat(256) },
+        bodyMetadata(RegisterDto),
+      ),
+    ).rejects.toThrow(BadRequestException);
   });
 });
