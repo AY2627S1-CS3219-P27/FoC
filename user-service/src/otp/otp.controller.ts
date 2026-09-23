@@ -10,8 +10,7 @@ import { RequestOtpDto } from './DTO/RequestOtp.dto.js';
 import { ValidateOtpDto } from './DTO/ValidateOtp.dto.js';
 import { ConfigService } from '@nestjs/config';
 import { OtpService } from './otp.service.js';
-
-const REGISTRATION_TOKEN_COOKIE = 'registration_token';
+import { REGISTRATION_TOKEN_COOKIE } from '../common/constants.js';
 
 @Controller('otp')
 export class OtpController {

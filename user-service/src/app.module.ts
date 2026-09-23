@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { createObserveModule } from '@nestjs/observe';
 import { OtpModule } from './otp/otp.module.js';
 import { environmentSchema } from './config/environment.schema.js';
+import { AuthModule } from './auth/auth.module.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -21,6 +22,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
       serviceId: 'user-service',
     }),
     OtpModule,
+    AuthModule,
   ],
 })
 export class AppModule {}
