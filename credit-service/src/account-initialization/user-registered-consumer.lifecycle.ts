@@ -4,7 +4,9 @@ import type { EnvironmentVariables } from '../config/environment.js';
 import { RabbitMqConsumerTransport } from '../messaging/rabbitmq-consumer.transport.js';
 import { UserRegisteredMessageHandler } from './user-registered-message.handler.js';
 
-/** Starts the consumer only after Nest has constructed the complete handler. */
+/** 
+ * Starts the consumer only after Nest has constructed the complete handler. 
+ * */
 @Injectable()
 export class UserRegisteredConsumerLifecycle implements OnApplicationBootstrap {
   constructor(

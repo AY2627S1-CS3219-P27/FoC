@@ -108,6 +108,26 @@ services:
       timeout: 3s
       retries: 15
 
+  credit-db-recovery:
+    image: postgres:18-alpine
+    profiles: ['recovery']
+    ports:
+      - '${DB_RECOVERY_HOST_PORT:-5437}:5432'
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-credit_service}
+      POSTGRES_DB: credit_service_recovery
+      POSTGRES_PASSWORD_FILE: /run/secrets/credit_db_password
+    volumes:
+      - /var/lib/postgresql
+    secrets:
+      - credit_db_password
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
   credit-rabbitmq:
     image: rabbitmq:4.3.6-management-alpine
     restart: unless-stopped
@@ -124,6 +144,30 @@ services:
       interval: 5s
       timeout: 5s
       retries: 12
+
+  credit-rabbitmq-recovery:
+    build:
+      context: .
+      dockerfile: test/rabbitmq-recovery.Dockerfile
+    image: credit-service-rabbitmq-recovery:local
+    profiles: ['recovery']
+    ports:
+      - '${RABBITMQ_RECOVERY_HOST_PORT:-5676}:5672'
+      - '${RABBITMQ_RECOVERY_MANAGEMENT_HOST_PORT:-15676}:15672'
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:?RABBITMQ_USERNAME must be set}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must be set}
+      RABBITMQ_ERLANG_COOKIE: credit-service-recovery-cookie
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: '+S 2:2'
+      HOME: /var/lib/rabbitmq-recovery
+      RABBITMQ_MNESIA_BASE: /var/lib/rabbitmq-recovery/mnesia
+    volumes:
+      - /var/lib/rabbitmq-recovery
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 2s
+      timeout: 5s
+      retries: 30
 
 volumes:
   credit-db-data:

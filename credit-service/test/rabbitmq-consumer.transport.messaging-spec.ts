@@ -170,7 +170,7 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
         publisher: 'user-service',
         payload: {
           userId: 'db3f2ca7-1f10-4fd3-965d-a721d26ba80b',
-          email: 'student@example.edu',
+          email: 'student@u.nus.edu',
           displayName: 'Student One',
         },
       }),
