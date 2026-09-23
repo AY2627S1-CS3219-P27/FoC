@@ -1,0 +1,44 @@
+include:
+  - path: user-service/compose.yml
+  - path: email-service/compose.yml
+
+services:
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    hostname: rabbitmq
+    ports:
+      - '5672:5672'
+      - '127.0.0.1:15672:15672' # mgmt UI → loopback only
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - rabbitmq_log:/var/log/rabbitmq
+      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    healthcheck:
+      # Gate dependants on broker readiness (definitions.json import included),
+      # not just container start.
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 5s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
+  # Partial stubs that merge with the service definitions from the included
+  # compose files: they add only the broker dependency here, so the per-service
+  # compose files remain valid when run in isolation (rabbitmq lives in this
+  # file, not in theirs).
+  email-service:
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  user-service:
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  rabbitmq_data:
+  rabbitmq_log:

@@ -1,9 +1,11 @@
 import { Injectable, Inject } from '@nestjs/common';
-import { randomBytes } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { hashValue } from '../common/hash/hash.js';
 import { REDIS } from '../redis/redis.provider.js';
 import { SecretService } from '../secret/secret.service.js';
 import type { Redis } from 'ioredis';
+import { ClientProxy } from '@nestjs/microservices';
+import { EMAIL_SERVICE } from '../broker/broker.module.js';
 
 const OTP_PREFIX = 'otp';
 
@@ -31,11 +33,13 @@ export const CREATE_OTP_SCRIPT = `
 export class OtpService {
   constructor(
     @Inject(REDIS) private redis: Redis,
+    @Inject(EMAIL_SERVICE) private emailClient: ClientProxy,
     private secretService: SecretService,
   ) {}
 
   private readonly OtpLength = 6;
   private readonly OtpExpiry = 600; // record TTL (seconds)
+  private readonly OtpExpiryMinutes = Math.floor(this.OtpExpiry / 60);
   private readonly TimerExpiry = 3600; // generation counter TTL (seconds)
   private readonly OtpHashLen = 16;
 
@@ -58,8 +62,17 @@ export class OtpService {
       this.OtpExpiry,
     );
 
-    // TODO: send the OTP to email
-    console.log(email);
+    // Emitted once per request with a stable id the email service uses to
+    // suppress duplicate sends on broker redelivery.
+    this.emailClient.emit('otp.email', {
+      messageId: randomUUID(),
+      recipient: email,
+      otp: otp,
+      subject: 'Your OTP is here',
+      expiry: this.OtpExpiryMinutes,
+    });
+
+    return;
   }
 
   /**

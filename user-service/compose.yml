@@ -18,9 +18,16 @@ services:
       - REDIS_DB_INDEX=${REDIS_DB_INDEX}
       - DB_PASSWORD_FILE=${DB_PASSWORD_FILE_CLIENT}
       - SERVER_SECRET_FILE=${SERVER_SECRET_FILE}
+      - RABBITMQ_USER=${RABBITMQ_USER}
+      - RABBITMQ_HOST=${RABBITMQ_HOST}
+      - RABBITMQ_PORT=${RABBITMQ_PORT}
+      - RABBITMQ_VHOST=${RABBITMQ_VHOST}
+      - RABBITMQ_PASSWORD_FILE=${RABBITMQ_PASSWORD_FILE}
+      - LOG_LEVEL=${LOG_LEVEL}
     secrets:
       - db_password
       - server_secret
+      - rabbitmq_password
     develop:
       watch:
         - action: sync
@@ -62,3 +69,5 @@ secrets:
     file: db_password.secret
   server_secret:
     file: server.secret
+  rabbitmq_password:
+    file: rabbitmq_password.secret
