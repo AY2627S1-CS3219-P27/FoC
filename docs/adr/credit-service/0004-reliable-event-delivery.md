@@ -1,0 +1,226 @@
+# Provide Reliable Multi-Subscription Event Delivery
+
+## Context
+
+Credit Service consumes `UserRegistered` and will consume additional,
+independent event streams for reservations and errand outcomes. It publishes
+`CreditAccountInitialised` and must not lose committed outgoing events.
+
+RabbitMQ and service instances can restart, handlers can fail transiently,
+messages can be malformed, and a slow or failing stream must not consume the
+delivery capacity or dead-letter operations of unrelated streams. The service
+therefore needs durable topology, bounded consumer retries, per-stream
+isolation, publisher confirmation, and recovery of unpublished outbox events.
+
+## Decision
+
+### Multi-subscription topology
+
+One Credit Service process uses one recovering RabbitMQ consumer connection and
+one shared confirm-publisher channel for retry and dead-letter publication. The
+durable domain topic exchange, retry direct exchange, and dead-letter direct
+exchange are shared.
+
+Each subscription supplies a durable queue, one versioned routing key, and one
+handler. The queue name identifies the subscription, and duplicate queues or
+queue-name collisions are startup errors. Different queues may bind the same
+routing key for intentional fan-out.
+
+Each subscription receives its own consumer channel and configurable prefetch
+window. For a subscription queue `<queue>`:
+
+- retries use `<queue>.retry.1` through `<queue>.retry.5`;
+- permanent failures use `<queue>.dlq` unless the subscription explicitly
+  provides another DLQ;
+- retry TTL expiry routes the original bytes back to the domain exchange with
+  that subscription's routing key.
+
+Subscriptions may be registered after the connection starts. Recovery
+redeclares shared topology and recreates every registered subscription.
+Unexpected consumer cancellation or channel failure recycles the connection so
+all streams return in a consistent generation.
+
+### Consumer acknowledgement and retries
+
+Consumers use manual acknowledgement and persistent publications.
+
+- A successful or idempotently completed delivery is acknowledged only after
+  its handler's durable work commits.
+- A transient failure is published to the next retry queue with an incremented
+  `x-retry-count`. The initial attempt plus five retries are permitted.
+- Failure after retry five, malformed JSON, invalid retry metadata, a routing
+  mismatch, or a permanent handler rejection is published to the owning
+  stream's DLQ.
+- Retry and dead-letter publication must receive publisher confirmation before
+  the original delivery is acknowledged. If publication cannot be confirmed,
+  the original delivery is negatively acknowledged and requeued.
+
+Republished messages preserve the original bytes and safe message properties.
+Transport-owned retry and failure headers are replaced with sanitized values;
+payload values and arbitrary exception messages are not included.
+
+### Outbox publication
+
+The outbox relay uses a separate recovering RabbitMQ connection and confirm
+channel. It claims a configurable batch of unpublished rows, publishes each
+stored envelope unchanged to the durable domain exchange, and sets
+`published_at` only after broker confirmation and socket drainage.
+
+Rows that fail publication record a bounded, sanitized error, release their
+claim, and are retried indefinitely by later polling cycles. Multiple relay
+instances coordinate through expiring PostgreSQL claims and
+`FOR UPDATE SKIP LOCKED`. Events older than the configured warning threshold
+are logged with operational metadata but without their envelope.
+
+### Shutdown
+
+On shutdown, Credit Service stops registering work and scheduling outbox polls,
+cancels every consumer, and waits for in-flight handlers and publisher
+confirmations. It then closes consumer channels, publisher channels, and their
+recovering connections. Shutdown and close operations are idempotent.
+
+### Topology and processing flow
+
+The following D2 diagram uses the TALA layout engine.
+
+```d2
+# Credit Service - generic inbound/outbound event flow (namespaced)
+direction: down
+
+classes: {
+  svc: {
+    shape: rectangle
+  }
+  exchange: {
+    shape: hexagon
+  }
+  queue: {
+    shape: queue
+  }
+  module: {
+    shape: square
+  }
+}
+
+# --- External actors (outside Credit Service) ---
+producer: "Producer services\n(user-service, order-service, ...)"
+producer.class: svc
+producer: {
+  top: 0
+  left: 0
+}
+
+consumer: "Consumer services"
+consumer.class: svc
+consumer: {
+  near: top-left
+}
+# --- Shared broker topology (outside Credit Service) ---
+"foc.events": "foc.events (shared durable topic)"
+"foc.events".class: exchange
+"foc.events": {
+  top: 0
+  left: 500
+  # near: top-center
+}
+# --- Credit Service modules ---
+Credit Service.MessagingModule: "MessagingModule\n(N-stream transport,\nretry/DLQ,\npublisher confirms)"
+Credit Service.MessagingModule.class: module
+Credit Service.OrchestrationModule: "OrchestrationModule\n(e.g. AccountInitialization,\nCreditReservation)"
+Credit Service.OrchestrationModule.class: module
+Credit Service.SharedDomainModule: "SharedDomainModule\n(allocation,\nreservations, etc)"
+Credit Service.SharedDomainModule.class: module
+Credit Service.OutboxModule: "OutboxModule\n(transactional outbox relay)"
+Credit Service.OutboxModule.class: module
+
+# --- Per-stream topology (owned by Credit Service) ---
+Credit Service.event-queue: "credit-service.<event>.v1"
+Credit Service.event-queue.class: queue
+Credit Service.retry-buckets: "credit-service.<event>.v1.retry.1..5 (TTL)"
+Credit Service.retry-buckets.class: queue
+Credit Service.event-dlq: "credit-service.<event>.v1.dlq"
+Credit Service.event-dlq.class: queue
+Credit Service."foc.<service>.retry": "foc.<service>.retry (direct)"
+Credit Service."foc.<service>.retry".class: exchange
+Credit Service."foc.<service>.dlx": "foc.<service>.dlx (direct)"
+Credit Service."foc.<service>.dlx".class: exchange
+
+# --- Publish (in) ---
+producer -> "foc.events": "<event>\n(e.g. user.registered.v1)"
+"foc.events" -> Credit Service.event-queue: "bound on\n'<event>.v1'"
+
+# --- Consume -> orchestrate ---
+Credit Service.event-queue -> Credit Service.MessagingModule: "delivery"
+Credit Service.MessagingModule -> Credit Service.OrchestrationModule: "decoded message\ntransport checks passed"
+Credit Service.OrchestrationModule -> Credit Service.SharedDomainModule: "mutate in same\nDB transaction"
+Credit Service.OrchestrationModule -> Credit Service.OutboxModule: "outcome row written in-transaction;\nrelay polls & publishes"
+
+# --- Retry / dead-letter (per stream) ---
+Credit Service.MessagingModule -> Credit Service."foc.<service>.retry": "transient failure"
+Credit Service."foc.<service>.retry" -> Credit Service.retry-buckets: "x-retry-count 1..5"
+Credit Service.retry-buckets -> "foc.events": "TTL expiry re-delivers unchanged"
+Credit Service.MessagingModule -> Credit Service."foc.<service>.dlx": "malformed / retries exhausted"
+Credit Service.OrchestrationModule -> Credit Service."foc.<service>.dlx": "validation error flagged"
+Credit Service."foc.<service>.dlx" -> Credit Service.event-dlq: "bind + publish"
+
+# --- Outbound relay ---
+Credit Service.OutboxModule -> "foc.events": "publisher confirms, '<result>.v1'"
+"foc.events" -> consumer: "<result> event\n(e.g. credit.account-initialised.v1)"
+```
+
+## Rationale
+
+RabbitMQ durable exchanges and queues, manual acknowledgements, persistent
+messages, and publisher confirms are established industry mechanisms for
+at-least-once delivery. They make the point at which the broker accepts a
+replacement message explicit, avoiding message loss between the main queue,
+retry queues, and DLQ.
+
+Broker-managed TTL retry queues keep retry delays durable across process
+restarts and avoid sleeping application workers. Direct exchanges make retry
+and dead-letter destinations explicit, while the topic domain exchange retains
+versioned event routing and supports intentional fan-out.
+
+One consumer channel and DLQ per stream isolates prefetch, failures, and
+operations as the number of Credit Service handlers grows. Sharing the
+connection and confirm publisher avoids unnecessary connection overhead.
+NestJS lifecycle hooks provide clear startup and graceful-shutdown boundaries,
+while the recovering AMQP client can rebuild topology without embedding
+reconnection logic in domain handlers.
+
+The transactional outbox is the standard complement to manual consumer
+acknowledgement when a service coordinates PostgreSQL state with RabbitMQ. It
+preserves committed outgoing events without requiring distributed
+transactions, accepting possible duplicates instead of risking message loss.
+
+## Consequences
+
+- Broker or service restarts do not discard durable queued messages or
+  committed outgoing events.
+- Streams have independent prefetch windows, retry chains, and DLQs, so a slow
+  stream does not consume another stream's allowance.
+- Effective process-wide prefetch grows with the number of subscriptions.
+- Five retry queues per stream add broker topology and operational overhead but
+  make the retry schedule explicit and durable.
+- A failed consumer channel briefly reconnects every stream because they share
+  one recovering connection.
+- Operators monitor and replay one DLQ per stream; replay tooling is outside
+  this decision.
+- Outbox publication can occur more than once after an uncertain confirmation
+  or process failure, so consumers must be idempotent.
+- Runtime and RabbitMQ channel limits remain the practical bound on the number
+  of subscriptions.
+- Deployments that used a custom legacy global DLQ must drain or migrate it
+  before adopting derived per-stream DLQ names.
+
+## Requirement Traceability
+
+- N6.3-N6.3.2: durable messages, publisher confirmation, and acknowledgement
+  after commit.
+- N7.4: five exponential retries followed by dead-letter routing.
+- N7.4.1: log dead-letter event IDs and reasons and preserve replayable
+  messages.
+- N7.6: retry the outbox until confirmation and warn about stale unpublished
+  events.
+- Issues #509 and #516: reliable consumption of `UserRegistered` and
+  publication of `CreditAccountInitialised`.
