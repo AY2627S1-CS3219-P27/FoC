@@ -15,7 +15,7 @@ describe('AppController (e2e)', () => {
       // HTTP smoke tests should not require a broker. Transport behavior has
       // its own real-RabbitMQ integration suite.
       .overrideProvider(RabbitMqConsumerTransport)
-      .useValue({ start: vi.fn(), close: vi.fn() })
+      .useValue({ subscribe: vi.fn(), close: vi.fn() })
       .overrideProvider(OutboxRelay)
       .useValue({ start: vi.fn(), close: vi.fn() })
       .compile();

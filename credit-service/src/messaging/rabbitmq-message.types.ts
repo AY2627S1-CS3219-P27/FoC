@@ -29,3 +29,11 @@ export type MessageHandlingResult =
 export interface RabbitMqMessageHandler {
   handle(message: IncomingDomainMessage): Promise<MessageHandlingResult>;
 }
+
+/** One independently consumed event stream and its permanent-failure queue. */
+export interface Subscription {
+  queue: string;
+  routingKey: string;
+  handler: RabbitMqMessageHandler;
+  deadLetterQueue?: string;
+}

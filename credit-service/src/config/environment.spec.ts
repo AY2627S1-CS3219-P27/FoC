@@ -41,9 +41,6 @@ describe('environmentSchema', () => {
     );
     expect(environment.RABBITMQ_RETRY_EXCHANGE).toBe('foc.credit.retry');
     expect(environment.RABBITMQ_DEAD_LETTER_EXCHANGE).toBe('foc.credit.dlx');
-    expect(environment.RABBITMQ_DEAD_LETTER_QUEUE).toBe(
-      'credit-service.user-registered.v1.dlq',
-    );
     expect(environment.RABBITMQ_PREFETCH).toBe(10);
     expect(environment.RABBITMQ_RETRY_DELAYS_MS).toEqual([
       1_000, 2_000, 4_000, 8_000, 16_000,

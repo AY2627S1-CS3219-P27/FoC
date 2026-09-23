@@ -59,6 +59,8 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     retryExchange: `foc.credit.retry.test.${suffix}`,
     deadLetterExchange: `foc.credit.dlx.test.${suffix}`,
     deadLetterQueue: `credit-service.user-registered.v1.dlq.test.${suffix}`,
+    secondQueue: `credit-service.credit-reservation.v1.test.${suffix}`,
+    secondDeadLetterQueue: `credit-service.credit-reservation.v1.dlq.test.${suffix}`,
   };
   const rabbitMqUrl = process.env.RABBITMQ_URL;
   let behavior: (
@@ -66,6 +68,9 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
   ) => Promise<MessageHandlingResult>;
   const handler: RabbitMqMessageHandler = {
     handle: vi.fn((message) => behavior(message)),
+  };
+  const secondHandler: RabbitMqMessageHandler = {
+    handle: vi.fn().mockResolvedValue({ outcome: 'ack' }),
   };
   let connection: ChannelModel;
   let adminChannel: Channel;
@@ -86,7 +91,6 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
       RABBITMQ_USER_REGISTERED_ROUTING_KEY: 'user.registered.v1',
       RABBITMQ_RETRY_EXCHANGE: names.retryExchange,
       RABBITMQ_DEAD_LETTER_EXCHANGE: names.deadLetterExchange,
-      RABBITMQ_DEAD_LETTER_QUEUE: names.deadLetterQueue,
       RABBITMQ_PREFETCH: 1,
       RABBITMQ_RETRY_DELAYS_MS: RETRY_DELAYS,
     } as Partial<EnvironmentVariables>;
@@ -105,16 +109,31 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     publisherChannel = await connection.createConfirmChannel();
     behavior = async () => ({ outcome: 'ack' });
     transport = new RabbitMqConsumerTransport(config, connect);
-    await transport.start(handler);
+    await transport.subscribe({
+      queue: names.mainQueue,
+      routingKey: 'user.registered.v1',
+      deadLetterQueue: names.deadLetterQueue,
+      handler,
+    });
+    await transport.subscribe({
+      queue: names.secondQueue,
+      routingKey: 'credit.reservation.v1',
+      deadLetterQueue: names.secondDeadLetterQueue,
+      handler: secondHandler,
+    });
   });
 
   beforeEach(async () => {
     vi.mocked(handler.handle).mockClear();
+    vi.mocked(secondHandler.handle).mockClear();
     behavior = async () => ({ outcome: 'ack' });
     await adminChannel.purgeQueue(names.mainQueue);
     await adminChannel.purgeQueue(names.deadLetterQueue);
+    await adminChannel.purgeQueue(names.secondQueue);
+    await adminChannel.purgeQueue(names.secondDeadLetterQueue);
     for (const index of RETRY_DELAYS.keys()) {
       await adminChannel.purgeQueue(`${names.mainQueue}.retry.${index + 1}`);
+      await adminChannel.purgeQueue(`${names.secondQueue}.retry.${index + 1}`);
     }
   });
 
@@ -124,8 +143,13 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     if (adminChannel) {
       await adminChannel.deleteQueue(names.mainQueue);
       await adminChannel.deleteQueue(names.deadLetterQueue);
+      await adminChannel.deleteQueue(names.secondQueue);
+      await adminChannel.deleteQueue(names.secondDeadLetterQueue);
       for (const index of RETRY_DELAYS.keys()) {
         await adminChannel.deleteQueue(`${names.mainQueue}.retry.${index + 1}`);
+        await adminChannel.deleteQueue(
+          `${names.secondQueue}.retry.${index + 1}`,
+        );
       }
       await adminChannel.deleteExchange(names.retryExchange);
       await adminChannel.deleteExchange(names.deadLetterExchange);
@@ -153,11 +177,14 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     );
   }
 
-  async function publish(body = eventBody()): Promise<void> {
+  async function publish(
+    body = eventBody(),
+    routingKey = 'user.registered.v1',
+  ): Promise<void> {
     await confirmedPublish(
       publisherChannel,
       names.domainExchange,
-      'user.registered.v1',
+      routingKey,
       body,
     );
   }
@@ -170,6 +197,68 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
       return delivery || undefined;
     });
   }
+
+  async function takeSecondDeadLetter(): Promise<GetMessage> {
+    return waitFor(async () => {
+      const delivery = await adminChannel.get(names.secondDeadLetterQueue, {
+        noAck: true,
+      });
+      return delivery || undefined;
+    });
+  }
+
+  it('isolates delivery and permanent failure handling between streams', async () => {
+    vi.mocked(secondHandler.handle).mockResolvedValueOnce({
+      outcome: 'dead-letter',
+      category: 'INVALID_PAYLOAD',
+      reason: 'invalid reservation',
+    });
+    const original = Buffer.from(
+      JSON.stringify({
+        eventId: randomUUID(),
+        eventType: 'CreditReservation',
+      }),
+    );
+
+    await publish(original, 'credit.reservation.v1');
+    const deadLetter = await takeSecondDeadLetter();
+
+    expect(deadLetter.content.equals(original)).toBe(true);
+    expect(secondHandler.handle).toHaveBeenCalledOnce();
+    expect(handler.handle).not.toHaveBeenCalled();
+    expect(
+      (await adminChannel.checkQueue(names.deadLetterQueue)).messageCount,
+    ).toBe(0);
+  });
+
+  it('returns transient retries only to their originating stream', async () => {
+    vi.mocked(secondHandler.handle)
+      .mockRejectedValueOnce(new Error('temporary reservation failure'))
+      .mockResolvedValueOnce({ outcome: 'ack' });
+
+    await publish(
+      Buffer.from(
+        JSON.stringify({
+          eventId: randomUUID(),
+          eventType: 'CreditReservation',
+        }),
+      ),
+      'credit.reservation.v1',
+    );
+
+    await waitFor(() =>
+      vi.mocked(secondHandler.handle).mock.calls.length === 2
+        ? true
+        : undefined,
+    );
+    expect(handler.handle).not.toHaveBeenCalled();
+    for (const index of RETRY_DELAYS.keys()) {
+      expect(
+        (await adminChannel.checkQueue(`${names.mainQueue}.retry.${index + 1}`))
+          .messageCount,
+      ).toBe(0);
+    }
+  });
 
   it('delivers and manually acknowledges a successful message', async () => {
     await publish();
@@ -260,10 +349,12 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     });
   });
 
-  it('removes the consumer during graceful shutdown', async () => {
+  it('removes every consumer during graceful shutdown', async () => {
     await transport.close();
 
-    const queue = await adminChannel.checkQueue(names.mainQueue);
-    expect(queue.consumerCount).toBe(0);
+    const firstQueue = await adminChannel.checkQueue(names.mainQueue);
+    const secondQueue = await adminChannel.checkQueue(names.secondQueue);
+    expect(firstQueue.consumerCount).toBe(0);
+    expect(secondQueue.consumerCount).toBe(0);
   });
 });

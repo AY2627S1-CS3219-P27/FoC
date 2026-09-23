@@ -9,7 +9,10 @@ import type {
 import type { EnvironmentVariables } from '../config/environment.js';
 import type { AmqpConnect } from './amqp-connection.provider.js';
 import { RabbitMqConsumerTransport } from './rabbitmq-consumer.transport.js';
-import type { RabbitMqMessageHandler } from './rabbitmq-message.types.js';
+import type {
+  RabbitMqMessageHandler,
+  Subscription,
+} from './rabbitmq-message.types.js';
 
 const configuration: EnvironmentVariables = {
   NODE_ENV: 'test',
@@ -29,7 +32,6 @@ const configuration: EnvironmentVariables = {
     'credit.account-initialised.v1',
   RABBITMQ_RETRY_EXCHANGE: 'foc.credit.retry',
   RABBITMQ_DEAD_LETTER_EXCHANGE: 'foc.credit.dlx',
-  RABBITMQ_DEAD_LETTER_QUEUE: 'credit-service.user-registered.v1.dlq',
   RABBITMQ_PREFETCH: 10,
   RABBITMQ_RETRY_DELAYS_MS: [1_000, 2_000, 4_000, 8_000, 16_000],
   OUTBOX_POLL_INTERVAL_MS: 1_000,
@@ -46,6 +48,9 @@ interface PublishedMessage {
 }
 
 class FakeChannel extends EventEmitter {
+  constructor(private readonly consumerTag = 'consumer-tag') {
+    super();
+  }
   readonly assertedExchanges: unknown[][] = [];
   readonly assertedQueues: unknown[][] = [];
   readonly bindings: unknown[][] = [];
@@ -97,7 +102,7 @@ class FakeChannel extends EventEmitter {
   ): Promise<{ consumerTag: string }> {
     this.onMessage = onMessage;
     this.consumeOptions = options;
-    return { consumerTag: 'consumer-tag' };
+    return { consumerTag: this.consumerTag };
   }
 
   publish(
@@ -149,12 +154,21 @@ class FakeChannel extends EventEmitter {
 }
 
 class FakeModel extends EventEmitter {
-  readonly consumer = new FakeChannel();
   readonly publisher = new FakeChannel();
+  readonly consumers: FakeChannel[] = [];
   closed = false;
+  closeCalls = 0;
+
+  get consumer(): FakeChannel {
+    return this.consumers[0];
+  }
 
   async createChannel(): Promise<FakeChannel> {
-    return this.consumer;
+    const channel = new FakeChannel(
+      `consumer-tag-${this.consumers.length + 1}`,
+    );
+    this.consumers.push(channel);
+    return channel;
   }
 
   async createConfirmChannel(): Promise<FakeChannel> {
@@ -162,6 +176,7 @@ class FakeModel extends EventEmitter {
   }
 
   async close(): Promise<void> {
+    this.closeCalls += 1;
     this.closed = true;
   }
 }
@@ -235,6 +250,18 @@ function createHarness(
   };
 }
 
+function subscription(
+  handler: RabbitMqMessageHandler,
+  overrides: Partial<Subscription> = {},
+): Subscription {
+  return {
+    queue: 'credit-service.user-registered.v1',
+    routingKey: 'user.registered.v1',
+    handler,
+    ...overrides,
+  };
+}
+
 async function deliver(
   model: FakeModel,
   delivery: ConsumeMessage,
@@ -243,19 +270,29 @@ async function deliver(
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+async function deliverOn(
+  channel: FakeChannel,
+  delivery: ConsumeMessage,
+): Promise<void> {
+  channel.onMessage?.(delivery);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 describe('RabbitMqConsumerTransport', () => {
   it('declares the durable topology and starts a manual-ack consumer', async () => {
     const { connect, model, transport } = createHarness();
 
-    await transport.start({
-      handle: vi.fn().mockResolvedValue({ outcome: 'ack' }),
-    });
+    await transport.subscribe(
+      subscription({
+        handle: vi.fn().mockResolvedValue({ outcome: 'ack' }),
+      }),
+    );
 
     expect(connect).toHaveBeenCalledWith(
       configuration.RABBITMQ_URL,
       expect.objectContaining({ recovery: expect.any(Object) }),
     );
-    expect(model.consumer.assertedExchanges).toEqual([
+    expect(model.publisher.assertedExchanges).toEqual([
       ['foc.events', 'topic', { durable: true }],
       ['foc.credit.retry', 'direct', { durable: true }],
       ['foc.credit.dlx', 'direct', { durable: true }],
@@ -290,13 +327,91 @@ describe('RabbitMqConsumerTransport', () => {
     expect(model.consumer.consumeOptions).toEqual({ noAck: false });
   });
 
-  it('rejects a repeated start', async () => {
+  it('rejects a duplicate queue subscription', async () => {
     const { handler, transport } = createHarness();
-    await transport.start(handler);
+    await transport.subscribe(subscription(handler));
 
-    await expect(transport.start(handler)).rejects.toThrow(
-      'already been started',
+    await expect(transport.subscribe(subscription(handler))).rejects.toThrow(
+      'already subscribed',
     );
+  });
+
+  it('registers concurrent streams on one connection with isolated channels', async () => {
+    const firstHandler = {
+      handle: vi.fn().mockResolvedValue({ outcome: 'ack' }),
+    } satisfies RabbitMqMessageHandler;
+    const secondHandler = {
+      handle: vi.fn().mockResolvedValue({ outcome: 'ack' }),
+    } satisfies RabbitMqMessageHandler;
+    const { connect, model, transport } = createHarness();
+
+    await Promise.all([
+      transport.subscribe(subscription(firstHandler)),
+      transport.subscribe(
+        subscription(secondHandler, {
+          queue: 'credit-service.credit-reservation.v1',
+          routingKey: 'credit.reservation.v1',
+          deadLetterQueue: 'credit-service.credit-reservation.failures',
+        }),
+      ),
+    ]);
+
+    expect(connect).toHaveBeenCalledOnce();
+    expect(model.publisher.assertedExchanges).toHaveLength(3);
+    expect(model.consumers).toHaveLength(2);
+    expect(model.consumers.map(({ prefetchCount }) => prefetchCount)).toEqual([
+      10, 10,
+    ]);
+    expect(model.consumers[1].assertedQueues).toContainEqual([
+      'credit-service.credit-reservation.failures',
+      { durable: true },
+    ]);
+
+    await deliverOn(
+      model.consumers[1],
+      message(undefined, { routingKey: 'credit.reservation.v1' }),
+    );
+    expect(secondHandler.handle).toHaveBeenCalledOnce();
+    expect(firstHandler.handle).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid and colliding subscription topology names', async () => {
+    const { handler, transport } = createHarness();
+
+    await expect(
+      transport.subscribe(subscription(handler, { queue: ' queue' })),
+    ).rejects.toThrow('must be non-empty');
+    await transport.subscribe(
+      subscription(handler, { deadLetterQueue: 'shared-failures' }),
+    );
+    await expect(
+      transport.subscribe(
+        subscription(handler, {
+          queue: 'shared-failures',
+          routingKey: 'another.event.v1',
+        }),
+      ),
+    ).rejects.toThrow('already in use');
+  });
+
+  it('adds a subscription after the connection is already active', async () => {
+    const { connect, handler, model, transport } = createHarness();
+    await transport.subscribe(subscription(handler));
+
+    await transport.subscribe(
+      subscription(handler, {
+        queue: 'credit-service.later.v1',
+        routingKey: 'later.event.v1',
+      }),
+    );
+
+    expect(connect).toHaveBeenCalledOnce();
+    expect(model.consumers).toHaveLength(2);
+    expect(model.consumers[1].bindings).toContainEqual([
+      'credit-service.later.v1',
+      'foc.events',
+      'later.event.v1',
+    ]);
   });
 
   it('passes decoded input to the handler and acknowledges success', async () => {
@@ -304,7 +419,7 @@ describe('RabbitMqConsumerTransport', () => {
       handle: vi.fn().mockResolvedValue({ outcome: 'ack' }),
     } satisfies RabbitMqMessageHandler;
     const { model, transport } = createHarness(handler);
-    await transport.start(handler);
+    await transport.subscribe(subscription(handler));
     const delivery = message();
 
     await deliver(model, delivery);
@@ -345,7 +460,7 @@ describe('RabbitMqConsumerTransport', () => {
         handle: vi.fn().mockResolvedValue({ outcome: 'ack' }),
       } satisfies RabbitMqMessageHandler;
       const { model, transport } = createHarness(handler);
-      await transport.start(handler);
+      await transport.subscribe(subscription(handler));
 
       await deliver(model, delivery);
 
@@ -367,7 +482,7 @@ describe('RabbitMqConsumerTransport', () => {
       handle: vi.fn().mockRejectedValue(new Error('sensitive failure')),
     } satisfies RabbitMqMessageHandler;
     const { model, transport } = createHarness(handler);
-    await transport.start(handler);
+    await transport.subscribe(subscription(handler));
     const delivery = message(undefined, {
       headers: {
         trace: 'preserved',
@@ -408,7 +523,7 @@ describe('RabbitMqConsumerTransport', () => {
       handle: vi.fn().mockRejectedValue(new Error('still unavailable')),
     } satisfies RabbitMqMessageHandler;
     const { model, transport } = createHarness(handler);
-    await transport.start(handler);
+    await transport.subscribe(subscription(handler));
     const delivery = message(undefined, { headers: { 'x-retry-count': 5 } });
 
     await deliver(model, delivery);
@@ -434,7 +549,7 @@ describe('RabbitMqConsumerTransport', () => {
       }),
     } satisfies RabbitMqMessageHandler;
     const { model, transport } = createHarness(handler);
-    await transport.start(handler);
+    await transport.subscribe(subscription(handler));
     await deliver(model, message());
 
     const headers = model.publisher.published[0].options.headers;
@@ -449,7 +564,7 @@ describe('RabbitMqConsumerTransport', () => {
     } satisfies RabbitMqMessageHandler;
     const { model, transport } = createHarness(handler);
     model.publisher.automaticConfirmation = false;
-    await transport.start(handler);
+    await transport.subscribe(subscription(handler));
     const delivery = message();
 
     model.consumer.onMessage?.(delivery);
@@ -468,7 +583,7 @@ describe('RabbitMqConsumerTransport', () => {
     } satisfies RabbitMqMessageHandler;
     const { model, transport } = createHarness(handler);
     model.publisher.confirmationError = new Error('broker nack');
-    await transport.start(handler);
+    await transport.subscribe(subscription(handler));
     const delivery = message();
 
     await deliver(model, delivery);
@@ -479,19 +594,87 @@ describe('RabbitMqConsumerTransport', () => {
     ]);
   });
 
-  it('redeclares topology through the recovery setup callback', async () => {
+  it('redeclares every subscription through the recovery setup callback', async () => {
     const { getRecoverySetup, handler, model, transport } = createHarness();
-    await transport.start(handler);
+    await transport.subscribe(subscription(handler));
+    await transport.subscribe(
+      subscription(handler, {
+        queue: 'credit-service.credit-reservation.v1',
+        routingKey: 'credit.reservation.v1',
+      }),
+    );
     const recoveredModel = new FakeModel();
 
     await (getRecoverySetup() as (model: ChannelModel) => Promise<void>)(
       recoveredModel as unknown as ChannelModel,
     );
 
-    expect(recoveredModel.consumer.assertedQueues).toEqual(
-      model.consumer.assertedQueues,
+    expect(recoveredModel.consumers).toHaveLength(2);
+    expect(recoveredModel.consumers[0].assertedQueues).toEqual(
+      model.consumers[0].assertedQueues,
     );
-    expect(recoveredModel.consumer.onMessage).toEqual(expect.any(Function));
+    expect(recoveredModel.consumers[1].assertedQueues).toEqual(
+      model.consumers[1].assertedQueues,
+    );
+    expect(recoveredModel.publisher.assertedExchanges).toHaveLength(3);
+  });
+
+  it('recycles the connection once when current consumer channels close', async () => {
+    const { handler, model, transport } = createHarness();
+    await transport.subscribe(subscription(handler));
+    await transport.subscribe(
+      subscription(handler, {
+        queue: 'credit-service.credit-reservation.v1',
+        routingKey: 'credit.reservation.v1',
+      }),
+    );
+
+    model.consumers[0].emit('close');
+    model.consumers[1].emit('close');
+    await vi.waitFor(() => expect(model.closeCalls).toBe(1));
+  });
+
+  it('retains a subscription registered while connection recovery is pending', async () => {
+    const { getRecoverySetup, handler, model, transport } = createHarness();
+    await transport.subscribe(subscription(handler));
+    model.consumer.emit('close');
+    await vi.waitFor(() => expect(model.closeCalls).toBe(1));
+
+    let installed = false;
+    const subscribing = transport
+      .subscribe(
+        subscription(handler, {
+          queue: 'credit-service.during-recovery.v1',
+          routingKey: 'during-recovery.event.v1',
+        }),
+      )
+      .then(() => {
+        installed = true;
+      });
+    await Promise.resolve();
+    expect(installed).toBe(false);
+
+    const recoveredModel = new FakeModel();
+    await (getRecoverySetup() as (model: ChannelModel) => Promise<void>)(
+      recoveredModel as unknown as ChannelModel,
+    );
+    await subscribing;
+
+    expect(recoveredModel.consumers).toHaveLength(2);
+    expect(recoveredModel.consumers[1].bindings).toContainEqual([
+      'credit-service.during-recovery.v1',
+      'foc.events',
+      'during-recovery.event.v1',
+    ]);
+  });
+
+  it('rejects subscriptions after shutdown', async () => {
+    const { handler, transport } = createHarness();
+    await transport.close();
+
+    await expect(transport.subscribe(subscription(handler))).rejects.toThrow(
+      'shutting down',
+    );
   });
 
   it('cancels consumption and drains in-flight work before closing', async () => {
@@ -506,7 +689,7 @@ describe('RabbitMqConsumerTransport', () => {
       }),
     } satisfies RabbitMqMessageHandler;
     const { model, transport } = createHarness(handler);
-    await transport.start(handler);
+    await transport.subscribe(subscription(handler));
     model.consumer.onMessage?.(message());
     await vi.waitFor(() => expect(handler.handle).toHaveBeenCalled());
 
@@ -515,7 +698,7 @@ describe('RabbitMqConsumerTransport', () => {
       closed = true;
     });
     await vi.waitFor(() =>
-      expect(model.consumer.cancelled).toEqual(['consumer-tag']),
+      expect(model.consumer.cancelled).toEqual(['consumer-tag-1']),
     );
     expect(closed).toBe(false);
 
