@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { OtpController } from './otp.controller.js';
 import { OtpService } from './otp.service.js';
 import { RequestOtpDto } from './DTO/RequestOtp.dto.js';
@@ -10,15 +11,23 @@ describe('OtpController', () => {
   let controller: OtpController;
   const otpService = {
     createOtpRequest: vi.fn(),
-    validateOtp: vi.fn(),
+    validateOtpAndIssueToken: vi.fn(),
   };
+  const res = { cookie: vi.fn() };
+  const configService = { get: vi.fn() };
 
   beforeEach(async () => {
     otpService.createOtpRequest.mockReset();
-    otpService.validateOtp.mockReset();
+    otpService.validateOtpAndIssueToken.mockReset();
+    res.cookie.mockReset();
+    configService.get.mockReset();
+    configService.get.mockImplementation(() => undefined);
     const module: TestingModule = await Test.createTestingModule({
       controllers: [OtpController],
-      providers: [{ provide: OtpService, useValue: otpService }],
+      providers: [
+        { provide: OtpService, useValue: otpService },
+        { provide: ConfigService, useValue: configService },
+      ],
     }).compile();
 
     controller = module.get<OtpController>(OtpController);
@@ -47,35 +56,70 @@ describe('OtpController', () => {
 
   describe('validate', () => {
     it('passes email and otp to the service and returns a success message', async () => {
-      otpService.validateOtp.mockResolvedValue(true);
-
-      const result = await controller.validate({
-        email: 'eve@example.com',
-        otp: 'Ab3_-x9',
+      otpService.validateOtpAndIssueToken.mockResolvedValue({
+        token: 'tok123',
+        validForSeconds: 600,
       });
 
-      expect(otpService.validateOtp).toHaveBeenCalledWith(
+      const result = await controller.validate(
+        { email: 'eve@example.com', otp: 'Ab3_-x9' },
+        res,
+      );
+
+      expect(otpService.validateOtpAndIssueToken).toHaveBeenCalledWith(
         'eve@example.com',
         'Ab3_-x9',
       );
       expect(result).toEqual({ message: 'OTP validated.' });
     });
 
-    it('rejects with the same fixed error for every F1.4 failure', async () => {
+    it('sets the registration token cookie bound to the verified email with a 10-minute Max-Age', async () => {
+      otpService.validateOtpAndIssueToken.mockResolvedValue({
+        token: 'tok123',
+        validForSeconds: 600,
+      });
+
+      await controller.validate(
+        { email: 'eve@example.com', otp: 'Ab3_-x9' },
+        res,
+      );
+
+      expect(res.cookie).toHaveBeenCalledTimes(1);
+      expect(res.cookie).toHaveBeenCalledWith('registration_token', 'tok123', {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        // 600 s validity * 1000 => Max-Age=600, matching the service's TTL.
+        maxAge: 600000,
+        secure: false,
+      });
+    });
+
+    it('rejects with the same fixed error for every F1.4 failure and sets no cookie', async () => {
       // Unknown, expired, revoked and consumed OTPs all surface identically:
       // the controller must not reveal which condition failed.
-      otpService.validateOtp.mockResolvedValue(false);
+      otpService.validateOtpAndIssueToken.mockResolvedValue(null);
 
       await expect(
-        controller.validate({ email: 'eve@example.com', otp: 'Ab3_-x9' }),
+        controller.validate(
+          { email: 'eve@example.com', otp: 'Ab3_-x9' },
+          res,
+        ),
       ).rejects.toThrow(new BadRequestException('Invalid OTP.'));
+
+      expect(res.cookie).not.toHaveBeenCalled();
     });
 
     it('propagates service failures', async () => {
-      otpService.validateOtp.mockRejectedValue(new Error('redis down'));
+      otpService.validateOtpAndIssueToken.mockRejectedValue(
+        new Error('redis down'),
+      );
 
       await expect(
-        controller.validate({ email: 'eve@example.com', otp: 'Ab3_-x9' }),
+        controller.validate(
+          { email: 'eve@example.com', otp: 'Ab3_-x9' },
+          res,
+        ),
       ).rejects.toThrow('redis down');
     });
   });

@@ -1,11 +1,24 @@
-import { BadRequestException, Body, Controller, Post } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Post,
+  Res,
+} from '@nestjs/common';
+import type { Response } from 'express';
 import { RequestOtpDto } from './DTO/RequestOtp.dto.js';
 import { ValidateOtpDto } from './DTO/ValidateOtp.dto.js';
+import { ConfigService } from '@nestjs/config';
 import { OtpService } from './otp.service.js';
+
+const REGISTRATION_TOKEN_COOKIE = 'registration_token';
 
 @Controller('otp')
 export class OtpController {
-  constructor(private otpService: OtpService) {}
+  constructor(
+    private otpService: OtpService,
+    private configService: ConfigService,
+  ) {}
   @Post()
   async request(@Body() requestOtpDto: RequestOtpDto) {
     await this.otpService.createOtpRequest(requestOtpDto.email);
@@ -13,14 +26,27 @@ export class OtpController {
   }
 
   @Post('validate')
-  async validate(@Body() validateOtpDto: ValidateOtpDto) {
-    const valid = await this.otpService.validateOtp(
+  async validate(
+    @Body() validateOtpDto: ValidateOtpDto,
+    // passthrough: true to allow full (express) library control over
+    // handling the response cookie object, as per documentation
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const issued = await this.otpService.validateOtpAndIssueToken(
       validateOtpDto.email,
       validateOtpDto.otp,
     );
-    if (!valid) {
+    if (!issued) {
       throw new BadRequestException('Invalid OTP.');
     }
+
+    res.cookie(REGISTRATION_TOKEN_COOKIE, issued.token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: issued.validForSeconds * 1000, // Convert validForSeconds into milliseconds
+      secure: this.configService.get('NODE_ENV') === 'production',
+    });
     return { message: 'OTP validated.' };
   }
 }
