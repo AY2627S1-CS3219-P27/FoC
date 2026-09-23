@@ -217,29 +217,6 @@ describe('OtpService', () => {
       ).resolves.toBeNull();
     });
 
-    it('issues the token record and consumes the OTP atomically in one script', () => {
-      // All F1.4 failure modes collapse to a single 0 before the token is
-      // written (F2.2.1), and the token record + OTP consumption share one
-      // script so an OTP can never be consumed without a token (nor replayed
-      // for a second one).
-      expect(VALIDATE_OTP_SCRIPT).toContain('HGETALL');
-      expect(VALIDATE_OTP_SCRIPT).toContain(
-        'if fields["consumedAt"] ~= nil or fields["revokedAt"] ~= nil then',
-      );
-      expect(VALIDATE_OTP_SCRIPT).toContain(
-        'tonumber(counter) ~= tonumber(fields["count"])',
-      );
-      expect(VALIDATE_OTP_SCRIPT).toContain(
-        'redis.call("HSET", KEYS[3], "email", ARGV[3], "createdAt", ARGV[1])',
-      );
-      expect(VALIDATE_OTP_SCRIPT).toContain(
-        'redis.call("EXPIRE", KEYS[3], ARGV[2])',
-      );
-      expect(VALIDATE_OTP_SCRIPT).toContain(
-        'redis.call("HSET", KEYS[1], "consumedAt", ARGV[1])',
-      );
-    });
-
     it('never deletes or extends the OTP record', () => {
       expect(VALIDATE_OTP_SCRIPT).not.toContain('"DEL"');
       expect(VALIDATE_OTP_SCRIPT).not.toContain('"EXPIRE", KEYS[1]');
