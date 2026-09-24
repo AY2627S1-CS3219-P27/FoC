@@ -217,6 +217,67 @@ former global `RABBITMQ_DEAD_LETTER_QUEUE` variable is no longer read. Before
 deploying this topology, drain or migrate any custom legacy DLQ whose name does
 not match `<queue>.dlq`.
 
+## Database model
+
+The current schema supports account initialization, incoming-event
+deduplication, and transactional outbox publication:
+
+```mermaid
+erDiagram
+    CREDIT_ACCOUNTS ||--o| CREDIT_ALLOCATIONS : "receives initial allocation"
+    CREDIT_ALLOCATIONS ||--o{ INBOX_EVENTS : "establishes outcome for"
+
+    CREDIT_ACCOUNTS {
+        uuid user_id PK
+        bigint credit_balance
+        bigint reserved_balance
+        timestamptz created_at
+        timestamptz updated_at
+        integer version
+    }
+
+    CREDIT_ALLOCATIONS {
+        uuid id PK
+        uuid user_id FK, UK
+        bigint amount
+        timestamptz created_at
+    }
+
+    INBOX_EVENTS {
+        uuid event_id PK
+        text event_type
+        char payload_hash "64-character SHA-256"
+        timestamptz received_at
+        timestamptz processed_at
+        uuid outcome_allocation_id FK
+    }
+
+    OUTBOX_EVENTS {
+        uuid event_id PK
+        text event_type
+        text routing_key
+        jsonb envelope
+        timestamptz created_at
+        timestamptz published_at "nullable"
+        integer attempt_count
+        text last_error "nullable"
+        text claimed_by "nullable"
+        timestamptz claimed_until "nullable"
+    }
+```
+
+An account can have at most one initial allocation because
+`credit_allocations.user_id` is unique. Multiple valid registration events for
+the same user can reference that original allocation through
+`inbox_events.outcome_allocation_id`. Allocation rows are immutable: a database
+trigger rejects updates and deletions.
+
+`outbox_events` intentionally has no foreign key to the account or allocation.
+It stores the complete validated event envelope as the authoritative
+publication payload and tracks claim and publication state independently.
+Reservation persistence and the future `credit_transactions` ledger are not
+part of the current schema.
+
 ## Persistence guarantees
 
 - `credit_balance` is the credit available to spend.
