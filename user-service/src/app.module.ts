@@ -5,6 +5,7 @@ import { createObserveModule } from '@nestjs/observe';
 import { OtpModule } from './otp/otp.module.js';
 import { environmentSchema } from './config/environment.schema.js';
 import { AuthModule } from './auth/auth.module.js';
+import { AdminModule } from './admin/admin.module.js';
 import { SecretModule } from './secret/secret.module.js';
 import { SecretService } from './secret/secret.service.js';
 import { User } from './users/user.entity.js';
@@ -44,6 +45,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     }),
     OtpModule,
     AuthModule,
+    AdminModule,
   ],
 })
 export class AppModule {}
