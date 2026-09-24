@@ -15,6 +15,7 @@ import { JWT_EXPIRATION_IN_SECONDS } from '../common/constants.js';
     JwtModule.registerAsync({
       global: true,
       imports: [SecretModule],
+      inject: [SecretService],
       useFactory: async (secretService: SecretService) => ({
         privateKey: secretService.getJwtPrivateKey(),
         publicKey: secretService.getJwtPublicKey(),
