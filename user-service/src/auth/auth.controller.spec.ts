@@ -70,6 +70,17 @@ describe('AuthController', () => {
     ).rejects.toThrow(UnauthorizedException);
   });
 
+  it('rejects a non-string token', async () => {
+    const request = {
+      cookies: { registration_token: { dingus: 'bingus' } },
+    };
+    const registerDto = { displayName: 'Eve', password: 'StrongPassw0rd!' };
+
+    await expect(
+      controller.register(request as never, registerDto as never),
+    ).rejects.toThrow(UnauthorizedException);
+  });
+
   it('returns the provisioned user from the service', async () => {
     authService.registerWithToken.mockResolvedValue({
       id: 7,

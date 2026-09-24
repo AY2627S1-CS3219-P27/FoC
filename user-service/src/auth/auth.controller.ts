@@ -16,11 +16,13 @@ export class AuthController {
 
   @Post('register')
   async register(@Req() request: Request, @Body() registerDto: RegisterDto) {
-    if (
-      !(REGISTRATION_TOKEN_COOKIE in request.cookies) ||
-      request.cookies[REGISTRATION_TOKEN_COOKIE] === undefined
-    ) {
+    if (!(REGISTRATION_TOKEN_COOKIE in request.cookies)) {
       throw new UnauthorizedException('Cookie not present.');
+    }
+
+    const token = request.cookies[REGISTRATION_TOKEN_COOKIE];
+    if (typeof token !== 'string' || token.length === 0) {
+      throw new UnauthorizedException('Missing registration token');
     }
 
     return this.authService.registerWithToken(
