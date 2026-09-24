@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { QueryFailedError } from 'typeorm';
+import { UnauthorizedException } from '@nestjs/common';
+import { EntityNotFoundError, QueryFailedError } from 'typeorm';
 import { hashValue } from '../common/hash/hash.js';
 import { User } from './user.entity.js';
 import { EmailAlreadyRegisteredError, UsersService } from './users.service.js';
@@ -15,6 +16,7 @@ describe('UsersService', () => {
     create: ReturnType<typeof vi.fn>;
     save: ReturnType<typeof vi.fn>;
     count: ReturnType<typeof vi.fn>;
+    findOneByOrFail: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(async () => {
@@ -22,6 +24,7 @@ describe('UsersService', () => {
       create: vi.fn((data) => data),
       save: vi.fn(async (data) => ({ id: 7, ...data })),
       count: vi.fn(async () => 0),
+      findOneByOrFail: vi.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -131,6 +134,104 @@ describe('UsersService', () => {
     await expect(service.countActiveAdmins()).resolves.toBe(3);
     expect(userRepository.count).toHaveBeenCalledWith({
       where: { isAdmin: true, isArchived: false },
+    });
+  });
+
+  describe('checkUserAndReturnInfo', () => {
+    // A full stored row whose hash matches the module-mocked hashValue digest
+    // ('ab'.repeat(64) is 64 bytes in hex) and carries a 32-hex-char salt.
+    const registeredUser = {
+      id: 7,
+      email: 'eve@example.com',
+      displayName: 'Eve',
+      passwordHash: 'ab'.repeat(64),
+      passwordSalt: 'ab'.repeat(16),
+      isActive: true,
+      isAdmin: false,
+      isLocked: false,
+      isArchived: false,
+    };
+
+    it('returns the public info when the credentials match', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue(registeredUser);
+
+      await expect(
+        service.checkUserAndReturnInfo('eve@example.com', 'StrongPassw0rd!'),
+      ).resolves.toEqual({
+        id: 7,
+        email: 'eve@example.com',
+        displayName: 'Eve',
+      });
+
+      // The supplied password is re-hashed with the stored salt for the
+      // constant-time comparison.
+      expect(vi.mocked(hashValue)).toHaveBeenCalledWith(
+        'StrongPassw0rd!',
+        'ab'.repeat(16),
+      );
+      expect(userRepository.findOneByOrFail).toHaveBeenCalledWith({
+        email: 'eve@example.com',
+      });
+    });
+
+    it('rejects a wrong password as unauthorized', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue(registeredUser);
+      vi.mocked(hashValue).mockResolvedValueOnce('cd'.repeat(64));
+
+      await expect(
+        service.checkUserAndReturnInfo('eve@example.com', 'WrongPassw0rd!'),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('rejects an unknown email as unauthorized, not a 500', async () => {
+      userRepository.findOneByOrFail.mockRejectedValue(
+        new EntityNotFoundError(User, { email: 'ghost@example.com' }),
+      );
+
+      await expect(
+        service.checkUserAndReturnInfo('ghost@example.com', 'Whatever123!'),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('rejects a locked account', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue({
+        ...registeredUser,
+        isLocked: true,
+      });
+
+      await expect(
+        service.checkUserAndReturnInfo('eve@example.com', 'StrongPassw0rd!'),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('rejects an archived account', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue({
+        ...registeredUser,
+        isArchived: true,
+      });
+
+      await expect(
+        service.checkUserAndReturnInfo('eve@example.com', 'StrongPassw0rd!'),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('fails the check instead of crashing on a corrupt stored hash', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue({
+        ...registeredUser,
+        passwordHash: 'ab',
+      });
+
+      await expect(
+        service.checkUserAndReturnInfo('eve@example.com', 'StrongPassw0rd!'),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('lets non-entity look-up failures propagate', async () => {
+      userRepository.findOneByOrFail.mockRejectedValue(new Error('db down'));
+
+      await expect(
+        service.checkUserAndReturnInfo('eve@example.com', 'StrongPassw0rd!'),
+      ).rejects.toThrow('db down');
     });
   });
 });

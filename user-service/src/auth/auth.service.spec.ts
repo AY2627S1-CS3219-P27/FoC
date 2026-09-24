@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AuthService, REGISTER_USER_SCRIPT } from './auth.service.js';
 import { REDIS } from '../redis/redis.provider.js';
@@ -18,7 +18,11 @@ vi.mock('../common/hash/hash.js', () => ({
 describe('AuthService', () => {
   let service: AuthService;
   let redis: { eval: ReturnType<typeof vi.fn> };
-  let usersService: { provisionUser: ReturnType<typeof vi.fn> };
+  let usersService: {
+    provisionUser: ReturnType<typeof vi.fn>;
+    checkUserAndReturnInfo: ReturnType<typeof vi.fn>;
+  };
+  let jwtService: { signAsync: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
     redis = { eval: vi.fn() };
@@ -28,7 +32,9 @@ describe('AuthService', () => {
         email: args.email,
         displayName: args.displayName,
       })),
+      checkUserAndReturnInfo: vi.fn(),
     };
+    jwtService = { signAsync: vi.fn(async () => 'signed-jwt') };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -41,7 +47,7 @@ describe('AuthService', () => {
         { provide: UsersService, useValue: usersService },
         // AuthService also issues JWTs on login; stubbed here since the
         // registration flow under test never signs.
-        { provide: JwtService, useValue: { signAsync: vi.fn() } },
+        { provide: JwtService, useValue: jwtService },
       ],
     }).compile();
 
@@ -151,5 +157,40 @@ describe('AuthService', () => {
   it('never deletes or extends the registration token record', () => {
     expect(REGISTER_USER_SCRIPT).not.toContain('"DEL"');
     expect(REGISTER_USER_SCRIPT).not.toContain('"EXPIRE", KEYS[1]');
+  });
+
+  describe('checkCredentials', () => {
+    it('signs a JWT carrying the user identity when the credentials match', async () => {
+      usersService.checkUserAndReturnInfo.mockResolvedValue({
+        id: 7,
+        email: 'eve@example.com',
+        displayName: 'Eve',
+      });
+
+      await expect(
+        service.checkCredentials('eve@example.com', 'StrongPassw0rd!'),
+      ).resolves.toEqual({ accessToken: 'signed-jwt' });
+
+      expect(usersService.checkUserAndReturnInfo).toHaveBeenCalledWith(
+        'eve@example.com',
+        'StrongPassw0rd!',
+      );
+      expect(jwtService.signAsync).toHaveBeenCalledWith({
+        sub: 7,
+        displayName: 'Eve',
+        email: 'eve@example.com',
+      });
+    });
+
+    it('propagates rejected credentials without signing a token', async () => {
+      usersService.checkUserAndReturnInfo.mockRejectedValue(
+        new UnauthorizedException(),
+      );
+
+      await expect(
+        service.checkCredentials('eve@example.com', 'WrongPassw0rd!'),
+      ).rejects.toThrow(UnauthorizedException);
+      expect(jwtService.signAsync).not.toHaveBeenCalled();
+    });
   });
 });
