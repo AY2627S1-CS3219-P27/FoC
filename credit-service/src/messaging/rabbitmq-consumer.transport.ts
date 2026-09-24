@@ -43,6 +43,7 @@ type TransportFailureCategory =
 interface SharedTopology {
   domainExchange: string;
   retryExchange: string;
+  retryReturnExchange: string;
   retryDelays: number[];
   deadLetterExchange: string;
   prefetch: number;
@@ -149,6 +150,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
     this.topology = {
       domainExchange: config.getOrThrow('RABBITMQ_EXCHANGE'),
       retryExchange: config.getOrThrow('RABBITMQ_RETRY_EXCHANGE'),
+      retryReturnExchange: config.getOrThrow('RABBITMQ_RETRY_RETURN_EXCHANGE'),
       retryDelays: config.getOrThrow('RABBITMQ_RETRY_DELAYS_MS'),
       deadLetterExchange: config.getOrThrow('RABBITMQ_DEAD_LETTER_EXCHANGE'),
       prefetch: config.getOrThrow('RABBITMQ_PREFETCH'),
@@ -206,7 +208,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
     this.stopping = true;
     this.connectionReady.resolve();
     await this.connectionPromise?.catch(() => undefined);
-    
+
     // A subscription may already be installing when shutdown begins. Wait for
     // that serialized mutation before taking the channel snapshot to cancel.
     await this.topologyMutation;
@@ -412,6 +414,9 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
     await channel.assertExchange(this.topology.retryExchange, 'direct', {
       durable: true,
     });
+    await channel.assertExchange(this.topology.retryReturnExchange, 'direct', {
+      durable: true,
+    });
     await channel.assertExchange(this.topology.deadLetterExchange, 'direct', {
       durable: true,
     });
@@ -484,16 +489,23 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       this.topology.domainExchange,
       subscription.routingKey,
     );
+    // Returned retries use queue identity, not the shared domain key. This
+    // guarantees that one stream's retry cannot fan out to sibling queues.
+    await channel.bindQueue(
+      subscription.queue,
+      this.topology.retryReturnExchange,
+      subscription.queue,
+    );
 
     for (const [index, delay] of this.topology.retryDelays.entries()) {
       const retryQueue = `${subscription.queue}.retry.${index + 1}`;
-      // Retry queues are delay buckets: expiry dead-letters the original bytes
-      // back to this stream's domain routing key for another delivery attempt.
+      // Retry queues are delay buckets. Expiry dead-letters the original bytes
+      // through the service-owned return exchange directly to this main queue.
       await channel.assertQueue(retryQueue, {
         durable: true,
         messageTtl: delay,
-        deadLetterExchange: this.topology.domainExchange,
-        deadLetterRoutingKey: subscription.routingKey,
+        deadLetterExchange: this.topology.retryReturnExchange,
+        deadLetterRoutingKey: subscription.queue,
       });
       await channel.bindQueue(
         retryQueue,
@@ -558,7 +570,18 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       return;
     }
 
-    if (message.fields.routingKey !== subscription.routingKey) {
+    // RabbitMQ exposes the exchange and routing key used for the latest route.
+    // The retry header selects which physical route is valid for this attempt.
+    const validInitialRoute =
+      retryCount === 0 &&
+      message.fields.exchange === this.topology.domainExchange &&
+      message.fields.routingKey === subscription.routingKey;
+    const validRetryRoute =
+      retryCount > 0 &&
+      message.fields.exchange === this.topology.retryReturnExchange &&
+      message.fields.routingKey === subscription.queue;
+
+    if (!validInitialRoute && !validRetryRoute) {
       await this.deadLetterOrRequeue(
         message,
         consumerChannel,
@@ -566,7 +589,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
         subscription,
         {
           category: 'ROUTING_KEY_MISMATCH',
-          reason: 'message routing key does not match the consumer contract',
+          reason: 'message route does not match the consumer contract',
           retryCount,
           eventId,
         },
@@ -578,7 +601,9 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       const result = await subscription.handler.handle({
         body,
         rawBody: Buffer.from(message.content),
-        routingKey: message.fields.routingKey,
+        // Application handlers always see the logical domain route, regardless
+        // of whether RabbitMQ delivered an initial attempt or a returned retry.
+        routingKey: subscription.routingKey,
         eventId,
         retryCount,
       });

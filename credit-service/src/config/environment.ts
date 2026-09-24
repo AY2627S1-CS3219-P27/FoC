@@ -18,6 +18,7 @@ export interface EnvironmentVariables {
   RABBITMQ_USER_REGISTERED_ROUTING_KEY: string;
   RABBITMQ_CREDIT_ACCOUNT_INITIALISED_ROUTING_KEY: string;
   RABBITMQ_RETRY_EXCHANGE: string;
+  RABBITMQ_RETRY_RETURN_EXCHANGE: string;
   RABBITMQ_DEAD_LETTER_EXCHANGE: string;
   RABBITMQ_PREFETCH: number;
   RABBITMQ_RETRY_DELAYS_MS: number[];
@@ -79,6 +80,9 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
     .min(1)
     .default('credit.account-initialised.v1'),
   RABBITMQ_RETRY_EXCHANGE: Joi.string().min(1).default('foc.credit.retry'),
+  RABBITMQ_RETRY_RETURN_EXCHANGE: Joi.string()
+    .min(1)
+    .default('foc.credit.back'),
   RABBITMQ_DEAD_LETTER_EXCHANGE: Joi.string().min(1).default('foc.credit.dlx'),
   RABBITMQ_PREFETCH: Joi.number().integer().min(1).default(10),
   RABBITMQ_RETRY_DELAYS_MS: retryDelaysSchema,

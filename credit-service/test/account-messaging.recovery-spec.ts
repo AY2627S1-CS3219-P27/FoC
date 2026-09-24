@@ -28,6 +28,7 @@ const topology = {
   domainExchange: `foc.events.recovery.${suffix}`,
   incomingQueue: `credit-service.user-registered.recovery.${suffix}`,
   retryExchange: `foc.credit.retry.recovery.${suffix}`,
+  retryReturnExchange: `foc.credit.back.recovery.${suffix}`,
   deadLetterExchange: `foc.credit.dlx.recovery.${suffix}`,
   observationQueue: `credit-service.account-initialised.observation.${suffix}`,
 };
@@ -255,6 +256,7 @@ describe.sequential('account messaging recovery', () => {
       RABBITMQ_USER_REGISTERED_ROUTING_KEY: incomingRoutingKey,
       RABBITMQ_CREDIT_ACCOUNT_INITIALISED_ROUTING_KEY: outgoingRoutingKey,
       RABBITMQ_RETRY_EXCHANGE: topology.retryExchange,
+      RABBITMQ_RETRY_RETURN_EXCHANGE: topology.retryReturnExchange,
       RABBITMQ_DEAD_LETTER_EXCHANGE: topology.deadLetterExchange,
       RABBITMQ_PREFETCH: '10',
       RABBITMQ_RETRY_DELAYS_MS: '100,200,400,800,1600',
@@ -308,6 +310,9 @@ describe.sequential('account messaging recovery', () => {
       }
       await adminChannel
         .deleteExchange(topology.retryExchange)
+        .catch(() => undefined);
+      await adminChannel
+        .deleteExchange(topology.retryReturnExchange)
         .catch(() => undefined);
       await adminChannel
         .deleteExchange(topology.deadLetterExchange)

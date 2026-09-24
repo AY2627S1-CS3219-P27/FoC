@@ -204,18 +204,41 @@ stream queue named `<queue>` owns:
 - a dead-letter queue `<queue>.dlq`, unless explicitly overridden;
 - an independent `RABBITMQ_PREFETCH` allowance.
 
-The domain exchange, direct retry exchange, direct dead-letter exchange, and
-confirm-publisher channel are shared. Retry queues use increasing TTLs and
-return expired messages to the originating stream. Malformed messages,
-permanent contract failures, and exhausted retries go only to that stream's
-DLQ. Retry and dead-letter publications are confirmed before the original
-delivery is acknowledged.
+The domain exchange, direct retry exchange, direct retry-return exchange,
+direct dead-letter exchange, and confirm-publisher channel are shared within
+the transport. New domain events arrive through `foc.events`. Failures enter
+the TTL queues through `foc.credit.retry`, then expire through
+`foc.credit.back` using the main queue name as the routing key. That
+queue-identity return route sends a retry only to the stream that failed; it
+cannot fan out again to other queues bound to the same domain routing key.
+Malformed messages, permanent contract failures, and exhausted retries go
+only to that stream's DLQ. Retry and dead-letter publications are confirmed
+before the original delivery is acknowledged.
 
 Because prefetch applies per subscription, the effective process-wide delivery
 allowance is the subscription count multiplied by `RABBITMQ_PREFETCH`. The
 former global `RABBITMQ_DEAD_LETTER_QUEUE` variable is no longer read. Before
 deploying this topology, drain or migrate any custom legacy DLQ whose name does
 not match `<queue>.dlq`.
+
+### Retry topology migration
+
+RabbitMQ stores a queue's dead-letter exchange and routing key in its queue
+declaration. Existing retry queues therefore cannot be redeclared in place
+with the new return route. For each deployed Credit Service environment:
+
+1. Stop Credit Service so it cannot create new retries.
+2. Wait at least the longest configured retry delay and confirm that every
+   `<queue>.retry.1..5` queue is empty. Pending retries will have returned to
+   their main queue.
+3. Delete only the five retry queues for each subscription. Keep the main
+   queues and DLQs.
+4. Start the updated service; it recreates the retry queues with
+   `foc.credit.back` and queue-identity routing.
+
+If an old retry queue remains, startup intentionally fails with RabbitMQ's
+inequivalent-argument error instead of retaining the unsafe route. See
+RabbitMQ's [dead-letter exchange documentation](https://www.rabbitmq.com/docs/dlx).
 
 ## Database model
 

@@ -57,10 +57,13 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     domainExchange: `foc.events.test.${suffix}`,
     mainQueue: `credit-service.user-registered.v1.test.${suffix}`,
     retryExchange: `foc.credit.retry.test.${suffix}`,
+    retryReturnExchange: `foc.credit.back.test.${suffix}`,
     deadLetterExchange: `foc.credit.dlx.test.${suffix}`,
     deadLetterQueue: `credit-service.user-registered.v1.dlq.test.${suffix}`,
     secondQueue: `credit-service.credit-reservation.v1.test.${suffix}`,
     secondDeadLetterQueue: `credit-service.credit-reservation.v1.dlq.test.${suffix}`,
+    siblingQueue: `credit-service.user-registered-audit.v1.test.${suffix}`,
+    siblingDeadLetterQueue: `credit-service.user-registered-audit.v1.dlq.test.${suffix}`,
   };
   const rabbitMqUrl = process.env.RABBITMQ_URL;
   let behavior: (
@@ -70,6 +73,9 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     handle: vi.fn((message) => behavior(message)),
   };
   const secondHandler: RabbitMqMessageHandler = {
+    handle: vi.fn().mockResolvedValue({ outcome: 'ack' }),
+  };
+  const siblingHandler: RabbitMqMessageHandler = {
     handle: vi.fn().mockResolvedValue({ outcome: 'ack' }),
   };
   let connection: ChannelModel;
@@ -90,6 +96,7 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
       RABBITMQ_USER_REGISTERED_QUEUE: names.mainQueue,
       RABBITMQ_USER_REGISTERED_ROUTING_KEY: 'user.registered.v1',
       RABBITMQ_RETRY_EXCHANGE: names.retryExchange,
+      RABBITMQ_RETRY_RETURN_EXCHANGE: names.retryReturnExchange,
       RABBITMQ_DEAD_LETTER_EXCHANGE: names.deadLetterExchange,
       RABBITMQ_PREFETCH: 1,
       RABBITMQ_RETRY_DELAYS_MS: RETRY_DELAYS,
@@ -145,13 +152,19 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
       await adminChannel.deleteQueue(names.deadLetterQueue);
       await adminChannel.deleteQueue(names.secondQueue);
       await adminChannel.deleteQueue(names.secondDeadLetterQueue);
+      await adminChannel.deleteQueue(names.siblingQueue);
+      await adminChannel.deleteQueue(names.siblingDeadLetterQueue);
       for (const index of RETRY_DELAYS.keys()) {
         await adminChannel.deleteQueue(`${names.mainQueue}.retry.${index + 1}`);
         await adminChannel.deleteQueue(
           `${names.secondQueue}.retry.${index + 1}`,
         );
+        await adminChannel.deleteQueue(
+          `${names.siblingQueue}.retry.${index + 1}`,
+        );
       }
       await adminChannel.deleteExchange(names.retryExchange);
+      await adminChannel.deleteExchange(names.retryReturnExchange);
       await adminChannel.deleteExchange(names.deadLetterExchange);
       await adminChannel.deleteExchange(names.domainExchange);
     }
@@ -349,12 +362,51 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     });
   });
 
+  it('returns a retry only to the failed queue when queues share a domain key', async () => {
+    await transport.subscribe({
+      queue: names.siblingQueue,
+      routingKey: 'user.registered.v1',
+      deadLetterQueue: names.siblingDeadLetterQueue,
+      handler: siblingHandler,
+    });
+    let attempt = 0;
+    behavior = async () => {
+      attempt += 1;
+      if (attempt === 1) {
+        throw new Error('temporary primary-stream failure');
+      }
+      return { outcome: 'ack' };
+    };
+
+    await publish();
+
+    await waitFor(() =>
+      vi.mocked(handler.handle).mock.calls.length === 2 &&
+      vi.mocked(siblingHandler.handle).mock.calls.length === 1
+        ? true
+        : undefined,
+    );
+    // Both queues receive the original topic event, but the queue-identity
+    // return route prevents the successful sibling from seeing the retry.
+    expect(handler.handle).toHaveBeenCalledTimes(2);
+    expect(siblingHandler.handle).toHaveBeenCalledTimes(1);
+    expect(handler.handle).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        routingKey: 'user.registered.v1',
+        retryCount: 1,
+      }),
+    );
+  });
+
   it('removes every consumer during graceful shutdown', async () => {
     await transport.close();
 
     const firstQueue = await adminChannel.checkQueue(names.mainQueue);
     const secondQueue = await adminChannel.checkQueue(names.secondQueue);
+    const siblingQueue = await adminChannel.checkQueue(names.siblingQueue);
     expect(firstQueue.consumerCount).toBe(0);
     expect(secondQueue.consumerCount).toBe(0);
+    expect(siblingQueue.consumerCount).toBe(0);
   });
 });

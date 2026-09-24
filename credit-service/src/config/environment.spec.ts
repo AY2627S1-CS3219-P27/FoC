@@ -40,6 +40,7 @@ describe('environmentSchema', () => {
       'credit.account-initialised.v1',
     );
     expect(environment.RABBITMQ_RETRY_EXCHANGE).toBe('foc.credit.retry');
+    expect(environment.RABBITMQ_RETRY_RETURN_EXCHANGE).toBe('foc.credit.back');
     expect(environment.RABBITMQ_DEAD_LETTER_EXCHANGE).toBe('foc.credit.dlx');
     expect(environment.RABBITMQ_PREFETCH).toBe(10);
     expect(environment.RABBITMQ_RETRY_DELAYS_MS).toEqual([
@@ -49,6 +50,13 @@ describe('environmentSchema', () => {
     expect(environment.OUTBOX_BATCH_SIZE).toBe(100);
     expect(environment.OUTBOX_CLAIM_LEASE_MS).toBe(30_000);
     expect(environment.OUTBOX_UNPUBLISHED_WARNING_MS).toBe(60_000);
+  });
+
+  it('accepts a custom retry-return exchange', () => {
+    expect(
+      validate({ RABBITMQ_RETRY_RETURN_EXCHANGE: 'foc.credit.return.v2' })
+        .RABBITMQ_RETRY_RETURN_EXCHANGE,
+    ).toBe('foc.credit.return.v2');
   });
 
   it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])(

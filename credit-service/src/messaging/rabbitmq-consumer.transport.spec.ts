@@ -31,6 +31,7 @@ const configuration: EnvironmentVariables = {
   RABBITMQ_CREDIT_ACCOUNT_INITIALISED_ROUTING_KEY:
     'credit.account-initialised.v1',
   RABBITMQ_RETRY_EXCHANGE: 'foc.credit.retry',
+  RABBITMQ_RETRY_RETURN_EXCHANGE: 'foc.credit.back',
   RABBITMQ_DEAD_LETTER_EXCHANGE: 'foc.credit.dlx',
   RABBITMQ_PREFETCH: 10,
   RABBITMQ_RETRY_DELAYS_MS: [1_000, 2_000, 4_000, 8_000, 16_000],
@@ -189,6 +190,7 @@ function message(
     }),
   ),
   overrides: {
+    exchange?: string;
     routingKey?: string;
     headers?: Record<string, unknown>;
   } = {},
@@ -199,7 +201,7 @@ function message(
       consumerTag: 'consumer-tag',
       deliveryTag: 1,
       redelivered: false,
-      exchange: 'foc.events',
+      exchange: overrides.exchange ?? 'foc.events',
       routingKey: overrides.routingKey ?? 'user.registered.v1',
     },
     properties: {
@@ -295,6 +297,7 @@ describe('RabbitMqConsumerTransport', () => {
     expect(model.publisher.assertedExchanges).toEqual([
       ['foc.events', 'topic', { durable: true }],
       ['foc.credit.retry', 'direct', { durable: true }],
+      ['foc.credit.back', 'direct', { durable: true }],
       ['foc.credit.dlx', 'direct', { durable: true }],
     ]);
     expect(model.consumer.assertedQueues).toEqual([
@@ -304,14 +307,19 @@ describe('RabbitMqConsumerTransport', () => {
         {
           durable: true,
           messageTtl: delay,
-          deadLetterExchange: 'foc.events',
-          deadLetterRoutingKey: 'user.registered.v1',
+          deadLetterExchange: 'foc.credit.back',
+          deadLetterRoutingKey: 'credit-service.user-registered.v1',
         },
       ]),
       ['credit-service.user-registered.v1.dlq', { durable: true }],
     ]);
     expect(model.consumer.bindings).toEqual([
       ['credit-service.user-registered.v1', 'foc.events', 'user.registered.v1'],
+      [
+        'credit-service.user-registered.v1',
+        'foc.credit.back',
+        'credit-service.user-registered.v1',
+      ],
       ...configuration.RABBITMQ_RETRY_DELAYS_MS.map((_, index) => [
         `credit-service.user-registered.v1.retry.${index + 1}`,
         'foc.credit.retry',
@@ -357,7 +365,7 @@ describe('RabbitMqConsumerTransport', () => {
     ]);
 
     expect(connect).toHaveBeenCalledOnce();
-    expect(model.publisher.assertedExchanges).toHaveLength(3);
+    expect(model.publisher.assertedExchanges).toHaveLength(4);
     expect(model.consumers).toHaveLength(2);
     expect(model.consumers.map(({ prefetchCount }) => prefetchCount)).toEqual([
       10, 10,
@@ -437,6 +445,29 @@ describe('RabbitMqConsumerTransport', () => {
     expect(model.consumer.acknowledged).toEqual([delivery]);
   });
 
+  it('accepts a returned retry and exposes its logical domain route', async () => {
+    const handler = {
+      handle: vi.fn().mockResolvedValue({ outcome: 'ack' }),
+    } satisfies RabbitMqMessageHandler;
+    const { model, transport } = createHarness(handler);
+    await transport.subscribe(subscription(handler));
+    const delivery = message(undefined, {
+      exchange: 'foc.credit.back',
+      routingKey: 'credit-service.user-registered.v1',
+      headers: { 'x-retry-count': 1 },
+    });
+
+    await deliver(model, delivery);
+
+    expect(handler.handle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        routingKey: 'user.registered.v1',
+        retryCount: 1,
+      }),
+    );
+    expect(model.consumer.acknowledged).toEqual([delivery]);
+  });
+
   it.each([
     {
       name: 'malformed JSON',
@@ -446,6 +477,36 @@ describe('RabbitMqConsumerTransport', () => {
     {
       name: 'a routing-key mismatch',
       delivery: message(undefined, { routingKey: 'user.deleted.v1' }),
+      category: 'ROUTING_KEY_MISMATCH',
+    },
+    {
+      name: 'an initial attempt on the retry-return route',
+      delivery: message(undefined, {
+        exchange: 'foc.credit.back',
+        routingKey: 'credit-service.user-registered.v1',
+      }),
+      category: 'ROUTING_KEY_MISMATCH',
+    },
+    {
+      name: 'a retry on the shared domain route',
+      delivery: message(undefined, { headers: { 'x-retry-count': 1 } }),
+      category: 'ROUTING_KEY_MISMATCH',
+    },
+    {
+      name: 'a retry returned for another queue',
+      delivery: message(undefined, {
+        exchange: 'foc.credit.back',
+        routingKey: 'credit-service.other-stream.v1',
+        headers: { 'x-retry-count': 1 },
+      }),
+      category: 'ROUTING_KEY_MISMATCH',
+    },
+    {
+      name: 'a delivery from an unrelated exchange',
+      delivery: message(undefined, {
+        exchange: 'foc.unrelated',
+        headers: { 'x-retry-count': 1 },
+      }),
       category: 'ROUTING_KEY_MISMATCH',
     },
     {
@@ -524,7 +585,11 @@ describe('RabbitMqConsumerTransport', () => {
     } satisfies RabbitMqMessageHandler;
     const { model, transport } = createHarness(handler);
     await transport.subscribe(subscription(handler));
-    const delivery = message(undefined, { headers: { 'x-retry-count': 5 } });
+    const delivery = message(undefined, {
+      exchange: 'foc.credit.back',
+      routingKey: 'credit-service.user-registered.v1',
+      headers: { 'x-retry-count': 5 },
+    });
 
     await deliver(model, delivery);
 
@@ -616,7 +681,7 @@ describe('RabbitMqConsumerTransport', () => {
     expect(recoveredModel.consumers[1].assertedQueues).toEqual(
       model.consumers[1].assertedQueues,
     );
-    expect(recoveredModel.publisher.assertedExchanges).toHaveLength(3);
+    expect(recoveredModel.publisher.assertedExchanges).toHaveLength(4);
   });
 
   it('recycles the connection once when current consumer channels close', async () => {
