@@ -15,6 +15,13 @@
       "user": "user-service",
       "vhost": "/foc",
       "write": "^foc\\.events$"
+    },
+    {
+      "configure": "^(foc\\.credit\\.(retry|back|dlx)|credit-service\\..+)$",
+      "read": "^(foc\\.events|foc\\.credit\\.(retry|back|dlx)|credit-service\\..+)$",
+      "user": "credit-service",
+      "vhost": "/foc",
+      "write": "^(foc\\.events|foc\\.credit\\.(retry|back|dlx)|credit-service\\..+)$"
     }
   ],
   "rabbitmq_version": "4.3.6",
@@ -77,6 +84,13 @@
       "limits": {},
       "name": "user-service",
       "password_hash": "aZjxvyiX+QPAl8WbNLq04VI3OAf1myY0IMh8FyhngraRlhZH",
+      "tags": []
+    },
+    {
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "limits": {},
+      "name": "credit-service",
+      "password_hash": "cCrZGqJNVrHK6legaAer8PjD7koLxgocDiQ/BJsrYOATi9iy",
       "tags": []
     }
   ],
