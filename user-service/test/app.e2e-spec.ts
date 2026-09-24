@@ -1,8 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import { REDIS } from '../src/redis/redis.provider.js';
 import { SecretService } from '../src/secret/secret.service.js';
+import { User } from '../src/users/user.entity.js';
 import { seedTestEnvironment } from './test-env.js';
 
 // TODO(e2e): Replace this smoke test with real endpoint coverage once the
@@ -29,13 +31,17 @@ describe('user-service (e2e)', () => {
       .useValue({})
       // The TypeORM DataSource factory would otherwise try to reach the
       // Postgres container during app.init(); the stub only needs to satisfy
-      // the repository providers that inject it.
+      // the repository providers that inject it. The UsersService repository
+      // is overridden below with a count() so the admin bootstrap (M.1 F14)
+      // sees an existing admin and no-ops during app.init().
       .overrideProvider(DataSource)
       .useValue({
         entityMetadatas: [],
         options: { type: 'postgres' },
         getRepository: () => ({}),
       })
+      .overrideProvider(getRepositoryToken(User))
+      .useValue({ count: async () => 1 })
       .overrideProvider(SecretService)
       .useValue({
         getServerSecret: () => 'test-server-secret',
