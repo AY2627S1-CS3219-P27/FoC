@@ -13,7 +13,7 @@ cannot depend on the monorepo or a shared runtime package to validate events.
 
 ### Exchange and routing
 
-Domain events use the durable RabbitMQ topic exchange `foc.events`.
+Domain events use the durable RabbitMQ direct exchange `foc.events`.
 
 Routing keys identify an event and its contract version using dot-separated
 names such as:
@@ -67,11 +67,11 @@ are authoritative for exact fields and validation constraints.
 
 ## Rationale
 
-RabbitMQ topic exchanges are an established publish/subscribe mechanism for
-event-driven microservices. Exact bindings remain available for narrowly scoped
-consumers, while wildcard bindings allow future audit, notification, or
-integration consumers to subscribe to an intentional event family without
-changing its publishers.
+RabbitMQ direct exchanges are an established mechanism for routing messages by
+an exact key. Every currently planned integration has an enumerated contract
+and recipient, so exact bindings express the required topology without exposing
+unused wildcard subscriptions. More than one queue may deliberately use the
+same exact binding; direct routing does not itself guarantee one subscriber.
 
 A uniform envelope supplies the metadata required for validation, ownership,
 tracing, and idempotency without coupling consumers to publisher source code.
@@ -91,8 +91,8 @@ through a shared runtime library.
 
 - Publishers and consumers coordinate changes through one reviewable schema
   source.
-- Services can subscribe exactly or by deliberate topic pattern without
-  publisher changes.
+- Services subscribe through explicit, versioned routing-key bindings.
+- Adding another consumer requires another reviewed exact binding.
 - Every service build must select, validate, and package its required schemas.
 - Docker builds that synchronize schemas require the repository root in their
   build context.

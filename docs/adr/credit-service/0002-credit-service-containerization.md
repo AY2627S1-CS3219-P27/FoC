@@ -3,7 +3,7 @@
 ## Context
 
 Credit Service needs reproducible development and production environments for
-its NestJS application, PostgreSQL database, and RabbitMQ broker. Its production
+its NestJS application, PostgreSQL database, and RabbitMQ connectivity. Its production
 image should contain only runtime dependencies and compiled artifacts, while
 local development must support source watching and service dependencies.
 
@@ -13,8 +13,8 @@ the monorepo.
 
 ## Decision
 
-Credit Service uses Docker with a multi-stage Node.js 22 Alpine Dockerfile and a
-service-local Docker Compose configuration.
+Credit Service uses Docker with a multi-stage Node.js 22 Alpine Dockerfile and
+participates in the root Docker Compose stack.
 
 The Dockerfile provides separate dependency, development, build, and production
 stages. npm 11.18.0 is pinned to match the package lockfile. The production
@@ -25,9 +25,10 @@ The repository root is the Docker build context so the build stage can copy the
 canonical contracts selected by Credit Service. The final image contains only
 the synchronized contract copies bundled into `dist`.
 
-Docker Compose provides the development service and its PostgreSQL and
-RabbitMQ dependencies, including health checks, secret-based database
-credentials, persistent development data, and isolated test profiles.
+Docker Compose provides the development service and PostgreSQL dependency. The
+normal runtime uses the root `/foc` RabbitMQ broker with a service-specific
+password secret. Service-local RabbitMQ containers exist only in isolated test
+and recovery profiles.
 
 ## Rationale
 
@@ -50,12 +51,12 @@ schema decision without turning those schemas into a shared runtime package.
 
 - Production deployments receive a self-contained image with compiled code,
   runtime dependencies, and the schemas Credit Service uses.
-- Local development can start the application, PostgreSQL, and RabbitMQ with a
-  single Compose project.
+- Local development starts the application, PostgreSQL, and shared RabbitMQ
+  broker from the root Compose project.
 - Docker builds must use the repository root as their context.
 - Image builds depend on the pinned Node.js and npm versions and must be updated
   deliberately when those versions change.
 - Alpine's smaller footprint may require compatibility review if a future
   dependency introduces native system-library requirements.
-- Development and test Compose resources require explicit cleanup when they are
-  no longer needed.
+- Test-only RabbitMQ resources remain isolated from the shared development
+  broker and require explicit cleanup.

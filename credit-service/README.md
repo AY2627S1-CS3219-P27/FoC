@@ -9,7 +9,7 @@ RabbitMQ. Event payloads are validated with versioned JSON Schemas and AJV.
 
 ## How account initialization works
 
-1. RabbitMQ delivers `UserRegistered` from the shared `foc.events` topic
+1. RabbitMQ delivers `UserRegistered` from the shared `foc.events` direct
    exchange to the Credit Service subscription.
 2. The transport validates the JSON transport metadata, and the handler
    validates the event envelope and payload contract.
@@ -100,7 +100,7 @@ that exercise real infrastructure.
 | PostgreSQL integration | `npm run test:integration` | Isolated PostgreSQL on port `5436` | Migrations, constraints, immutable allocations, repositories, account initialization, inbox/outbox atomicity, concurrency, and relay claims |
 | HTTP end-to-end | `npm run test:e2e` | Isolated PostgreSQL on port `5436`; no RabbitMQ | The real NestJS `AppModule` and HTTP endpoint; broker components are replaced with no-op test providers |
 | RabbitMQ messaging integration | `npm run test:messaging` | RabbitMQ on port `5675` | Real queue topology, multiple stream isolation, retries, DLQs, manual acknowledgements, confirmed publication, and shutdown |
-| Shared-broker permissions | `npm run test:rabbitmq-permissions` | Root RabbitMQ on port `5672` | The Credit identity's allowed topology, consumption, and publication operations, plus denial of shared-exchange configuration, Email resources, and unauthorized topic keys |
+| Shared-broker permissions | `npm run test:rabbitmq-permissions` | Root RabbitMQ on port `5672` | The Credit identity's allowed topology, consumption, and publication operations, plus denial of shared-exchange configuration and Email resources |
 | Messaging recovery | `npm run test:recovery` | Disposable PostgreSQL and RabbitMQ on ports `5437`, `5676`, and `15676` by default | The complete broker-to-database-to-outbox pipeline, idempotency, acknowledgement ordering, application restart, and live infrastructure recovery |
 
 All test commands synchronize the source-time contract cache before Vitest
@@ -217,12 +217,18 @@ and unit tests do not replace the PostgreSQL, RabbitMQ, or recovery suites.
 
 ## RabbitMQ subscriptions and retries
 
-The root broker owns the shared `foc.events` topic exchange. Credit Service
+The root broker owns the shared `foc.events` direct exchange. Credit Service
 checks that exchange passively, so its credential cannot create, delete, or
-alter it. RabbitMQ topic permissions allow Credit Service to bind only
-`user.registered.v1` and publish only `credit.account-initialised.v1`.
-Implementing another event contract therefore also requires an explicit ACL
-update.
+alter it. Credit currently binds exactly `user.registered.v1` and publishes
+exactly `credit.account-initialised.v1`; typed configuration rejects other
+values.
+
+RabbitMQ resource permissions protect exchange and queue names, but do not
+restrict individual routing keys on a direct exchange. Contract validation,
+explicit subscriptions, configuration validation, and tests therefore enforce
+the application's routing-key allowlist. Direct routing removes wildcard
+matching, but multiple queues can deliberately bind the same exact key and all
+receive the original publication.
 
 Credit Service uses one recovering consumer connection while giving every
 incoming event stream its own durable queue, handler, and consumer channel. A
@@ -270,20 +276,21 @@ RabbitMQ's [dead-letter exchange documentation](https://www.rabbitmq.com/docs/dl
 
 ### Shared exchange migration
 
-RabbitMQ cannot change an existing exchange from `direct` to `topic` in place.
-For an environment created from the earlier root definitions, use a maintenance
-window:
+No exchange migration is needed for a broker created from the current root
+definitions because `foc.events` is already direct. RabbitMQ cannot change an
+existing exchange's type in place. If an environment previously created
+`foc.events` as topic, use a maintenance window:
 
 1. Stop User, Email, and Credit Service publishers and consumers.
 2. Drain pending retry queues and export the broker definitions as a backup.
 3. Delete only `foc.events`; retain its bound queues and their messages.
 4. Import or start the updated root definitions to recreate `foc.events` as a
-   durable topic exchange and provision the Credit Service identity.
+   durable direct exchange and provision the Credit Service identity.
 5. Start User and Email Services, then Credit Service.
 6. Confirm the expected queue bindings before resuming traffic.
 
-Do not remove broker volumes or service queues as part of this migration. The
-exact existing bindings continue to behave the same on a topic exchange.
+Do not remove broker volumes or service queues as part of this migration.
+Recreate every required exact binding before resuming traffic.
 
 ## Database model
 

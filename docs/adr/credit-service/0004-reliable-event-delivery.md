@@ -18,8 +18,14 @@ isolation, publisher confirmation, and recovery of unpublished outbox events.
 
 One Credit Service process uses one recovering RabbitMQ consumer connection and
 one shared confirm-publisher channel for retry and dead-letter publication. The
-durable domain topic exchange, retry direct exchange, and dead-letter direct
-exchange are shared.
+durable domain direct exchange and the service-owned retry, retry-return, and
+dead-letter direct exchanges are shared.
+
+Root infrastructure owns `foc.events`; both Credit Service connections use a
+passive existence check and never declare or alter it. Credit Service actively
+declares only `foc.credit.*` exchanges and `credit-service.*` queues. Broker
+resource permissions enforce that ownership boundary, while validated
+configuration and explicit bindings restrict the current application keys.
 
 Each subscription supplies a durable queue, one versioned routing key, and one
 handler. The queue name identifies the subscription, and duplicate queues or
@@ -32,8 +38,14 @@ window. For a subscription queue `<queue>`:
 - retries use `<queue>.retry.1` through `<queue>.retry.5`;
 - permanent failures use `<queue>.dlq` unless the subscription explicitly
   provides another DLQ;
-- retry TTL expiry routes the original bytes back to the domain exchange with
-  that subscription's routing key.
+- retry TTL expiry routes the original bytes through the retry-return exchange
+  using the main queue name as the routing key.
+
+The main queue has two bindings: its versioned domain key on `foc.events` for
+new events, and its queue name on `foc.credit.back` for returned retries. The
+transport accepts only those route-and-attempt combinations. Handlers always
+receive the logical domain routing key and do not depend on the physical retry
+route.
 
 Subscriptions may be registered after the connection starts. Recovery
 redeclares shared topology and recreates every registered subscription.
@@ -116,7 +128,7 @@ consumer: {
   near: top-left
 }
 # --- Shared broker topology (outside Credit Service) ---
-"foc.events": "foc.events (shared durable topic)"
+"foc.events": "foc.events (shared durable direct)"
 "foc.events".class: exchange
 "foc.events": {
   top: 0
@@ -142,6 +154,8 @@ Credit Service.event-dlq: "credit-service.<event>.v1.dlq"
 Credit Service.event-dlq.class: queue
 Credit Service."foc.<service>.retry": "foc.<service>.retry (direct)"
 Credit Service."foc.<service>.retry".class: exchange
+Credit Service."foc.<service>.back": "foc.<service>.back (direct)"
+Credit Service."foc.<service>.back".class: exchange
 Credit Service."foc.<service>.dlx": "foc.<service>.dlx (direct)"
 Credit Service."foc.<service>.dlx".class: exchange
 
@@ -158,7 +172,8 @@ Credit Service.OrchestrationModule -> Credit Service.OutboxModule: "outcome row 
 # --- Retry / dead-letter (per stream) ---
 Credit Service.MessagingModule -> Credit Service."foc.<service>.retry": "transient failure"
 Credit Service."foc.<service>.retry" -> Credit Service.retry-buckets: "x-retry-count 1..5"
-Credit Service.retry-buckets -> "foc.events": "TTL expiry re-delivers unchanged"
+Credit Service.retry-buckets -> Credit Service."foc.<service>.back": "TTL expiry"
+Credit Service."foc.<service>.back" -> Credit Service.event-queue: "queue-identity route\nre-delivers unchanged"
 Credit Service.MessagingModule -> Credit Service."foc.<service>.dlx": "malformed / retries exhausted"
 Credit Service.OrchestrationModule -> Credit Service."foc.<service>.dlx": "validation error flagged"
 Credit Service."foc.<service>.dlx" -> Credit Service.event-dlq: "bind + publish"
@@ -177,9 +192,12 @@ replacement message explicit, avoiding message loss between the main queue,
 retry queues, and DLQ.
 
 Broker-managed TTL retry queues keep retry delays durable across process
-restarts and avoid sleeping application workers. Direct exchanges make retry
-and dead-letter destinations explicit, while the topic domain exchange retains
-versioned event routing and supports intentional fan-out.
+restarts and avoid sleeping application workers. Direct exchanges make domain,
+retry, return, and dead-letter destinations explicit. The domain exchange uses
+exact versioned bindings and can still fan out intentionally when multiple
+queues bind the same key. Returning an expired retry by queue identity prevents
+it from passing through the shared domain key and being delivered again to
+sibling queues that already handled the original event.
 
 One consumer channel and DLQ per stream isolates prefetch, failures, and
 operations as the number of Credit Service handlers grows. Sharing the
@@ -202,6 +220,8 @@ transactions, accepting possible duplicates instead of risking message loss.
 - Effective process-wide prefetch grows with the number of subscriptions.
 - Five retry queues per stream add broker topology and operational overhead but
   make the retry schedule explicit and durable.
+- The retry-return exchange is service-wide, while its queue-name routing keys
+  preserve per-stream isolation.
 - A failed consumer channel briefly reconnects every stream because they share
   one recovering connection.
 - Operators monitor and replay one DLQ per stream; replay tooling is outside
@@ -212,6 +232,11 @@ transactions, accepting possible duplicates instead of risking message loss.
   of subscriptions.
 - Deployments that used a custom legacy global DLQ must drain or migrate it
   before adopting derived per-stream DLQ names.
+- Adopting the retry-return exchange requires stopping Credit Service, waiting
+  at least the longest retry delay, confirming retry queues are empty, deleting
+  only `<queue>.retry.1..5`, and restarting. RabbitMQ rejects the old queues'
+  incompatible dead-letter arguments rather than changing them silently. See
+  RabbitMQ's [dead-letter exchange documentation](https://www.rabbitmq.com/docs/dlx).
 
 ## Requirement Traceability
 
