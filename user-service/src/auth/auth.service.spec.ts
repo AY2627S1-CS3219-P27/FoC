@@ -1,12 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConflictException } from '@nestjs/common';
-import { getRepositoryToken } from '@nestjs/typeorm';
-import { QueryFailedError } from 'typeorm';
 import { AuthService, REGISTER_USER_SCRIPT } from './auth.service.js';
 import { REDIS } from '../redis/redis.provider.js';
 import { SecretService } from '../secret/secret.service.js';
-import { hmacValue, hashValue } from '../common/hash/hash.js';
-import { User } from '../users/user.entity.js';
+import { hmacValue } from '../common/hash/hash.js';
+import {
+  EmailAlreadyRegisteredError,
+  UsersService,
+} from '../users/users.service.js';
 
 vi.mock('../common/hash/hash.js', () => ({
   hmacValue: vi.fn(() => 'deadbeef'),
@@ -16,16 +17,16 @@ vi.mock('../common/hash/hash.js', () => ({
 describe('AuthService', () => {
   let service: AuthService;
   let redis: { eval: ReturnType<typeof vi.fn> };
-  let userRepository: {
-    create: ReturnType<typeof vi.fn>;
-    save: ReturnType<typeof vi.fn>;
-  };
+  let usersService: { provisionUser: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
     redis = { eval: vi.fn() };
-    userRepository = {
-      create: vi.fn((data) => data),
-      save: vi.fn(async (data) => ({ id: 7, ...data })),
+    usersService = {
+      provisionUser: vi.fn(async (args) => ({
+        id: 7,
+        email: args.email,
+        displayName: args.displayName,
+      })),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -36,7 +37,7 @@ describe('AuthService', () => {
           provide: SecretService,
           useValue: { getServerSecret: () => 'test-secret' },
         },
-        { provide: getRepositoryToken(User), useValue: userRepository },
+        { provide: UsersService, useValue: usersService },
       ],
     }).compile();
 
@@ -45,7 +46,6 @@ describe('AuthService', () => {
     // The hashing helpers are module-mocked; clear call history between tests
     // so call-count assertions only see the test under execution.
     vi.mocked(hmacValue).mockClear();
-    vi.mocked(hashValue).mockClear();
   });
 
   it('should be defined', () => {
@@ -73,7 +73,7 @@ describe('AuthService', () => {
     });
   });
 
-  it('provisions the account bound to the token', async () => {
+  it('provisions the account bound to the token via the shared user flow', async () => {
     redis.eval.mockResolvedValue('eve@example.com');
 
     const user = await service.registerWithToken(
@@ -82,14 +82,12 @@ describe('AuthService', () => {
       'StrongPassw0rd!',
     );
 
-    // Account carries the token's bound email, a fresh per-user salt and the
-    // argon2id digest, and starts active.
-    expect(userRepository.save).toHaveBeenCalledWith({
+    // The token's bound email feeds the shared provisioning path (the same
+    // one the admin bootstrap uses), with regular-user flag defaults.
+    expect(usersService.provisionUser).toHaveBeenCalledWith({
       email: 'eve@example.com',
       displayName: 'Eve',
-      passwordHash: 'ab'.repeat(64),
-      passwordSalt: expect.stringMatching(/^[0-9a-f]{32}$/),
-      isActive: true,
+      password: 'StrongPassw0rd!',
     });
 
     // Response exposes only the identifying fields, never the credentials.
@@ -100,18 +98,6 @@ describe('AuthService', () => {
     });
   });
 
-  it('hashes the password with a fresh salt per registration', async () => {
-    redis.eval.mockResolvedValue('eve@example.com');
-
-    await service.registerWithToken('token-a', 'Eve', 'StrongPassw0rd!');
-    await service.registerWithToken('token-b', 'Eve', 'StrongPassw0rd!');
-
-    const args = vi.mocked(hashValue).mock.calls.map((call) => call[1]);
-    expect(args).toHaveLength(2);
-    expect(args[0]).toMatch(/^[0-9a-f]{32}$/);
-    expect(args[0]).not.toBe(args[1]);
-  });
-
   it('rejects when any token validation condition fails', async () => {
     redis.eval.mockResolvedValue(0);
 
@@ -120,18 +106,27 @@ describe('AuthService', () => {
     ).rejects.toThrow('Invalid Registration Token');
 
     // No account is provisioned on a rejected token.
-    expect(userRepository.save).not.toHaveBeenCalled();
+    expect(usersService.provisionUser).not.toHaveBeenCalled();
   });
 
-  it('conflicts when the bound email is already registered', async () => {
+  it('maps an already-registered email to a conflict', async () => {
     redis.eval.mockResolvedValue('eve@example.com');
-    userRepository.save.mockRejectedValue(
-      new QueryFailedError('INSERT INTO users', [], { code: '23505' }),
+    usersService.provisionUser.mockRejectedValue(
+      new EmailAlreadyRegisteredError(),
     );
 
     await expect(
       service.registerWithToken('some-token', 'Eve', 'StrongPassw0rd!'),
     ).rejects.toThrow(ConflictException);
+  });
+
+  it('rethrows provisioning failures that are not email conflicts', async () => {
+    redis.eval.mockResolvedValue('eve@example.com');
+    usersService.provisionUser.mockRejectedValue(new Error('db down'));
+
+    await expect(
+      service.registerWithToken('some-token', 'Eve', 'StrongPassw0rd!'),
+    ).rejects.toThrow('db down');
   });
 
   it('validates and consumes the token atomically in one script', () => {
