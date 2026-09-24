@@ -2,7 +2,12 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 
 const { readFileSyncMock } = vi.hoisted(() => ({ readFileSyncMock: vi.fn() }));
 const sendMailMock = vi.fn();
-const fakeRedis = { set: vi.fn(), del: vi.fn(), on: vi.fn() };
+const fakeRedis = {
+  set: vi.fn(),
+  del: vi.fn(),
+  on: vi.fn(),
+  connect: vi.fn().mockResolvedValue(undefined),
+};
 
 vi.mock('node:fs', async (importOriginal) => ({
   ...(await importOriginal<typeof import('node:fs')>()),
@@ -36,11 +41,9 @@ vi.mock('nodemailer', () => ({
   createTransport: () => ({ sendMail: sendMailMock }),
 }));
 
-vi.mock('ioredis', () => ({
-  // `new Redis(...)` must be constructable; the mock returns the shared fake.
-  Redis: vi.fn().mockImplementation(function () {
-    return fakeRedis;
-  }),
+vi.mock('redis', () => ({
+  // `createClient(...)` must be callable; the mock returns the shared fake.
+  createClient: vi.fn().mockReturnValue(fakeRedis),
 }));
 
 let processOtpEmailMessage: typeof import('./app.ts').processOtpEmailMessage;
@@ -134,13 +137,10 @@ describe('processOtpEmailMessage', () => {
 
     expect(outcome).toEqual({ action: 'acked' });
     expect(sendMailMock).toHaveBeenCalledTimes(1);
-    expect(fakeRedis.set).toHaveBeenCalledWith(
-      DEDUP_KEY_A,
-      '1',
-      'EX',
-      900,
-      'NX',
-    );
+    expect(fakeRedis.set).toHaveBeenCalledWith(DEDUP_KEY_A, '1', {
+      EX: 900,
+      NX: true,
+    });
 
     const mail = sendMailMock.mock.calls[0][0];
     expect(mail.from).toBe('test@foc.com');
@@ -152,9 +152,7 @@ describe('processOtpEmailMessage', () => {
 
   it('acks a crash-redelivered message without resending it', async () => {
     // First delivery marks the id; the redelivery sees it as already present.
-    fakeRedis.set
-      .mockResolvedValueOnce('OK')
-      .mockResolvedValueOnce(null);
+    fakeRedis.set.mockResolvedValueOnce('OK').mockResolvedValueOnce(null);
     const body = otpMessageBody();
 
     expect(await processOtpEmailMessage(body, 1)).toEqual({
