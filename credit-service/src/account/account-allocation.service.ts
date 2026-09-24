@@ -92,13 +92,14 @@ export class AccountAllocationService {
         creditBalance: this.initialCreditBalance,
         reservedBalance: 0,
       })
-      .orIgnore()  // ON CONFLICT DO NOTHING
+      .orIgnore() // ON CONFLICT DO NOTHING
       .returning(['user_id'])
       .execute();
 
     // If the account was not created, check if the allocation exists
     // Non-empty raw means le account was created successfully :D
-    const accountCreated = Array.isArray(insertion.raw) && insertion.raw.length > 0;
+    const accountCreated =
+      Array.isArray(insertion.raw) && insertion.raw.length > 0;
     if (!accountCreated) {
       const allocation = await allocations.findOneBy({ userId });
       if (!allocation) {

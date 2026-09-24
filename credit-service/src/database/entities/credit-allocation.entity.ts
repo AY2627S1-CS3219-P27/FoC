@@ -11,8 +11,8 @@ import {
 import { bigintTransformer } from '../bigint.transformer.js';
 import { CreditAccount } from './credit-account.entity.js';
 
-/** 
- * Immutable record of credits issued by the platform to initialize an account. 
+/**
+ * Immutable record of credits issued by the platform to initialize an account.
  * */
 @Entity({ name: 'credit_allocations' })
 @Check('CHK_credit_allocations_amount', 'amount > 0')
