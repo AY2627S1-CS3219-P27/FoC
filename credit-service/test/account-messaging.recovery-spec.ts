@@ -171,17 +171,34 @@ describe.sequential('account messaging recovery', () => {
     }, timeoutMilliseconds);
   }
 
-  async function takeOutgoing(): Promise<{
+  async function takeOutgoingForUser(
+    userId: string,
+    timeoutMilliseconds = 15_000,
+  ): Promise<{
     message: GetMessage;
     envelope: CreditAccountInitialisedEvent;
   }> {
-    const message = await takeMessage(topology.observationQueue);
-    return {
-      message,
-      envelope: JSON.parse(
+    const deadline = Date.now() + timeoutMilliseconds;
+
+    // A previous scenario can finish publishing while the next scenario is
+    // starting. Match the expected business outcome instead of assuming that
+    // the next queue entry belongs to the current test.
+    while (Date.now() < deadline) {
+      const message = await takeMessage(
+        topology.observationQueue,
+        Math.max(1, deadline - Date.now()),
+      );
+      const envelope = JSON.parse(
         message.content.toString('utf8'),
-      ) as CreditAccountInitialisedEvent,
-    };
+      ) as CreditAccountInitialisedEvent;
+      if (envelope.payload.userId === userId) {
+        return { message, envelope };
+      }
+    }
+
+    throw new Error(
+      `No CreditAccountInitialised event was observed for user ${userId}`,
+    );
   }
 
   async function userCounts(userId: string): Promise<{
@@ -292,6 +309,13 @@ describe.sequential('account messaging recovery', () => {
     app = await startApplication();
   });
 
+  beforeEach(async () => {
+    // Keep scenarios independent even when a prior assertion failed after an
+    // event was confirmed but before that event was consumed by the test.
+    await adminChannel.purgeQueue(topology.observationQueue);
+    await adminChannel.purgeQueue(`${topology.incomingQueue}.dlq`);
+  });
+
   afterAll(async () => {
     await runCompose('up', '-d', '--wait', ...dockerServices).catch(
       () => undefined,
@@ -358,18 +382,24 @@ describe.sequential('account messaging recovery', () => {
       inbox: 1,
       outbox: 1,
     });
-    const { message, envelope } = await takeOutgoing();
-    const [stored] = (await dataSource.query(
-      `
-        SELECT envelope, published_at IS NOT NULL AS published
-        FROM outbox_events
-        WHERE event_id = $1
-      `,
-      [envelope.eventId],
-    )) as Array<{
-      envelope: CreditAccountInitialisedEvent;
-      published: boolean;
-    }>;
+    const { message, envelope } = await takeOutgoingForUser(
+      event.payload.userId,
+    );
+    const stored = await waitFor(async () => {
+      const [row] = (await dataSource.query(
+        `
+          SELECT envelope, published_at IS NOT NULL AS published
+          FROM outbox_events
+          WHERE event_id = $1
+        `,
+        [envelope.eventId],
+      )) as Array<{
+        envelope: CreditAccountInitialisedEvent;
+        published: boolean;
+      }>;
+
+      return row?.published ? row : undefined;
+    });
 
     expect(stored).toEqual({ envelope, published: true });
     expect(envelope.payload).toEqual({
@@ -385,7 +415,7 @@ describe.sequential('account messaging recovery', () => {
   it('preserves idempotency for repeated, semantic, and concurrent duplicates', async () => {
     const repeated = registration();
     await publishEvent(repeated);
-    await takeOutgoing();
+    await takeOutgoingForUser(repeated.payload.userId);
     await publishEvent(repeated);
     await waitForUserCounts(repeated.payload.userId, {
       accounts: 1,
@@ -413,7 +443,7 @@ describe.sequential('account messaging recovery', () => {
       inbox: 2,
       outbox: 1,
     });
-    const concurrentOutgoing = await takeOutgoing();
+    const concurrentOutgoing = await takeOutgoingForUser(concurrentUser);
     expect(concurrentOutgoing.envelope.payload.userId).toBe(concurrentUser);
   });
 
@@ -502,10 +532,14 @@ describe.sequential('account messaging recovery', () => {
         outbox: 1,
       });
       release();
-      await waitFor(async () =>
-        (await queueMetrics()).messages_unacknowledged === 0 ? true : undefined,
+      await waitFor(
+        async () =>
+          (await queueMetrics()).messages_unacknowledged === 0
+            ? true
+            : undefined,
+        30_000,
       );
-      await takeOutgoing();
+      await takeOutgoingForUser(event.payload.userId);
     } finally {
       release();
       process.mockRestore();
@@ -539,7 +573,7 @@ describe.sequential('account messaging recovery', () => {
 
     await app.close();
     app = await startApplication();
-    const published = await takeOutgoing();
+    const published = await takeOutgoingForUser(event.payload.userId);
     expect(published.envelope).toEqual(pending.envelope);
     expect(published.envelope.eventId).toBe(pending.event_id);
     expect(published.message.fields.routingKey).toBe(outgoingRoutingKey);
@@ -583,15 +617,10 @@ describe.sequential('account messaging recovery', () => {
       return true;
     }, 30_000);
 
-    const recoveredPublication = await takeMessage(
-      topology.observationQueue,
+    const recoveredPublication = await takeOutgoingForUser(
+      pending.payload.userId,
       30_000,
-    ).then((message) => ({
-      message,
-      envelope: JSON.parse(
-        message.content.toString('utf8'),
-      ) as CreditAccountInitialisedEvent,
-    }));
+    );
     expect(recoveredPublication.envelope.payload.userId).toBe(
       pending.payload.userId,
     );
@@ -623,7 +652,9 @@ describe.sequential('account messaging recovery', () => {
       inbox: 1,
       outbox: 1,
     });
-    const afterRecoveryPublication = await takeOutgoing();
+    const afterRecoveryPublication = await takeOutgoingForUser(
+      afterRecovery.payload.userId,
+    );
     expect(afterRecoveryPublication.envelope.payload.userId).toBe(
       afterRecovery.payload.userId,
     );
