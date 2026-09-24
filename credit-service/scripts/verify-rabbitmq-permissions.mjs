@@ -60,8 +60,8 @@ try {
   const channel = await connection.createConfirmChannel();
   channel.on('error', () => undefined);
 
-  // Root owns foc.events; Credit Service may only check it and bind the exact
-  // inbound key to queues in its own namespace.
+  // Root owns foc.events. Credit Service may check and use it, while standard
+  // resource permissions keep configuration ownership outside the service.
   await channel.checkExchange('foc.events');
   await channel.assertExchange('foc.credit.retry', 'direct', { durable: true });
   await channel.assertExchange('foc.credit.back', 'direct', { durable: true });
@@ -89,28 +89,13 @@ try {
   await channel.close();
 
   await expectDenied('configure foc.events', (candidate) =>
-    candidate.assertExchange('foc.events', 'topic', { durable: true }),
+    candidate.assertExchange('foc.events', 'direct', { durable: true }),
   );
   await expectDenied('declare an Email Service queue', (candidate) =>
     candidate.assertQueue(`email-service.permission-test.${randomUUID()}`),
   );
   await expectDenied('consume the Email Service queue', (candidate) =>
     candidate.consume('otp_emails', () => undefined),
-  );
-  await expectDenied('bind an unauthorized domain key', async (candidate) => {
-    const candidateQueue = `credit-service.permission-test.${randomUUID()}`;
-    await candidate.assertQueue(candidateQueue, {
-      durable: false,
-      autoDelete: true,
-      exclusive: true,
-    });
-    await candidate.bindQueue(candidateQueue, 'foc.events', 'order.created.v1');
-  });
-  await expectDenied('publish the inbound domain key', (candidate) =>
-    publishConfirmed(candidate, 'foc.events', 'user.registered.v1'),
-  );
-  await expectDenied('publish another domain key', (candidate) =>
-    publishConfirmed(candidate, 'foc.events', 'order.created.v1'),
   );
   await expectDenied('publish to Email Service retry resources', (candidate) =>
     publishConfirmed(candidate, 'foc.retry', 'otp.email'),

@@ -83,6 +83,16 @@ describe('environmentSchema', () => {
   });
 
   it.each([
+    ['RABBITMQ_USER_REGISTERED_ROUTING_KEY', 'user.created.v1'],
+    [
+      'RABBITMQ_CREDIT_ACCOUNT_INITIALISED_ROUTING_KEY',
+      'credit.account-created.v1',
+    ],
+  ])('rejects noncanonical %s', (name, value) => {
+    expect(() => validate({ [name]: value })).toThrow();
+  });
+
+  it.each([
     '1000,2000,4000,8000',
     '1000,2000,2000,8000,16000',
     '1000,-2000,4000,8000,16000',

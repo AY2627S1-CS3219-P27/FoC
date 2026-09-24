@@ -111,7 +111,7 @@ describe.sequential('account messaging recovery', () => {
     );
     adminChannel = await adminConnection.createChannel();
     publisherChannel = await adminConnection.createConfirmChannel();
-    await adminChannel.assertExchange(topology.domainExchange, 'topic', {
+    await adminChannel.assertExchange(topology.domainExchange, 'direct', {
       durable: true,
     });
     await adminChannel.assertQueue(topology.observationQueue, {

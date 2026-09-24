@@ -31,7 +31,7 @@ describe('RabbitMqOutboxPublisher messaging integration', () => {
     } as ConfigService<EnvironmentVariables, true>;
     connection = await connect(rabbitMqUrl);
     channel = await connection.createChannel();
-    await channel.assertExchange(exchange, 'topic', { durable: true });
+    await channel.assertExchange(exchange, 'direct', { durable: true });
     await channel.assertQueue(queue, {
       durable: false,
       exclusive: true,

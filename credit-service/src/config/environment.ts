@@ -80,10 +80,10 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
     .min(1)
     .default('credit-service.user-registered.v1'),
   RABBITMQ_USER_REGISTERED_ROUTING_KEY: Joi.string()
-    .min(1)
+    .valid('user.registered.v1')
     .default('user.registered.v1'),
   RABBITMQ_CREDIT_ACCOUNT_INITIALISED_ROUTING_KEY: Joi.string()
-    .min(1)
+    .valid('credit.account-initialised.v1')
     .default('credit.account-initialised.v1'),
   RABBITMQ_RETRY_EXCHANGE: Joi.string().min(1).default('foc.credit.retry'),
   RABBITMQ_RETRY_RETURN_EXCHANGE: Joi.string()

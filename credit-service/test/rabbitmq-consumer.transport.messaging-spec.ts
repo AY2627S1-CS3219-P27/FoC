@@ -113,6 +113,9 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     connection = await connect(rabbitMqUrl);
     adminChannel = await connection.createChannel();
     publisherChannel = await connection.createConfirmChannel();
+    await adminChannel.assertExchange(names.domainExchange, 'direct', {
+      durable: true,
+    });
     behavior = async () => ({ outcome: 'ack' });
     transport = new RabbitMqConsumerTransport(config, rabbitMqUrl, connect);
     await transport.subscribe({
@@ -240,6 +243,21 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     expect(handler.handle).not.toHaveBeenCalled();
     expect(
       (await adminChannel.checkQueue(names.deadLetterQueue)).messageCount,
+    ).toBe(0);
+  });
+
+  it('does not deliver a routing key without an exact binding', async () => {
+    await publish(eventBody(), 'user.profile-updated.v1');
+
+    // Publisher confirmation means RabbitMQ has completed routing before these
+    // assertions; the direct exchange has no matching destination.
+    expect(handler.handle).not.toHaveBeenCalled();
+    expect(secondHandler.handle).not.toHaveBeenCalled();
+    expect((await adminChannel.checkQueue(names.mainQueue)).messageCount).toBe(
+      0,
+    );
+    expect(
+      (await adminChannel.checkQueue(names.secondQueue)).messageCount,
     ).toBe(0);
   });
 
@@ -385,7 +403,7 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
         ? true
         : undefined,
     );
-    // Both queues receive the original topic event, but the queue-identity
+    // Both queues receive the original exactly-bound event, but queue-identity
     // return route prevents the successful sibling from seeing the retry.
     expect(handler.handle).toHaveBeenCalledTimes(2);
     expect(siblingHandler.handle).toHaveBeenCalledTimes(1);

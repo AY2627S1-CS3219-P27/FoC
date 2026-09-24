@@ -23,7 +23,9 @@ const connection = await connect(rabbitMqUrl);
 const channel = await connection.createConfirmChannel();
 
 try {
-  await channel.assertExchange(exchange, 'topic', { durable: true });
+  // Shared broker infrastructure owns the domain exchange. Publishing tools
+  // verify it exists without acquiring permission to configure it.
+  await channel.checkExchange(exchange);
   let writable = true;
   const confirmed = new Promise((resolveConfirmation, rejectConfirmation) => {
     writable = channel.publish(
