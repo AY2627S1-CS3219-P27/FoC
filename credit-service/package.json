@@ -18,7 +18,7 @@
     "prestart": "npm run contracts:sync:source",
     "start": "nest start",
     "prestart:dev": "npm run contracts:sync:source",
-    "start:dev": "nest start --watch",
+    "start:dev": "nest start --watch --preserveWatchOutput",
     "prestart:debug": "npm run contracts:sync:source",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
