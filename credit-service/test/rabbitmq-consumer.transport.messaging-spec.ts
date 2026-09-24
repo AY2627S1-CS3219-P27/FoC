@@ -91,7 +91,6 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     }
 
     const values = {
-      RABBITMQ_URL: rabbitMqUrl,
       RABBITMQ_EXCHANGE: names.domainExchange,
       RABBITMQ_USER_REGISTERED_QUEUE: names.mainQueue,
       RABBITMQ_USER_REGISTERED_ROUTING_KEY: 'user.registered.v1',
@@ -115,7 +114,7 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     adminChannel = await connection.createChannel();
     publisherChannel = await connection.createConfirmChannel();
     behavior = async () => ({ outcome: 'ack' });
-    transport = new RabbitMqConsumerTransport(config, connect);
+    transport = new RabbitMqConsumerTransport(config, rabbitMqUrl, connect);
     await transport.subscribe({
       queue: names.mainQueue,
       routingKey: 'user.registered.v1',

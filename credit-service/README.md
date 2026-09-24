@@ -33,21 +33,24 @@ containerization, and messaging decisions and the complete topology diagram.
 - npm 11.18.0
 - Docker with Docker Compose
 
-Run npm and Compose commands in the `credit-service` directory unless a command
-says otherwise.
+Run npm commands in `credit-service`. Run the normal application stack from the
+repository root; service-local Compose profiles are reserved for tests.
 
 ## Local setup
 
-Create the service-local environment and database secret files:
+Create the service-local environment and secret files:
 
 ```powershell
 Copy-Item .env.example .env
 Copy-Item secrets/credit_db_password.secret.example secrets/credit_db_password.secret
+Copy-Item secrets/rabbitmq_password.secret.example secrets/rabbitmq_password.secret
 ```
 
-Replace the example database password and `RABBITMQ_PASSWORD` in `.env`. The
-secret file and `.env` are ignored by Git. Every variable read by the service is
-documented in [.env.example](./.env.example).
+Replace both example secrets. Generate the RabbitMQ password hash with
+`rabbitmqctl hash_password`, then update only the `credit-service` hash in the
+root broker definitions so it matches the ignored secret. Never commit the
+actual password. Every variable read by the service is documented in
+[.env.example](./.env.example).
 
 Install the locked dependencies:
 
@@ -57,11 +60,11 @@ npm ci
 
 ## Run with Docker Compose
 
-Start the dependencies, build Credit Service, apply its migrations, and then
-start the application:
+From the repository root, start the shared broker and Credit database, build
+Credit Service, apply its migrations, and then start the application:
 
 ```powershell
-docker compose up -d --wait credit-db credit-rabbitmq
+docker compose up -d --wait rabbitmq credit-db
 docker compose build credit-service
 docker compose run --rm credit-service npm run migration:run
 docker compose up -d credit-service
@@ -80,9 +83,10 @@ docker compose logs -f credit-service
 docker compose down
 ```
 
-Credit Service Docker builds use the repository root as their build context so
-canonical event schemas are available during compilation. The service-local
-Compose file configures this automatically.
+Credit Service authenticates to `/foc` as `credit-service`. Its password is
+mounted at `/run/secrets/rabbitmq_password_credit_service`; it is never placed
+in the container environment. Docker builds use the repository root as their
+build context so canonical event schemas are available during compilation.
 
 ## Testing
 
@@ -96,6 +100,7 @@ that exercise real infrastructure.
 | PostgreSQL integration | `npm run test:integration` | Isolated PostgreSQL on port `5436` | Migrations, constraints, immutable allocations, repositories, account initialization, inbox/outbox atomicity, concurrency, and relay claims |
 | HTTP end-to-end | `npm run test:e2e` | Isolated PostgreSQL on port `5436`; no RabbitMQ | The real NestJS `AppModule` and HTTP endpoint; broker components are replaced with no-op test providers |
 | RabbitMQ messaging integration | `npm run test:messaging` | RabbitMQ on port `5675` | Real queue topology, multiple stream isolation, retries, DLQs, manual acknowledgements, confirmed publication, and shutdown |
+| Shared-broker permissions | `npm run test:rabbitmq-permissions` | Root RabbitMQ on port `5672` | The Credit identity's allowed topology, consumption, and publication operations, plus denial of shared-exchange configuration, Email resources, and unauthorized topic keys |
 | Messaging recovery | `npm run test:recovery` | Disposable PostgreSQL and RabbitMQ on ports `5437`, `5676`, and `15676` by default | The complete broker-to-database-to-outbox pipeline, idempotency, acknowledgement ordering, application restart, and live infrastructure recovery |
 
 All test commands synchronize the source-time contract cache before Vitest
@@ -156,13 +161,29 @@ Start the service-local broker, then run the real-AMQP transport and publisher
 tests:
 
 ```powershell
-docker compose up -d --wait credit-rabbitmq
+docker compose --profile test up -d --wait credit-rabbitmq
 npm run test:messaging
 ```
 
 Each run creates uniquely named exchanges and queues and removes them afterward.
 The tests cover two subscriptions to prove handler, retry-chain, and DLQ
 isolation. They do not use PostgreSQL or start the complete NestJS application.
+The `RABBITMQ_URL` variable is retained only for these isolated test tools; the
+running application constructs its URL from component settings and a secret
+file.
+
+To verify least-privilege permissions against a fresh root broker, point the
+documented component settings at the host-published broker and run:
+
+```powershell
+$env:RABBITMQ_HOST = '127.0.0.1'
+$env:RABBITMQ_PASSWORD_FILE = './secrets/rabbitmq_password.secret'
+npm run test:rabbitmq-permissions
+```
+
+The verifier creates only uniquely named, auto-delete queues in the
+`credit-service.*` namespace. It never deletes or reconfigures shared broker
+resources.
 
 ### Messaging recovery tests
 
@@ -195,6 +216,13 @@ npm run format
 and unit tests do not replace the PostgreSQL, RabbitMQ, or recovery suites.
 
 ## RabbitMQ subscriptions and retries
+
+The root broker owns the shared `foc.events` topic exchange. Credit Service
+checks that exchange passively, so its credential cannot create, delete, or
+alter it. RabbitMQ topic permissions allow Credit Service to bind only
+`user.registered.v1` and publish only `credit.account-initialised.v1`.
+Implementing another event contract therefore also requires an explicit ACL
+update.
 
 Credit Service uses one recovering consumer connection while giving every
 incoming event stream its own durable queue, handler, and consumer channel. A
@@ -239,6 +267,23 @@ with the new return route. For each deployed Credit Service environment:
 If an old retry queue remains, startup intentionally fails with RabbitMQ's
 inequivalent-argument error instead of retaining the unsafe route. See
 RabbitMQ's [dead-letter exchange documentation](https://www.rabbitmq.com/docs/dlx).
+
+### Shared exchange migration
+
+RabbitMQ cannot change an existing exchange from `direct` to `topic` in place.
+For an environment created from the earlier root definitions, use a maintenance
+window:
+
+1. Stop User, Email, and Credit Service publishers and consumers.
+2. Drain pending retry queues and export the broker definitions as a backup.
+3. Delete only `foc.events`; retain its bound queues and their messages.
+4. Import or start the updated root definitions to recreate `foc.events` as a
+   durable topic exchange and provision the Credit Service identity.
+5. Start User and Email Services, then Credit Service.
+6. Confirm the expected queue bindings before resuming traffic.
+
+Do not remove broker volumes or service queues as part of this migration. The
+exact existing bindings continue to behave the same on a topic exchange.
 
 ## Database model
 

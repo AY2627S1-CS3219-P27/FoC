@@ -17,6 +17,7 @@ import type {
 } from 'amqplib';
 import type { EnvironmentVariables } from '../config/environment.js';
 import { AMQP_CONNECT, type AmqpConnect } from './amqp-connection.provider.js';
+import { RABBITMQ_CONNECTION_URL } from './rabbitmq-connection-url.provider.js';
 import type {
   PermanentMessageFailure,
   Subscription,
@@ -144,9 +145,10 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
 
   constructor(
     config: ConfigService<EnvironmentVariables, true>,
+    @Inject(RABBITMQ_CONNECTION_URL) rabbitMqUrl: string,
     @Inject(AMQP_CONNECT) private readonly connectAmqp: AmqpConnect,
   ) {
-    this.rabbitMqUrl = config.getOrThrow('RABBITMQ_URL');
+    this.rabbitMqUrl = rabbitMqUrl;
     this.topology = {
       domainExchange: config.getOrThrow('RABBITMQ_EXCHANGE'),
       retryExchange: config.getOrThrow('RABBITMQ_RETRY_EXCHANGE'),
@@ -408,9 +410,10 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
   }
 
   private async declareSharedTopology(channel: Channel): Promise<void> {
-    await channel.assertExchange(this.topology.domainExchange, 'topic', {
-      durable: true,
-    });
+    // Root infrastructure owns the shared domain exchange. A passive check
+    // fails startup if it is absent without granting this service permission
+    // to create, delete, or alter shared broker infrastructure.
+    await channel.checkExchange(this.topology.domainExchange);
     await channel.assertExchange(this.topology.retryExchange, 'direct', {
       durable: true,
     });

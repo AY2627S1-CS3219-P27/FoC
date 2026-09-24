@@ -19,6 +19,7 @@ import type {
 } from '../src/contracts/account-event-contract.types.js';
 import { AccountEventContractValidator } from '../src/contracts/account-event-contract.validator.js';
 import { createDatabaseOptions } from '../src/database/database-options.js';
+import { RABBITMQ_CONNECTION_URL } from '../src/messaging/rabbitmq-connection-url.provider.js';
 import { OutboxRelay } from '../src/outbox/outbox.relay.js';
 
 const execFileAsync = promisify(execFile);
@@ -126,7 +127,9 @@ describe.sequential('account messaging recovery', () => {
   async function startApplication(
     disableRelay = false,
   ): Promise<INestApplication> {
-    let builder = Test.createTestingModule({ imports: [appModule] });
+    let builder = Test.createTestingModule({ imports: [appModule] })
+      .overrideProvider(RABBITMQ_CONNECTION_URL)
+      .useValue(rabbitMqUrl);
     if (disableRelay) {
       builder = builder.overrideProvider(OutboxRelay).useValue({
         start: vi.fn().mockResolvedValue(undefined),
@@ -252,6 +255,11 @@ describe.sequential('account messaging recovery', () => {
 
     Object.assign(process.env, {
       RABBITMQ_EXCHANGE: topology.domainExchange,
+      RABBITMQ_USER: 'credit-service-test',
+      RABBITMQ_HOST: '127.0.0.1',
+      RABBITMQ_PORT: process.env.RABBITMQ_RECOVERY_HOST_PORT ?? '5676',
+      RABBITMQ_VHOST: '/',
+      RABBITMQ_PASSWORD_FILE: './secrets/credit_db_password.secret',
       RABBITMQ_USER_REGISTERED_QUEUE: topology.incomingQueue,
       RABBITMQ_USER_REGISTERED_ROUTING_KEY: incomingRoutingKey,
       RABBITMQ_CREDIT_ACCOUNT_INITIALISED_ROUTING_KEY: outgoingRoutingKey,

@@ -11,6 +11,7 @@ import {
 
 class FakeChannel extends EventEmitter {
   readonly exchanges: unknown[][] = [];
+  readonly checkedExchanges: string[] = [];
   readonly publications: Array<{
     exchange: string;
     routingKey: string;
@@ -27,6 +28,11 @@ class FakeChannel extends EventEmitter {
   async assertExchange(...args: unknown[]) {
     this.exchanges.push(args);
     return { exchange: String(args[0]) };
+  }
+
+  async checkExchange(exchange: string) {
+    this.checkedExchanges.push(exchange);
+    return { exchange };
   }
 
   publish(
@@ -82,7 +88,6 @@ const publication: OutboxPublication = {
 
 function harness(timeout = 30_000) {
   const values = {
-    RABBITMQ_URL: 'amqp://test',
     RABBITMQ_EXCHANGE: 'foc.events',
     OUTBOX_CLAIM_LEASE_MS: timeout,
   };
@@ -98,7 +103,11 @@ function harness(timeout = 30_000) {
     );
     return model;
   }) as unknown as AmqpConnect;
-  const publisher = new RabbitMqOutboxPublisher(config, connect);
+  const publisher = new RabbitMqOutboxPublisher(
+    config,
+    'amqp://credit-service:test@rabbitmq:5672/%2Ffoc',
+    connect,
+  );
 
   return { connect, model, publisher, getRecoverySetup: () => recoverySetup };
 }
@@ -116,12 +125,11 @@ describe('RabbitMqOutboxPublisher', () => {
     await publisher.publish(publication);
 
     expect(connect).toHaveBeenCalledWith(
-      'amqp://test',
+      'amqp://credit-service:test@rabbitmq:5672/%2Ffoc',
       expect.objectContaining({ recovery: expect.any(Object) }),
     );
-    expect(model.channel.exchanges).toEqual([
-      ['foc.events', 'topic', { durable: true }],
-    ]);
+    expect(model.channel.exchanges).toEqual([]);
+    expect(model.channel.checkedExchanges).toEqual(['foc.events']);
     expect(model.channel.publications).toEqual([
       {
         exchange: 'foc.events',

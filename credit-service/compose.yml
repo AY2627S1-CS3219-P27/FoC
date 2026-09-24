@@ -11,8 +11,6 @@ services:
     depends_on:
       credit-db:
         condition: service_healthy
-      credit-rabbitmq:
-        condition: service_healthy
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: ${PORT:-3000}
@@ -23,7 +21,11 @@ services:
       DB_DATABASE: ${DB_DATABASE:-credit_service}
       DB_PASSWORD_FILE: /run/secrets/credit_db_password
       INITIAL_CREDIT_BALANCE: ${INITIAL_CREDIT_BALANCE:-100}
-      RABBITMQ_URL: 'amqp://${RABBITMQ_USERNAME:?RABBITMQ_USERNAME must be set}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must be set}@credit-rabbitmq:5672'
+      RABBITMQ_USER: credit-service
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_VHOST: /foc
+      RABBITMQ_PASSWORD_FILE: /run/secrets/rabbitmq_password_credit_service
       RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-foc.events}
       RABBITMQ_USER_REGISTERED_QUEUE: ${RABBITMQ_USER_REGISTERED_QUEUE:-credit-service.user-registered.v1}
       RABBITMQ_USER_REGISTERED_ROUTING_KEY: ${RABBITMQ_USER_REGISTERED_ROUTING_KEY:-user.registered.v1}
@@ -39,6 +41,7 @@ services:
       OUTBOX_UNPUBLISHED_WARNING_MS: ${OUTBOX_UNPUBLISHED_WARNING_MS:-60000}
     secrets:
       - credit_db_password
+      - rabbitmq_password_credit_service
     healthcheck:
       test:
         [
@@ -131,6 +134,7 @@ services:
 
   credit-rabbitmq:
     image: rabbitmq:4.3.6-management-alpine
+    profiles: ['test']
     restart: unless-stopped
     ports:
       - '${RABBITMQ_HOST_PORT:-5675}:5672'
@@ -177,3 +181,5 @@ volumes:
 secrets:
   credit_db_password:
     file: ./secrets/credit_db_password.secret
+  rabbitmq_password_credit_service:
+    file: ./secrets/rabbitmq_password.secret

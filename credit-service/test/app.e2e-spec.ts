@@ -3,6 +3,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from './../src/app.module.js';
 import { RabbitMqConsumerTransport } from './../src/messaging/rabbitmq-consumer.transport.js';
+import { RABBITMQ_CONNECTION_URL } from './../src/messaging/rabbitmq-connection-url.provider.js';
 import { OutboxRelay } from './../src/outbox/outbox.relay.js';
 
 describe('AppController (e2e)', () => {
@@ -16,6 +17,8 @@ describe('AppController (e2e)', () => {
       // its own real-RabbitMQ integration suite.
       .overrideProvider(RabbitMqConsumerTransport)
       .useValue({ subscribe: vi.fn(), close: vi.fn() })
+      .overrideProvider(RABBITMQ_CONNECTION_URL)
+      .useValue('amqp://unused')
       .overrideProvider(OutboxRelay)
       .useValue({ start: vi.fn(), close: vi.fn() })
       .compile();

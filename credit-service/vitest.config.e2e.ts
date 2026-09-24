@@ -17,7 +17,11 @@ export default defineConfig({
       DB_USERNAME: 'credit_service',
       DB_DATABASE: 'credit_service_test',
       DB_PASSWORD_FILE: './secrets/credit_db_password.secret',
-      RABBITMQ_URL: 'amqp://credit_service:test@credit-rabbitmq:5672',
+      RABBITMQ_USER: 'credit-service',
+      RABBITMQ_HOST: 'rabbitmq',
+      RABBITMQ_PORT: '5672',
+      RABBITMQ_VHOST: '/foc',
+      RABBITMQ_PASSWORD_FILE: './secrets/credit_db_password.secret',
     },
   },
 });

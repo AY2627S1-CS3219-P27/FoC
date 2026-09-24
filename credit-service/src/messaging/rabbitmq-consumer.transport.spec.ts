@@ -24,7 +24,11 @@ const configuration: EnvironmentVariables = {
   DB_DATABASE: 'credit_service',
   DB_PASSWORD_FILE: '/run/secrets/credit_db_password',
   INITIAL_CREDIT_BALANCE: 100,
-  RABBITMQ_URL: 'amqp://credit_service:test@credit-rabbitmq:5672',
+  RABBITMQ_USER: 'credit-service',
+  RABBITMQ_HOST: 'rabbitmq',
+  RABBITMQ_PORT: 5672,
+  RABBITMQ_VHOST: '/foc',
+  RABBITMQ_PASSWORD_FILE: '/run/secrets/rabbitmq_password_credit_service',
   RABBITMQ_EXCHANGE: 'foc.events',
   RABBITMQ_USER_REGISTERED_QUEUE: 'credit-service.user-registered.v1',
   RABBITMQ_USER_REGISTERED_ROUTING_KEY: 'user.registered.v1',
@@ -53,6 +57,7 @@ class FakeChannel extends EventEmitter {
     super();
   }
   readonly assertedExchanges: unknown[][] = [];
+  readonly checkedExchanges: string[] = [];
   readonly assertedQueues: unknown[][] = [];
   readonly bindings: unknown[][] = [];
   readonly published: PublishedMessage[] = [];
@@ -75,6 +80,11 @@ class FakeChannel extends EventEmitter {
   async assertExchange(...args: unknown[]): Promise<{ exchange: string }> {
     this.assertedExchanges.push(args);
     return { exchange: String(args[0]) };
+  }
+
+  async checkExchange(exchange: string): Promise<{ exchange: string }> {
+    this.checkedExchanges.push(exchange);
+    return { exchange };
   }
 
   async assertQueue(...args: unknown[]): Promise<{
@@ -241,7 +251,11 @@ function createHarness(
     );
     return model;
   }) as unknown as AmqpConnect;
-  const transport = new RabbitMqConsumerTransport(config, connect);
+  const transport = new RabbitMqConsumerTransport(
+    config,
+    'amqp://credit-service:test@rabbitmq:5672/%2Ffoc',
+    connect,
+  );
 
   return {
     connect,
@@ -291,15 +305,15 @@ describe('RabbitMqConsumerTransport', () => {
     );
 
     expect(connect).toHaveBeenCalledWith(
-      configuration.RABBITMQ_URL,
+      'amqp://credit-service:test@rabbitmq:5672/%2Ffoc',
       expect.objectContaining({ recovery: expect.any(Object) }),
     );
     expect(model.publisher.assertedExchanges).toEqual([
-      ['foc.events', 'topic', { durable: true }],
       ['foc.credit.retry', 'direct', { durable: true }],
       ['foc.credit.back', 'direct', { durable: true }],
       ['foc.credit.dlx', 'direct', { durable: true }],
     ]);
+    expect(model.publisher.checkedExchanges).toEqual(['foc.events']);
     expect(model.consumer.assertedQueues).toEqual([
       ['credit-service.user-registered.v1', { durable: true }],
       ...configuration.RABBITMQ_RETRY_DELAYS_MS.map((delay, index) => [
@@ -365,7 +379,8 @@ describe('RabbitMqConsumerTransport', () => {
     ]);
 
     expect(connect).toHaveBeenCalledOnce();
-    expect(model.publisher.assertedExchanges).toHaveLength(4);
+    expect(model.publisher.assertedExchanges).toHaveLength(3);
+    expect(model.publisher.checkedExchanges).toEqual(['foc.events']);
     expect(model.consumers).toHaveLength(2);
     expect(model.consumers.map(({ prefetchCount }) => prefetchCount)).toEqual([
       10, 10,
@@ -681,7 +696,8 @@ describe('RabbitMqConsumerTransport', () => {
     expect(recoveredModel.consumers[1].assertedQueues).toEqual(
       model.consumers[1].assertedQueues,
     );
-    expect(recoveredModel.publisher.assertedExchanges).toHaveLength(4);
+    expect(recoveredModel.publisher.assertedExchanges).toHaveLength(3);
+    expect(recoveredModel.publisher.checkedExchanges).toEqual(['foc.events']);
   });
 
   it('recycles the connection once when current consumer channels close', async () => {

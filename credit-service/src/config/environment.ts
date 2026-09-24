@@ -12,7 +12,11 @@ export interface EnvironmentVariables {
   DB_DATABASE: string;
   DB_PASSWORD_FILE: string;
   INITIAL_CREDIT_BALANCE: number;
-  RABBITMQ_URL: string;
+  RABBITMQ_USER: string;
+  RABBITMQ_HOST: string;
+  RABBITMQ_PORT: number;
+  RABBITMQ_VHOST: string;
+  RABBITMQ_PASSWORD_FILE: string;
   RABBITMQ_EXCHANGE: string;
   RABBITMQ_USER_REGISTERED_QUEUE: string;
   RABBITMQ_USER_REGISTERED_ROUTING_KEY: string;
@@ -66,9 +70,11 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
     .min(1)
     .max(Number.MAX_SAFE_INTEGER)
     .default(100),
-  RABBITMQ_URL: Joi.string()
-    .uri({ scheme: ['amqp', 'amqps'] })
-    .required(),
+  RABBITMQ_USER: Joi.string().min(1).required(),
+  RABBITMQ_HOST: Joi.string().hostname().required(),
+  RABBITMQ_PORT: Joi.number().integer().min(1).max(65_535).required(),
+  RABBITMQ_VHOST: Joi.string().min(1).required(),
+  RABBITMQ_PASSWORD_FILE: Joi.string().min(1).required(),
   RABBITMQ_EXCHANGE: Joi.string().min(1).default('foc.events'),
   RABBITMQ_USER_REGISTERED_QUEUE: Joi.string()
     .min(1)

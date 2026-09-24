@@ -23,7 +23,6 @@ describe('RabbitMqOutboxPublisher messaging integration', () => {
     }
 
     const values = {
-      RABBITMQ_URL: rabbitMqUrl,
       RABBITMQ_EXCHANGE: exchange,
       OUTBOX_CLAIM_LEASE_MS: 5_000,
     };
@@ -39,7 +38,7 @@ describe('RabbitMqOutboxPublisher messaging integration', () => {
       autoDelete: true,
     });
     await channel.bindQueue(queue, exchange, routingKey);
-    publisher = new RabbitMqOutboxPublisher(config, connect);
+    publisher = new RabbitMqOutboxPublisher(config, rabbitMqUrl, connect);
     await publisher.start();
   });
 

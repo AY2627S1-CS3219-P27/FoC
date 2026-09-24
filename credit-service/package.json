@@ -37,6 +37,7 @@
     "test:integration": "vitest run --config ./vitest.config.integration.ts",
     "pretest:messaging": "npm run contracts:sync:source",
     "test:messaging": "vitest run --config ./vitest.config.messaging.ts",
+    "test:rabbitmq-permissions": "node scripts/verify-rabbitmq-permissions.mjs",
     "pretest:recovery": "npm run contracts:sync:source",
     "test:recovery": "node scripts/run-recovery-tests.mjs",
     "event:publish:user-registered": "node scripts/publish-event-fixture.mjs test/fixtures/user-registered.v1.json",

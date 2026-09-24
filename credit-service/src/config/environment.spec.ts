@@ -6,7 +6,11 @@ const requiredEnvironment = {
   DB_USERNAME: 'credit_service',
   DB_DATABASE: 'credit_service',
   DB_PASSWORD_FILE: '/run/secrets/credit_db_password',
-  RABBITMQ_URL: 'amqp://credit_service:test@credit-rabbitmq:5672',
+  RABBITMQ_USER: 'credit-service',
+  RABBITMQ_HOST: 'rabbitmq',
+  RABBITMQ_PORT: '5672',
+  RABBITMQ_VHOST: '/foc',
+  RABBITMQ_PASSWORD_FILE: '/run/secrets/rabbitmq_password_credit_service',
 };
 
 function validate(
@@ -68,12 +72,15 @@ describe('environmentSchema', () => {
     },
   );
 
-  it.each(['http://rabbitmq:15672', 'credit-rabbitmq:5672', ''])(
-    'rejects non-AMQP RabbitMQ URL %s',
-    (rabbitmqUrl) => {
-      expect(() => validate({ RABBITMQ_URL: rabbitmqUrl })).toThrow();
-    },
-  );
+  it.each([
+    ['RABBITMQ_USER', ''],
+    ['RABBITMQ_HOST', 'not a host'],
+    ['RABBITMQ_PORT', 0],
+    ['RABBITMQ_VHOST', ''],
+    ['RABBITMQ_PASSWORD_FILE', ''],
+  ])('rejects invalid %s', (name, value) => {
+    expect(() => validate({ [name]: value })).toThrow();
+  });
 
   it.each([
     '1000,2000,4000,8000',

@@ -11,6 +11,7 @@ import {
   AMQP_CONNECT,
   type AmqpConnect,
 } from '../messaging/amqp-connection.provider.js';
+import { RABBITMQ_CONNECTION_URL } from '../messaging/rabbitmq-connection-url.provider.js';
 import type { OutboxPublication } from './outbox-publication.types.js';
 
 export class RabbitMqOutboxPublisherUnavailableError extends Error {
@@ -41,13 +42,14 @@ export class RabbitMqOutboxPublisher {
 
   constructor(
     config: ConfigService<EnvironmentVariables, true>,
+    @Inject(RABBITMQ_CONNECTION_URL) rabbitMqUrl: string,
     @Inject(AMQP_CONNECT) private readonly connectAmqp: AmqpConnect,
   ) {
     this.exchange = config.getOrThrow('RABBITMQ_EXCHANGE');
     this.confirmationTimeoutMilliseconds = config.getOrThrow(
       'OUTBOX_CLAIM_LEASE_MS',
     );
-    this.rabbitMqUrl = config.getOrThrow('RABBITMQ_URL');
+    this.rabbitMqUrl = rabbitMqUrl;
   }
 
   async start(): Promise<void> {
@@ -149,7 +151,9 @@ export class RabbitMqOutboxPublisher {
     }
 
     const channel = await model.createConfirmChannel();
-    await channel.assertExchange(this.exchange, 'topic', { durable: true });
+    // The root broker owns foc.events; Credit Service only verifies that the
+    // shared exchange exists before using its permitted routing key.
+    await channel.checkExchange(this.exchange);
     channel.on('error', (error) =>
       this.logger.error(
         `RabbitMQ outbox channel error: ${this.errorName(error)}`,
