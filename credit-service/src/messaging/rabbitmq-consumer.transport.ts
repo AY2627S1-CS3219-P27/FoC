@@ -773,8 +773,9 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
           ? properties.timestamp
           : undefined,
       type: typeof properties.type === 'string' ? properties.type : undefined,
-      userId:
-        typeof properties.userId === 'string' ? properties.userId : undefined,
+      // RabbitMQ validates AMQP userId against the publishing connection.
+      // Forwarding an upstream identity would make Credit Service's retry or
+      // DLQ publication fail when the original producer used another account.
       appId:
         typeof properties.appId === 'string' ? properties.appId : undefined,
       headers,

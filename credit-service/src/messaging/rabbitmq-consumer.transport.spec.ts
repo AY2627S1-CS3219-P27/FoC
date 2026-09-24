@@ -203,6 +203,7 @@ function message(
     exchange?: string;
     routingKey?: string;
     headers?: Record<string, unknown>;
+    userId?: string;
   } = {},
 ): ConsumeMessage {
   return {
@@ -226,7 +227,7 @@ function message(
       messageId: undefined,
       timestamp: 1_795_000_000,
       type: 'UserRegistered',
-      userId: undefined,
+      userId: overrides.userId,
       appId: 'user-service',
       clusterId: undefined,
     },
@@ -565,6 +566,7 @@ describe('RabbitMqConsumerTransport', () => {
         'x-event-id': 'spoofed',
         'x-failure-category': 'spoofed',
       },
+      userId: 'user-service',
     });
 
     await deliver(model, delivery);
@@ -591,6 +593,7 @@ describe('RabbitMqConsumerTransport', () => {
     expect(model.publisher.published[0].options).not.toHaveProperty(
       'expiration',
     );
+    expect(model.publisher.published[0].options).not.toHaveProperty('userId');
     expect(model.consumer.acknowledged).toEqual([delivery]);
   });
 
@@ -630,12 +633,13 @@ describe('RabbitMqConsumerTransport', () => {
     } satisfies RabbitMqMessageHandler;
     const { model, transport } = createHarness(handler);
     await transport.subscribe(subscription(handler));
-    await deliver(model, message());
+    await deliver(model, message(undefined, { userId: 'user-service' }));
 
     const headers = model.publisher.published[0].options.headers;
     expect(headers['x-failure-category']).toBe('INVALID_PAYLOAD');
     expect(headers['x-failure-reason']).not.toContain('\n');
     expect(headers['x-failure-reason']).toHaveLength(512);
+    expect(model.publisher.published[0].options).not.toHaveProperty('userId');
   });
 
   it('waits for publisher confirmation before acknowledging', async () => {

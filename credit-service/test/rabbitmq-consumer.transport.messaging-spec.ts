@@ -6,6 +6,7 @@ import {
   type ChannelModel,
   type ConfirmChannel,
   type GetMessage,
+  type Options,
 } from 'amqplib';
 import 'dotenv/config';
 import type { EnvironmentVariables } from '../src/config/environment.js';
@@ -39,13 +40,14 @@ async function confirmedPublish(
   exchange: string,
   routingKey: string,
   body: Buffer,
+  options: Options.Publish = {},
 ): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     channel.publish(
       exchange,
       routingKey,
       body,
-      { contentType: 'application/json', persistent: true },
+      { contentType: 'application/json', persistent: true, ...options },
       (error) => (error ? reject(error) : resolve()),
     );
   });
@@ -195,12 +197,14 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
   async function publish(
     body = eventBody(),
     routingKey = 'user.registered.v1',
+    options: Options.Publish = {},
   ): Promise<void> {
     await confirmedPublish(
       publisherChannel,
       names.domainExchange,
       routingKey,
       body,
+      options,
     );
   }
 
@@ -337,7 +341,9 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     });
     const original = eventBody();
 
-    await publish(original);
+    await publish(original, 'user.registered.v1', {
+      userId: decodeURIComponent(new URL(rabbitMqUrl!).username),
+    });
     const deadLetter = await takeDeadLetter();
 
     expect(deadLetter.content.equals(original)).toBe(true);
@@ -348,6 +354,7 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
       'x-failure-category': 'INVALID_PAYLOAD',
       'x-failure-reason': 'payload does not match UserRegistered v1',
     });
+    expect(deadLetter.properties.userId).toBeUndefined();
     expect(handler.handle).toHaveBeenCalledTimes(1);
   });
 
