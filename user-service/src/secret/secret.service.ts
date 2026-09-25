@@ -11,6 +11,8 @@ export class SecretService {
   private serverSecret: string;
   private dbPassword: string;
   private rabbitMqPassword: string;
+  private jwtPrivateKey: string;
+  private jwtPublicKey: string;
 
   constructor(private configService: ConfigService) {}
 
@@ -33,6 +35,20 @@ export class SecretService {
       this.rabbitMqPassword = this.readSecretFile('RABBITMQ_PASSWORD_FILE');
     }
     return this.rabbitMqPassword;
+  }
+
+  getJwtPrivateKey(): string {
+    if (this.jwtPrivateKey === undefined) {
+      this.jwtPrivateKey = this.readSecretFile('JWT_PRIVATE_KEY_FILE');
+    }
+    return this.jwtPrivateKey;
+  }
+
+  getJwtPublicKey(): string {
+    if (this.jwtPublicKey === undefined) {
+      this.jwtPublicKey = this.readSecretFile('JWT_PUBLIC_KEY_FILE');
+    }
+    return this.jwtPublicKey;
   }
 
   private readSecretFile(envVar: string): string {
