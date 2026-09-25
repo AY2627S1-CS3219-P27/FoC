@@ -1,4 +1,3 @@
-import { sql } from 'drizzle-orm';
 import {
   index,
   integer,
@@ -8,12 +7,11 @@ import {
   text,
   timestamp,
   unique,
-  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 import { statusEnum } from '../lifecycle/status.js';
 
-export { statusEnum }; 
+export { statusEnum };
 
 const ts = (name: string) => timestamp(name, { withTimezone: true });
 
@@ -67,13 +65,21 @@ export const errandEvents = pgTable(
     schemaVersion: integer('schema_version').notNull().default(1),
     payload: jsonb('payload').notNull(), //relavent information regarding each state will be stored here
     actorId: uuid('actor_id'), // system actor for sweep transitions
-    idempotencyKey: text('idempotency_key'),
     occurredAt: ts('occurred_at').notNull().defaultNow(),
   },
-  (t) => [
-    primaryKey({ columns: [t.errandId, t.sequenceNumber] }),
-    uniqueIndex()
-      .on(t.errandId, t.idempotencyKey)
-      .where(sql`${t.idempotencyKey} is not null`),
-  ],
+  (t) => [primaryKey({ columns: [t.errandId, t.sequenceNumber] })],
+);
+
+// Strict replay: the first outcome for a key, stored verbatim.
+// No FK: a NOT_FOUND outcome is stored too.
+export const idempotencyKeys = pgTable(
+  'idempotency_keys',
+  {
+    errandId: uuid('errand_id').notNull(),
+    key: text('key').notNull(),
+    fingerprint: text('fingerprint').notNull(), // expected|to|actor
+    outcome: jsonb('outcome'), // set before the claiming transaction commits
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.errandId, t.key] })],
 );
