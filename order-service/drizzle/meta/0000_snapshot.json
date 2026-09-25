@@ -1,5 +1,5 @@
 {
-  "id": "91932595-80d5-4522-b4c9-542e0afbe3cf",
+  "id": "e2b16ffd-29d2-450d-bdc9-e0f70c83396c",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -32,20 +32,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": 1
-        },
-        "from_status": {
-          "name": "from_status",
-          "type": "errand_status",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "to_status": {
-          "name": "to_status",
-          "type": "errand_status",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
         },
         "payload": {
           "name": "payload",
@@ -361,7 +347,23 @@
       "isRLSEnabled": false
     }
   },
-  "enums": {},
+  "enums": {
+    "public.errand_status": {
+      "name": "errand_status",
+      "schema": "public",
+      "values": [
+        "Pending-Supplier",
+        "Pending-Credit",
+        "Open",
+        "Accepted",
+        "Picked Up",
+        "Delivered",
+        "Completed",
+        "Cancelled",
+        "Incomplete"
+      ]
+    }
+  },
   "schemas": {},
   "sequences": {},
   "roles": {},

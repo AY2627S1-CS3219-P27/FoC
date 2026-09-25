@@ -1,10 +1,9 @@
+CREATE TYPE "public"."errand_status" AS ENUM('Pending-Supplier', 'Pending-Credit', 'Open', 'Accepted', 'Picked Up', 'Delivered', 'Completed', 'Cancelled', 'Incomplete');--> statement-breakpoint
 CREATE TABLE "errand_events" (
 	"errand_id" uuid NOT NULL,
 	"sequence_number" integer NOT NULL,
 	"type" text NOT NULL,
 	"schema_version" integer DEFAULT 1 NOT NULL,
-	"from_status" "errand_status",
-	"to_status" "errand_status" NOT NULL,
 	"payload" jsonb NOT NULL,
 	"actor_id" uuid,
 	"idempotency_key" text,
