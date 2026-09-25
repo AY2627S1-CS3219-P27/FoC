@@ -62,6 +62,8 @@ export const errandEvents = pgTable(
       .references(() => errands.id),
     sequenceNumber: integer('sequence_number').notNull(), // issued by errands.last_sequence_number
     type: text('type').notNull(),
+    fromStatus: statusEnum('from_status'), // null on ErrandCreated (ADR 0005)
+    toStatus: statusEnum('to_status').notNull(),
     schemaVersion: integer('schema_version').notNull().default(1),
     payload: jsonb('payload').notNull(), //relavent information regarding each state will be stored here
     actorId: uuid('actor_id'), // system actor for sweep transitions
