@@ -1,0 +1,65 @@
+services:
+  order-service:
+    build:
+      context: .
+      target: development
+    command: npm run start:dev
+    ports:
+      - '${ORDER_SERVICE_HOST_PORT:-3004}:3000'
+    depends_on:
+      order-db:
+        condition: service_healthy
+    environment:
+      - NODE_ENV=${NODE_ENV-development}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_DATABASE=${DB_DATABASE}
+      - DB_SYNCHRONIZE=${DB_SYNCHRONIZE}
+      - DB_PASSWORD_FILE=/run/secrets/order_db_password
+      - LOG_LEVEL=${LOG_LEVEL}
+    secrets:
+      - order_db_password
+    develop:
+      watch:
+        - action: sync
+          path: .
+          target: /usr/src/app
+          ignore:
+            - node_modules/
+            - dist/
+            - test/
+            - docs/
+            - .env
+            - '*.secret'
+        - action: rebuild
+          path: package.json
+
+  order-db:
+    image: postgres:18-alpine
+    ports:
+      - '${DB_HOST_PORT:-5436}:5432'
+    environment:
+      - POSTGRES_USER=${DB_USERNAME}
+      - POSTGRES_PASSWORD_FILE=/run/secrets/order_db_password
+      - POSTGRES_DB=${DB_DATABASE}
+    volumes:
+      - order-db-data:/var/lib/postgresql
+    secrets:
+      - order_db_password
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  order-db-data:
+
+secrets:
+  order_db_password:
+    file: secrets/order_db_password.secret
