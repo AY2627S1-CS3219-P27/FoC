@@ -8,11 +8,11 @@ Owns every errand from creation to a terminal state: validates it, gets its supp
 
 ## Client-facing states
 
-`Pending` · `Open` · `Accepted` · `Picked Up` · `Delivered` · `Completed` · `Cancelled` · `Expired`
+`Pending` · `Open` · `Accepted` · `Picked Up` · `Delivered` · `Completed` · `Cancelled` · `Incomplete`
 
 `Pending` is internally `Pending-Supplier` (supplier not yet confirmed) then `Pending-Credit` (reservation outstanding). Callers only ever see `Pending`.
 
-Terminal: `Completed`, `Cancelled`, `Expired`. (`Incomplete`, used by requester rejection of a delivery in backlog F6.4, is not in the F9.2 list; see open backlog conflicts in ARCHITECTURE.md.)
+Terminal: `Completed`, `Cancelled`, `Incomplete`. There is no `Expired` state: an `Open` errand whose deadline passes is `Cancelled` with reason `ERRAND_EXPIRED`. `Incomplete` is reached only from `Delivered` when the requester rejects the delivery. The full transition list is in [`ARCHITECTURE.md`](./ARCHITECTURE.md) §2.
 
 ## Terms specific to this service
 

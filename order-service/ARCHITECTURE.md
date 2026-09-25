@@ -48,30 +48,48 @@ flowchart LR
 
 Only the Lifecycle module writes. Every write, from a request, a notice reply or a sweep, goes through the same transition function.
 
-## 2. State model (derived from backlog F1, F3, F5–F8)
+## 2. State model (final, F9.4)
 
-Verify against F9.4 before implementing; that issue's table is the authority.
+Final state transitions (F9.4). Terminal states: Completed, Cancelled, Incomplete. There is no Expired state.
+1) Pending Supplier -> Pending-Credit (supplier validation  confirmed)	
+2) Pending Supplier -> Cancelled (supplier validation failed)	
+3) Pending Credit -> Open (credit reservation confirmed)	
+4) Pending Credit -> Cancelled (credit reservation failed)	
+5) Open -> Accepted  (courier accepts the errand)	
+6) Open -> Cancelled (see F, requester cancels before acceptance)	
+7) Open -> Cancelled with reason ERRAND_EXPIRED (see F, expiry time reached)	
+8) Accepted -> Picked Up (see F, courier marks picked up)	
+9) Accepted -> Open (see F, courier cancels after accepting, before pickup)	
+10) Accepted -> Cancelled (see F requester cancels after acceptance, before pickup, if permitted)	
+11) Picked Up -> Delivered (see F, courier marks delivered)	
+12) Picked Up -> Cancelled	
+13) Delivered -> Completed (requester confirms delivery, or auto-complete after 24h)	
+14) Delivered -> Incomplete (requestor marks delivery as incomplete)
+
 
 ```mermaid
 stateDiagram-v2
   [*] --> PendingSupplier: create
   state Pending {
-    PendingSupplier --> PendingCredit: supplier Active
+    PendingSupplier --> PendingCredit: supplier validation confirmed
+    PendingCredit
   }
-  PendingSupplier --> Cancelled: SUPPLIER_UNAVAILABLE / VALIDATION_TIMEOUT
-  PendingCredit --> Open: CreditReservationSuccess
-  PendingCredit --> Cancelled: reservation rejected / timed out
+  PendingSupplier --> Cancelled: supplier validation failed (SUPPLIER_UNAVAILABLE / VALIDATION_TIMEOUT)
+  PendingCredit --> Open: credit reservation confirmed
+  PendingCredit --> Cancelled: reservation failed / timed out
   Open --> Accepted: courier accepts
-  Open --> Cancelled: requester cancels (after CreditReleaseSuccess)
-  Open --> Cancelled: expiry deadline passed
+  Open --> Cancelled: requester cancels
+  Open --> Cancelled: expiry deadline reached (ERRAND_EXPIRED)
+  Accepted --> PickedUp: courier marks picked up
   Accepted --> Open: courier cancels
-  Accepted --> PickedUp: courier picks up
-  PickedUp --> Delivered: courier delivers
+  Accepted --> Cancelled: requester cancels, if permitted
+  PickedUp --> Delivered: courier marks delivered
   PickedUp --> Cancelled: PICKUP_TIME_EXCEEDED
-  Delivered --> Completed: requester confirms / auto after deadline
-  Delivered --> Incomplete: requester rejects
+  Delivered --> Completed: requester confirms / auto after 24h
+  Delivered --> Incomplete: requester marks incomplete
   Completed --> [*]
   Cancelled --> [*]
+  Incomplete --> [*]
 ```
 
 ## 3. The write path (all transitions)
