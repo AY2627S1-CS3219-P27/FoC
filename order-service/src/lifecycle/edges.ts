@@ -21,24 +21,24 @@ const plain = (type: string): Edge => ({ type, sets: [], clears: [] });
 export const EDGES: Partial<Record<Status, Partial<Record<Status, Edge>>>> = {
   'Pending-Supplier': {
     'Pending-Credit': plain('SupplierValidated'),
-    'Cancelled': cancel,
+    Cancelled: cancel,
   },
   'Pending-Credit': { Open: plain('CreditReserved'), Cancelled: cancel },
-  'Open': {
-    'Accepted': { type: 'ErrandAccepted', sets: ['courierId'], clears: [] },
-    'Cancelled': cancel,
+  Open: {
+    Accepted: { type: 'ErrandAccepted', sets: ['courierId'], clears: [] },
+    Cancelled: cancel,
   },
-  'Accepted': {
+  Accepted: {
     'Picked Up': { type: 'ErrandPickedUp', sets: ['pickedUpAt'], clears: [] },
-    'Open': { type: 'CourierWithdrew', sets: [], clears: ['courierId'] },
-    'Cancelled': cancel,
+    Open: { type: 'CourierWithdrew', sets: [], clears: ['courierId'] },
+    Cancelled: cancel,
   },
   'Picked Up': {
-    'Delivered': { type: 'ErrandDelivered', sets: ['deliveredAt'], clears: [] },
-    'Cancelled': cancel,
+    Delivered: { type: 'ErrandDelivered', sets: ['deliveredAt'], clears: [] },
+    Cancelled: cancel,
   },
-  'Delivered': {
-    'Completed': plain('ErrandCompleted'),
-    'Incomplete': plain('ErrandIncomplete'),
+  Delivered: {
+    Completed: plain('ErrandCompleted'),
+    Incomplete: plain('ErrandIncomplete'),
   },
 };

@@ -1,7 +1,7 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { errandEvents, errands } from '../db/schema.js';
-import { EDGES, type Col } from './edges.js';
+import { errandEvents, errands, idempotencyKeys } from '../db/schema.js';
+import { EDGES, type Col, type Edge } from './edges.js';
 import type { Status } from './status.js';
 
 export type Db = NodePgDatabase<any>;
@@ -29,76 +29,93 @@ export type TransitionResult =
     }
   | { ok: false; reason: 'STATE_MISMATCH'; currentStatus: Status };
 
-
 export function transition(
   db: Db,
   i: TransitionInput,
 ): Promise<TransitionResult> {
-  //validating that calls for each transition will have the right payload
   const edge = EDGES[i.expected]?.[i.to];
-  if (!edge) {
-    return Promise.resolve({ ok: false, reason: 'ILLEGAL_TRANSITION' });
-  }
-  // `set` must carry exactly the columns this edge owns.
-  const given = Object.entries(i.set ?? {})
-    .filter(([, v]) => v != null)
-    .map(([k]) => k);
-  if (
-    given.length !== edge.sets.length ||
-    !edge.sets.every((c) => given.includes(c))
-  ) {
-    return Promise.resolve({ ok: false, reason: 'INVALID_FIELDS' });
+  // `set` must carry exactly the columns this edge owns. Checked before the
+  // transaction: a caller bug is not an outcome worth storing under a key.
+  if (edge) {
+    const given = Object.entries(i.set ?? {})
+      .filter(([, v]) => v != null)
+      .map(([k]) => k);
+    if (
+      given.length !== edge.sets.length ||
+      !edge.sets.every((c) => given.includes(c))
+    ) {
+      return Promise.resolve({ ok: false, reason: 'INVALID_FIELDS' });
+    }
   }
 
-  const cleared = Object.fromEntries(edge.clears.map((c) => [c, null]));
+  const actor = i.actorId ?? null; // undefined and null are the same system actor
+  const fingerprint = `${i.expected}|${i.to}|${actor ?? ''}`;
+
   return db.transaction(async (tx): Promise<TransitionResult> => {
-    const replay = async (): Promise<TransitionResult | undefined> => {
-      if (!i.idempotencyKey) return;
-      const [e] = await tx
-        .select({ seq: errandEvents.sequenceNumber, to: errandEvents.toStatus })
-        .from(errandEvents)
-        .where(
-          and(
-            eq(errandEvents.errandId, i.errandId),
-            eq(errandEvents.idempotencyKey, i.idempotencyKey),
-          ),
-        );
-      if (!e) return;
-      // Same key, different transition: a client bug, not a replay.
-      return e.to === i.to
-        ? { ok: true, sequenceNumber: e.seq, replayed: true }
-        : { ok: false, reason: 'IDEMPOTENCY_KEY_REUSED' };
-    };
-
-    const seen = await replay();
-    if (seen) return seen;
-
-    const [row] = await tx
-      .update(errands)
-      .set({
-        ...i.set,
-        ...cleared,
-        status: i.to,
-        lastSequenceNumber: sql`${errands.lastSequenceNumber} + 1`,
-        updatedAt: new Date(),
-      })
-      .where(and(eq(errands.id, i.errandId), eq(errands.status, i.expected)))
-      .returning({ seq: errands.lastSequenceNumber });
-
-    if (!row) {
-      // Lost the race (or wrong expectation): nothing was written. A same-key
-      // request that won the race has committed by now, so replay it.
-      const won = await replay();
-      if (won) return won;
-      const [cur] = await tx
-        .select({ status: errands.status })
-        .from(errands)
-        .where(eq(errands.id, i.errandId));
-      return cur
-        ? { ok: false, reason: 'STATE_MISMATCH', currentStatus: cur.status }
-        : { ok: false, reason: 'NOT_FOUND' };
+    // Claim the key. A concurrent claimant blocks here until we commit.
+    if (i.idempotencyKey) {
+      const [claimed] = await tx
+        .insert(idempotencyKeys)
+        .values({ errandId: i.errandId, key: i.idempotencyKey, fingerprint })
+        .onConflictDoNothing()
+        .returning({ key: idempotencyKeys.key });
+      if (!claimed) {
+        const [prior] = await tx
+          .select()
+          .from(idempotencyKeys)
+          .where(
+            and(
+              eq(idempotencyKeys.errandId, i.errandId),
+              eq(idempotencyKeys.key, i.idempotencyKey),
+            ),
+          );
+        if (prior.fingerprint !== fingerprint) {
+          return { ok: false, reason: 'IDEMPOTENCY_KEY_REUSED' };
+        }
+        const out = prior.outcome as TransitionResult;
+        return out.ok ? { ...out, replayed: true } : out;
+      }
     }
 
+    const result = edge ? await apply(tx, i, edge, actor) : ILLEGAL;
+
+    if (i.idempotencyKey) {
+      await tx
+        .update(idempotencyKeys)
+        .set({ outcome: result })
+        .where(
+          and(
+            eq(idempotencyKeys.errandId, i.errandId),
+            eq(idempotencyKeys.key, i.idempotencyKey),
+          ),
+        );
+    }
+    return result;
+  });
+}
+
+const ILLEGAL: TransitionResult = { ok: false, reason: 'ILLEGAL_TRANSITION' };
+
+async function apply(
+  tx: Db,
+  i: TransitionInput,
+  edge: Edge,
+  actor: string | null,
+): Promise<TransitionResult> {
+  const cleared = Object.fromEntries(edge.clears.map((c) => [c, null]));
+  const [row] = await tx
+    .update(errands)
+    .set({
+      ...i.set,
+      ...cleared,
+      status: i.to,
+      lastSequenceNumber: sql`${errands.lastSequenceNumber} + 1`,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(errands.id, i.errandId), eq(errands.status, i.expected)))
+    .returning({ seq: errands.lastSequenceNumber });
+
+  if (row) {
     await tx.insert(errandEvents).values({
       errandId: i.errandId,
       sequenceNumber: row.seq,
@@ -106,9 +123,33 @@ export function transition(
       fromStatus: i.expected,
       toStatus: i.to,
       payload: i.payload ?? {},
-      actorId: i.actorId ?? null,
-      idempotencyKey: i.idempotencyKey,
+      actorId: actor,
     });
     return { ok: true, sequenceNumber: row.seq };
-  });
+  }
+
+  // Lost the race (or wrong expectation): nothing was written.
+  const [cur] = await tx
+    .select({ status: errands.status })
+    .from(errands)
+    .where(eq(errands.id, i.errandId));
+  if (!cur) return { ok: false, reason: 'NOT_FOUND' };
+
+  // Keyless repeat (#349): the errand's latest event is this very edge by this
+  // caller, so the request already happened.
+  const [last] = await tx
+    .select()
+    .from(errandEvents)
+    .where(eq(errandEvents.errandId, i.errandId))
+    .orderBy(desc(errandEvents.sequenceNumber))
+    .limit(1);
+  if (
+    last &&
+    last.fromStatus === i.expected &&
+    last.toStatus === i.to &&
+    last.actorId === actor
+  ) {
+    return { ok: true, sequenceNumber: last.sequenceNumber, replayed: true };
+  }
+  return { ok: false, reason: 'STATE_MISMATCH', currentStatus: cur.status };
 }

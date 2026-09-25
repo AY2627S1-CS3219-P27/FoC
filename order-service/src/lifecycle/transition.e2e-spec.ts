@@ -202,6 +202,145 @@ describe('transition', () => {
     expect((await projection(id)).status).toBe('Accepted');
   });
 
+  it('replays a rejected request after the state changed (strict replay)', async () => {
+    const id = await seed('Accepted');
+    const req = {
+      errandId: id,
+      expected: 'Open' as const,
+      to: 'Accepted' as const,
+      actorId: randomUUID(),
+      set: { courierId: courier },
+      idempotencyKey: 'key-4',
+    };
+    const first = await transition(t.db, req);
+    // The errand goes back to Open, so a fresh attempt would now succeed.
+    await transition(t.db, { errandId: id, expected: 'Accepted', to: 'Open' });
+
+    const second = await transition(t.db, req);
+
+    expect(first).toEqual({
+      ok: false,
+      reason: 'STATE_MISMATCH',
+      currentStatus: 'Accepted',
+    });
+    expect(second).toEqual(first);
+    expect((await projection(id)).status).toBe('Open');
+  });
+
+  it('replays the stored outcome, sequence number included', async () => {
+    const id = await seed('Open');
+    const req = {
+      errandId: id,
+      expected: 'Open' as const,
+      to: 'Accepted' as const,
+      set: { courierId: courier },
+      idempotencyKey: 'key-5',
+    };
+    const first = await transition(t.db, req);
+    await transition(t.db, { errandId: id, expected: 'Accepted', to: 'Open' });
+
+    const second = await transition(t.db, req);
+
+    expect(first).toEqual({ ok: true, sequenceNumber: 1 });
+    expect(second).toEqual({ ok: true, sequenceNumber: 1, replayed: true });
+    expect(await events(id)).toHaveLength(2);
+  });
+
+  it('stores an illegal-edge outcome under the key too', async () => {
+    const id = await seed('Open');
+    const req = {
+      errandId: id,
+      expected: 'Open' as const,
+      to: 'Completed' as const,
+      idempotencyKey: 'key-6',
+    };
+    expect(await transition(t.db, req)).toEqual({
+      ok: false,
+      reason: 'ILLEGAL_TRANSITION',
+    });
+    expect(await transition(t.db, req)).toEqual({
+      ok: false,
+      reason: 'ILLEGAL_TRANSITION',
+    });
+  });
+
+  describe('keyless repeat', () => {
+    const accept = (id: string, actorId: string) => ({
+      errandId: id,
+      expected: 'Open' as const,
+      to: 'Accepted' as const,
+      actorId,
+      set: { courierId: actorId },
+    });
+
+    it('answers a courier double-tap with ok, replayed', async () => {
+      const id = await seed('Open');
+      await transition(t.db, accept(id, courier));
+
+      expect(await transition(t.db, accept(id, courier))).toEqual({
+        ok: true,
+        sequenceNumber: 1,
+        replayed: true,
+      });
+      expect(await events(id)).toHaveLength(1);
+    });
+
+    it('still rejects a stale duplicate from a courier who lost', async () => {
+      const id = await seed('Open');
+      const loser = randomUUID();
+      await transition(t.db, accept(id, courier));
+      const first = await transition(t.db, accept(id, loser));
+      const again = await transition(t.db, accept(id, loser));
+
+      const mismatch = {
+        ok: false,
+        reason: 'STATE_MISMATCH',
+        currentStatus: 'Accepted',
+      };
+      expect(first).toEqual(mismatch);
+      expect(again).toEqual(mismatch);
+    });
+
+    it('counts a duplicate sweep tick (null actor) as a repeat', async () => {
+      const id = await seed('Open');
+      const tick = {
+        errandId: id,
+        expected: 'Open' as const,
+        to: 'Cancelled' as const,
+        set: { cancellationReason: 'ERRAND_EXPIRED' },
+      };
+      await transition(t.db, tick);
+
+      expect(await transition(t.db, { ...tick, actorId: null })).toEqual({
+        ok: true,
+        sequenceNumber: 1,
+        replayed: true,
+      });
+    });
+
+    it('matches the whole edge, not only the target state', async () => {
+      const id = await seed('Accepted');
+      await transition(t.db, {
+        errandId: id,
+        expected: 'Accepted',
+        to: 'Open',
+      });
+
+      // Latest event is Accepted -> Open; Pending-Credit -> Open is another edge.
+      const res = await transition(t.db, {
+        errandId: id,
+        expected: 'Pending-Credit',
+        to: 'Open',
+      });
+
+      expect(res).toEqual({
+        ok: false,
+        reason: 'STATE_MISMATCH',
+        currentStatus: 'Open',
+      });
+    });
+  });
+
   it('reports an unknown errand', async () => {
     const res = await transition(t.db, {
       errandId: randomUUID(),
