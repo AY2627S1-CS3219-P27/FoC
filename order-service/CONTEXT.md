@@ -19,7 +19,7 @@ Terminal: `Completed`, `Cancelled`, `Incomplete`. There is no `Expired` state: a
 - **Transition**: an accepted change of an errand's state. Each one appends exactly one errand event and updates the projection in the same transaction.
 - **Sweep**: a scheduled job that finds errands whose deadline has passed or that are stuck, and transitions them. Runs on one instance at a time.
 - **Hold window**: how long an errand may stay in `Pending-Supplier` before it is cancelled.
-- **Expiry deadline**: the absolute time an `Open` errand lapses, set when it becomes `Open`, not when it is created.
+- **Expiry deadline** (`expiresAt`): the absolute time an `Open` errand lapses. Set by the requester in the create request and stored at creation; the service never derives or shifts it (it does not restart when the errand becomes `Open`). It only takes effect while `Open`; time spent in `Pending` counts against it.
 - **Single-assignment**: at most one courier is ever assigned to an errand; a concurrent second accept loses.
 - **Cancellation reason**: a tag recorded on cancellation, e.g. `SUPPLIER_UNAVAILABLE`, `SUPPLIER_VALIDATION_TIMEOUT`, `ERRAND_EXPIRED`, `PICKUP_TIME_EXCEEDED`.
 - **Role block**: a lock on a user's new requester or courier activity, set while Order Service confirms they have no ongoing errands (used for role change and archival).

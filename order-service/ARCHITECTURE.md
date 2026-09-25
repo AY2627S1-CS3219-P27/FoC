@@ -124,15 +124,15 @@ sequenceDiagram
   participant S as supplier-service
   participant K as credit-service
   R->>O: POST /errands (Idempotency-Key)
-  O->>O: validate (F1.1), not role-blocked
+  O->>O: validate (F1.1, expiry time F1.7), not role-blocked
   O-->>R: 201 errand, status Pending
-  Note over O: stored as Pending-Supplier
+  Note over O: stored as Pending-Supplier, expiresAt = requester-supplied time
   O-)S: supplier validation request
   S--)O: success (Active) / failure
   O->>O: Pending-Supplier to Pending-Credit
   O-)K: CreditReservation (once)
   K--)O: CreditReservationSuccess / Rejected
-  O->>O: to Open (deadline = now + duration) or Cancelled
+  O->>O: to Open (expiresAt unchanged) or Cancelled
 ```
 
 Creation never blocks on the supplier or credit outcome (F1.4.2). If Supplier Service is unreachable the errand stays in `Pending-Supplier` and the retry sweep picks it up.
