@@ -11,6 +11,8 @@ messages can be malformed, and a slow or failing stream must not consume the
 delivery capacity or dead-letter operations of unrelated streams. The service
 therefore needs durable topology, bounded consumer retries, per-stream
 isolation, publisher confirmation, and recovery of unpublished outbox events.
+Critical events also need a durable destination before their consumer's first
+startup; an exchange cannot retain a publication that has no matching queue.
 
 ## Decision
 
@@ -22,10 +24,19 @@ durable domain direct exchange and the service-owned retry, retry-return, and
 dead-letter direct exchanges are shared.
 
 Root infrastructure owns `foc.events`; both Credit Service connections use a
-passive existence check and never declare or alter it. Credit Service actively
-declares only `foc.credit.*` exchanges and `credit-service.*` queues. Broker
-resource permissions enforce that ownership boundary, while validated
-configuration and explicit bindings restrict the current application keys.
+passive existence check and never declare or alter it. Root definitions also
+seed the durable main queue and exact domain binding for each critical Credit
+subscription before its producer is enabled. Credit Service remains the
+semantic owner and idempotently reasserts that queue and binding at startup and
+after recovery. It actively declares its `foc.credit.*` exchanges and all
+`credit-service.*` main, retry, and dead-letter queues. Broker resource
+permissions enforce the namespace boundary, while validated configuration and
+explicit bindings restrict the current application keys.
+
+The initial seeded subscription is `credit-service.user-registered.v1`, bound
+to `foc.events` with `user.registered.v1`. Retry exchanges, retry queues, the
+retry-return binding, and the DLQ are not predeclared because no retry can exist
+before Credit Service has consumed an initial delivery.
 
 Each subscription supplies a durable queue, one versioned routing key, and one
 handler. The queue name identifies the subscription, and duplicate queues or
@@ -145,8 +156,8 @@ Credit Service.SharedDomainModule.class: module
 Credit Service.OutboxModule: "OutboxModule\n(transactional outbox relay)"
 Credit Service.OutboxModule.class: module
 
-# --- Per-stream topology (owned by Credit Service) ---
-Credit Service.event-queue: "credit-service.<event>.v1"
+# --- Per-stream topology (consumer-owned; critical main queues also seeded) ---
+Credit Service.event-queue: "credit-service.<event>.v1\n(predeclared when critical)"
 Credit Service.event-queue.class: queue
 Credit Service.retry-buckets: "credit-service.<event>.v1.retry.1..5 (TTL)"
 Credit Service.retry-buckets.class: queue
@@ -191,6 +202,11 @@ at-least-once delivery. They make the point at which the broker accepts a
 replacement message explicit, avoiding message loss between the main queue,
 retry queues, and DLQ.
 
+Predeclaring only critical main queues closes the first-start routing window
+without moving service-internal retry topology into central infrastructure.
+Retaining matching runtime declarations keeps topology recovery with the
+consumer and makes incompatible broker state fail visibly during startup.
+
 Broker-managed TTL retry queues keep retry delays durable across process
 restarts and avoid sleeping application workers. Direct exchanges make domain,
 retry, return, and dead-letter destinations explicit. The domain exchange uses
@@ -215,6 +231,9 @@ transactions, accepting possible duplicates instead of risking message loss.
 
 - Broker or service restarts do not discard durable queued messages or
   committed outgoing events.
+- A critical main queue can buffer events before Credit Service first starts.
+- Adding a critical subscription requires deploying its root definition before
+  enabling the producer, while Credit still owns and reasserts the topology.
 - Streams have independent prefetch windows, retry chains, and DLQs, so a slow
   stream does not consume another stream's allowance.
 - Effective process-wide prefetch grows with the number of subscriptions.

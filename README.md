@@ -96,6 +96,8 @@ docker exec rabbitmq_temp rabbitmqctl hash_password {YOUR PASSWORD HERE}
 ```
 
 Replace only the matching service user's hash. Broker definitions, including
-password hashes, remain sensitive configuration. Credit Service uses the root
-`/foc` broker in normal development; its local RabbitMQ containers are reserved
-for isolated messaging and recovery tests.
+password hashes, remain sensitive configuration. They also seed critical
+durable ingress queues and bindings before their consumers start; services
+reassert their matching service-owned topology at runtime. Credit Service uses
+the root `/foc` broker in normal development; its local RabbitMQ containers are
+reserved for isolated messaging and recovery tests.

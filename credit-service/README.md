@@ -9,8 +9,9 @@ RabbitMQ. Event payloads are validated with versioned JSON Schemas and AJV.
 
 ## How account initialization works
 
-1. RabbitMQ delivers `UserRegistered` from the shared `foc.events` direct
-   exchange to the Credit Service subscription.
+1. Root broker definitions create the durable Credit Service subscription and
+   bind `user.registered.v1` from the shared `foc.events` direct exchange, so
+   RabbitMQ can buffer registrations before Credit Service starts.
 2. The transport validates the JSON transport metadata, and the handler
    validates the event envelope and payload contract.
 3. A PostgreSQL `SERIALIZABLE` transaction deduplicates the event, creates or
@@ -217,11 +218,18 @@ and unit tests do not replace the PostgreSQL, RabbitMQ, or recovery suites.
 
 ## RabbitMQ subscriptions and retries
 
-The root broker owns the shared `foc.events` direct exchange. Credit Service
-checks that exchange passively, so its credential cannot create, delete, or
-alter it. Credit currently binds exactly `user.registered.v1` and publishes
-exactly `credit.account-initialised.v1`; typed configuration rejects other
-values.
+The root broker owns the shared `foc.events` direct exchange and predeclares
+the critical `credit-service.user-registered.v1` queue with its exact
+`user.registered.v1` binding. This gives registrations a durable landing point
+before Credit Service starts. Credit Service checks the shared exchange
+passively, then idempotently reasserts that main queue and binding along with
+the rest of its service-owned topology during startup and connection recovery.
+Its credential cannot create, delete, or alter `foc.events`.
+
+Credit currently consumes exactly `user.registered.v1` and publishes exactly
+`credit.account-initialised.v1`; typed configuration rejects other values. The
+deployed main queue name is also fixed outside tests so configuration cannot
+bypass the predeclared subscription. Isolated tests may use unique queue names.
 
 RabbitMQ resource permissions protect exchange and queue names, but do not
 restrict individual routing keys on a direct exchange. Contract validation,
@@ -254,6 +262,30 @@ allowance is the subscription count multiplied by `RABBITMQ_PREFETCH`. The
 former global `RABBITMQ_DEAD_LETTER_QUEUE` variable is no longer read. Before
 deploying this topology, drain or migrate any custom legacy DLQ whose name does
 not match `<queue>.dlq`.
+
+### Hybrid topology ownership and rollout
+
+Only the main `credit-service.user-registered.v1` queue and its binding from
+`foc.events` are seeded by the root definitions. Credit Service remains the
+owner of its subscription behavior and declares the same main queue and
+binding at runtime. Its retry, retry-return, and dead-letter exchanges, five
+retry queues, returned-retry binding, and DLQ remain runtime-created resources.
+
+Deploy a new or changed critical subscription in this order:
+
+1. Import or deploy the root broker definitions containing the durable main
+   queue and exact domain binding.
+2. Verify the queue and binding before enabling its producer.
+3. Deploy Credit Service; its matching declarations must succeed without
+   changing the predeclared resources.
+4. Enable or deploy the producer for that event.
+
+Existing installations require no queue deletion for this change. If Credit
+already created the canonical queue and binding with the same properties, the
+definition import is idempotent. Keep existing main, retry, and dead-letter
+queues and their messages. A fresh broker creates the main queue before Credit
+starts, but recreating broker definitions after deleting broker storage cannot
+restore messages that were stored in that deleted volume.
 
 ### Retry topology migration
 
