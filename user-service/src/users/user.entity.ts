@@ -32,15 +32,6 @@ export class User {
   @Column({ default: false })
   isArchived: boolean;
 
-  @Column({ default: false })
-  isAdmin: boolean;
-
-  @Column({ default: false })
-  isLocked: boolean;
-
-  @Column({ default: false })
-  isArchived: boolean;
-
   @CreateDateColumn()
   createdAt: Date;
 
