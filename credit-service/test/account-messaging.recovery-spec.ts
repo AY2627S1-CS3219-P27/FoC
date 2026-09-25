@@ -276,7 +276,7 @@ describe.sequential('account messaging recovery', () => {
       RABBITMQ_HOST: '127.0.0.1',
       RABBITMQ_PORT: process.env.RABBITMQ_RECOVERY_HOST_PORT ?? '5676',
       RABBITMQ_VHOST: '/',
-      RABBITMQ_PASSWORD_FILE: './secrets/credit_db_password.secret',
+      RABBITMQ_PASSWORD_FILE: './secrets/rabbitmq_password.secret',
       RABBITMQ_USER_REGISTERED_QUEUE: topology.incomingQueue,
       RABBITMQ_USER_REGISTERED_ROUTING_KEY: incomingRoutingKey,
       RABBITMQ_CREDIT_ACCOUNT_INITIALISED_ROUTING_KEY: outgoingRoutingKey,

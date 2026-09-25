@@ -21,7 +21,7 @@ export default defineConfig({
       RABBITMQ_HOST: 'rabbitmq',
       RABBITMQ_PORT: '5672',
       RABBITMQ_VHOST: '/foc',
-      RABBITMQ_PASSWORD_FILE: './secrets/credit_db_password.secret',
+      RABBITMQ_PASSWORD_FILE: './secrets/rabbitmq_password.secret',
     },
   },
 });
