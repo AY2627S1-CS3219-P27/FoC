@@ -4,25 +4,17 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { randomBytes } from 'node:crypto';
 import type { RedisClientType } from 'redis';
-import { QueryFailedError, Repository } from 'typeorm';
 import { REDIS } from '../redis/redis.provider.js';
 import { SecretService } from '../secret/secret.service.js';
-import { hashValue } from '../common/hash/hash.js';
 import { registrationTokenRecordKey } from '../common/hash/token-keys.js';
 import { getRegisterUserScript } from '../scripts/retrieve-script.js';
-import { User } from '../users/user.entity.js';
+import {
+  EmailAlreadyRegisteredError,
+  UsersService,
+} from '../users/users.service.js';
 
 export const REGISTER_USER_SCRIPT = getRegisterUserScript();
-
-/** The PostgreSQL driver error code for a unique-constraint violation.
- *
- *  Unfortunately, there is no library way to do this, we have to catch
- *  the DB error code.
- * */
-const UNIQUE_VIOLATION_CODE = '23505';
 
 export interface RegisteredUser {
   id: number;
@@ -35,7 +27,7 @@ export class AuthService {
   constructor(
     @Inject(REDIS) private redis: RedisClientType,
     private secretService: SecretService,
-    @InjectRepository(User) private userRepository: Repository<User>,
+    private usersService: UsersService,
   ) {}
 
   /**
@@ -75,31 +67,14 @@ export class AuthService {
     }
     const email = result as string;
 
-    // Fresh per-account salt, stored next to the hash so the credentials can
-    // be re-verified later without derivable state.
-    const passwordSalt = randomBytes(16).toString('hex');
-    const passwordHash = await hashValue(password, passwordSalt);
-
     try {
-      const user = await this.userRepository.save(
-        this.userRepository.create({
-          email,
-          displayName,
-          passwordHash,
-          passwordSalt,
-          isActive: true,
-        }),
-      );
-
-      return { id: user.id, email: user.email, displayName: user.displayName };
+      return await this.usersService.provisionUser({
+        email,
+        displayName,
+        password,
+      });
     } catch (error) {
-      // UNIQUE_VIOLATION occurs when the same user is attempted to be inserted.
-      // In this case, email matches an already-existing user.
-      if (
-        error instanceof QueryFailedError &&
-        (error.driverError as { code?: string } | null)?.code ===
-          UNIQUE_VIOLATION_CODE
-      ) {
+      if (error instanceof EmailAlreadyRegisteredError) {
         throw new ConflictException('Email is already registered.');
       }
       throw error;
