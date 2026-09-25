@@ -7,7 +7,8 @@ import {
 } from '@nestjs/common';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
-import { RegisterDto } from './DTO/Register.dto.js';
+import { ConfigService } from '@nestjs/config';
+import { RegisterDto } from './DTO/register.dto.js';
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -18,7 +19,12 @@ describe('AuthController', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AuthController],
-      providers: [{ provide: AuthService, useValue: authService }],
+      providers: [
+        { provide: AuthService, useValue: authService },
+        // AuthController reads NODE_ENV from ConfigService to set the cookie
+        // `secure` flag; the login tests are covered separately.
+        { provide: ConfigService, useValue: { get: vi.fn() } },
+      ],
     }).compile();
 
     controller = module.get<AuthController>(AuthController);

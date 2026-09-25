@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConflictException } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { AuthService, REGISTER_USER_SCRIPT } from './auth.service.js';
 import { REDIS } from '../redis/redis.provider.js';
 import { SecretService } from '../secret/secret.service.js';
@@ -38,6 +39,9 @@ describe('AuthService', () => {
           useValue: { getServerSecret: () => 'test-secret' },
         },
         { provide: UsersService, useValue: usersService },
+        // AuthService also issues JWTs on login; stubbed here since the
+        // registration flow under test never signs.
+        { provide: JwtService, useValue: { signAsync: vi.fn() } },
       ],
     }).compile();
 
