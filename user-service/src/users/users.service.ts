@@ -54,7 +54,6 @@ export class UsersService {
           displayName,
           passwordHash,
           passwordSalt,
-          isActive: true,
           isArchived: false,
           isAdmin,
           isLocked,
