@@ -5,6 +5,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { Role } from './role.js';
 
 @Entity('users')
 export class User {
@@ -31,6 +32,15 @@ export class User {
 
   @Column({ default: false })
   isArchived: boolean;
+
+  /** Participant roles */
+  @Column({
+    type: 'enum',
+    enum: Role,
+    array: true,
+    default: '{}',
+  })
+  roles: Role[];
 
   @CreateDateColumn()
   createdAt: Date;

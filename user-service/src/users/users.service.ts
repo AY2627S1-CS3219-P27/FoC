@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { EntityNotFoundError, QueryFailedError, Repository } from 'typeorm';
 import { hashValue } from '../common/hash/hash.js';
+import { Role } from './role.js';
 import { User } from './user.entity.js';
 
 /** The PostgreSQL driver error code for a unique-constraint violation. */
@@ -27,6 +28,8 @@ export interface PublicUserInfo {
   id: number;
   email: string;
   displayName: string;
+  roles: Role[];
+  isAdmin: boolean;
 }
 
 @Injectable()
@@ -57,6 +60,7 @@ export class UsersService {
           isArchived: false,
           isAdmin,
           isLocked,
+          roles: [],
         }),
       );
 
@@ -130,6 +134,8 @@ export class UsersService {
       id: user.id,
       email: user.email,
       displayName: user.displayName,
+      roles: user.roles ?? [],
+      isAdmin: user.isAdmin,
     };
   }
 }
