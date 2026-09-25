@@ -1,6 +1,7 @@
 import Joi from 'joi';
 
 const DEFAULT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000];
+const USER_REGISTERED_QUEUE = 'credit-service.user-registered.v1';
 
 export interface EnvironmentVariables {
   NODE_ENV: 'development' | 'test' | 'production';
@@ -78,7 +79,11 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
   RABBITMQ_EXCHANGE: Joi.string().min(1).default('foc.events'),
   RABBITMQ_USER_REGISTERED_QUEUE: Joi.string()
     .min(1)
-    .default('credit-service.user-registered.v1'),
+    .default(USER_REGISTERED_QUEUE)
+    .when('NODE_ENV', {
+      is: 'test',
+      otherwise: Joi.valid(USER_REGISTERED_QUEUE),
+    }),
   RABBITMQ_USER_REGISTERED_ROUTING_KEY: Joi.string()
     .valid('user.registered.v1')
     .default('user.registered.v1'),
