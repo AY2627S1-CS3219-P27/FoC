@@ -16,7 +16,6 @@ export default defineConfig({
       DB_USERNAME: 'order_service',
       DB_DATABASE: 'order_service',
       DB_PASSWORD_FILE: '/dev/null',
-      DB_SYNCHRONIZE: 'false',
     },
   },
 });
