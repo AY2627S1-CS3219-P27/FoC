@@ -84,6 +84,7 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
   let adminChannel: Channel;
   let publisherChannel: ConfirmChannel;
   let transport: RabbitMqConsumerTransport;
+  let bufferedDelivery: IncomingDomainMessage | undefined;
 
   beforeAll(async () => {
     if (!rabbitMqUrl) {
@@ -118,7 +119,22 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     await adminChannel.assertExchange(names.domainExchange, 'direct', {
       durable: true,
     });
-    behavior = async () => ({ outcome: 'ack' });
+    await adminChannel.assertQueue(names.mainQueue, { durable: true });
+    await adminChannel.bindQueue(
+      names.mainQueue,
+      names.domainExchange,
+      'user.registered.v1',
+    );
+    await confirmedPublish(
+      publisherChannel,
+      names.domainExchange,
+      'user.registered.v1',
+      eventBody(),
+    );
+    behavior = async (message) => {
+      bufferedDelivery = message;
+      return { outcome: 'ack' };
+    };
     transport = new RabbitMqConsumerTransport(config, rabbitMqUrl, connect);
     await transport.subscribe({
       queue: names.mainQueue,
@@ -126,6 +142,8 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
       deadLetterQueue: names.deadLetterQueue,
       handler,
     });
+    await waitFor(() => bufferedDelivery);
+    behavior = async () => ({ outcome: 'ack' });
     await transport.subscribe({
       queue: names.secondQueue,
       routingKey: 'credit.reservation.v1',
@@ -225,6 +243,16 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
       return delivery || undefined;
     });
   }
+
+  it('consumes a message buffered before the consumer starts', () => {
+    expect(bufferedDelivery).toEqual(
+      expect.objectContaining({
+        routingKey: 'user.registered.v1',
+        retryCount: 0,
+        eventId: '19860606-e57b-4e8d-baa9-7f5b11293f41',
+      }),
+    );
+  });
 
   it('isolates delivery and permanent failure handling between streams', async () => {
     vi.mocked(secondHandler.handle).mockResolvedValueOnce({

@@ -63,6 +63,28 @@ describe('environmentSchema', () => {
     ).toBe('foc.credit.return.v2');
   });
 
+  it.each(['development', 'production'] as const)(
+    'rejects a noncanonical UserRegistered queue in %s',
+    (nodeEnvironment) => {
+      expect(() =>
+        validate({
+          NODE_ENV: nodeEnvironment,
+          RABBITMQ_USER_REGISTERED_QUEUE: 'credit-service.alternate.v1',
+        }),
+      ).toThrow();
+    },
+  );
+
+  it('accepts an isolated UserRegistered queue in tests', () => {
+    expect(
+      validate({
+        NODE_ENV: 'test',
+        RABBITMQ_USER_REGISTERED_QUEUE:
+          'credit-service.user-registered.v1.test.1234',
+      }).RABBITMQ_USER_REGISTERED_QUEUE,
+    ).toBe('credit-service.user-registered.v1.test.1234');
+  });
+
   it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])(
     'rejects invalid initial balance %s',
     (initialBalance) => {
