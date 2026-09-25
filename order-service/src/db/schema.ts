@@ -13,6 +13,8 @@ import {
 } from 'drizzle-orm/pg-core';
 import { statusEnum } from '../lifecycle/status.js';
 
+export { statusEnum }; 
+
 const ts = (name: string) => timestamp(name, { withTimezone: true });
 
 // Projection: one row per errand, updated in the same transaction as each event.
@@ -25,7 +27,7 @@ export const errands = pgTable(
     lastSequenceNumber: integer('last_sequence_number').notNull().default(0),
     idempotencyKey: text('idempotency_key'),
 
-    // projection columns (#351)
+    //columns here are to allow for sorting and filtering
     courierId: uuid('courier_id'),
     supplierId: uuid('supplier_id').notNull(),
     description: text('description'), // optional delivery instructions
@@ -33,7 +35,7 @@ export const errands = pgTable(
     deliveryLocation: text('delivery_location').notNull(),
     rewardCredits: integer('reward_credits').notNull(),
 
-    expiresAt: ts('expires_at'), // requester-supplied at creation; Open lapses (ERRAND_EXPIRED)
+    expiresAt: ts('expires_at'), // requester-supplied at creation;
     pickedUpAt: ts('picked_up_at'), // starts the 24h Picked Up -> Cancelled timer
     deliveredAt: ts('delivered_at'), // starts the 7d Delivered -> Completed timer
 
@@ -51,7 +53,7 @@ export const errands = pgTable(
   ],
 );
 
-// Append-only source of truth (ADR 0005).
+// Event store
 export const errandEvents = pgTable(
   'errand_events',
   {
@@ -61,9 +63,7 @@ export const errandEvents = pgTable(
     sequenceNumber: integer('sequence_number').notNull(), // issued by errands.last_sequence_number
     type: text('type').notNull(),
     schemaVersion: integer('schema_version').notNull().default(1),
-    fromStatus: statusEnum('from_status'), // null for ErrandCreated
-    toStatus: statusEnum('to_status').notNull(),
-    payload: jsonb('payload').notNull(),
+    payload: jsonb('payload').notNull(), //relavent information regarding each state will be stored here
     actorId: uuid('actor_id'), // system actor for sweep transitions
     idempotencyKey: text('idempotency_key'),
     occurredAt: ts('occurred_at').notNull().defaultNow(),
