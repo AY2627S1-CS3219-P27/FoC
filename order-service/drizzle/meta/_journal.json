@@ -8,6 +8,13 @@
       "when": 1790331567739,
       "tag": "0000_plain_network",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790337922399,
+      "tag": "0001_event_status_columns",
+      "breakpoints": true
     }
   ]
 }
