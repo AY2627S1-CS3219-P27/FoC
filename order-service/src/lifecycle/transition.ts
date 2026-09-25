@@ -1,7 +1,8 @@
 import { and, eq, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { errandEvents, errands } from '../db/schema.js';
-import { canTransition, type Status } from './status.js';
+import { EDGES, type Col } from './edges.js';
+import type { Status } from './status.js';
 
 export type Db = NodePgDatabase<any>;
 
@@ -9,37 +10,48 @@ export interface TransitionInput {
   errandId: string;
   expected: Status;
   to: Status;
-  type: string;
   actorId?: string | null; // null = system actor (sweeps)
   payload?: Record<string, unknown>;
   idempotencyKey?: string;
-  // Projection columns written in the same UPDATE (e.g. courierId on accept).
-  set?: Partial<
-    Pick<
-      typeof errands.$inferInsert,
-      'courierId' | 'pickedUpAt' | 'deliveredAt' | 'cancellationReason'
-    >
-  >;
+  // Values for the columns the edge sets (e.g. courierId on accept).
+  set?: Partial<Pick<typeof errands.$inferInsert, Col>>;
 }
 
 export type TransitionResult =
   | { ok: true; sequenceNumber: number; replayed?: true }
   | {
       ok: false;
-      reason: 'ILLEGAL_TRANSITION' | 'NOT_FOUND' | 'IDEMPOTENCY_KEY_REUSED';
+      reason:
+        | 'ILLEGAL_TRANSITION'
+        | 'INVALID_FIELDS'
+        | 'NOT_FOUND'
+        | 'IDEMPOTENCY_KEY_REUSED';
     }
   | { ok: false; reason: 'STATE_MISMATCH'; currentStatus: Status };
 
-// The one write path (ARCHITECTURE.md §3, ADR 0005).
+
 export function transition(
   db: Db,
   i: TransitionInput,
 ): Promise<TransitionResult> {
-  if (!canTransition(i.expected, i.to)) {
+  //validating that calls for each transition will have the right payload
+  const edge = EDGES[i.expected]?.[i.to];
+  if (!edge) {
     return Promise.resolve({ ok: false, reason: 'ILLEGAL_TRANSITION' });
   }
+  // `set` must carry exactly the columns this edge owns.
+  const given = Object.entries(i.set ?? {})
+    .filter(([, v]) => v != null)
+    .map(([k]) => k);
+  if (
+    given.length !== edge.sets.length ||
+    !edge.sets.every((c) => given.includes(c))
+  ) {
+    return Promise.resolve({ ok: false, reason: 'INVALID_FIELDS' });
+  }
+
+  const cleared = Object.fromEntries(edge.clears.map((c) => [c, null]));
   return db.transaction(async (tx): Promise<TransitionResult> => {
-    // Only requests that produced an event are replayed; rejected ones are re-evaluated (ADR 0005).
     const replay = async (): Promise<TransitionResult | undefined> => {
       if (!i.idempotencyKey) return;
       const [e] = await tx
@@ -65,6 +77,7 @@ export function transition(
       .update(errands)
       .set({
         ...i.set,
+        ...cleared,
         status: i.to,
         lastSequenceNumber: sql`${errands.lastSequenceNumber} + 1`,
         updatedAt: new Date(),
@@ -89,7 +102,7 @@ export function transition(
     await tx.insert(errandEvents).values({
       errandId: i.errandId,
       sequenceNumber: row.seq,
-      type: i.type,
+      type: edge.type,
       fromStatus: i.expected,
       toStatus: i.to,
       payload: i.payload ?? {},

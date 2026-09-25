@@ -40,7 +40,6 @@ describe('transition', () => {
       errandId: id,
       expected: 'Open',
       to: 'Accepted',
-      type: 'ErrandAccepted',
       actorId: courier,
       payload: { courierId: courier },
       set: { courierId: courier },
@@ -71,7 +70,6 @@ describe('transition', () => {
       errandId: id,
       expected: 'Open',
       to: 'Completed',
-      type: 'Bogus',
     });
 
     expect(res).toEqual({ ok: false, reason: 'ILLEGAL_TRANSITION' });
@@ -86,7 +84,7 @@ describe('transition', () => {
       errandId: id,
       expected: 'Open',
       to: 'Accepted',
-      type: 'ErrandAccepted',
+      set: { courierId: courier },
     });
 
     expect(res).toEqual({
@@ -108,7 +106,6 @@ describe('transition', () => {
           errandId: id,
           expected: 'Open',
           to: 'Accepted',
-          type: 'ErrandAccepted',
           actorId: c,
           set: { courierId: c },
         }),
@@ -131,7 +128,12 @@ describe('transition', () => {
   it('numbers events 1, 2, 3 without gaps across successive transitions', async () => {
     const id = await seed('Open');
     const step = (expected: Status, to: Status) =>
-      transition(t.db, { errandId: id, expected, to, type: `To${to}` });
+      transition(t.db, {
+        errandId: id,
+        expected,
+        to,
+        set: to === 'Accepted' ? { courierId: courier } : undefined,
+      });
 
     await step('Open', 'Accepted');
     await step('Accepted', 'Open');
@@ -148,7 +150,7 @@ describe('transition', () => {
       errandId: id,
       expected: 'Open' as const,
       to: 'Accepted' as const,
-      type: 'ErrandAccepted',
+      set: { courierId: courier },
       idempotencyKey: 'key-1',
     };
 
@@ -166,7 +168,7 @@ describe('transition', () => {
       errandId: id,
       expected: 'Open' as const,
       to: 'Accepted' as const,
-      type: 'ErrandAccepted',
+      set: { courierId: courier },
       idempotencyKey: 'key-2',
     };
 
@@ -186,14 +188,13 @@ describe('transition', () => {
       ...base,
       expected: 'Open',
       to: 'Accepted',
-      type: 'ErrandAccepted',
+      set: { courierId: courier },
     });
 
     const res = await transition(t.db, {
       ...base,
       expected: 'Accepted',
       to: 'Open',
-      type: 'CourierCancelled',
     });
 
     expect(res).toEqual({ ok: false, reason: 'IDEMPOTENCY_KEY_REUSED' });
@@ -206,9 +207,64 @@ describe('transition', () => {
       errandId: randomUUID(),
       expected: 'Open',
       to: 'Accepted',
-      type: 'ErrandAccepted',
+      set: { courierId: courier },
     });
 
     expect(res).toEqual({ ok: false, reason: 'NOT_FOUND' });
+  });
+
+  it('rejects Picked Up without pickedUpAt', async () => {
+    const id = await seed('Accepted');
+    const res = await transition(t.db, {
+      errandId: id,
+      expected: 'Accepted',
+      to: 'Picked Up',
+    });
+    expect(res).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
+    expect((await projection(id)).status).toBe('Accepted');
+  });
+
+  it('rejects a column the edge does not own', async () => {
+    const id = await seed('Open');
+    const res = await transition(t.db, {
+      errandId: id,
+      expected: 'Open',
+      to: 'Accepted',
+      set: { courierId: courier, deliveredAt: new Date() },
+    });
+    expect(res).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
+  });
+
+  it('clears courierId when the courier withdraws', async () => {
+    const id = await seed('Open');
+    await transition(t.db, {
+      errandId: id,
+      expected: 'Open',
+      to: 'Accepted',
+      set: { courierId: courier },
+    });
+    await transition(t.db, { errandId: id, expected: 'Accepted', to: 'Open' });
+    expect((await projection(id)).courierId).toBeNull();
+  });
+
+  it('requires a cancellation reason and records it', async () => {
+    const id = await seed('Open');
+    const bare = {
+      errandId: id,
+      expected: 'Open' as const,
+      to: 'Cancelled' as const,
+    };
+    expect(await transition(t.db, bare)).toEqual({
+      ok: false,
+      reason: 'INVALID_FIELDS',
+    });
+    await transition(t.db, {
+      ...bare,
+      set: { cancellationReason: 'ERRAND_EXPIRED' },
+    });
+    expect(await projection(id)).toMatchObject({
+      status: 'Cancelled',
+      cancellationReason: 'ERRAND_EXPIRED',
+    });
   });
 });

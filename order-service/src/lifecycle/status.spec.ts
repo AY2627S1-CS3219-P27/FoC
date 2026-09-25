@@ -1,3 +1,4 @@
+import { EDGES } from './edges.js';
 import { ALLOWED, STATUSES, canTransition } from './status.js';
 
 describe('status transitions', () => {
@@ -12,5 +13,15 @@ describe('status transitions', () => {
 
   it('has exactly the 13 distinct documented edges (items 6 and 7 share Open -> Cancelled)', () => {
     expect(Object.values(ALLOWED).flat()).toHaveLength(13);
+  });
+});
+
+describe('EDGES', () => {
+  it('mirrors ALLOWED exactly', () => {
+    for (const from of STATUSES) {
+      expect(Object.keys(EDGES[from] ?? {}).sort()).toEqual(
+        [...ALLOWED[from]].sort(),
+      );
+    }
   });
 });
