@@ -128,6 +128,32 @@ describe('validateAccessTokenPayload', () => {
     ).toBe(false);
   });
 
+  it('rejects non-finite timestamp claims', () => {
+    const iatResult = validateAccessTokenPayload({
+      ...validPayload,
+      iat: Infinity,
+    });
+    expect(iatResult.valid).toBe(false);
+    expect(iatResult.valid || iatResult.violations).toContainEqual(
+      expect.objectContaining({
+        instancePath: '/iat',
+        keyword: 'number.infinity',
+      }),
+    );
+
+    const expResult = validateAccessTokenPayload({
+      ...validPayload,
+      exp: -Infinity,
+    });
+    expect(expResult.valid).toBe(false);
+    expect(expResult.valid || expResult.violations).toContainEqual(
+      expect.objectContaining({
+        instancePath: '/exp',
+        keyword: 'number.infinity',
+      }),
+    );
+  });
+
   it('reports violations with schema metadata but never claim values', () => {
     const result = validateAccessTokenPayload({ ...validPayload, sub: 'oops' });
     if (result.valid) {
