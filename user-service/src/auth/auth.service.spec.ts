@@ -9,6 +9,7 @@ import {
   EmailAlreadyRegisteredError,
   UsersService,
 } from '../users/users.service.js';
+import { Role } from '../users/role.js';
 
 vi.mock('../common/hash/hash.js', () => ({
   hmacValue: vi.fn(() => 'deadbeef'),
@@ -31,6 +32,8 @@ describe('AuthService', () => {
         id: 7,
         email: args.email,
         displayName: args.displayName,
+        roles: [],
+        isAdmin: false,
       })),
       checkUserAndReturnInfo: vi.fn(),
     };
@@ -100,11 +103,14 @@ describe('AuthService', () => {
       password: 'StrongPassw0rd!',
     });
 
-    // Response exposes only the identifying fields, never the credentials.
+    // Response exposes the public profile: identifying fields, the role set
+    // (empty until opt-in) and the admin classification — never credentials.
     expect(user).toEqual({
       id: 7,
       email: 'eve@example.com',
       displayName: 'Eve',
+      roles: [],
+      isAdmin: false,
     });
   });
 
@@ -160,11 +166,13 @@ describe('AuthService', () => {
   });
 
   describe('checkCredentials', () => {
-    it('signs a JWT carrying the user identity when the credentials match', async () => {
+    it('signs a JWT carrying the user identity and roles when the credentials match', async () => {
       usersService.checkUserAndReturnInfo.mockResolvedValue({
         id: 7,
         email: 'eve@example.com',
         displayName: 'Eve',
+        isAdmin: false,
+        roles: [Role.Requester, Role.Courier],
       });
 
       await expect(
@@ -179,6 +187,8 @@ describe('AuthService', () => {
         sub: 7,
         displayName: 'Eve',
         email: 'eve@example.com',
+        isAdmin: false,
+        roles: [Role.Requester, Role.Courier],
       });
     });
 

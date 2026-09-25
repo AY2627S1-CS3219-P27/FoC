@@ -14,6 +14,7 @@ import {
   UsersService,
 } from '../users/users.service.js';
 import { JwtService } from '@nestjs/jwt';
+import { AuthenticatedUser } from './authenticated-user.js';
 
 export const REGISTER_USER_SCRIPT = getRegisterUserScript();
 
@@ -95,10 +96,12 @@ export class AuthService {
     );
 
     // create JWT
-    const payload = {
+    const payload: AuthenticatedUser = {
       sub: user.id,
       displayName: user.displayName,
       email: user.email,
+      isAdmin: user.isAdmin,
+      roles: user.roles,
     };
     return {
       accessToken: await this.jwtService.signAsync(payload),
