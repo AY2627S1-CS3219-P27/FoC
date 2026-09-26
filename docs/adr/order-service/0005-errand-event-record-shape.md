@@ -5,7 +5,7 @@
 Each `errand_events` row has:
 
 - `payload JSONB` plus `type` and `schema_version`. Payloads are private to
-  order-service and validated per `(type, schema_version)` with AJV before
+  order-service and validated per `(type, schema_version)` with Joi before
   insert. They are not added to the shared `contracts/schemas`, which is for
   notices exchanged with other services.
 - `from_status` (null on `ErrandCreated`) and `to_status`, both of the
@@ -33,8 +33,9 @@ Each `errand_events` row has:
 
 The log is append-only and only read for projection rebuilds, so nothing
 queries inside payloads and JSONB avoids a migration per event type.
-`schema_version` keeps old events replayable after a payload changes. AJV
-matches the JSON Schema tooling credit-service already uses.
+`schema_version` keeps old events replayable after a payload changes. Joi
+is already a dependency (env validation) and is the validation library the
+contracts standardisation moves to, so one tool covers both.
 
 A counter on the projection row is bumped inside the same row-locked
 `UPDATE` that enforces the transition, so numbers are gap-free per errand
