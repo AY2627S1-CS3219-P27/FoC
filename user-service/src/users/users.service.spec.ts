@@ -3,7 +3,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { UnauthorizedException } from '@nestjs/common';
 import { EntityNotFoundError, QueryFailedError } from 'typeorm';
 import { hashValue } from '../common/hash/hash.js';
-import { Role } from './role.js';
+import { Role } from '@foc/contracts';
 import { User } from './user.entity.js';
 import { EmailAlreadyRegisteredError, UsersService } from './users.service.js';
 
@@ -161,7 +161,6 @@ describe('UsersService', () => {
   };
 
   describe('checkUserAndReturnInfo', () => {
-
     it('returns the public info when the credentials match', async () => {
       userRepository.findOneByOrFail.mockResolvedValue(registeredUser);
 

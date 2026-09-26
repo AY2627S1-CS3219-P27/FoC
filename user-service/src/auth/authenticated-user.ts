@@ -1,5 +1,5 @@
+import { Role } from '@foc/contracts';
 import type { Request } from 'express';
-import type { Role } from '../users/role.js';
 
 /**
  * The identity claims JwtAuthGuard attaches to `request.user` after verifying

@@ -8,11 +8,8 @@ import {
 import { UsersController } from './users.controller.js';
 import { UsersService } from './users.service.js';
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
-import { AccessTokenContractValidator } from '../contracts/access-token-contract.validator.js';
-import { JWT_COOKIE } from '../common/constants.js';
-import { Role } from './role.js';
 import { UpdateRolesDto } from './DTO/update-roles.dto.js';
+import { ACCESS_TOKEN_COOKIE, Role } from '@foc/contracts';
 
 describe('UsersController', () => {
   let controller: UsersController;
@@ -36,14 +33,6 @@ describe('UsersController', () => {
       providers: [
         { provide: UsersService, useValue: usersService },
         { provide: ConfigService, useValue: { get: configGet } },
-        // @UseGuards(JwtAuthGuard) resolves the guard's dependencies when the
-        // controller is instantiated; neither is exercised here (handlers are
-        // invoked directly), so both are stubbed.
-        { provide: JwtService, useValue: { verifyAsync: vi.fn() } },
-        {
-          provide: AccessTokenContractValidator,
-          useValue: { validate: vi.fn() },
-        },
       ],
     }).compile();
 
@@ -145,7 +134,7 @@ describe('UsersController', () => {
       );
 
       expect(res.clearCookie).toHaveBeenCalledWith(
-        JWT_COOKIE,
+        ACCESS_TOKEN_COOKIE,
         expect.objectContaining({ secure: true }),
       );
     });
@@ -176,7 +165,10 @@ describe('update roles body validation', () => {
   };
 
   it('accepts a valid roles body', async () => {
-    const value = await pipe.transform(validRoles, bodyMetadata(UpdateRolesDto));
+    const value = await pipe.transform(
+      validRoles,
+      bodyMetadata(UpdateRolesDto),
+    );
     expect(value).toBeInstanceOf(UpdateRolesDto);
     expect(value).toMatchObject(validRoles);
   });

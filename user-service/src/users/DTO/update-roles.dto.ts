@@ -1,5 +1,5 @@
 import { IsArray, IsEnum } from 'class-validator';
-import { Role } from '../role.js';
+import { Role } from '@foc/contracts';
 
 /**
  * The full desired participant-role set for the authenticated user (M.1

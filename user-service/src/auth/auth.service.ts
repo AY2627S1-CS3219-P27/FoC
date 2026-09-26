@@ -14,7 +14,7 @@ import {
   UsersService,
 } from '../users/users.service.js';
 import { JwtService } from '@nestjs/jwt';
-import { AuthenticatedUser } from './authenticated-user.js';
+import type { AccessTokenPayload } from '@foc/contracts';
 
 export const REGISTER_USER_SCRIPT = getRegisterUserScript();
 
@@ -95,8 +95,10 @@ export class AuthService {
       password,
     );
 
-    // create JWT
-    const payload: AuthenticatedUser = {
+    // create JWT. The access-token contract's iss/iat/exp claims are added
+    // by the signer (see AuthModule's signOptions); the identity claims below
+    // feed the rest of the verified payload.
+    const payload: Omit<AccessTokenPayload, 'iss' | 'iat' | 'exp'> = {
       sub: user.id,
       displayName: user.displayName,
       email: user.email,

@@ -3,8 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { EntityNotFoundError, QueryFailedError, Repository } from 'typeorm';
 import { hashValue } from '../common/hash/hash.js';
-import { Role } from './role.js';
 import { User } from './user.entity.js';
+import { Role } from '@foc/contracts';
 
 /** The PostgreSQL driver error code for a unique-constraint violation. */
 const UNIQUE_VIOLATION_CODE = '23505';

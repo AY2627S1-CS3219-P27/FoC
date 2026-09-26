@@ -10,9 +10,9 @@ import {
 import { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
 import type { AuthenticatedRequest } from '../auth/authenticated-user.js';
-import { JWT_COOKIE } from '../common/constants.js';
 import { UpdateRolesDto } from './DTO/update-roles.dto.js';
 import { UsersService } from './users.service.js';
+import { ACCESS_TOKEN_COOKIE } from '@foc/contracts';
 
 @Controller('users')
 export class UsersController {
@@ -28,6 +28,7 @@ export class UsersController {
    */
   @Get('me')
   async getMe(@Req() request: AuthenticatedRequest) {
+    // TODO: Populate request.user.sub in AuthGuard
     const user = await this.usersService.getUserById(request.user.sub);
     if (user === null) {
       throw new UnauthorizedException();
@@ -46,12 +47,13 @@ export class UsersController {
     @Body() updateRolesDto: UpdateRolesDto,
     @Res({ passthrough: true }) res: Response,
   ) {
+    // TODO: Populate request.user.sub in AuthGuard
     const updated = await this.usersService.updateRoles(
       request.user.sub,
       updateRolesDto.roles,
     );
 
-    res.clearCookie(JWT_COOKIE, {
+    res.clearCookie(ACCESS_TOKEN_COOKIE, {
       httpOnly: true,
       sameSite: 'lax',
       path: '/',

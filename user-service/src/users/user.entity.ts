@@ -5,7 +5,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { Role } from './role.js';
+import { Role } from '@foc/contracts';
 
 @Entity('users')
 export class User {
