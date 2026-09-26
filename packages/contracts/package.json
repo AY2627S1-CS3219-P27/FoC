@@ -16,6 +16,8 @@
     "dist"
   ],
   "scripts": {
+    "prebuild": "npm run clean",
+    "clean": "node --input-type=module -e \"import { rmSync } from 'node:fs'; for (const path of ['dist', 'tsconfig.build.tsbuildinfo']) rmSync(path, { recursive: true, force: true })\"",
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
     "lint": "oxlint --type-aware src/"

@@ -1,6 +1,5 @@
 import {
   Ajv2020,
-  type AnySchemaObject,
   type ErrorObject,
   type ValidateFunction,
 } from 'ajv/dist/2020.js';
@@ -11,17 +10,11 @@ import type {
   ContractViolation,
   EventContractFailureCode,
 } from '../common/types.js';
-import type {
-  CreditAccountInitialisedEvent,
-  EventEnvelope,
-  UserRegisteredEvent,
-} from './account-event-contract.types.js';
-import creditAccountInitialisedSchemaJson from './schemas/credit-account-initialised.v1.schema.json' with { type: 'json' };
-import eventEnvelopeSchemaJson from './schemas/event-envelope.v1.schema.json' with { type: 'json' };
-import userRegisteredSchemaJson from './schemas/user-registered.v1.schema.json' with { type: 'json' };
-
-const USER_REGISTERED = 'UserRegistered';
-const CREDIT_ACCOUNT_INITIALISED = 'CreditAccountInitialised';
+import type { EventContractDefinition } from './event-contract.types.js';
+import eventEnvelopeSchema from './event-envelope.schema.json' with { type: 'json' };
+import type { EventEnvelope } from './event-envelope.types.js';
+import { eventRegistry } from './event-registry.js';
+import type { EventContractKey, EventOf } from './event-registry.types.js';
 
 function sanitizeViolations(
   errors: ErrorObject[] | null | undefined,
@@ -80,16 +73,19 @@ function invalidPublisher<T>(
   ]);
 }
 
+type RuntimeContract = EventContractDefinition<string, string, string, object>;
+
 /**
- * Validates decoded event values without coercing, defaulting, or removing
- * fields. Returned violations contain schema metadata but never event values.
- * The class has no framework dependencies and can be registered directly as a
- * provider by NestJS consumers.
+ * Validates decoded domain events against the contract selected by its
+ * versioned routing key. The class is framework-neutral and compiles every
+ * registered schema once during construction.
  */
 export class AccountEventContractValidator {
   private readonly envelopeValidator: ValidateFunction<EventEnvelope>;
-  private readonly userRegisteredValidator: ValidateFunction<UserRegisteredEvent>;
-  private readonly creditAccountInitialisedValidator: ValidateFunction<CreditAccountInitialisedEvent>;
+  private readonly eventValidators = new Map<
+    EventContractKey,
+    ValidateFunction
+  >();
 
   constructor() {
     const ajv = new Ajv2020({
@@ -102,18 +98,16 @@ export class AccountEventContractValidator {
     const addFormats = addFormatsModule.default as unknown as FormatsPlugin;
     addFormats(ajv);
 
-    const envelopeSchema = eventEnvelopeSchemaJson as AnySchemaObject;
-    ajv.addSchema(envelopeSchema);
+    ajv.addSchema(eventEnvelopeSchema);
     this.envelopeValidator = ajv.getSchema<EventEnvelope>(
-      envelopeSchema.$id as string,
+      eventEnvelopeSchema.$id,
     )!;
-    this.userRegisteredValidator = ajv.compile<UserRegisteredEvent>(
-      userRegisteredSchemaJson as AnySchemaObject,
-    );
-    this.creditAccountInitialisedValidator =
-      ajv.compile<CreditAccountInitialisedEvent>(
-        creditAccountInitialisedSchemaJson as AnySchemaObject,
-      );
+
+    for (const [key, contract] of Object.entries(eventRegistry) as Array<
+      [EventContractKey, RuntimeContract]
+    >) {
+      this.eventValidators.set(key, ajv.compile(contract.schema));
+    }
   }
 
   validateEnvelope(
@@ -129,50 +123,28 @@ export class AccountEventContractValidator {
     return { valid: true, value: input };
   }
 
-  validateUserRegistered(
+  validate<TKey extends EventContractKey>(
+    key: TKey,
     input: unknown,
-  ): ContractValidationResult<UserRegisteredEvent, EventContractFailureCode> {
+  ): ContractValidationResult<EventOf<TKey>, EventContractFailureCode> {
     const envelope = this.validateEnvelope(input);
     if (!envelope.valid) {
       return envelope;
     }
-    if (envelope.value.eventType !== USER_REGISTERED) {
-      return unsupportedEvent(USER_REGISTERED);
+
+    const contract = eventRegistry[key];
+    if (envelope.value.eventType !== contract.eventType) {
+      return unsupportedEvent(contract.eventType);
     }
-    if (envelope.value.publisher !== 'user-service') {
-      return invalidPublisher('user-service');
-    }
-    if (!this.userRegisteredValidator(input)) {
-      return failure(
-        'INVALID_PAYLOAD',
-        sanitizeViolations(this.userRegisteredValidator.errors),
-      );
+    if (envelope.value.publisher !== contract.publisher) {
+      return invalidPublisher(contract.publisher);
     }
 
-    return { valid: true, value: input };
-  }
-
-  validateCreditAccountInitialised(
-    input: unknown,
-  ): ContractValidationResult<
-    CreditAccountInitialisedEvent,
-    EventContractFailureCode
-  > {
-    const envelope = this.validateEnvelope(input);
-    if (!envelope.valid) {
-      return envelope;
-    }
-    if (envelope.value.eventType !== CREDIT_ACCOUNT_INITIALISED) {
-      return unsupportedEvent(CREDIT_ACCOUNT_INITIALISED);
-    }
-    if (envelope.value.publisher !== 'credit-service') {
-      return invalidPublisher('credit-service');
-    }
-    if (!this.creditAccountInitialisedValidator(input)) {
-      return failure(
-        'INVALID_PAYLOAD',
-        sanitizeViolations(this.creditAccountInitialisedValidator.errors),
-      );
+    const validator = this.eventValidators.get(key)! as ValidateFunction<
+      EventOf<TKey>
+    >;
+    if (!validator(input)) {
+      return failure('INVALID_PAYLOAD', sanitizeViolations(validator.errors));
     }
 
     return { valid: true, value: input };
