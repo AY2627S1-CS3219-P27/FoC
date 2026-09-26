@@ -3,16 +3,27 @@ import {
   Post,
   Controller,
   Req,
+  Res,
   UnauthorizedException,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { REGISTRATION_TOKEN_COOKIE } from '../common/constants.js';
-import { RegisterDto } from './DTO/Register.dto.js';
+import {
+  JWT_COOKIE,
+  JWT_EXPIRATION_IN_SECONDS,
+  REGISTRATION_TOKEN_COOKIE,
+} from '../common/constants.js';
+import { RegisterDto } from './DTO/register.dto.js';
 import { AuthService } from './auth.service.js';
+import { LoginDto } from './DTO/login.dto.js';
+import { ConfigService } from '@nestjs/config';
+import type { Response } from 'express';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(
+    private authService: AuthService,
+    private configService: ConfigService,
+  ) {}
 
   @Post('register')
   async register(@Req() request: Request, @Body() registerDto: RegisterDto) {
@@ -30,5 +41,26 @@ export class AuthController {
       registerDto.displayName,
       registerDto.password,
     );
+  }
+
+  @Post('login')
+  async login(
+    @Body() loginDto: LoginDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    // login
+    const { accessToken } = await this.authService.checkCredentials(
+      loginDto.email,
+      loginDto.password,
+    );
+
+    res.cookie(JWT_COOKIE, accessToken, {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: JWT_EXPIRATION_IN_SECONDS * 1000, // seconds -> milliseconds
+      secure: this.configService.get('NODE_ENV') === 'production',
+    });
+    return { message: 'Logged in.' };
   }
 }

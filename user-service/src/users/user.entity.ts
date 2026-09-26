@@ -23,9 +23,6 @@ export class User {
   @Column({ length: 32 })
   passwordSalt: string;
 
-  @Column({ default: true })
-  isActive: boolean;
-
   @Column({ default: false })
   isAdmin: boolean;
 
