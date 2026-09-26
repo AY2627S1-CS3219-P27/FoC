@@ -420,7 +420,8 @@ The repository-local `@foc/contracts` package owns the versioned JSON Schemas,
 TypeScript types, and strict AJV validator for the common envelope,
 `UserRegistered`, and `CreditAccountInitialised`. Credit Service consumes that
 package through a `file:` dependency and registers its framework-neutral
-`AccountEventContractValidator` as a Nest provider.
+`AccountEventContractValidator` as a Nest provider. Validation selects the
+expected versioned contract from the package registry by routing key.
 
 The npm lifecycle hooks install and rebuild the package before Credit Service
 build, startup, and test commands. To rebuild it directly:

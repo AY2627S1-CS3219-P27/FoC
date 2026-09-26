@@ -38,15 +38,23 @@ Every domain event contains exactly:
 The routing key, event type, publisher, and payload schema must agree. Unknown
 envelope and payload properties are rejected.
 
+Event contracts may refine the `eventType`, `publisher`, and `payload` values.
+They may not add event-specific envelope fields; changing the common envelope
+requires an explicit versioned contract decision.
+
 ### Canonical package and deployment
 
-Shared event contracts use JSON Schema draft 2020-12. Versioned schemas under
-[`packages/contracts/src/domain-events/schemas`](../../packages/contracts/src/domain-events/schemas/)
-are canonical. Their filenames and `$id` values remain stable for the life of
-that contract version.
+Shared event contracts use JSON Schema draft 2020-12. Each versioned event
+module under
+[`packages/contracts/src/domain-events/events`](../../packages/contracts/src/domain-events/events/)
+co-locates its descriptor, payload type, schema, and tests. Schema `$id` values
+remain stable for the life of that contract version.
 
 The `@foc/contracts` package owns the schemas, TypeScript wire types, strict AJV
 validation, standardized failure codes, and sanitized violation format.
+Its typed registry is the authoritative routing-key to event-type, publisher,
+payload-type, and schema mapping. The generic validator selects contracts by
+registry key and compiles every registered schema during construction.
 Services consume it through the repository-local `file:` dependency and rebuild
 it before compilation, startup, and tests. This keeps publishers and consumers
 on one implementation instead of maintaining service-local schema copies or
@@ -61,11 +69,11 @@ The currently established contracts are:
 
 | Event | Publisher | Routing key | Canonical schema |
 | --- | --- | --- | --- |
-| `UserRegistered` | User Service | `user.registered.v1` | [`user-registered.v1.schema.json`](../../packages/contracts/src/domain-events/schemas/user-registered.v1.schema.json) |
-| `CreditAccountInitialised` | Credit Service | `credit.account-initialised.v1` | [`credit-account-initialised.v1.schema.json`](../../packages/contracts/src/domain-events/schemas/credit-account-initialised.v1.schema.json) |
+| `UserRegistered` | User Service | `user.registered.v1` | [`schema.json`](../../packages/contracts/src/domain-events/events/user-registered/v1/schema.json) |
+| `CreditAccountInitialised` | Credit Service | `credit.account-initialised.v1` | [`schema.json`](../../packages/contracts/src/domain-events/events/credit-account-initialised/v1/schema.json) |
 
 The canonical schemas, including
-[`event-envelope.v1.schema.json`](../../packages/contracts/src/domain-events/schemas/event-envelope.v1.schema.json),
+[`event-envelope.schema.json`](../../packages/contracts/src/domain-events/event-envelope.schema.json),
 are authoritative for exact fields and validation constraints.
 
 ## Rationale
