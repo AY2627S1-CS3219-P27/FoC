@@ -1,6 +1,8 @@
+import {
+  AccountEventContractValidator,
+  type ContractViolation,
+} from '@foc/contracts';
 import { Injectable } from '@nestjs/common';
-import type { ContractViolation } from '../contracts/account-event-contract.types.js';
-import { AccountEventContractValidator } from '../contracts/account-event-contract.validator.js';
 import type {
   IncomingDomainMessage,
   MessageHandlingResult,

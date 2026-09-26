@@ -69,8 +69,18 @@ services:
         - action: rebuild
           path: package-lock.json
         - action: sync+restart
-          path: ../contracts/schemas
-          target: /usr/src/contracts/schemas
+          path: ../packages/contracts/src
+          target: /usr/src/packages/contracts/src
+        - action: sync+restart
+          path: ../packages/contracts/tsconfig.json
+          target: /usr/src/packages/contracts/tsconfig.json
+        - action: sync+restart
+          path: ../packages/contracts/tsconfig.build.json
+          target: /usr/src/packages/contracts/tsconfig.build.json
+        - action: rebuild
+          path: ../packages/contracts/package.json
+        - action: rebuild
+          path: ../packages/contracts/package-lock.json
 
   credit-db:
     image: postgres:18-alpine

@@ -1,9 +1,9 @@
 *
 !credit-service/
 !credit-service/**
-!contracts/
-!contracts/schemas/
-!contracts/schemas/**
+!packages/
+!packages/contracts/
+!packages/contracts/**
 
 credit-service/node_modules
 credit-service/dist
@@ -16,3 +16,7 @@ credit-service/.env.*
 credit-service/secrets
 credit-service/*.log
 credit-service/*.tsbuildinfo
+packages/contracts/node_modules
+packages/contracts/dist
+packages/contracts/coverage
+packages/contracts/*.tsbuildinfo

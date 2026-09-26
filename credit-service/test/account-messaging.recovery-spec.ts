@@ -12,12 +12,12 @@ import {
 } from 'amqplib';
 import { DataSource } from 'typeorm';
 import { AccountInitializationService } from '../src/account-initialization/account-initialization.service.js';
-import type {
-  ContractValidationResult,
-  CreditAccountInitialisedEvent,
-  UserRegisteredEvent,
-} from '../src/contracts/account-event-contract.types.js';
-import { AccountEventContractValidator } from '../src/contracts/account-event-contract.validator.js';
+import {
+  AccountEventContractValidator,
+  type ContractValidationResult,
+  type CreditAccountInitialisedEvent,
+  type UserRegisteredEvent,
+} from '@foc/contracts';
 import { createDatabaseOptions } from '../src/database/database-options.js';
 import { RABBITMQ_CONNECTION_URL } from '../src/messaging/rabbitmq-connection-url.provider.js';
 import { OutboxRelay } from '../src/outbox/outbox.relay.js';

@@ -7,12 +7,12 @@ import {
   AccountInitializationService,
 } from '../src/account-initialization/account-initialization.service.js';
 import type { EnvironmentVariables } from '../src/config/environment.js';
-import type {
-  ContractValidationResult,
-  CreditAccountInitialisedEvent,
-  UserRegisteredEvent,
-} from '../src/contracts/account-event-contract.types.js';
-import { AccountEventContractValidator } from '../src/contracts/account-event-contract.validator.js';
+import {
+  AccountEventContractValidator,
+  type ContractValidationResult,
+  type CreditAccountInitialisedEvent,
+  type UserRegisteredEvent,
+} from '@foc/contracts';
 import { createDatabaseOptions } from '../src/database/database-options.js';
 import {
   CreditAccount,

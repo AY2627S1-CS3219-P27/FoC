@@ -1,14 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto';
+import {
+  AccountEventContractValidator,
+  type CreditAccountInitialisedEvent,
+  type UserRegisteredEvent,
+  type UserRegisteredPayload,
+} from '@foc/contracts';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AccountAllocationService } from '../account/account-allocation.service.js';
 import type { EnvironmentVariables } from '../config/environment.js';
-import type {
-  CreditAccountInitialisedEvent,
-  UserRegisteredEvent,
-  UserRegisteredPayload,
-} from '../contracts/account-event-contract.types.js';
-import { AccountEventContractValidator } from '../contracts/account-event-contract.validator.js';
 import { InboxEvent, OutboxEvent } from '../database/entities/index.js';
 import { SerializableTransactionRunner } from '../database/serializable-transaction.runner.js';
 

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { UserRegisteredPayload } from '../contracts/account-event-contract.types.js';
+import type { UserRegisteredPayload } from '@foc/contracts';
 import { hashUserRegisteredPayload } from './account-initialization.service.js';
 
 describe('hashUserRegisteredPayload', () => {

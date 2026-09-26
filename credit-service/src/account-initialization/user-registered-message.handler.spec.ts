@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import type { UserRegisteredEvent } from '../contracts/account-event-contract.types.js';
-import { AccountEventContractValidator } from '../contracts/account-event-contract.validator.js';
+import {
+  AccountEventContractValidator,
+  type UserRegisteredEvent,
+} from '@foc/contracts';
 import type { IncomingDomainMessage } from '../messaging/rabbitmq-message.types.js';
 import type { AccountInitializationService } from './account-initialization.service.js';
 import { UserRegisteredMessageHandler } from './user-registered-message.handler.js';
