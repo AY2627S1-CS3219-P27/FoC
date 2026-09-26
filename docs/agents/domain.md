@@ -14,7 +14,7 @@ One microservice per top-level folder. Each has its own `Dockerfile`, `README.md
 | `credit-service/` | Credit ledger; reacts to `ErrandCompleted` / `ErrandCancelled` from order-service. No backlog issues yet. |
 | `<name>-service/` | Each N2H feature that needs its own service gets an extra top-level folder (e.g. notifications for N.1) |
 
-Shared: `compose.yaml`, `.env.example`, `data/`.
+Shared: `compose.yaml`, `data/`. Env vars are per service: `<service>/.env.example`.
 
 ## Service context is mandatory
 
