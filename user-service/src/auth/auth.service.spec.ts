@@ -1,10 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { generateKeyPairSync } from 'node:crypto';
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AuthService, REGISTER_USER_SCRIPT } from './auth.service.js';
 import { REDIS } from '../redis/redis.provider.js';
 import { SecretService } from '../secret/secret.service.js';
 import { hmacValue } from '../common/hash/hash.js';
+import { JWT_EXPIRATION_IN_SECONDS } from '../common/constants.js';
+import { Role, validateAccessTokenPayload } from '@foc/contracts';
 import {
   EmailAlreadyRegisteredError,
   UsersService,
@@ -31,6 +34,8 @@ describe('AuthService', () => {
         id: 7,
         email: args.email,
         displayName: args.displayName,
+        roles: [],
+        isAdmin: false,
       })),
       checkUserAndReturnInfo: vi.fn(),
     };
@@ -100,11 +105,14 @@ describe('AuthService', () => {
       password: 'StrongPassw0rd!',
     });
 
-    // Response exposes only the identifying fields, never the credentials.
+    // Response exposes the public profile: identifying fields, the role set
+    // (empty until opt-in) and the admin classification — never credentials.
     expect(user).toEqual({
       id: 7,
       email: 'eve@example.com',
       displayName: 'Eve',
+      roles: [],
+      isAdmin: false,
     });
   });
 
@@ -160,11 +168,13 @@ describe('AuthService', () => {
   });
 
   describe('checkCredentials', () => {
-    it('signs a JWT carrying the user identity when the credentials match', async () => {
+    it('signs a JWT carrying the user identity and roles when the credentials match', async () => {
       usersService.checkUserAndReturnInfo.mockResolvedValue({
         id: 7,
         email: 'eve@example.com',
         displayName: 'Eve',
+        isAdmin: false,
+        roles: [Role.Requester, Role.Courier],
       });
 
       await expect(
@@ -179,6 +189,8 @@ describe('AuthService', () => {
         sub: 7,
         displayName: 'Eve',
         email: 'eve@example.com',
+        isAdmin: false,
+        roles: [Role.Requester, Role.Courier],
       });
     });
 
@@ -191,6 +203,70 @@ describe('AuthService', () => {
         service.checkCredentials('eve@example.com', 'WrongPassw0rd!'),
       ).rejects.toThrow(UnauthorizedException);
       expect(jwtService.signAsync).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe('access token contract conformance', () => {
+  it('mints a token that passes the access-token contract', async () => {
+    // Real signer with the same options wired in AuthModule, so this asserts
+    // the full issued shape — including the `iss` and timestamps the JWT
+    // library emits — not just the identity claims. Issuer drift breaks this
+    // test first, before any verifier sees a token.
+    const { privateKey, publicKey } = generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+    });
+    const realJwtService = new JwtService({
+      privateKey,
+      publicKey,
+      signOptions: {
+        expiresIn: JWT_EXPIRATION_IN_SECONDS,
+        issuer: 'user-service',
+        algorithm: 'RS256',
+      },
+    });
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        AuthService,
+        { provide: REDIS, useValue: { eval: vi.fn() } },
+        {
+          provide: SecretService,
+          useValue: { getServerSecret: () => 'test-secret' },
+        },
+        {
+          provide: UsersService,
+          useValue: {
+            checkUserAndReturnInfo: vi.fn(async () => ({
+              id: 7,
+              email: 'eve@example.com',
+              displayName: 'Eve',
+              isAdmin: false,
+              roles: [Role.Requester],
+            })),
+          },
+        },
+        { provide: JwtService, useValue: realJwtService },
+      ],
+    }).compile();
+    const service = module.get<AuthService>(AuthService);
+
+    const { accessToken } = await service.checkCredentials(
+      'eve@example.com',
+      'StrongPassw0rd!',
+    );
+    const payload = await realJwtService.verifyAsync(accessToken);
+
+    const result = validateAccessTokenPayload(payload);
+
+    expect(result.valid).toBe(true);
+    expect(result.valid && result.value).toMatchObject({
+      sub: 7,
+      email: 'eve@example.com',
+      displayName: 'Eve',
+      isAdmin: false,
+      roles: [Role.Requester],
+      iss: 'user-service',
     });
   });
 });
