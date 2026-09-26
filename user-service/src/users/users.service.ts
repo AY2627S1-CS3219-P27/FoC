@@ -1,7 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { randomBytes } from 'node:crypto';
-import { QueryFailedError, Repository } from 'typeorm';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { EntityNotFoundError, QueryFailedError, Repository } from 'typeorm';
 import { hashValue } from '../common/hash/hash.js';
 import { User } from './user.entity.js';
 
@@ -23,7 +23,7 @@ export interface ProvisionUserParams {
   isLocked?: boolean;
 }
 
-export interface ProvisionedUser {
+export interface PublicUserInfo {
   id: number;
   email: string;
   displayName: string;
@@ -41,7 +41,7 @@ export class UsersService {
     password,
     isAdmin = false,
     isLocked = false,
-  }: ProvisionUserParams): Promise<ProvisionedUser> {
+  }: ProvisionUserParams): Promise<PublicUserInfo> {
     // Fresh per-account salt, stored next to the hash so the credentials can
     // be re-verified later without derivable state.
     const passwordSalt = randomBytes(16).toString('hex');
@@ -54,19 +54,13 @@ export class UsersService {
           displayName,
           passwordHash,
           passwordSalt,
-          isActive: true,
           isArchived: false,
           isAdmin,
           isLocked,
         }),
       );
 
-      // Expose only the identifying fields
-      return {
-        id: user.id,
-        email: user.email,
-        displayName: user.displayName,
-      };
+      return this.getPublicUserInfo(user);
     } catch (error) {
       if (
         error instanceof QueryFailedError &&
@@ -80,6 +74,45 @@ export class UsersService {
   }
 
   /**
+   * Checks a provided (email, password) pair against the stored credentials
+   * and returns the user's public info on success.
+   *
+   * Throws `UnauthorizedException` for known failed conditions alike (unknown
+   * email, wrong password, or unusable account)
+   */
+  async checkUserAndReturnInfo(email: string, password: string) {
+    let user: User;
+    try {
+      user = await this.userRepository.findOneByOrFail({ email });
+    } catch (error) {
+      if (error instanceof EntityNotFoundError) {
+        throw new UnauthorizedException();
+      }
+      throw error;
+    }
+
+    // Re-hash the supplied password with the stored salt and compare.
+    const userPasswordHashed = Buffer.from(user.passwordHash, 'hex');
+    const suppliedPasswordHashed = Buffer.from(
+      await hashValue(password, user.passwordSalt),
+      'hex',
+    );
+    const passwordsMatch =
+      userPasswordHashed.length === suppliedPasswordHashed.length &&
+      timingSafeEqual(userPasswordHashed, suppliedPasswordHashed);
+
+    if (!passwordsMatch) {
+      throw new UnauthorizedException();
+    }
+
+    if (user.isLocked || user.isArchived) {
+      throw new UnauthorizedException();
+    }
+
+    return this.getPublicUserInfo(user);
+  }
+
+  /**
    * Counts the admin accounts that are not archived. Locked admins still
    * count.
    */
@@ -87,5 +120,16 @@ export class UsersService {
     return this.userRepository.count({
       where: { isAdmin: true, isArchived: false },
     });
+  }
+
+  /**
+   * Info of a user safe to be received by end-users.
+   */
+  private getPublicUserInfo(user: User): PublicUserInfo {
+    return {
+      id: user.id,
+      email: user.email,
+      displayName: user.displayName,
+    };
   }
 }

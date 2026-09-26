@@ -13,6 +13,7 @@ import {
   EmailAlreadyRegisteredError,
   UsersService,
 } from '../users/users.service.js';
+import { JwtService } from '@nestjs/jwt';
 
 export const REGISTER_USER_SCRIPT = getRegisterUserScript();
 
@@ -28,6 +29,7 @@ export class AuthService {
     @Inject(REDIS) private redis: RedisClientType,
     private secretService: SecretService,
     private usersService: UsersService,
+    private jwtService: JwtService,
   ) {}
 
   /**
@@ -79,5 +81,27 @@ export class AuthService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Checks whether the provided (email, password) pair matches, and if so,
+   * returns an object with an accessToken JWT.
+   */
+  async checkCredentials(email: string, password: string) {
+    // Check if password matches
+    const user = await this.usersService.checkUserAndReturnInfo(
+      email,
+      password,
+    );
+
+    // create JWT
+    const payload = {
+      sub: user.id,
+      displayName: user.displayName,
+      email: user.email,
+    };
+    return {
+      accessToken: await this.jwtService.signAsync(payload),
+    };
   }
 }
