@@ -1,5 +1,10 @@
-// Add on | 'INVALID_ENVELOPE' | '...', etc. as contracts grow
-export type ContractFailureCode = 'INVALID_TOKEN_PAYLOAD';
+export type TokenContractFailureCode = 'INVALID_TOKEN_PAYLOAD';
+
+export type EventContractFailureCode =
+  'INVALID_ENVELOPE' | 'INVALID_PAYLOAD' | 'UNSUPPORTED_EVENT_TYPE';
+
+export type ContractFailureCode =
+  TokenContractFailureCode | EventContractFailureCode;
 
 /**
  * Standardized violation format that validation
@@ -13,10 +18,13 @@ export interface ContractViolation {
   message: string;
 }
 
-export type ContractValidationResult<T> =
+export type ContractValidationResult<
+  T,
+  TCode extends ContractFailureCode = ContractFailureCode,
+> =
   | { valid: true; value: T }
   | {
       valid: false;
-      code: ContractFailureCode;
+      code: TCode;
       violations: ContractViolation[];
     };

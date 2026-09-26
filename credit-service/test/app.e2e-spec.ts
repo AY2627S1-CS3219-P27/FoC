@@ -1,16 +1,27 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module.js';
+import { RabbitMqConsumerTransport } from './../src/messaging/rabbitmq-consumer.transport.js';
+import { RABBITMQ_CONNECTION_URL } from './../src/messaging/rabbitmq-connection-url.provider.js';
+import { OutboxRelay } from './../src/outbox/outbox.relay.js';
 
 describe('AppController (e2e)', () => {
-  let app: INestApplication<App>;
+  let app: INestApplication;
 
   beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      // HTTP smoke tests should not require a broker. Transport behavior has
+      // its own real-RabbitMQ integration suite.
+      .overrideProvider(RabbitMqConsumerTransport)
+      .useValue({ subscribe: vi.fn(), close: vi.fn() })
+      .overrideProvider(RABBITMQ_CONNECTION_URL)
+      .useValue('amqp://unused')
+      .overrideProvider(OutboxRelay)
+      .useValue({ start: vi.fn(), close: vi.fn() })
+      .compile();
 
     app = moduleFixture.createNestApplication();
     await app.init();

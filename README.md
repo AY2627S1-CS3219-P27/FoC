@@ -49,13 +49,15 @@ microservice (`user-service/`, `supplier-service/`, `order-service/`,
 
 ## Running via Docker Compose
 
-Run the whole project by using docker compose:
+After the service databases have been initialized, run the whole project with
+Docker Compose:
 
 ```sh
 docker compose up --watch
 ```
 
-The watch flag allows for your changes to be updated in the image.
+The watch flag synchronizes supported source changes into the development
+containers. A fresh checkout requires the initialization steps below first.
 
 ### First-time set-up
 
@@ -64,15 +66,38 @@ The project requires several environment variables, explained in each module's
 created in order to set-up passwords and authentication. View them in the
 compose files.
 
+Credit Service deliberately disables TypeORM schema synchronization and does
+not run migrations during application startup. Initialize its database before
+starting the complete stack so its consumer and outbox relay cannot access an
+empty schema:
+
+```sh
+docker compose up -d --wait rabbitmq credit-db
+docker compose build credit-service
+docker compose run --rm credit-service npm run migration:run
+docker compose up --watch
+```
+
+Run the same Credit migration command after pulling a new committed migration,
+before starting the updated Credit Service. TypeORM skips migrations that have
+already been applied. See the [Credit Service setup](credit-service/README.md#run-with-docker-compose)
+for its service-specific workflow and verification commands.
+
 ### RabbitMQ set-up
 
-Notably, RabbitMQ requires a password hash in its `definitions.json` for setup.
-There already is a password hash defined in them - these should directly
-correspond with the `rabbitmq_password.secret` files that modules have. You may
-either match the password with the one in the hash (ask a dev), or create your
-own secret and overwrite the one in `definitions.json`. You may create a hash by
-running the following, assuming `rabbitmq_temp` is a running rabbitmq container:
+RabbitMQ uses one user per service. Each ignored `rabbitmq_password.secret`
+must match that user's salted hash in `rabbitmq/definitions.json`; plaintext
+passwords must not be committed or placed in service environment variables.
+Generate a strong password locally, save it in the service's secret file, and
+generate its definition hash with:
 
 ```sh
 docker exec rabbitmq_temp rabbitmqctl hash_password {YOUR PASSWORD HERE}
 ```
+
+Replace only the matching service user's hash. Broker definitions, including
+password hashes, remain sensitive configuration. They also seed critical
+durable ingress queues and bindings before their consumers start; services
+reassert their matching service-owned topology at runtime. Credit Service uses
+the root `/foc` broker in normal development; its local RabbitMQ containers are
+reserved for isolated messaging and recovery tests.

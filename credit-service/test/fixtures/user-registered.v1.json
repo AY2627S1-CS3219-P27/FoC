@@ -1,0 +1,11 @@
+{
+  "eventId": "b6f35a32-bd23-4a5f-af2d-d80cd314a680",
+  "eventType": "UserRegistered",
+  "timestamp": "2026-09-23T08:00:00.000Z",
+  "publisher": "user-service",
+  "payload": {
+    "userId": "028af3d2-4f18-4077-aa22-9ab82b9ce457",
+    "email": "student@u.nus.edu",
+    "displayName": "Student Example"
+  }
+}

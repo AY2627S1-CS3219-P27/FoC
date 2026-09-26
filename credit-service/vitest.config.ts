@@ -6,7 +6,7 @@ export default defineConfig({
   test: {
     globals: true,
     root: './',
-    include: ['**/*.spec.ts'],
+    include: ['src/**/*.spec.ts'],
     env: {
       NODE_ENV: 'test',
       PORT: '3000',
@@ -16,6 +16,11 @@ export default defineConfig({
       DB_USERNAME: 'credit_service',
       DB_DATABASE: 'credit_service',
       DB_PASSWORD_FILE: '/run/secrets/credit_db_password',
+      RABBITMQ_USER: 'credit-service',
+      RABBITMQ_HOST: 'rabbitmq',
+      RABBITMQ_PORT: '5672',
+      RABBITMQ_VHOST: '/foc',
+      RABBITMQ_PASSWORD_FILE: '/run/secrets/rabbitmq_password_credit_service',
     },
   },
 });

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://foc.local/schemas/user-registered.v1.schema.json",
+  "title": "UserRegisteredV1",
+  "allOf": [
+    {
+      "$ref": "https://foc.local/schemas/event-envelope.v1.schema.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "const": "UserRegistered"
+        },
+        "publisher": {
+          "const": "user-service"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["userId", "email", "displayName"],
+          "properties": {
+            "userId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "email": {
+              "type": "string",
+              "format": "email"
+            },
+            "displayName": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    }
+  ]
+}

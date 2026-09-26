@@ -1,7 +1,8 @@
 services:
   credit-service:
     build:
-      context: .
+      context: ..
+      dockerfile: credit-service/Dockerfile
       target: development
     command: npm run start:dev
     restart: unless-stopped
@@ -19,8 +20,28 @@ services:
       DB_USERNAME: ${DB_USERNAME:-credit_service}
       DB_DATABASE: ${DB_DATABASE:-credit_service}
       DB_PASSWORD_FILE: /run/secrets/credit_db_password
+      INITIAL_CREDIT_BALANCE: ${INITIAL_CREDIT_BALANCE:-100}
+      RABBITMQ_USER: credit-service
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_VHOST: /foc
+      RABBITMQ_PASSWORD_FILE: /run/secrets/rabbitmq_password_credit_service
+      RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-foc.events}
+      RABBITMQ_USER_REGISTERED_QUEUE: credit-service.user-registered.v1
+      RABBITMQ_USER_REGISTERED_ROUTING_KEY: ${RABBITMQ_USER_REGISTERED_ROUTING_KEY:-user.registered.v1}
+      RABBITMQ_CREDIT_ACCOUNT_INITIALISED_ROUTING_KEY: ${RABBITMQ_CREDIT_ACCOUNT_INITIALISED_ROUTING_KEY:-credit.account-initialised.v1}
+      RABBITMQ_RETRY_EXCHANGE: ${RABBITMQ_RETRY_EXCHANGE:-foc.credit.retry}
+      RABBITMQ_RETRY_RETURN_EXCHANGE: ${RABBITMQ_RETRY_RETURN_EXCHANGE:-foc.credit.back}
+      RABBITMQ_DEAD_LETTER_EXCHANGE: ${RABBITMQ_DEAD_LETTER_EXCHANGE:-foc.credit.dlx}
+      RABBITMQ_PREFETCH: ${RABBITMQ_PREFETCH:-10}
+      RABBITMQ_RETRY_DELAYS_MS: ${RABBITMQ_RETRY_DELAYS_MS:-1000,2000,4000,8000,16000}
+      OUTBOX_POLL_INTERVAL_MS: ${OUTBOX_POLL_INTERVAL_MS:-1000}
+      OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-100}
+      OUTBOX_CLAIM_LEASE_MS: ${OUTBOX_CLAIM_LEASE_MS:-30000}
+      OUTBOX_UNPUBLISHED_WARNING_MS: ${OUTBOX_UNPUBLISHED_WARNING_MS:-60000}
     secrets:
       - credit_db_password
+      - rabbitmq_password_credit_service
     healthcheck:
       test:
         [
@@ -47,6 +68,19 @@ services:
           path: package.json
         - action: rebuild
           path: package-lock.json
+        - action: sync+restart
+          path: ../packages/contracts/src
+          target: /usr/src/packages/contracts/src
+        - action: sync+restart
+          path: ../packages/contracts/tsconfig.json
+          target: /usr/src/packages/contracts/tsconfig.json
+        - action: sync+restart
+          path: ../packages/contracts/tsconfig.build.json
+          target: /usr/src/packages/contracts/tsconfig.build.json
+        - action: rebuild
+          path: ../packages/contracts/package.json
+        - action: rebuild
+          path: ../packages/contracts/package-lock.json
 
   credit-db:
     image: postgres:18-alpine
@@ -63,17 +97,99 @@ services:
       - credit_db_password
     healthcheck:
       test:
-        [
-          'CMD-SHELL',
-          'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"',
-        ]
+        ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
       interval: 5s
       timeout: 3s
       retries: 10
 
+  credit-db-test:
+    image: postgres:18-alpine
+    profiles: ['test']
+    ports:
+      - '${DB_TEST_HOST_PORT:-5436}:5432'
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-credit_service}
+      POSTGRES_DB: credit_service_test
+      POSTGRES_PASSWORD_FILE: /run/secrets/credit_db_password
+    tmpfs:
+      - /var/lib/postgresql
+    secrets:
+      - credit_db_password
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  credit-db-recovery:
+    image: postgres:18-alpine
+    profiles: ['recovery']
+    ports:
+      - '${DB_RECOVERY_HOST_PORT:-5437}:5432'
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-credit_service}
+      POSTGRES_DB: credit_service_recovery
+      POSTGRES_PASSWORD_FILE: /run/secrets/credit_db_password
+    volumes:
+      - /var/lib/postgresql
+    secrets:
+      - credit_db_password
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  credit-rabbitmq:
+    image: rabbitmq:4.3.6-management-alpine
+    profiles: ['test']
+    restart: unless-stopped
+    ports:
+      - '${RABBITMQ_HOST_PORT:-5675}:5672'
+      - '${RABBITMQ_MANAGEMENT_HOST_PORT:-15675}:15672'
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:?RABBITMQ_USERNAME must be set}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must be set}
+    volumes:
+      - credit-rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  credit-rabbitmq-recovery:
+    build:
+      context: .
+      dockerfile: test/rabbitmq-recovery.Dockerfile
+    image: credit-service-rabbitmq-recovery:local
+    profiles: ['recovery']
+    ports:
+      - '${RABBITMQ_RECOVERY_HOST_PORT:-5676}:5672'
+      - '${RABBITMQ_RECOVERY_MANAGEMENT_HOST_PORT:-15676}:15672'
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:?RABBITMQ_USERNAME must be set}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must be set}
+      RABBITMQ_ERLANG_COOKIE: credit-service-recovery-cookie
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: '+S 2:2'
+      HOME: /var/lib/rabbitmq-recovery
+      RABBITMQ_MNESIA_BASE: /var/lib/rabbitmq-recovery/mnesia
+    volumes:
+      - /var/lib/rabbitmq-recovery
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
 volumes:
   credit-db-data:
+  credit-rabbitmq-data:
 
 secrets:
   credit_db_password:
     file: ./secrets/credit_db_password.secret
+  rabbitmq_password_credit_service:
+    file: ./secrets/rabbitmq_password.secret
