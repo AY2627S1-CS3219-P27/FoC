@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { Injectable } from '@nestjs/common';
 import {
   Ajv2020,
   type AnySchemaObject,
@@ -9,24 +7,21 @@ import {
 import * as addFormatsModule from 'ajv-formats';
 import type { FormatsPlugin } from 'ajv-formats';
 import type {
-  ContractFailureCode,
   ContractValidationResult,
   ContractViolation,
+  EventContractFailureCode,
+} from '../common/types.js';
+import type {
   CreditAccountInitialisedEvent,
   EventEnvelope,
   UserRegisteredEvent,
 } from './account-event-contract.types.js';
+import creditAccountInitialisedSchemaJson from './schemas/credit-account-initialised.v1.schema.json' with { type: 'json' };
+import eventEnvelopeSchemaJson from './schemas/event-envelope.v1.schema.json' with { type: 'json' };
+import userRegisteredSchemaJson from './schemas/user-registered.v1.schema.json' with { type: 'json' };
 
 const USER_REGISTERED = 'UserRegistered';
 const CREDIT_ACCOUNT_INITIALISED = 'CreditAccountInitialised';
-
-function readSchema(filename: string): AnySchemaObject {
-  const contents = readFileSync(
-    new URL(`./schemas/${filename}`, import.meta.url),
-    'utf8',
-  );
-  return JSON.parse(contents) as AnySchemaObject;
-}
 
 function sanitizeViolations(
   errors: ErrorObject[] | null | undefined,
@@ -53,15 +48,15 @@ function sanitizeViolations(
 }
 
 function failure<T>(
-  code: ContractFailureCode,
+  code: EventContractFailureCode,
   violations: ContractViolation[],
-): ContractValidationResult<T> {
+): ContractValidationResult<T, EventContractFailureCode> {
   return { valid: false, code, violations };
 }
 
 function unsupportedEvent<T>(
   expectedType: string,
-): ContractValidationResult<T> {
+): ContractValidationResult<T, EventContractFailureCode> {
   return failure('UNSUPPORTED_EVENT_TYPE', [
     {
       instancePath: '/eventType',
@@ -74,7 +69,7 @@ function unsupportedEvent<T>(
 
 function invalidPublisher<T>(
   expectedPublisher: string,
-): ContractValidationResult<T> {
+): ContractValidationResult<T, EventContractFailureCode> {
   return failure('INVALID_ENVELOPE', [
     {
       instancePath: '/publisher',
@@ -88,8 +83,9 @@ function invalidPublisher<T>(
 /**
  * Validates decoded event values without coercing, defaulting, or removing
  * fields. Returned violations contain schema metadata but never event values.
+ * The class has no framework dependencies and can be registered directly as a
+ * provider by NestJS consumers.
  */
-@Injectable()
 export class AccountEventContractValidator {
   private readonly envelopeValidator: ValidateFunction<EventEnvelope>;
   private readonly userRegisteredValidator: ValidateFunction<UserRegisteredEvent>;
@@ -106,21 +102,23 @@ export class AccountEventContractValidator {
     const addFormats = addFormatsModule.default as unknown as FormatsPlugin;
     addFormats(ajv);
 
-    const envelopeSchema = readSchema('event-envelope.v1.schema.json');
+    const envelopeSchema = eventEnvelopeSchemaJson as AnySchemaObject;
     ajv.addSchema(envelopeSchema);
     this.envelopeValidator = ajv.getSchema<EventEnvelope>(
       envelopeSchema.$id as string,
     )!;
     this.userRegisteredValidator = ajv.compile<UserRegisteredEvent>(
-      readSchema('user-registered.v1.schema.json'),
+      userRegisteredSchemaJson as AnySchemaObject,
     );
     this.creditAccountInitialisedValidator =
       ajv.compile<CreditAccountInitialisedEvent>(
-        readSchema('credit-account-initialised.v1.schema.json'),
+        creditAccountInitialisedSchemaJson as AnySchemaObject,
       );
   }
 
-  validateEnvelope(input: unknown): ContractValidationResult<EventEnvelope> {
+  validateEnvelope(
+    input: unknown,
+  ): ContractValidationResult<EventEnvelope, EventContractFailureCode> {
     if (!this.envelopeValidator(input)) {
       return failure(
         'INVALID_ENVELOPE',
@@ -133,7 +131,7 @@ export class AccountEventContractValidator {
 
   validateUserRegistered(
     input: unknown,
-  ): ContractValidationResult<UserRegisteredEvent> {
+  ): ContractValidationResult<UserRegisteredEvent, EventContractFailureCode> {
     const envelope = this.validateEnvelope(input);
     if (!envelope.valid) {
       return envelope;
@@ -156,7 +154,10 @@ export class AccountEventContractValidator {
 
   validateCreditAccountInitialised(
     input: unknown,
-  ): ContractValidationResult<CreditAccountInitialisedEvent> {
+  ): ContractValidationResult<
+    CreditAccountInitialisedEvent,
+    EventContractFailureCode
+  > {
     const envelope = this.validateEnvelope(input);
     if (!envelope.valid) {
       return envelope;

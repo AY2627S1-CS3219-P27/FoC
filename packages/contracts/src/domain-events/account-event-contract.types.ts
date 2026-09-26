@@ -33,21 +33,3 @@ export type CreditAccountInitialisedEvent = EventEnvelope<
   'credit-service',
   CreditAccountInitialisedPayload
 >;
-
-export type ContractFailureCode =
-  'INVALID_ENVELOPE' | 'INVALID_PAYLOAD' | 'UNSUPPORTED_EVENT_TYPE';
-
-export interface ContractViolation {
-  instancePath: string;
-  schemaPath: string;
-  keyword: string;
-  message: string;
-}
-
-export type ContractValidationResult<T> =
-  | { valid: true; value: T }
-  | {
-      valid: false;
-      code: ContractFailureCode;
-      violations: ContractViolation[];
-    };
