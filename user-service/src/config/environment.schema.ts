@@ -20,6 +20,9 @@ export const environmentSchema = Joi.object({
   DB_USERNAME: Joi.string().min(1).required(),
   DB_DATABASE: Joi.string().min(1).required(),
   DB_PASSWORD_FILE: Joi.string().min(1).required(),
+  DB_SYNCHRONIZE: Joi.boolean().default(false),
+  ADMIN_BOOTSTRAP_EMAIL: Joi.string().email().optional(),
+  ADMIN_BOOTSTRAP_DISPLAY_NAME: Joi.string().min(1).optional(),
   REDIS_HOST: Joi.string().hostname().required(),
   REDIS_PORT: Joi.number().port().required(),
   REDIS_USERNAME: Joi.string().min(1).required(),
@@ -30,6 +33,8 @@ export const environmentSchema = Joi.object({
   RABBITMQ_PORT: Joi.number().port().required(),
   RABBITMQ_VHOST: Joi.string().min(1).required(),
   RABBITMQ_PASSWORD_FILE: Joi.string().min(1).required(),
+  JWT_PRIVATE_KEY_FILE: Joi.string().min(1).required(),
+  JWT_PUBLIC_KEY_FILE: Joi.string().min(1).required(),
 })
   .unknown(true)
   .prefs({ abortEarly: false, convert: true });

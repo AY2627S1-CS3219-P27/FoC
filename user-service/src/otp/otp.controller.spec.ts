@@ -4,8 +4,8 @@ import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OtpController } from './otp.controller.js';
 import { OtpService } from './otp.service.js';
-import { RequestOtpDto } from './DTO/RequestOtp.dto.js';
-import { ValidateOtpDto } from './DTO/ValidateOtp.dto.js';
+import { RequestOtpDto } from './DTO/request-otp.dto.js';
+import { ValidateOtpDto } from './DTO/validate-otp.dto.js';
 
 describe('OtpController', () => {
   let controller: OtpController;
@@ -101,10 +101,7 @@ describe('OtpController', () => {
       otpService.validateOtpAndIssueToken.mockResolvedValue(null);
 
       await expect(
-        controller.validate(
-          { email: 'eve@example.com', otp: 'Ab3_-x9' },
-          res,
-        ),
+        controller.validate({ email: 'eve@example.com', otp: 'Ab3_-x9' }, res),
       ).rejects.toThrow(new BadRequestException('Invalid OTP.'));
 
       expect(res.cookie).not.toHaveBeenCalled();
@@ -116,10 +113,7 @@ describe('OtpController', () => {
       );
 
       await expect(
-        controller.validate(
-          { email: 'eve@example.com', otp: 'Ab3_-x9' },
-          res,
-        ),
+        controller.validate({ email: 'eve@example.com', otp: 'Ab3_-x9' }, res),
       ).rejects.toThrow('redis down');
     });
   });

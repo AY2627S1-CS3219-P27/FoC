@@ -1,29 +1,22 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'crypto';
-import { readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { hmacValue } from '../common/hash/hash.js';
 import { REDIS } from '../redis/redis.provider.js';
 import { SecretService } from '../secret/secret.service.js';
-import type { Redis } from 'ioredis';
+import type { RedisClientType } from 'redis';
 import { ClientProxy } from '@nestjs/microservices';
 import { EMAIL_SERVICE } from '../broker/broker.module.js';
+import {
+  getCreateOtpScript,
+  getValidateOtpScript,
+} from '../scripts/retrieve-script.js';
+import { OTP_PREFIX } from '../common/constants.js';
+import {
+  otpRecordKey,
+  registrationTokenRecordKey,
+} from '../common/hash/token-keys.js';
 
-const OTP_PREFIX = 'otp';
-const REGISTRATION_TOKEN_PREFIX = 'regtoken';
-
-// Redis scripts live as raw Lua files in ./scripts so they can be edited with
-// Lua IDE tooling (language server, luacheck, etc.). The Nest CLI copies them
-// into dist alongside the compiled output (see nest-cli.json `assets`), so the
-// same relative path resolves both in src (tests) and dist (production).
-const loadScript = (name: string) =>
-  readFileSync(
-    fileURLToPath(new URL(`./scripts/${name}`, import.meta.url)),
-    'utf8',
-  );
-
-export const CREATE_OTP_SCRIPT = loadScript('create-otp.lua');
-export const VALIDATE_OTP_SCRIPT = loadScript('validate-otp.lua');
+export const CREATE_OTP_SCRIPT = getCreateOtpScript();
+export const VALIDATE_OTP_SCRIPT = getValidateOtpScript();
 
 // Return value of otp validation flow
 export interface IssuedRegistrationToken {
@@ -34,7 +27,7 @@ export interface IssuedRegistrationToken {
 @Injectable()
 export class OtpService {
   constructor(
-    @Inject(REDIS) private redis: Redis,
+    @Inject(REDIS) private redis: RedisClientType,
     @Inject(EMAIL_SERVICE) private emailClient: ClientProxy,
     private secretService: SecretService,
   ) {}
@@ -43,30 +36,31 @@ export class OtpService {
   private readonly OtpExpiry = 600; // record TTL (seconds)
   private readonly OtpExpiryMinutes = Math.floor(this.OtpExpiry / 60);
   private readonly TimerExpiry = 3600; // generation counter TTL (seconds)
-  private readonly OtpHashLen = 16;
 
   private readonly RegistrationTokenBytes = 32;
-  private readonly RegistrationTokenHashLen = 32;
   private readonly RegistrationTokenExpiry = 600; // record TTL (seconds)
 
   async createOtpRequest(email: string) {
     const otp = this.generateOtp();
 
-    const recordKey = await this.recordKey(email, otp);
+    const recordKey = otpRecordKey(
+      email,
+      otp,
+      this.secretService.getServerSecret(),
+    );
     const counterKey = `${OTP_PREFIX}:count:${email}`;
 
     // Atomic bump-and-store. Older OTPs are implicitly revoked by stamping
     // the new generation onto the record; validation later matches an OTP's
     // generation against the counter.
-    await this.redis.eval(
-      CREATE_OTP_SCRIPT,
-      2,
-      counterKey,
-      recordKey,
-      this.TimerExpiry,
-      new Date().toISOString(),
-      this.OtpExpiry,
-    );
+    await this.redis.eval(CREATE_OTP_SCRIPT, {
+      keys: [counterKey, recordKey],
+      arguments: [
+        String(this.TimerExpiry),
+        new Date().toISOString(),
+        String(this.OtpExpiry),
+      ],
+    });
 
     // Emitted once per request with a stable id the email service uses to
     // suppress duplicate sends on broker redelivery.
@@ -97,20 +91,29 @@ export class OtpService {
   ): Promise<IssuedRegistrationToken | null> {
     const token = this.generateRegistrationToken();
 
-    const otpRecordKey = await this.recordKey(email, otp);
-    const counterKey = `${OTP_PREFIX}:count:${email}`;
-    const tokenKey = await this.registrationTokenKey(token);
-
-    const result = await this.redis.eval(
-      VALIDATE_OTP_SCRIPT,
-      3,
-      otpRecordKey,
-      counterKey,
-      tokenKey,
-      new Date().toISOString(),
-      this.RegistrationTokenExpiry,
+    // Obtain redis record keys for:
+    // 1) Hashed OTP
+    // 2) Email counter
+    // 3) Newly-generated hashed registration token
+    const otpRecordKeyValue = otpRecordKey(
       email,
+      otp,
+      this.secretService.getServerSecret(),
     );
+    const counterKey = `${OTP_PREFIX}:count:${email}`;
+    const tokenKey = registrationTokenRecordKey(
+      token,
+      this.secretService.getServerSecret(),
+    );
+
+    const result = await this.redis.eval(VALIDATE_OTP_SCRIPT, {
+      keys: [otpRecordKeyValue, counterKey, tokenKey],
+      arguments: [
+        new Date().toISOString(),
+        String(this.RegistrationTokenExpiry),
+        email,
+      ],
+    });
 
     return result === 1
       ? { token, validForSeconds: this.RegistrationTokenExpiry }
@@ -137,28 +140,5 @@ export class OtpService {
   private generateRegistrationToken() {
     const bytes = randomBytes(this.RegistrationTokenBytes);
     return bytes.toString('base64url');
-  }
-
-  /**
-   * Derives the Redis key that stores a registration token's record, keyed by
-   * the hashed token.
-   */
-  private async registrationTokenKey(token: string): Promise<string> {
-    const key = await this.generateKey(token, this.RegistrationTokenHashLen);
-    return `${REGISTRATION_TOKEN_PREFIX}:${key}`;
-  }
-
-  /**
-   * Generates and returns a key to store and validate OTPs with
-   */
-  private async recordKey(email: string, otp: string): Promise<string> {
-    const token = `${email}:${otp}`;
-    const key = await this.generateKey(token, this.OtpHashLen);
-    return `${OTP_PREFIX}:${key}`;
-  }
-
-  private async generateKey(token: string, length: number) {
-    const secret = this.secretService.getServerSecret();
-    return hmacValue(token, secret, length);
   }
 }

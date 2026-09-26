@@ -29,8 +29,14 @@ const mocks = vi.hoisted(() => {
   const redisSet = vi.fn();
   const redisDel = vi.fn();
   const redisOn = vi.fn();
+  const redisConnect = vi.fn();
 
-  const redis = { set: redisSet, del: redisDel, on: redisOn };
+  const redis = {
+    set: redisSet,
+    del: redisDel,
+    on: redisOn,
+    connect: redisConnect,
+  };
 
   const channel = {
     on: channelOn,
@@ -64,6 +70,7 @@ const mocks = vi.hoisted(() => {
     redisSet,
     redisDel,
     redisOn,
+    redisConnect,
   };
 });
 
@@ -81,8 +88,8 @@ vi.mock('nodemailer', () => ({
   createTransport: () => ({ sendMail: mocks.sendMail }),
 }));
 
-vi.mock('ioredis', () => ({
-  Redis: vi.fn().mockImplementation(function () {
+vi.mock('redis', () => ({
+  createClient: vi.fn().mockImplementation(function () {
     return mocks.redis;
   }),
 }));
@@ -175,6 +182,7 @@ beforeAll(async () => {
   mocks.assertExchange.mockResolvedValue(undefined);
   mocks.assertQueue.mockResolvedValue(undefined);
   mocks.bindQueue.mockResolvedValue(undefined);
+  mocks.redisConnect.mockResolvedValue(undefined);
 
   const app = await import('./app.ts');
   ATTEMPT_HEADER = app.ATTEMPT_HEADER;
@@ -247,7 +255,10 @@ describe('startup IIFE', () => {
 
   it('asserts the otp, per-hop retry and DLQ queues', () => {
     expect(wiring.assertQueueCalls).toEqual([
-      ['otp_emails', { durable: true, arguments: { 'x-queue-type': 'classic' } }],
+      [
+        'otp_emails',
+        { durable: true, arguments: { 'x-queue-type': 'classic' } },
+      ],
       [
         'email_retry_60s',
         {
@@ -292,7 +303,10 @@ describe('startup IIFE', () => {
           },
         },
       ],
-      ['otp_emails.dlq', { durable: true, arguments: { 'x-queue-type': 'classic' } }],
+      [
+        'otp_emails.dlq',
+        { durable: true, arguments: { 'x-queue-type': 'classic' } },
+      ],
     ]);
   });
 
@@ -302,10 +316,30 @@ describe('startup IIFE', () => {
 
   it('binds each backoff hop to foc.retry by delay header, and the key routes back', () => {
     expect(wiring.bindQueueCalls).toEqual([
-      ['email_retry_60s', 'foc.retry', '', { 'x-match': 'all', 'foc-delay': '60000' }],
-      ['email_retry_120s', 'foc.retry', '', { 'x-match': 'all', 'foc-delay': '120000' }],
-      ['email_retry_240s', 'foc.retry', '', { 'x-match': 'all', 'foc-delay': '240000' }],
-      ['email_retry_480s', 'foc.retry', '', { 'x-match': 'all', 'foc-delay': '480000' }],
+      [
+        'email_retry_60s',
+        'foc.retry',
+        '',
+        { 'x-match': 'all', 'foc-delay': '60000' },
+      ],
+      [
+        'email_retry_120s',
+        'foc.retry',
+        '',
+        { 'x-match': 'all', 'foc-delay': '120000' },
+      ],
+      [
+        'email_retry_240s',
+        'foc.retry',
+        '',
+        { 'x-match': 'all', 'foc-delay': '240000' },
+      ],
+      [
+        'email_retry_480s',
+        'foc.retry',
+        '',
+        { 'x-match': 'all', 'foc-delay': '480000' },
+      ],
       ['otp_emails.dlq', 'foc.dlq', 'otp.email'],
       ['otp_emails', 'foc.back', 'otp.email'],
     ]);

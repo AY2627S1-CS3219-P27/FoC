@@ -1,17 +1,25 @@
 services:
   user-service:
-    build: .
+    build:
+      context: ..
+      dockerfile: user-service/Dockerfile
     command: npm run start:dev
     ports:
       - '3000:3000'
     depends_on:
-      - user-db
-      - redis
+      user-db:
+        condition: service_healthy
+      redis:
+        condition: service_started
     environment:
+      - NODE_ENV=${NODE_ENV-development}
       - DB_HOST=${DB_HOST}
       - DB_PORT=${DB_PORT}
       - DB_USERNAME=${DB_USERNAME}
       - DB_DATABASE=${DB_DATABASE}
+      - DB_SYNCHRONIZE=${DB_SYNCHRONIZE}
+      - ADMIN_BOOTSTRAP_EMAIL=${ADMIN_BOOTSTRAP_EMAIL}
+      - ADMIN_BOOTSTRAP_DISPLAY_NAME=${ADMIN_BOOTSTRAP_DISPLAY_NAME}
       - REDIS_HOST=${REDIS_HOST}
       - REDIS_PORT=${REDIS_PORT}
       - REDIS_USERNAME=${REDIS_USERNAME}
@@ -24,10 +32,14 @@ services:
       - RABBITMQ_VHOST=${RABBITMQ_VHOST}
       - RABBITMQ_PASSWORD_FILE=${RABBITMQ_PASSWORD_FILE}
       - LOG_LEVEL=${LOG_LEVEL}
+      - JWT_PUBLIC_KEY_FILE=${JWT_PUBLIC_KEY_FILE}
+      - JWT_PRIVATE_KEY_FILE=${JWT_PRIVATE_KEY_FILE}
     secrets:
       - db_password
       - server_secret
       - rabbitmq_password
+      - jwt_private_key
+      - jwt_public_key
     develop:
       watch:
         - action: sync
@@ -44,7 +56,7 @@ services:
           path: package.json
 
   user-db:
-    image: postgres:latest
+    image: postgres:18-alpine
     ports:
       - '${DB_PORT}:5432'
     environment:
@@ -52,9 +64,15 @@ services:
       - POSTGRES_PASSWORD_FILE=${DB_PASSWORD_FILE}
       - POSTGRES_DB=${DB_DATABASE}
     volumes:
-      - user-db-data:/var/lib/postgresql/data
+      - user-db-data:/var/lib/postgresql
     secrets:
       - db_password
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   redis:
     image: redis:latest
@@ -71,3 +89,7 @@ secrets:
     file: server.secret
   rabbitmq_password:
     file: rabbitmq_password.secret
+  jwt_private_key:
+    file: jwt_private_key.secret
+  jwt_public_key:
+    file: jwt_public_key.secret
