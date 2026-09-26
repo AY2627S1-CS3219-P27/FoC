@@ -9,6 +9,7 @@ import {
 import type { EnvironmentVariables } from '../src/config/environment.js';
 import {
   AccountEventContractValidator,
+  CREDIT_ACCOUNT_INITIALISED_V1_ROUTING_KEY,
   type ContractValidationResult,
   type CreditAccountInitialisedEvent,
   type UserRegisteredEvent,
@@ -22,7 +23,7 @@ import {
 } from '../src/database/entities/index.js';
 import { SerializableTransactionRunner } from '../src/database/serializable-transaction.runner.js';
 
-const OUTGOING_ROUTING_KEY = 'credit.account-initialised.v1';
+const OUTGOING_ROUTING_KEY = CREDIT_ACCOUNT_INITIALISED_V1_ROUTING_KEY;
 
 function incomingEvent(
   overrides: Partial<UserRegisteredEvent> = {},
@@ -137,9 +138,10 @@ describe('AccountInitializationService persistence', () => {
     expect(account).toMatchObject({ creditBalance: 100, reservedBalance: 0 });
     expect(inbox.outcomeAllocationId).toBe(allocation.id);
     expect(outbox.routingKey).toBe(OUTGOING_ROUTING_KEY);
-    expect(contracts.validateCreditAccountInitialised(envelope).valid).toBe(
-      true,
-    );
+    expect(
+      contracts.validate(CREDIT_ACCOUNT_INITIALISED_V1_ROUTING_KEY, envelope)
+        .valid,
+    ).toBe(true);
     expect(envelope.timestamp).toBe(allocation.createdAt.toISOString());
     expect(envelope.payload).toEqual({
       userId: event.payload.userId,
@@ -280,7 +282,7 @@ describe('AccountInitializationService persistence', () => {
 
   it('rolls back all records when the constructed outgoing event is invalid', async () => {
     const invalidContracts = {
-      validateCreditAccountInitialised:
+      validate:
         (): ContractValidationResult<CreditAccountInitialisedEvent> => ({
           valid: false,
           code: 'INVALID_PAYLOAD',

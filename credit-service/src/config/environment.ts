@@ -1,4 +1,8 @@
 import Joi from 'joi';
+import {
+  CREDIT_ACCOUNT_INITIALISED_V1_ROUTING_KEY,
+  USER_REGISTERED_V1_ROUTING_KEY,
+} from '@foc/contracts';
 
 const DEFAULT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000];
 const USER_REGISTERED_QUEUE = 'credit-service.user-registered.v1';
@@ -20,8 +24,8 @@ export interface EnvironmentVariables {
   RABBITMQ_PASSWORD_FILE: string;
   RABBITMQ_EXCHANGE: string;
   RABBITMQ_USER_REGISTERED_QUEUE: string;
-  RABBITMQ_USER_REGISTERED_ROUTING_KEY: string;
-  RABBITMQ_CREDIT_ACCOUNT_INITIALISED_ROUTING_KEY: string;
+  RABBITMQ_USER_REGISTERED_ROUTING_KEY: typeof USER_REGISTERED_V1_ROUTING_KEY;
+  RABBITMQ_CREDIT_ACCOUNT_INITIALISED_ROUTING_KEY: typeof CREDIT_ACCOUNT_INITIALISED_V1_ROUTING_KEY;
   RABBITMQ_RETRY_EXCHANGE: string;
   RABBITMQ_RETRY_RETURN_EXCHANGE: string;
   RABBITMQ_DEAD_LETTER_EXCHANGE: string;
@@ -85,11 +89,11 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
       otherwise: Joi.valid(USER_REGISTERED_QUEUE),
     }),
   RABBITMQ_USER_REGISTERED_ROUTING_KEY: Joi.string()
-    .valid('user.registered.v1')
-    .default('user.registered.v1'),
+    .valid(USER_REGISTERED_V1_ROUTING_KEY)
+    .default(USER_REGISTERED_V1_ROUTING_KEY),
   RABBITMQ_CREDIT_ACCOUNT_INITIALISED_ROUTING_KEY: Joi.string()
-    .valid('credit.account-initialised.v1')
-    .default('credit.account-initialised.v1'),
+    .valid(CREDIT_ACCOUNT_INITIALISED_V1_ROUTING_KEY)
+    .default(CREDIT_ACCOUNT_INITIALISED_V1_ROUTING_KEY),
   RABBITMQ_RETRY_EXCHANGE: Joi.string().min(1).default('foc.credit.retry'),
   RABBITMQ_RETRY_RETURN_EXCHANGE: Joi.string()
     .min(1)

@@ -14,6 +14,7 @@ import { DataSource } from 'typeorm';
 import { AccountInitializationService } from '../src/account-initialization/account-initialization.service.js';
 import {
   AccountEventContractValidator,
+  CREDIT_ACCOUNT_INITIALISED_V1_ROUTING_KEY,
   type ContractValidationResult,
   type CreditAccountInitialisedEvent,
   type UserRegisteredEvent,
@@ -456,9 +457,16 @@ describe.sequential('account messaging recovery', () => {
         code: 'INVALID_PAYLOAD',
         violations: [],
       };
+    const originalValidate = contracts.validate.bind(contracts);
     const validation = vi
-      .spyOn(contracts, 'validateCreditAccountInitialised')
-      .mockReturnValue(invalidResult);
+      .spyOn(contracts, 'validate')
+      .mockImplementation(((key, input) =>
+        key === CREDIT_ACCOUNT_INITIALISED_V1_ROUTING_KEY
+          ? invalidResult
+          : originalValidate(
+              key,
+              input,
+            )) as AccountEventContractValidator['validate']);
 
     try {
       await publishEvent(event);
@@ -470,7 +478,11 @@ describe.sequential('account messaging recovery', () => {
         'x-retry-count': 5,
         'x-failure-category': 'PROCESSING_RETRIES_EXHAUSTED',
       });
-      expect(validation).toHaveBeenCalledTimes(6);
+      expect(
+        validation.mock.calls.filter(
+          ([key]) => key === CREDIT_ACCOUNT_INITIALISED_V1_ROUTING_KEY,
+        ),
+      ).toHaveLength(6);
       expect(await userCounts(event.payload.userId)).toEqual({
         accounts: 0,
         allocations: 0,

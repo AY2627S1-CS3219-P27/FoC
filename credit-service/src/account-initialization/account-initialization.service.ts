@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   AccountEventContractValidator,
+  CREDIT_ACCOUNT_INITIALISED_V1_ROUTING_KEY,
   type CreditAccountInitialisedEvent,
   type UserRegisteredEvent,
   type UserRegisteredPayload,
@@ -122,8 +123,10 @@ export class AccountInitializationService {
             creditAllocationId: allocation.allocationId,
           },
         };
-        const validation =
-          this.contracts.validateCreditAccountInitialised(outgoingEvent);
+        const validation = this.contracts.validate(
+          CREDIT_ACCOUNT_INITIALISED_V1_ROUTING_KEY,
+          outgoingEvent,
+        );
         if (!validation.valid) {
           // This is an internal construction bug, not an invalid incoming event.
           throw new AccountInitializationInvariantError();

@@ -1,6 +1,7 @@
 import {
   AccountEventContractValidator,
   type ContractViolation,
+  USER_REGISTERED_V1_ROUTING_KEY,
 } from '@foc/contracts';
 import { Injectable } from '@nestjs/common';
 import type {
@@ -37,7 +38,10 @@ export class UserRegisteredMessageHandler implements RabbitMqMessageHandler {
   ) {}
 
   async handle(message: IncomingDomainMessage): Promise<MessageHandlingResult> {
-    const validation = this.contracts.validateUserRegistered(message.body);
+    const validation = this.contracts.validate(
+      USER_REGISTERED_V1_ROUTING_KEY,
+      message.body,
+    );
     if (!validation.valid) {
       return {
         outcome: 'dead-letter',
