@@ -87,7 +87,8 @@ docker compose down
 Credit Service authenticates to `/foc` as `credit-service`. Its password is
 mounted at `/run/secrets/rabbitmq_password_credit_service`; it is never placed
 in the container environment. Docker builds use the repository root as their
-build context so canonical event schemas are available during compilation.
+build context so the repository-local `@foc/contracts` dependency can be built
+and packaged into the service image.
 
 ## Testing
 
@@ -96,7 +97,7 @@ that exercise real infrastructure.
 
 | Test type | Command | Infrastructure | What it verifies |
 | --- | --- | --- | --- |
-| Unit | `npm test` | None | Services, validators, configuration, transaction retry logic, lifecycle wiring, and RabbitMQ/outbox behavior through fakes |
+| Unit | `npm test` | None | Services, contract integration, configuration, transaction retry logic, lifecycle wiring, and RabbitMQ/outbox behavior through fakes |
 | Unit coverage | `npm run test:cov` | None | The same `src/**/*.spec.ts` unit suite with V8 coverage |
 | PostgreSQL integration | `npm run test:integration` | Isolated PostgreSQL on port `5436` | Migrations, constraints, immutable allocations, repositories, account initialization, inbox/outbox atomicity, concurrency, and relay claims |
 | HTTP end-to-end | `npm run test:e2e` | Isolated PostgreSQL on port `5436`; no RabbitMQ | The real NestJS `AppModule` and HTTP endpoint; broker components are replaced with no-op test providers |
@@ -104,8 +105,9 @@ that exercise real infrastructure.
 | Shared-broker permissions | `npm run test:rabbitmq-permissions` | Root RabbitMQ on port `5672` | The Credit identity's allowed topology, consumption, and publication operations, plus denial of shared-exchange configuration and Email resources |
 | Messaging recovery | `npm run test:recovery` | Disposable PostgreSQL and RabbitMQ on ports `5437`, `5676`, and `15676` by default | The complete broker-to-database-to-outbox pipeline, idempotency, acknowledgement ordering, application restart, and live infrastructure recovery |
 
-All test commands synchronize the source-time contract cache before Vitest
-runs. Integration suites that share infrastructure run sequentially.
+All source-mode commands rebuild `@foc/contracts` before running. Its own
+validator suite runs from `packages/contracts`; integration suites that share
+infrastructure run sequentially.
 
 ### Unit tests
 
@@ -414,24 +416,24 @@ part of the current schema.
 
 ## Event contracts
 
-Versioned JSON Schemas under the repository-root `contracts/schemas` directory
-define the common envelope, `UserRegistered`, and
-`CreditAccountInitialised`. This directory is the canonical source of truth.
-Credit Service copies only the contracts it consumes or publishes.
+The repository-local `@foc/contracts` package owns the versioned JSON Schemas,
+TypeScript types, and strict AJV validator for the common envelope,
+`UserRegistered`, and `CreditAccountInitialised`. Credit Service consumes that
+package through a `file:` dependency and registers its framework-neutral
+`AccountEventContractValidator` as a Nest provider.
 
-The npm lifecycle hooks synchronize schemas into the ignored
-`src/contracts/schemas` cache before source-mode commands and into
-`dist/contracts/schemas` after a build:
+The npm lifecycle hooks install and rebuild the package before Credit Service
+build, startup, and test commands. To rebuild it directly:
 
 ```powershell
-npm run contracts:sync:source
-npm run contracts:sync:dist
+npm run contracts:build
 ```
 
-Production loads only the bundled `dist` copies and never depends on the
-repository root at runtime. Restart a host-based `npm run start:dev` process
-after changing a canonical schema. Docker Compose watches the canonical schema
-directory and restarts the development container automatically.
+Production includes the built package and its runtime dependencies and never
+reads from the repository checkout. Restart a host-based `npm run start:dev`
+process after changing the package. Docker Compose watches package sources and
+restarts the development container automatically; manifest changes rebuild the
+image.
 
 Contracts reject unknown envelope and payload properties. IDs must be UUIDs,
 timestamps must be RFC 3339 date-times ending in uppercase `Z`, and validation

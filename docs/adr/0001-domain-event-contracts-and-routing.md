@@ -6,8 +6,8 @@ Friend on Campus services communicate state changes asynchronously. Publishers
 and consumers need a shared wire format, routing convention, and contract source
 so they can evolve independently without maintaining divergent schema copies.
 
-Services must remain independently buildable and deployable. A deployed service
-cannot depend on the monorepo or a shared runtime package to validate events.
+Services must remain independently buildable and deployable while using the
+same contract definitions and validation behavior.
 
 ## Decision
 
@@ -38,31 +38,34 @@ Every domain event contains exactly:
 The routing key, event type, publisher, and payload schema must agree. Unknown
 envelope and payload properties are rejected.
 
-### Canonical schemas and deployment
+### Canonical package and deployment
 
 Shared event contracts use JSON Schema draft 2020-12. Versioned schemas under
-[`contracts/schemas`](../../contracts/schemas/) are the repository's canonical
-source of truth. Their filenames and `$id` values remain stable for the life of
+[`packages/contracts/src/domain-events/schemas`](../../packages/contracts/src/domain-events/schemas/)
+are canonical. Their filenames and `$id` values remain stable for the life of
 that contract version.
 
-Each service explicitly selects only the schemas it publishes or consumes. Its
-build tooling validates and copies those schemas into its compiled artifact. A
-service may generate an ignored source-time cache for local development and
-tests, but generated copies are never edited or committed.
+The `@foc/contracts` package owns the schemas, TypeScript wire types, strict AJV
+validation, standardized failure codes, and sanitized violation format.
+Services consume it through the repository-local `file:` dependency and rebuild
+it before compilation, startup, and tests. This keeps publishers and consumers
+on one implementation instead of maintaining service-local schema copies or
+validators.
 
-Production processes load schemas only from their own deployment artifacts.
-They do not read the repository root or import a shared runtime package. A clean
-build must fail when a required canonical schema is missing or invalid.
+Each service packages the built contract package and its runtime dependencies
+into its deployment artifact. Production processes therefore remain
+self-contained and do not read from a repository checkout at runtime. A clean
+package build must fail when a canonical schema is missing or invalid.
 
 The currently established contracts are:
 
 | Event | Publisher | Routing key | Canonical schema |
 | --- | --- | --- | --- |
-| `UserRegistered` | User Service | `user.registered.v1` | [`user-registered.v1.schema.json`](../../contracts/schemas/user-registered.v1.schema.json) |
-| `CreditAccountInitialised` | Credit Service | `credit.account-initialised.v1` | [`credit-account-initialised.v1.schema.json`](../../contracts/schemas/credit-account-initialised.v1.schema.json) |
+| `UserRegistered` | User Service | `user.registered.v1` | [`user-registered.v1.schema.json`](../../packages/contracts/src/domain-events/schemas/user-registered.v1.schema.json) |
+| `CreditAccountInitialised` | Credit Service | `credit.account-initialised.v1` | [`credit-account-initialised.v1.schema.json`](../../packages/contracts/src/domain-events/schemas/credit-account-initialised.v1.schema.json) |
 
 The canonical schemas, including
-[`event-envelope.v1.schema.json`](../../contracts/schemas/event-envelope.v1.schema.json),
+[`event-envelope.v1.schema.json`](../../packages/contracts/src/domain-events/schemas/event-envelope.v1.schema.json),
 are authoritative for exact fields and validation constraints.
 
 ## Rationale
@@ -79,24 +82,26 @@ Versioned routing keys allow incompatible contracts to coexist during a staged
 rollout.
 
 JSON Schema is an industry-standard, language-neutral contract format with
-mature validation tooling, including AJV for NestJS and TypeScript services. A
-single repository source prevents publisher and consumer definitions from
-drifting.
+mature validation tooling. Packaging those schemas with their TypeScript types
+and AJV validator prevents publisher and consumer definitions or validation
+behavior from drifting. A repository-local package avoids a separate release
+process while still giving every service an explicit dependency boundary.
 
-Build-time copying preserves independent deployments. Each service ships only
-the contracts it uses and remains self-contained without coordinating releases
-through a shared runtime library.
+Bundling the built package in each service image preserves independent
+deployment. Services coordinate contract changes in the repository but do not
+need the monorepo filesystem after an artifact is built.
 
 ## Consequences
 
-- Publishers and consumers coordinate changes through one reviewable schema
-  source.
+- Publishers and consumers coordinate changes through one reviewable package.
 - Services subscribe through explicit, versioned routing-key bindings.
 - Adding another consumer requires another reviewed exact binding.
-- Every service build must select, validate, and package its required schemas.
-- Docker builds that synchronize schemas require the repository root in their
-  build context.
-- Generated schema caches are disposable and must remain untracked.
+- Every consuming service must build and package `@foc/contracts` and its
+  runtime dependencies.
+- Docker builds using the local `file:` dependency require the repository root
+  in their build context.
+- Contract validation changes affect every consumer after it updates to the
+  corresponding repository revision.
 - Breaking changes create another schema and routing-key version, increasing
   the number of versions supported during migration.
 - At-least-once delivery may repeat an envelope, so consumers must deduplicate

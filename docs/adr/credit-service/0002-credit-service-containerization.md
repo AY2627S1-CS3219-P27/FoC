@@ -7,9 +7,9 @@ its NestJS application, PostgreSQL database, and RabbitMQ connectivity. Its prod
 image should contain only runtime dependencies and compiled artifacts, while
 local development must support source watching and service dependencies.
 
-The build also needs access to canonical event schemas stored at the repository
-root while producing a deployment artifact that has no runtime dependency on
-the monorepo.
+The build also needs access to the repository-local `@foc/contracts` package
+while producing a deployment artifact that has no runtime dependency on the
+monorepo checkout.
 
 ## Decision
 
@@ -21,9 +21,10 @@ stages. npm 11.18.0 is pinned to match the package lockfile. The production
 stage copies only the compiled application, production dependencies, and
 service-owned runtime files, and runs as the non-root `node` user.
 
-The repository root is the Docker build context so the build stage can copy the
-canonical contracts selected by Credit Service. The final image contains only
-the synchronized contract copies bundled into `dist`.
+The repository root is the Docker build context so the image can install and
+build `@foc/contracts`. The final image preserves the local dependency's path
+and contains its compiled output and production dependencies alongside the
+Credit Service application.
 
 Docker Compose provides the development service and PostgreSQL dependency. The
 normal runtime uses the root `/foc` RabbitMQ broker with a service-specific
@@ -44,13 +45,14 @@ privileges. Alpine reduces the base-image footprint while remaining compatible
 with the service's JavaScript dependencies.
 
 NestJS compiles cleanly into a standalone `dist` tree, which fits this image
-model. A repository-root build context also works with the centralized contract
-schema decision without turning those schemas into a shared runtime package.
+model. A repository-root build context allows the service to build the shared
+contract package from source while still producing a self-contained image.
 
 ## Consequences
 
-- Production deployments receive a self-contained image with compiled code,
-  runtime dependencies, and the schemas Credit Service uses.
+- Production deployments receive a self-contained image with compiled service
+  code and the built contract package's schemas, validator, and runtime
+  dependencies.
 - Local development starts the application, PostgreSQL, and shared RabbitMQ
   broker from the root Compose project.
 - Docker builds must use the repository root as their context.
