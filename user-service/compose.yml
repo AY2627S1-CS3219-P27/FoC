@@ -1,6 +1,8 @@
 services:
   user-service:
-    build: .
+    build:
+      context: ..
+      dockerfile: user-service/Dockerfile
     command: npm run start:dev
     ports:
       - '3000:3000'
