@@ -1,6 +1,10 @@
 include:
   - path: user-service/compose.yml
+    env_file: .env
   - path: email-service/compose.yml
+    env_file: .env
+  - path: frontend/compose.yml
+    env_file: .env
 
 services:
   rabbitmq:

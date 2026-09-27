@@ -59,8 +59,8 @@ The watch flag allows for your changes to be updated in the image.
 
 ### First-time set-up
 
-The project requires several environment variables, explained in each module's
-`.env.example` file. In addition, there are some `.secret` files that should be
+All environment variables live in one root `.env` (`cp .env.example .env`);
+there are no per-service `.env` files. In addition, there are some `.secret` files that should be
 created in order to set-up passwords and authentication. View them in the
 compose files.
 
@@ -68,7 +68,7 @@ compose files.
 
 Notably, RabbitMQ requires a password hash in its `definitions.json` for setup.
 There already is a password hash defined in them - these should directly
-correspond with the `rabbitmq_password.secret` files that modules have. You may
+correspond with the `rabbitmq_<service>_password.secret` files that modules have (e.g. `rabbitmq_user_password.secret`, `rabbitmq_email_password.secret`). You may
 either match the password with the one in the hash (ask a dev), or create your
 own secret and overwrite the one in `definitions.json`. You may create a hash by
 running the following, assuming `rabbitmq_temp` is a running rabbitmq container:

@@ -12,32 +12,32 @@ services:
       redis:
         condition: service_started
     environment:
-      - NODE_ENV=${NODE_ENV-development}
-      - DB_HOST=${DB_HOST}
-      - DB_PORT=${DB_PORT}
-      - DB_USERNAME=${DB_USERNAME}
-      - DB_DATABASE=${DB_DATABASE}
-      - DB_SYNCHRONIZE=${DB_SYNCHRONIZE}
+      - NODE_ENV=${NODE_ENV:-development}
+      - DB_HOST=${USER_SERVICE_DB_HOST}
+      - DB_PORT=${USER_SERVICE_DB_PORT}
+      - DB_USERNAME=${USER_SERVICE_DB_USERNAME}
+      - DB_DATABASE=${USER_SERVICE_DB_DATABASE}
+      - DB_SYNCHRONIZE=${USER_SERVICE_DB_SYNCHRONIZE}
       - ADMIN_BOOTSTRAP_EMAIL=${ADMIN_BOOTSTRAP_EMAIL}
       - ADMIN_BOOTSTRAP_DISPLAY_NAME=${ADMIN_BOOTSTRAP_DISPLAY_NAME}
       - REDIS_HOST=${REDIS_HOST}
       - REDIS_PORT=${REDIS_PORT}
       - REDIS_USERNAME=${REDIS_USERNAME}
       - REDIS_DB_INDEX=${REDIS_DB_INDEX}
-      - DB_PASSWORD_FILE=${DB_PASSWORD_FILE_CLIENT}
-      - SERVER_SECRET_FILE=${SERVER_SECRET_FILE}
-      - RABBITMQ_USER=${RABBITMQ_USER}
+      - DB_PASSWORD_FILE=/run/secrets/db_password
+      - SERVER_SECRET_FILE=/run/secrets/server_secret
+      - RABBITMQ_USER=${USER_SERVICE_RABBITMQ_USER}
       - RABBITMQ_HOST=${RABBITMQ_HOST}
       - RABBITMQ_PORT=${RABBITMQ_PORT}
       - RABBITMQ_VHOST=${RABBITMQ_VHOST}
-      - RABBITMQ_PASSWORD_FILE=${RABBITMQ_PASSWORD_FILE}
+      - RABBITMQ_PASSWORD_FILE=/run/secrets/rabbitmq_user_password
       - LOG_LEVEL=${LOG_LEVEL}
-      - JWT_PUBLIC_KEY_FILE=${JWT_PUBLIC_KEY_FILE}
-      - JWT_PRIVATE_KEY_FILE=${JWT_PRIVATE_KEY_FILE}
+      - JWT_PUBLIC_KEY_FILE=/run/secrets/jwt_public_key
+      - JWT_PRIVATE_KEY_FILE=/run/secrets/jwt_private_key
     secrets:
       - db_password
       - server_secret
-      - rabbitmq_password
+      - rabbitmq_user_password
       - jwt_private_key
       - jwt_public_key
     develop:
@@ -58,11 +58,11 @@ services:
   user-db:
     image: postgres:18-alpine
     ports:
-      - '${DB_PORT}:5432'
+      - '${USER_SERVICE_DB_PORT}:5432'
     environment:
-      - POSTGRES_USER=${DB_USERNAME}
-      - POSTGRES_PASSWORD_FILE=${DB_PASSWORD_FILE}
-      - POSTGRES_DB=${DB_DATABASE}
+      - POSTGRES_USER=${USER_SERVICE_DB_USERNAME}
+      - POSTGRES_PASSWORD_FILE=/run/secrets/db_password
+      - POSTGRES_DB=${USER_SERVICE_DB_DATABASE}
     volumes:
       - user-db-data:/var/lib/postgresql
     secrets:
@@ -84,12 +84,12 @@ volumes:
 
 secrets:
   db_password:
-    file: db_password.secret
+    file: secrets/db_password.secret
   server_secret:
-    file: server.secret
-  rabbitmq_password:
-    file: rabbitmq_password.secret
+    file: secrets/server_secret.secret
+  rabbitmq_user_password:
+    file: secrets/rabbitmq_user_password.secret
   jwt_private_key:
-    file: jwt_private_key.secret
+    file: secrets/jwt_private_key.secret
   jwt_public_key:
-    file: jwt_public_key.secret
+    file: secrets/jwt_public_key.secret

@@ -5,17 +5,17 @@ services:
       target: development
     command: npm run start:dev
     ports:
-      - '${ORDER_SERVICE_HOST_PORT:-3004}:3000'
+      - '${ORDER_SERVICE_HOST_PORT}:3000'
     depends_on:
       order-db:
         condition: service_healthy
     environment:
-      - NODE_ENV=${NODE_ENV-development}
-      - DB_HOST=${DB_HOST}
-      - DB_PORT=${DB_PORT}
-      - DB_USERNAME=${DB_USERNAME}
-      - DB_DATABASE=${DB_DATABASE}
-      - DB_SYNCHRONIZE=${DB_SYNCHRONIZE}
+      - NODE_ENV=${NODE_ENV:-development}
+      - DB_HOST=${ORDER_SERVICE_DB_HOST}
+      - DB_PORT=${ORDER_SERVICE_DB_PORT}
+      - DB_USERNAME=${ORDER_SERVICE_DB_USERNAME}
+      - DB_DATABASE=${ORDER_SERVICE_DB_DATABASE}
+      - DB_SYNCHRONIZE=${ORDER_SERVICE_DB_SYNCHRONIZE}
       - DB_PASSWORD_FILE=/run/secrets/order_db_password
       - LOG_LEVEL=${LOG_LEVEL}
     secrets:
@@ -38,11 +38,11 @@ services:
   order-db:
     image: postgres:18-alpine
     ports:
-      - '${DB_HOST_PORT:-5436}:5432'
+      - '${ORDER_SERVICE_DB_HOST_PORT}:5432'
     environment:
-      - POSTGRES_USER=${DB_USERNAME}
+      - POSTGRES_USER=${ORDER_SERVICE_DB_USERNAME}
       - POSTGRES_PASSWORD_FILE=/run/secrets/order_db_password
-      - POSTGRES_DB=${DB_DATABASE}
+      - POSTGRES_DB=${ORDER_SERVICE_DB_DATABASE}
     volumes:
       - order-db-data:/var/lib/postgresql
     secrets:
