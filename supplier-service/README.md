@@ -81,7 +81,7 @@ Consistency with the rest of the team comes first. New libraries need a stated r
 
 **Database per service:** Supplier Service owns `supplier-db` and no other service reads it. Other services ask through the API (and, later, RabbitMQ). This keeps each service's tables private, so they can change without breaking anyone.
 
-### Schema (🔜 step 3)
+### Schema (✅ step 3: `src/database/entities/`, migration `src/database/migrations/1790467200000-create-supplier-schema.ts`)
 
 ```mermaid
 erDiagram
@@ -283,7 +283,7 @@ Every error, from any endpoint, has one shape (✅ built in `src/common/errors/`
 | 401 | `UNAUTHENTICATED` ✅ | No login cookie, or the token is invalid or expired |
 | 403 | `FORBIDDEN` ✅ | Logged in, but not an admin, on an admin endpoint |
 | 404 | `NOT_FOUND` ✅ / `SUPPLIER_NOT_FOUND` 🔜 | Unknown id (F5.9.1) |
-| 409 | `DUPLICATE_SUPPLIER`, `DUPLICATE_NAME`, `VERSION_CONFLICT`, `INVALID_STATUS_TRANSITION` 🔜 | Same name+building+floor exists; the name is taken; someone else edited first (includes `currentVersion`); already in that status |
+| 409 | `DUPLICATE_SUPPLIER`, `DUPLICATE_NAME` ✅; `VERSION_CONFLICT`, `INVALID_STATUS_TRANSITION` 🔜 | Same name+building+floor exists; the name is taken; someone else edited first (includes `currentVersion`); already in that status |
 | 413 | `PAYLOAD_TOO_LARGE` ✅ | Request body too big |
 | 428 | `PRECONDITION_REQUIRED` ✅ | An edit sent without `If-Match` |
 | 503 | `DEPENDENCY_UNAVAILABLE` ✅ (`retryable: true`) | The database can't be reached. Never reported as "not found" (F15.3). |
@@ -423,7 +423,7 @@ Branches are few and large: one per area, each merged into `supplier-service` by
 |---|---|---|---|---|
 | 1 | Scaffold: app, config, DB wiring, migrations, Docker, error format | groundwork for F1.7, F14.1.1, F15.3 | `scaffold` | ✅ merged (#598) |
 | 2 | Auth: check the user-service login token | F13.1-F13.5 | `auth` | 🔜 |
-| 3 | Data model, categories, buildings (no endpoints yet) | F1.1, F1.2.1-F1.2.7, F1.2.9, F1.3-F1.8, F4.1, F4.2, F4.5, F11.1, F11.3 | `database` | 🔜 |
+| 3 | Data model, categories, buildings (no endpoints yet) | F1.1, F1.2.1-F1.2.7, F1.2.9, F1.3-F1.8, F4.1, F4.2, F4.5, F11.1, F11.3 | `database` | ✅ built (services only; endpoints in `auth`/`crud`) |
 | 4 | Seed import | F12.1, F12.2.1, F12.2.2, F12.2.4-F12.2.6, F12.3, F12.4 | `database` | 🔜 |
 | 5 | Read: list, filter, sort, get one; category/building lists | F5.1-F5.9.1 (not F5.4.6/F5.4.7), F15.1-F15.5, F4.4, F11.4 | `crud` | 🔜 |
 | 6 | Create, update, status (admin); category/building admin | F7.5, F8.6, F9.1, F9.2, F9.5, F9.6, F14.1, F14.3, F4.3, F11.2 | `crud` | 🔜 |
@@ -492,14 +492,17 @@ docker compose up
 
 Settings shared through the root `.env` use a `SUPPLIER_` prefix, so they can't collide with other services' `DB_*` values. `compose.yml` maps them onto the app's own names.
 
+**Campus bounding box** (F1.2.7): supplier coordinates must lie inside it. Defaults: latitude 1.28–1.31, longitude 103.74–103.79 (covers every seed supplier). Set with `SUPPLIER_CAMPUS_MIN_LATITUDE`, `…_MAX_LATITUDE`, `…_MIN_LONGITUDE`, `…_MAX_LONGITUDE` (the app reads them as `CAMPUS_*`).
+
 **Develop and test** (in `supplier-service/`):
 ```sh
 npm install
 npm run start:dev          # watch mode
 npm run lint               # oxlint
 npm test                   # unit tests
-npm run test:e2e           # end-to-end tests
-npm run db:test:up         # start the throwaway test database (for DB-backed tests)
+npm run test:e2e           # end-to-end tests (database faked)
+npm run db:test:up         # start the throwaway test database (port 5439; needs Docker)
+npm run test:integration   # tests against that real PostgreSQL: constraints, races, no schema drift
 npm run db:test:down
 npm run build
 ```
