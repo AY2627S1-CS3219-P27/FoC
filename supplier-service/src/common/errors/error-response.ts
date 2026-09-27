@@ -9,6 +9,10 @@ export const ErrorCode = {
   Forbidden: 'FORBIDDEN',
   NotFound: 'NOT_FOUND',
   Conflict: 'CONFLICT',
+  /** Same normalised name, building and floor as another supplier (F1.5.1). */
+  DuplicateSupplier: 'DUPLICATE_SUPPLIER',
+  /** A category or building name already used by a non-retired one. */
+  DuplicateName: 'DUPLICATE_NAME',
   PayloadTooLarge: 'PAYLOAD_TOO_LARGE',
   PreconditionRequired: 'PRECONDITION_REQUIRED',
   DependencyUnavailable: 'DEPENDENCY_UNAVAILABLE',
