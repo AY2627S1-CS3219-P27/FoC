@@ -1,0 +1,46 @@
+{
+  "name": "@foc/auth",
+  "version": "1.0.0",
+  "description": "Shared access-token authentication and authorization guards for Friend on Campus services",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "prebuild": "npm run build --prefix ../contracts",
+    "build": "tsc -p tsconfig.build.json",
+    "pretest": "npm run build --prefix ../contracts",
+    "test": "vitest run",
+    "lint": "oxlint --type-aware src/"
+  },
+  "dependencies": {
+    "@foc/contracts": "file:../contracts",
+    "@nestjs/common": "^12.0.1",
+    "@nestjs/core": "^12.0.1",
+    "@nestjs/jwt": "^12.0.2"
+  },
+  "devDependencies": {
+    "@nestjs/platform-express": "^12.0.1",
+    "@nestjs/testing": "^12.0.1",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^5.0.0",
+    "@types/node": "^24.0.0",
+    "@types/supertest": "^7.0.0",
+    "cookie-parser": "^1.4.7",
+    "oxlint": "^1.58.0",
+    "oxlint-tsgolint": "^7.0.2001",
+    "reflect-metadata": "^0.2.2",
+    "supertest": "^7.0.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.2"
+  }
+}

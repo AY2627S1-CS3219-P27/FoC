@@ -6,15 +6,18 @@ import {
   Req,
   Res,
   UnauthorizedException,
+  UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
-import type { AuthenticatedRequest } from '../auth/authenticated-user.js';
+import { JwtAuthGuard } from '@foc/auth';
+import type { AuthenticatedRequest } from '@foc/auth';
 import { UpdateRolesDto } from './DTO/update-roles.dto.js';
 import { UsersService } from './users.service.js';
 import { ACCESS_TOKEN_COOKIE } from '@foc/contracts';
 
 @Controller('users')
+@UseGuards(JwtAuthGuard)
 export class UsersController {
   constructor(
     private usersService: UsersService,
@@ -28,7 +31,6 @@ export class UsersController {
    */
   @Get('me')
   async getMe(@Req() request: AuthenticatedRequest) {
-    // TODO: Populate request.user.sub in AuthGuard
     const user = await this.usersService.getUserById(request.user.sub);
     if (user === null) {
       throw new UnauthorizedException();
@@ -47,7 +49,6 @@ export class UsersController {
     @Body() updateRolesDto: UpdateRolesDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    // TODO: Populate request.user.sub in AuthGuard
     const updated = await this.usersService.updateRoles(
       request.user.sub,
       updateRolesDto.roles,
