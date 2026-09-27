@@ -1,7 +1,10 @@
 import Joi from 'joi';
 
 import type { AccessTokenPayload } from './access-token-payload.js';
-import type { ContractValidationResult } from '../common/types.js';
+import type {
+  ContractValidationResult,
+  TokenContractFailureCode,
+} from '../common/types.js';
 import { Role } from '../user-roles/role.js';
 import { joiErrorsToViolations } from '../common/violation-convertors.js';
 
@@ -35,7 +38,7 @@ const accessTokenPayloadSchema = Joi.object<AccessTokenPayload>({
  */
 export function validateAccessTokenPayload(
   input: unknown,
-): ContractValidationResult<AccessTokenPayload> {
+): ContractValidationResult<AccessTokenPayload, TokenContractFailureCode> {
   const { value, error } = accessTokenPayloadSchema.validate(input, {
     convert: false,
     abortEarly: false,
