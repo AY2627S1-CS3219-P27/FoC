@@ -289,14 +289,14 @@ describe('login body validation', () => {
   const bodyMetadata = (metatype: Function) =>
     ({ type: 'body', metatype }) as const;
 
-  it('accepts a valid login body', async () => {
+  it('accepts a valid login body and normalizes the email to lowercase', async () => {
     const value = await pipe.transform(
-      { email: 'eve@example.com', password: 'StrongPassw0rd!' },
+      { email: 'EVE@U.NUS.EDU', password: 'StrongPassw0rd!' },
       bodyMetadata(LoginDto),
     );
     expect(value).toBeInstanceOf(LoginDto);
     expect(value).toMatchObject({
-      email: 'eve@example.com',
+      email: 'eve@u.nus.edu',
       password: 'StrongPassw0rd!',
     });
   });

@@ -19,14 +19,17 @@ export class IsNusEmailConstraint implements ValidatorConstraintInterface {
       return false;
     }
 
+    // Compare everything in lowercase so the rule is case-insensitive no
+    // matter whether the caller normalizes.
+    const email = value.toLowerCase();
+
     // Compare against the domain after the LAST '@'
-    const at = value.lastIndexOf('@');
-    if (at <= 0 || at === value.length - 1) {
+    const at = email.lastIndexOf('@');
+    if (at <= 0 || at === email.length - 1) {
       return false;
     }
 
-    const domain = value.slice(at + 1).toLowerCase();
-    return NUS_EMAIL_DOMAINS.includes(domain);
+    return NUS_EMAIL_DOMAINS.includes(email.slice(at + 1));
   }
 
   defaultMessage(): string {
