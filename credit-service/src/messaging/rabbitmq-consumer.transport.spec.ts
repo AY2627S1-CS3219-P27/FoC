@@ -203,6 +203,7 @@ function message(
     exchange?: string;
     routingKey?: string;
     headers?: Record<string, unknown>;
+    messageId?: string;
     userId?: string;
   } = {},
 ): ConsumeMessage {
@@ -224,7 +225,7 @@ function message(
       correlationId: 'correlation-id',
       replyTo: undefined,
       expiration: '999999',
-      messageId: undefined,
+      messageId: overrides.messageId,
       timestamp: 1_795_000_000,
       type: 'UserRegistered',
       userId: overrides.userId,
@@ -679,6 +680,57 @@ describe('RabbitMqConsumerTransport', () => {
     expect(headers['x-failure-reason']).toHaveLength(512);
     expect(model.publisher.published[0].options).not.toHaveProperty('userId');
   });
+
+  it.each([
+    {
+      name: 'a 255-byte event ID',
+      eventId: 'x'.repeat(255),
+      originalMessageId: 'original-id',
+      expectedMessageId: 'x'.repeat(255),
+    },
+    {
+      name: 'a 256-byte event ID',
+      eventId: 'x'.repeat(256),
+      originalMessageId: 'original-id',
+      expectedMessageId: 'original-id',
+    },
+    {
+      name: 'a multibyte event ID exceeding 255 bytes',
+      eventId: 'é'.repeat(128),
+      originalMessageId: undefined,
+      expectedMessageId: undefined,
+    },
+  ])(
+    'keeps republished messageId AMQP-safe for $name',
+    async ({ eventId, originalMessageId, expectedMessageId }) => {
+      const handler = {
+        handle: vi.fn().mockResolvedValue({
+          outcome: 'dead-letter',
+          category: 'INVALID_ENVELOPE',
+          reason: 'event ID is invalid',
+        }),
+      } satisfies RabbitMqMessageHandler;
+      const { model, transport } = createHarness(handler);
+      await transport.subscribe(subscription(handler));
+      const delivery = message(
+        Buffer.from(JSON.stringify({ eventId, eventType: 'UserRegistered' })),
+        { messageId: originalMessageId },
+      );
+
+      await deliver(model, delivery);
+
+      expect(model.publisher.published).toHaveLength(1);
+      expect(model.publisher.published[0].options.messageId).toBe(
+        expectedMessageId,
+      );
+      expect(model.publisher.published[0].options.headers).toMatchObject({
+        'x-event-id': eventId,
+        'x-failure-category': 'INVALID_ENVELOPE',
+      });
+      expect(model.consumer.acknowledged).toEqual([delivery]);
+      expect(model.consumer.rejected).toHaveLength(0);
+    },
+  );
 
   it('waits for publisher confirmation before acknowledging', async () => {
     const handler = {

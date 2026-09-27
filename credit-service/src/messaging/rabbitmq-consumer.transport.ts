@@ -26,6 +26,7 @@ import type {
 
 const MAX_RETRY_COUNT = 5;
 const MAX_FAILURE_REASON_LENGTH = 512;
+const MAX_AMQP_SHORT_STRING_BYTES = 255;
 
 const TRANSPORT_HEADERS = new Set([
   'x-retry-count',
@@ -105,6 +106,13 @@ function sanitizeFailureReason(reason: string): string {
     0,
     MAX_FAILURE_REASON_LENGTH,
   );
+}
+
+function safeAmqpShortString(value: unknown): string | undefined {
+  return typeof value === 'string' &&
+    Buffer.byteLength(value, 'utf8') <= MAX_AMQP_SHORT_STRING_BYTES
+    ? value
+    : undefined;
 }
 
 function retryCountFrom(message: ConsumeMessage): number | undefined {
@@ -744,6 +752,9 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
     failure: FailureMetadata,
   ): Options.Publish {
     const properties = message.properties;
+    const messageId =
+      safeAmqpShortString(failure.eventId) ??
+      safeAmqpShortString(properties.messageId);
     const preservedHeaders = Object.fromEntries(
       Object.entries(properties.headers ?? {}).filter(
         ([name]) => !TRANSPORT_HEADERS.has(name),
@@ -780,11 +791,11 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
           : undefined,
       replyTo:
         typeof properties.replyTo === 'string' ? properties.replyTo : undefined,
-      messageId:
-        failure.eventId ??
-        (typeof properties.messageId === 'string'
-          ? properties.messageId
-          : undefined),
+      // Body-derived event IDs have not necessarily passed contract validation.
+      // AMQP encodes messageId as shortstr and rejects values over 255 UTF-8
+      // bytes, so fall back to safe broker metadata instead of poisoning the
+      // retry or dead-letter path.
+      messageId,
       timestamp:
         typeof properties.timestamp === 'number'
           ? properties.timestamp

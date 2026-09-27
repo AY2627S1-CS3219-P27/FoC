@@ -386,6 +386,35 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     expect(handler.handle).toHaveBeenCalledTimes(1);
   });
 
+  it('dead-letters an oversized body event ID without poisoning publication', async () => {
+    behavior = async () => ({
+      outcome: 'dead-letter',
+      category: 'INVALID_ENVELOPE',
+      reason: 'event ID is invalid',
+    });
+    const oversizedEventId = 'é'.repeat(128);
+    const original = Buffer.from(
+      JSON.stringify({
+        eventId: oversizedEventId,
+        eventType: 'UserRegistered',
+      }),
+    );
+
+    await publish(original);
+    const deadLetter = await takeDeadLetter();
+
+    expect(deadLetter.content.equals(original)).toBe(true);
+    expect(deadLetter.properties.messageId).toBeUndefined();
+    expect(deadLetter.properties.headers).toMatchObject({
+      'x-event-id': oversizedEventId,
+      'x-failure-category': 'INVALID_ENVELOPE',
+    });
+    expect(handler.handle).toHaveBeenCalledTimes(1);
+    expect((await adminChannel.checkQueue(names.mainQueue)).messageCount).toBe(
+      0,
+    );
+  });
+
   it('dead-letters malformed JSON without calling the handler', async () => {
     const original = Buffer.from('{invalid-json');
 
