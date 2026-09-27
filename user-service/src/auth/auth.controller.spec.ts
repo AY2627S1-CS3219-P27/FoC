@@ -146,7 +146,9 @@ describe('AuthController login', () => {
   });
 
   it('sets an httpOnly, same-site cookie with a millisecond maxAge', async () => {
-    authService.checkCredentials.mockResolvedValue({ accessToken: 'jwt-token' });
+    authService.checkCredentials.mockResolvedValue({
+      accessToken: 'jwt-token',
+    });
 
     await controller.login(loginDto as never, res as never);
 
@@ -162,7 +164,9 @@ describe('AuthController login', () => {
   });
 
   it('marks the cookie secure in production', async () => {
-    authService.checkCredentials.mockResolvedValue({ accessToken: 'jwt-token' });
+    authService.checkCredentials.mockResolvedValue({
+      accessToken: 'jwt-token',
+    });
     configGet.mockReturnValue('production');
 
     await controller.login(loginDto as never, res as never);
@@ -175,7 +179,9 @@ describe('AuthController login', () => {
   });
 
   it('reports a successful login', async () => {
-    authService.checkCredentials.mockResolvedValue({ accessToken: 'jwt-token' });
+    authService.checkCredentials.mockResolvedValue({
+      accessToken: 'jwt-token',
+    });
 
     await expect(
       controller.login(loginDto as never, res as never),

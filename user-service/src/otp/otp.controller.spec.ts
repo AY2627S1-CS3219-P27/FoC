@@ -95,7 +95,7 @@ describe('OtpController', () => {
       });
     });
 
-    it('rejects with the same fixed error for every F1.4 failure and sets no cookie', async () => {
+    it('rejects with the same fixed error for every validation failure and sets no cookie', async () => {
       // Unknown, expired, revoked and consumed OTPs all surface identically:
       // the controller must not reveal which condition failed.
       otpService.validateOtpAndIssueToken.mockResolvedValue(null);
@@ -124,14 +124,57 @@ describe('request body validation', () => {
   const bodyMetadata = (metatype: Function) =>
     ({ type: 'body', metatype }) as const;
 
-  it('accepts a valid email', async () => {
+  it('accepts a valid NUS email', async () => {
     const value = await pipe.transform(
-      { email: 'eve@example.com' },
+      { email: 'eve@u.nus.edu' },
       bodyMetadata(RequestOtpDto),
     );
 
     expect(value).toBeInstanceOf(RequestOtpDto);
-    expect(value).toMatchObject({ email: 'eve@example.com' });
+    expect(value).toMatchObject({ email: 'eve@u.nus.edu' });
+  });
+
+  it('accepts a valid alternate NUS email', async () => {
+    const value = await pipe.transform(
+      { email: 'eve@nus.edu.sg' },
+      bodyMetadata(RequestOtpDto),
+    );
+
+    expect(value).toBeInstanceOf(RequestOtpDto);
+    expect(value).toMatchObject({ email: 'eve@nus.edu.sg' });
+  });
+
+  it('accepts an NUS email in any case', async () => {
+    const value = await pipe.transform(
+      { email: 'EVE@U.NUS.EDU' },
+      bodyMetadata(RequestOtpDto),
+    );
+
+    expect(value).toBeInstanceOf(RequestOtpDto);
+    expect(value).toMatchObject({ email: 'EVE@U.NUS.EDU' });
+  });
+
+  it('rejects a syntactically valid but non-NUS email before the handler runs', async () => {
+    await expect(
+      pipe.transform({ email: 'eve@example.com' }, bodyMetadata(RequestOtpDto)),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a lookalike NUS subdomain before the handler runs', async () => {
+    // Only @u.nus.edu and @nus.edu.sg are accepted; subdomains and
+    // suffixed lookalikes must be rejected.
+    await expect(
+      pipe.transform(
+        { email: 'eve@comp.nus.edu.sg' },
+        bodyMetadata(RequestOtpDto),
+      ),
+    ).rejects.toThrow(BadRequestException);
+    await expect(
+      pipe.transform(
+        { email: 'eve@u.nus.edu.sg' },
+        bodyMetadata(RequestOtpDto),
+      ),
+    ).rejects.toThrow(BadRequestException);
   });
 
   it('rejects a malformed email before the handler runs', async () => {
