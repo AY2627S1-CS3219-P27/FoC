@@ -8,6 +8,7 @@ import {
 import { UsersController } from './users.controller.js';
 import { UsersService } from './users.service.js';
 import { ConfigService } from '@nestjs/config';
+import { JwtAuthGuard } from '@foc/auth';
 import { UpdateRolesDto } from './DTO/update-roles.dto.js';
 import { ACCESS_TOKEN_COOKIE, Role } from '@foc/contracts';
 
@@ -34,7 +35,13 @@ describe('UsersController', () => {
         { provide: UsersService, useValue: usersService },
         { provide: ConfigService, useValue: { get: configGet } },
       ],
-    }).compile();
+    })
+      // JwtAuthGuard's token verification is exercised at the e2e level; here
+      // the module-level guard is a passthrough so the controller's own
+      // behaviour under an authenticated request can be asserted directly.
+      .overrideGuard(JwtAuthGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<UsersController>(UsersController);
   });
