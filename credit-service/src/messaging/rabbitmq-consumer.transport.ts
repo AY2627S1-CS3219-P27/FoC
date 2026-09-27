@@ -19,6 +19,7 @@ import type { EnvironmentVariables } from '../config/environment.js';
 import { AMQP_CONNECT, type AmqpConnect } from './amqp-connection.provider.js';
 import { RABBITMQ_CONNECTION_URL } from './rabbitmq-connection-url.provider.js';
 import type {
+  MessageHandlingResult,
   PermanentMessageFailure,
   Subscription,
 } from './rabbitmq-message.types.js';
@@ -600,8 +601,9 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       return;
     }
 
+    let result: MessageHandlingResult;
     try {
-      const result = await subscription.handler.handle({
+      result = await subscription.handler.handle({
         body,
         rawBody: Buffer.from(message.content),
         // Application handlers always see the logical domain route, regardless
@@ -610,25 +612,6 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
         eventId,
         retryCount,
       });
-
-      if (result.outcome === 'ack') {
-        // A handler returns ack only after its own durable work has completed.
-        consumerChannel.ack(message);
-        return;
-      }
-
-      await this.deadLetterOrRequeue(
-        message,
-        consumerChannel,
-        publisherChannel,
-        subscription,
-        {
-          category: result.category,
-          reason: result.reason,
-          retryCount,
-          eventId: result.eventId ?? eventId,
-        },
-      );
     } catch (error) {
       this.logger.warn(
         `Transient RabbitMQ handler failure for event ${eventId ?? 'unknown'} on attempt ${retryCount + 1}: ${error instanceof Error ? error.name : 'Error'}`,
@@ -658,7 +641,41 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
           eventId,
         },
       );
+      return;
     }
+
+    if (result.outcome === 'ack') {
+      // A handler returns ack only after its own durable work has completed.
+      // An acknowledgement exception must not create a second message: close
+      // the channel so RabbitMQ can return the unacknowledged original instead.
+      try {
+        consumerChannel.ack(message);
+      } catch (error) {
+        this.logger.error(
+          `Unable to acknowledge successfully handled delivery from ${subscription.queue}; recycling its consumer channel: ${error instanceof Error ? error.name : 'Error'}`,
+        );
+        try {
+          await consumerChannel.close();
+        } catch {
+          // The acknowledgement commonly fails because the channel is already
+          // closed; its unacknowledged deliveries are returned automatically.
+        }
+      }
+      return;
+    }
+
+    await this.deadLetterOrRequeue(
+      message,
+      consumerChannel,
+      publisherChannel,
+      subscription,
+      {
+        category: result.category,
+        reason: result.reason,
+        retryCount,
+        eventId: result.eventId ?? eventId,
+      },
+    );
   }
 
   private async retryOrRequeue(

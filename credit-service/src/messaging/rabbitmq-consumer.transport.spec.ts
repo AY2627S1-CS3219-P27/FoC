@@ -461,6 +461,25 @@ describe('RabbitMqConsumerTransport', () => {
     expect(model.consumer.acknowledged).toEqual([delivery]);
   });
 
+  it('closes the consumer channel without publishing a copy when acknowledgement throws', async () => {
+    const handler = {
+      handle: vi.fn().mockResolvedValue({ outcome: 'ack' }),
+    } satisfies RabbitMqMessageHandler;
+    const { model, transport } = createHarness(handler);
+    await transport.subscribe(subscription(handler));
+    const delivery = message();
+    vi.spyOn(model.consumer, 'ack').mockImplementation(() => {
+      throw new Error('channel closed');
+    });
+
+    await deliver(model, delivery);
+
+    expect(handler.handle).toHaveBeenCalledOnce();
+    expect(model.publisher.published).toHaveLength(0);
+    expect(model.consumer.rejected).toHaveLength(0);
+    expect(model.consumer.closed).toBe(true);
+  });
+
   it('accepts a returned retry and exposes its logical domain route', async () => {
     const handler = {
       handle: vi.fn().mockResolvedValue({ outcome: 'ack' }),
@@ -594,6 +613,25 @@ describe('RabbitMqConsumerTransport', () => {
       'expiration',
     );
     expect(model.publisher.published[0].options).not.toHaveProperty('userId');
+    expect(model.consumer.acknowledged).toEqual([delivery]);
+  });
+
+  it('publishes exactly one retry when the handler throws', async () => {
+    const handler = {
+      handle: vi.fn().mockRejectedValue(new Error('temporary')),
+    } satisfies RabbitMqMessageHandler;
+    const { model, transport } = createHarness(handler);
+    await transport.subscribe(subscription(handler));
+    const delivery = message();
+
+    await deliver(model, delivery);
+
+    expect(handler.handle).toHaveBeenCalledOnce();
+    expect(model.publisher.published).toHaveLength(1);
+    expect(model.publisher.published[0]).toMatchObject({
+      exchange: 'foc.credit.retry',
+      routingKey: 'credit-service.user-registered.v1.retry.1',
+    });
     expect(model.consumer.acknowledged).toEqual([delivery]);
   });
 
