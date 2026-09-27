@@ -409,7 +409,9 @@ part of the current schema.
 - The shared `SERIALIZABLE` transaction runner retries PostgreSQL serialization
   failures and deadlocks up to three times.
 - Relay workers claim disjoint outbox batches with expiring PostgreSQL leases.
-  Failed publications are released and retried indefinitely.
+  Publisher-confirm timeouts end at least five seconds before claim expiry so a
+  confirmed worker retains time to record publication ownership safely. Failed
+  publications are released and retried indefinitely.
 - Outbox rows are marked published only after RabbitMQ confirmation. Stale rows
   are logged by event ID and operational diagnostics without logging their
   envelope.

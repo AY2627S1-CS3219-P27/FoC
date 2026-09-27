@@ -86,10 +86,10 @@ const publication: OutboxPublication = {
   },
 };
 
-function harness(timeout = 30_000) {
+function harness(timeout = 20_000) {
   const values = {
     RABBITMQ_EXCHANGE: 'foc.events',
-    OUTBOX_CLAIM_LEASE_MS: timeout,
+    OUTBOX_CONFIRM_TIMEOUT_MS: timeout,
   };
   const config = {
     getOrThrow: vi.fn((key: keyof typeof values) => values[key]),

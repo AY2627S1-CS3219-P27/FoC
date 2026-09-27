@@ -6,6 +6,7 @@ import {
 
 const DEFAULT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000];
 const USER_REGISTERED_QUEUE = 'credit-service.user-registered.v1';
+const MIN_OUTBOX_COMPLETION_MARGIN_MS = 5_000;
 
 export interface EnvironmentVariables {
   NODE_ENV: 'development' | 'test' | 'production';
@@ -33,6 +34,7 @@ export interface EnvironmentVariables {
   RABBITMQ_RETRY_DELAYS_MS: number[];
   OUTBOX_POLL_INTERVAL_MS: number;
   OUTBOX_BATCH_SIZE: number;
+  OUTBOX_CONFIRM_TIMEOUT_MS: number;
   OUTBOX_CLAIM_LEASE_MS: number;
   OUTBOX_UNPUBLISHED_WARNING_MS: number;
 }
@@ -103,8 +105,16 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
   RABBITMQ_RETRY_DELAYS_MS: retryDelaysSchema,
   OUTBOX_POLL_INTERVAL_MS: Joi.number().integer().min(1).default(1_000),
   OUTBOX_BATCH_SIZE: Joi.number().integer().min(1).default(100),
+  OUTBOX_CONFIRM_TIMEOUT_MS: Joi.number().integer().min(1).default(20_000),
   OUTBOX_CLAIM_LEASE_MS: Joi.number().integer().min(1).default(30_000),
   OUTBOX_UNPUBLISHED_WARNING_MS: Joi.number().integer().min(1).default(60_000),
 })
+  .custom((environment: EnvironmentVariables, helpers) => {
+    const completionMargin =
+      environment.OUTBOX_CLAIM_LEASE_MS - environment.OUTBOX_CONFIRM_TIMEOUT_MS;
+    return completionMargin >= MIN_OUTBOX_COMPLETION_MARGIN_MS
+      ? environment
+      : helpers.error('any.invalid');
+  }, 'outbox confirmation and claim lease safety margin')
   .unknown(true)
   .prefs({ abortEarly: false, convert: true });

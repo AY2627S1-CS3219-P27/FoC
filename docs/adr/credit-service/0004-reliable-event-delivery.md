@@ -89,6 +89,11 @@ channel. It claims a configurable batch of unpublished rows, publishes each
 stored envelope unchanged to the durable domain exchange, and sets
 `published_at` only after broker confirmation and socket drainage.
 
+The publisher-confirm timeout is configured separately from the database claim
+lease. Configuration requires the lease to exceed the timeout by at least five
+seconds, reserving time to record successful publication before another relay
+worker may reclaim the row.
+
 Rows that fail publication record a bounded, sanitized error, release their
 claim, and are retried indefinitely by later polling cycles. Multiple relay
 instances coordinate through expiring PostgreSQL claims and

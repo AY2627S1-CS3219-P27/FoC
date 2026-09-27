@@ -52,6 +52,7 @@ describe('environmentSchema', () => {
     ]);
     expect(environment.OUTBOX_POLL_INTERVAL_MS).toBe(1_000);
     expect(environment.OUTBOX_BATCH_SIZE).toBe(100);
+    expect(environment.OUTBOX_CONFIRM_TIMEOUT_MS).toBe(20_000);
     expect(environment.OUTBOX_CLAIM_LEASE_MS).toBe(30_000);
     expect(environment.OUTBOX_UNPUBLISHED_WARNING_MS).toBe(60_000);
   });
@@ -127,9 +128,35 @@ describe('environmentSchema', () => {
     ['RABBITMQ_PREFETCH', 0],
     ['OUTBOX_POLL_INTERVAL_MS', 0],
     ['OUTBOX_BATCH_SIZE', 0],
+    ['OUTBOX_CONFIRM_TIMEOUT_MS', 0],
     ['OUTBOX_CLAIM_LEASE_MS', 0],
     ['OUTBOX_UNPUBLISHED_WARNING_MS', 0],
   ])('rejects non-positive %s', (name, value) => {
     expect(() => validate({ [name]: value })).toThrow();
   });
+
+  it('accepts an outbox confirmation timeout with the minimum completion margin', () => {
+    const environment = validate({
+      OUTBOX_CONFIRM_TIMEOUT_MS: 25_000,
+      OUTBOX_CLAIM_LEASE_MS: 30_000,
+    });
+
+    expect(environment.OUTBOX_CONFIRM_TIMEOUT_MS).toBe(25_000);
+  });
+
+  it.each([
+    ['equal to the claim lease', 30_000, 30_000],
+    ['longer than the claim lease', 30_001, 30_000],
+    ['inside the completion margin', 25_001, 30_000],
+  ])(
+    'rejects a confirmation timeout %s',
+    (_description, confirmationTimeout, claimLease) => {
+      expect(() =>
+        validate({
+          OUTBOX_CONFIRM_TIMEOUT_MS: confirmationTimeout,
+          OUTBOX_CLAIM_LEASE_MS: claimLease,
+        }),
+      ).toThrow();
+    },
+  );
 });

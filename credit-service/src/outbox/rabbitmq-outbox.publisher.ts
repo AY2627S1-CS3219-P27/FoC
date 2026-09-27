@@ -23,7 +23,7 @@ export class RabbitMqOutboxPublisherUnavailableError extends Error {
 
 export class RabbitMqOutboxConfirmationTimeoutError extends Error {
   constructor() {
-    super('RabbitMQ did not confirm outbox publication before the claim lease');
+    super('RabbitMQ did not confirm outbox publication before its timeout');
     this.name = 'RabbitMqOutboxConfirmationTimeoutError';
   }
 }
@@ -47,7 +47,7 @@ export class RabbitMqOutboxPublisher {
   ) {
     this.exchange = config.getOrThrow('RABBITMQ_EXCHANGE');
     this.confirmationTimeoutMilliseconds = config.getOrThrow(
-      'OUTBOX_CLAIM_LEASE_MS',
+      'OUTBOX_CONFIRM_TIMEOUT_MS',
     );
     this.rabbitMqUrl = rabbitMqUrl;
   }

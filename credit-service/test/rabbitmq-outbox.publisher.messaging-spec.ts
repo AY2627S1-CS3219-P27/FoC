@@ -24,7 +24,7 @@ describe('RabbitMqOutboxPublisher messaging integration', () => {
 
     const values = {
       RABBITMQ_EXCHANGE: exchange,
-      OUTBOX_CLAIM_LEASE_MS: 5_000,
+      OUTBOX_CONFIRM_TIMEOUT_MS: 5_000,
     };
     const config = {
       getOrThrow: (key: keyof typeof values) => values[key],
