@@ -23,6 +23,8 @@ describe('environmentSchema', () => {
       CAMPUS_MAX_LATITUDE: 1.31,
       CAMPUS_MIN_LONGITUDE: 103.74,
       CAMPUS_MAX_LONGITUDE: 103.79,
+      SEED_ON_STARTUP: true,
+      SEED_CSV_PATH: '/seed-data/supplier-seed-data.csv',
     });
   });
 

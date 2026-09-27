@@ -25,6 +25,8 @@ export interface EnvironmentVariables {
   CAMPUS_MAX_LATITUDE: number;
   CAMPUS_MIN_LONGITUDE: number;
   CAMPUS_MAX_LONGITUDE: number;
+  SEED_ON_STARTUP: boolean;
+  SEED_CSV_PATH: string;
 }
 
 /**
@@ -62,6 +64,12 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
     .max(180)
     .greater(Joi.ref('CAMPUS_MIN_LONGITUDE'))
     .default(103.79),
+  // Import the template's supplier seed file on startup (F12). Re-running is
+  // safe: suppliers already present are skipped.
+  SEED_ON_STARTUP: Joi.boolean().default(true),
+  SEED_CSV_PATH: Joi.string()
+    .min(1)
+    .default('/seed-data/supplier-seed-data.csv'),
 })
   .unknown(true)
   .prefs({ abortEarly: false, convert: true });
