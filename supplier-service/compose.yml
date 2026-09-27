@@ -22,6 +22,15 @@ services:
       DB_DATABASE: ${SUPPLIER_DB_DATABASE:-supplier_service}
       DB_PASSWORD_FILE: /run/secrets/supplier_db_password
       DB_MIGRATIONS_RUN: ${SUPPLIER_DB_MIGRATIONS_RUN:-true}
+      CAMPUS_MIN_LATITUDE: ${SUPPLIER_CAMPUS_MIN_LATITUDE:-1.28}
+      CAMPUS_MAX_LATITUDE: ${SUPPLIER_CAMPUS_MAX_LATITUDE:-1.31}
+      CAMPUS_MIN_LONGITUDE: ${SUPPLIER_CAMPUS_MIN_LONGITUDE:-103.74}
+      CAMPUS_MAX_LONGITUDE: ${SUPPLIER_CAMPUS_MAX_LONGITUDE:-103.79}
+      SEED_ON_STARTUP: ${SUPPLIER_SEED_ON_STARTUP:-true}
+      SEED_CSV_PATH: /seed-data/supplier-seed-data.csv
+    volumes:
+      # The template's seed file, read in place (never copied into the image).
+      - ../data/csv:/seed-data:ro
     secrets:
       - supplier_db_password
     healthcheck:

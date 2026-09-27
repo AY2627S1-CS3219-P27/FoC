@@ -23,4 +23,6 @@ export function seedTestEnvironment(): void {
   process.env.DB_DATABASE = 'supplier_service_test';
   process.env.DB_PASSWORD_FILE = passwordFile;
   process.env.DB_MIGRATIONS_RUN = 'false';
+  // The database is stubbed in e2e specs, so there is nothing to seed into.
+  process.env.SEED_ON_STARTUP = 'false';
 }

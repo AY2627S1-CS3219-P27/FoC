@@ -19,7 +19,23 @@ describe('environmentSchema', () => {
       LOG_LEVEL: 'log',
       DB_PORT: 5432,
       DB_MIGRATIONS_RUN: true,
+      CAMPUS_MIN_LATITUDE: 1.28,
+      CAMPUS_MAX_LATITUDE: 1.31,
+      CAMPUS_MIN_LONGITUDE: 103.74,
+      CAMPUS_MAX_LONGITUDE: 103.79,
+      SEED_ON_STARTUP: true,
+      SEED_CSV_PATH: '/seed-data/supplier-seed-data.csv',
     });
+  });
+
+  it('rejects a campus box whose maximum is not above its minimum', () => {
+    const { error } = environmentSchema.validate({
+      ...REQUIRED,
+      CAMPUS_MIN_LATITUDE: '1.31',
+      CAMPUS_MAX_LATITUDE: '1.28',
+    });
+
+    expect(error?.details[0].path).toEqual(['CAMPUS_MAX_LATITUDE']);
   });
 
   it('reports every missing variable at once', () => {
