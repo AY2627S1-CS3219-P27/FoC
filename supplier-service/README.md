@@ -464,21 +464,7 @@ A teammate may help with the Bruno collection and diagrams (on `crud`).
 
 ---
 
-## 10. Likely examiner questions
-
-- **Why PostgreSQL and not a document database?** Supplier data is fixed-shape and relational (buildings, categories). The key guarantees (no duplicates under concurrency, valid references, all-or-nothing writes) are database constraints and transactions. The query load is filter, sort and paginate. See [§3](#3-d2-point-1-database-choice-and-schema).
-- **"Finding suppliers by location"?** Location means **building** (`?buildingId=`), because errands are picked up at a building and floor. Each supplier also stores coordinates, so a "near me" search could be added later with a distance query. It isn't in the FRs.
-- **Why is "at least one category" not a database constraint?** A minimum count across a join table isn't a plain constraint in SQL. It's checked in the service inside the same transaction as the write.
-- **Why 409 for a version conflict, not 412?** HTTP's own answer to a failed `If-Match` is 412. The FR (F14.3.1) calls it a *conflict* and requires the current version in the reply, so we use 409 with `currentVersion`. This is a deliberate, documented choice.
-- **How does Supplier Service trust a token without calling user-service?** RS256: only user-service holds the private key that signs, and we verify with the public key. The claims are then checked against the shared contract.
-- **What if an admin is demoted mid-session?** Their token stays valid for up to 15 minutes. That's an accepted trade-off for D2; see [§5](#5-d2-points-2-and-4-identity-and-roles-from-user-service).
-- **How will Order Service use us?** Now: `GET /suppliers/{id}` (read-only, safe to retry, never a false "not found" when our DB is down). Later (F15.7): Order asks over RabbitMQ and we reply with exactly one FOUND/NOT_FOUND event, authenticated by broker credentials.
-- **Why do other services keep their own copy of supplier details?** Editing or deactivating a supplier must not change errands already created (F15.5, F9.6), so Order stores what it needs when the errand is created.
-- **Why are unknown fields rejected rather than ignored?** A typo like `flor` would otherwise be silently dropped, and a client could try to set `version` or `status`. The FRs require rejection (F1.6, F1.3.2).
-
----
-
-## 11. Running and testing
+## 10. Running and testing
 
 **Run with the whole stack** (from the repo root):
 ```sh
