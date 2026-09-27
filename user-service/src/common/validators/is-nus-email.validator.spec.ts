@@ -1,13 +1,15 @@
 import 'reflect-metadata';
 import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import { IsEmail } from 'class-validator';
-import {
-  IsNusEmail,
-  IsNusEmailConstraint,
-} from './is-nus-email.validator.js';
+import { IsNusEmail, IsNusEmailConstraint } from './is-nus-email.validator.js';
 
 describe('IsNusEmailConstraint', () => {
   const constraint = new IsNusEmailConstraint();
+
+  it('rejects null and undefined', () => {
+    expect(constraint.validate(null)).toBe(false);
+    expect(constraint.validate(undefined)).toBe(false);
+  });
 
   describe('validate', () => {
     it.each([
@@ -70,7 +72,10 @@ describe('IsNusEmail as a class-validator rule', () => {
     // The pattern check alone accepts the last-@ domain, but the base IsEmail
     // rule rejects the malformed double-@ address.
     await expect(
-      pipe.transform({ email: 'eve@evil.com@u.nus.edu' }, bodyMetadata(TestDto)),
+      pipe.transform(
+        { email: 'eve@evil.com@u.nus.edu' },
+        bodyMetadata(TestDto),
+      ),
     ).rejects.toThrow(BadRequestException);
   });
 });
