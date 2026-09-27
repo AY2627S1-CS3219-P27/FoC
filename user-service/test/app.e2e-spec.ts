@@ -47,6 +47,10 @@ describe('user-service (e2e)', () => {
         getServerSecret: () => 'test-server-secret',
         getDbPassword: () => 'test-db-password',
         getRabbitMqPassword: () => 'test-rabbitmq-password',
+        // JwtModule's factory reads the RSA key pair eagerly at bootstrap;
+        // the boot test never signs or verifies, so dummy keys suffice.
+        getJwtPrivateKey: () => 'test-private-key',
+        getJwtPublicKey: () => 'test-public-key',
       })
       .compile();
 

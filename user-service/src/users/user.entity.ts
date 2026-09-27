@@ -5,6 +5,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { Role } from '@foc/contracts';
 
 @Entity('users')
 export class User {
@@ -23,9 +24,6 @@ export class User {
   @Column({ length: 32 })
   passwordSalt: string;
 
-  @Column({ default: true })
-  isActive: boolean;
-
   @Column({ default: false })
   isAdmin: boolean;
 
@@ -34,6 +32,15 @@ export class User {
 
   @Column({ default: false })
   isArchived: boolean;
+
+  /** Participant roles */
+  @Column({
+    type: 'enum',
+    enum: Role,
+    array: true,
+    default: '{}',
+  })
+  roles: Role[];
 
   @CreateDateColumn()
   createdAt: Date;
