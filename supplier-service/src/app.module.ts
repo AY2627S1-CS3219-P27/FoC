@@ -8,6 +8,7 @@ import { createValidationPipe } from './common/validation/validation.pipe.js';
 import { environmentSchema } from './config/environment.schema.js';
 import { DatabaseModule } from './database/database.module.js';
 import { HealthController } from './health/health.controller.js';
+import { SeedModule } from './seed/seed.module.js';
 import { SuppliersModule } from './suppliers/suppliers.module.js';
 
 @Module({
@@ -23,6 +24,7 @@ import { SuppliersModule } from './suppliers/suppliers.module.js';
     BuildingsModule,
     CategoriesModule,
     SuppliersModule,
+    SeedModule,
   ],
   controllers: [HealthController],
   providers: [
