@@ -14,7 +14,6 @@ export const environmentSchema = Joi.object({
   DB_USERNAME: Joi.string().min(1).required(),
   DB_DATABASE: Joi.string().min(1).required(),
   DB_PASSWORD_FILE: Joi.string().min(1).required(),
-  DB_SYNCHRONIZE: Joi.boolean().default(false),
 })
   .unknown(true)
   .prefs({ abortEarly: false, convert: true });
