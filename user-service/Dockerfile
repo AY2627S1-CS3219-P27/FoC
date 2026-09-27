@@ -6,22 +6,26 @@ FROM node:lts
 # Set the working directory inside the container
 WORKDIR /usr/src/app
 
-# The build context is the repository root so the local @foc/contracts
-# dependency is available without relying on host-generated files.
+# The build context is the repository root so the local @foc/contracts and
+# @foc/auth dependencies are available without relying on host-generated
+# files.
 COPY packages/contracts/package*.json /usr/src/packages/contracts/
+COPY packages/auth/package*.json /usr/src/packages/auth/
 
 # Copy the application manifests and install dependencies. The file:
-# dependency resolves to ../packages/contracts and postinstall installs the
-# contract package's own dev-dependencies in place.
+# dependencies resolve to ../packages/* and postinstall installs each shared
+# package's own dev-dependencies in place.
 COPY user-service/package*.json ./
 RUN npm install
 
-# Copy the contract package sources and the rest of the application files
+# Copy the shared package sources and the rest of the application files.
+# prebuild rebuilds the packages from their sources (and repacks @foc/auth
+# into this service's node_modules so Nest resolves a single copy).
 COPY packages/contracts/ /usr/src/packages/contracts/
+COPY packages/auth/ /usr/src/packages/auth/
 COPY user-service/ .
 
-# Build the NestJS application (prebuild rebuilds the contract package from
-# its sources).
+# Build the NestJS application
 RUN npm run build
 
 # Expose the application port
