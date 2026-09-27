@@ -74,8 +74,16 @@ describe('credit persistence migration', () => {
     expect(indexes.map(({ indexname }) => indexname)).toEqual(
       expect.arrayContaining([
         'UQ_credit_allocations_user',
-        'IDX_outbox_events_unpublished_created_at',
+        'IDX_outbox_events_unpublished_next_attempt_at_created_at',
       ]),
+    );
+
+    const outboxColumns = await dataSource.query<{ column_name: string }[]>(`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'outbox_events'
+    `);
+    expect(outboxColumns.map(({ column_name }) => column_name)).toContain(
+      'next_attempt_at',
     );
 
     const triggers = await dataSource.query<{ trigger_name: string }[]>(`

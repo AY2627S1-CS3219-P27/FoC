@@ -32,8 +32,9 @@ export class OutboxStore {
           SELECT event_id
           FROM outbox_events
           WHERE published_at IS NULL
+            AND next_attempt_at <= clock_timestamp()
             AND (claimed_until IS NULL OR claimed_until <= clock_timestamp())
-          ORDER BY created_at ASC, event_id ASC
+          ORDER BY next_attempt_at ASC, created_at ASC, event_id ASC
           FOR UPDATE SKIP LOCKED
           LIMIT $1
         )
@@ -81,6 +82,7 @@ export class OutboxStore {
     eventId: string,
     workerId: string,
     failure: string,
+    retryDelayMilliseconds: number,
   ): Promise<boolean> {
     const [rows] = await this.dataSource.query<
       [Array<{ eventId: string }>, number]
@@ -89,13 +91,14 @@ export class OutboxStore {
         UPDATE outbox_events
         SET last_error = $3,
             claimed_by = NULL,
-            claimed_until = NULL
+            claimed_until = NULL,
+            next_attempt_at = clock_timestamp() + ($4::bigint * INTERVAL '1 millisecond')
         WHERE event_id = $1
           AND claimed_by = $2
           AND published_at IS NULL
         RETURNING event_id AS "eventId"
       `,
-      [eventId, workerId, failure],
+      [eventId, workerId, failure, retryDelayMilliseconds],
     );
 
     return rows.length === 1;

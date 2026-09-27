@@ -11,11 +11,15 @@ const configuration: Pick<
   | 'OUTBOX_POLL_INTERVAL_MS'
   | 'OUTBOX_BATCH_SIZE'
   | 'OUTBOX_CLAIM_LEASE_MS'
+  | 'OUTBOX_RETRY_BASE_DELAY_MS'
+  | 'OUTBOX_RETRY_MAX_DELAY_MS'
   | 'OUTBOX_UNPUBLISHED_WARNING_MS'
 > = {
   OUTBOX_POLL_INTERVAL_MS: 1_000,
   OUTBOX_BATCH_SIZE: 100,
   OUTBOX_CLAIM_LEASE_MS: 30_000,
+  OUTBOX_RETRY_BASE_DELAY_MS: 1_000,
+  OUTBOX_RETRY_MAX_DELAY_MS: 60_000,
   OUTBOX_UNPUBLISHED_WARNING_MS: 60_000,
 };
 
@@ -91,6 +95,7 @@ describe('OutboxRelay', () => {
       'event-2',
       expect.any(String),
       'RabbitMQ outbox publication failed (Error)',
+      1_000,
     );
     expect(
       JSON.stringify(vi.mocked(store.markFailed).mock.calls),
@@ -129,6 +134,30 @@ describe('OutboxRelay', () => {
     expect(store.markFailed).toHaveBeenCalledOnce();
     expect(store.markPublished).toHaveBeenCalledOnce();
   });
+
+  it.each([
+    [1, 1_000],
+    [2, 2_000],
+    [3, 4_000],
+    [7, 60_000],
+    [Number.MAX_SAFE_INTEGER, 60_000],
+  ])(
+    'schedules attempt %s with a capped exponential delay of %sms',
+    async (attemptCount, expectedDelay) => {
+      const failed = event(`event-attempt-${attemptCount}`, { attemptCount });
+      const { relay, store, publisher } = harness([failed]);
+      vi.mocked(publisher.publish).mockRejectedValue(new Error('unavailable'));
+
+      await relay.runOnce();
+
+      expect(store.markFailed).toHaveBeenCalledWith(
+        failed.eventId,
+        expect.any(String),
+        'RabbitMQ outbox publication failed (Error)',
+        expectedDelay,
+      );
+    },
+  );
 
   it('warns for stale rows without logging their envelopes', async () => {
     const warning = vi

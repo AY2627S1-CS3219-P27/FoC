@@ -23,6 +23,21 @@ function safeDiagnostic(value: string | null): string {
     .slice(0, MAX_FAILURE_LENGTH);
 }
 
+function retryDelayMilliseconds(
+  attemptCount: number,
+  baseDelayMilliseconds: number,
+  maximumDelayMilliseconds: number,
+): number {
+  const maximumExponent = Math.ceil(
+    Math.log2(maximumDelayMilliseconds / baseDelayMilliseconds),
+  );
+  const exponent = Math.min(Math.max(0, attemptCount - 1), maximumExponent);
+  return Math.min(
+    maximumDelayMilliseconds,
+    baseDelayMilliseconds * 2 ** exponent,
+  );
+}
+
 /**
  * Polls without overlap, then handles every claimed row independently. Broker
  * confirmation can therefore complete rows concurrently without one failure
@@ -35,6 +50,8 @@ export class OutboxRelay {
   private readonly pollIntervalMilliseconds: number;
   private readonly batchSize: number;
   private readonly claimLeaseMilliseconds: number;
+  private readonly retryBaseDelayMilliseconds: number;
+  private readonly retryMaximumDelayMilliseconds: number;
   private readonly warningMilliseconds: number;
   private started = false;
   private stopping = false;
@@ -51,6 +68,12 @@ export class OutboxRelay {
     );
     this.batchSize = config.getOrThrow('OUTBOX_BATCH_SIZE');
     this.claimLeaseMilliseconds = config.getOrThrow('OUTBOX_CLAIM_LEASE_MS');
+    this.retryBaseDelayMilliseconds = config.getOrThrow(
+      'OUTBOX_RETRY_BASE_DELAY_MS',
+    );
+    this.retryMaximumDelayMilliseconds = config.getOrThrow(
+      'OUTBOX_RETRY_MAX_DELAY_MS',
+    );
     this.warningMilliseconds = config.getOrThrow(
       'OUTBOX_UNPUBLISHED_WARNING_MS',
     );
@@ -126,8 +149,18 @@ export class OutboxRelay {
       }
     } catch (error) {
       const failure = safeFailure(error);
+      const retryDelay = retryDelayMilliseconds(
+        event.attemptCount,
+        this.retryBaseDelayMilliseconds,
+        this.retryMaximumDelayMilliseconds,
+      );
       try {
-        await this.store.markFailed(event.eventId, this.workerId, failure);
+        await this.store.markFailed(
+          event.eventId,
+          this.workerId,
+          failure,
+          retryDelay,
+        );
       } catch (persistenceError) {
         this.logger.error(
           `Unable to record outbox failure for ${event.eventId}: ${safeFailure(persistenceError)}`,

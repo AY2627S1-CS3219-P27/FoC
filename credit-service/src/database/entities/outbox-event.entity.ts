@@ -10,9 +10,11 @@ import {
 /** Event persisted atomically with domain state and published asynchronously. */
 @Entity({ name: 'outbox_events' })
 @Check('CHK_outbox_events_attempt_count', 'attempt_count >= 0')
-@Index('IDX_outbox_events_unpublished_created_at', ['createdAt'], {
-  where: 'published_at IS NULL',
-})
+@Index(
+  'IDX_outbox_events_unpublished_next_attempt_at_created_at',
+  ['nextAttemptAt', 'createdAt', 'eventId'],
+  { where: 'published_at IS NULL' },
+)
 export class OutboxEvent {
   @PrimaryColumn({ name: 'event_id', type: 'uuid' })
   eventId: string;
@@ -28,6 +30,13 @@ export class OutboxEvent {
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
+
+  @Column({
+    name: 'next_attempt_at',
+    type: 'timestamptz',
+    default: () => 'now()',
+  })
+  nextAttemptAt: Date;
 
   @Column({ name: 'published_at', type: 'timestamptz', nullable: true })
   publishedAt: Date | null;

@@ -54,6 +54,8 @@ describe('environmentSchema', () => {
     expect(environment.OUTBOX_BATCH_SIZE).toBe(100);
     expect(environment.OUTBOX_CONFIRM_TIMEOUT_MS).toBe(20_000);
     expect(environment.OUTBOX_CLAIM_LEASE_MS).toBe(30_000);
+    expect(environment.OUTBOX_RETRY_BASE_DELAY_MS).toBe(1_000);
+    expect(environment.OUTBOX_RETRY_MAX_DELAY_MS).toBe(60_000);
     expect(environment.OUTBOX_UNPUBLISHED_WARNING_MS).toBe(60_000);
   });
 
@@ -130,6 +132,8 @@ describe('environmentSchema', () => {
     ['OUTBOX_BATCH_SIZE', 0],
     ['OUTBOX_CONFIRM_TIMEOUT_MS', 0],
     ['OUTBOX_CLAIM_LEASE_MS', 0],
+    ['OUTBOX_RETRY_BASE_DELAY_MS', 0],
+    ['OUTBOX_RETRY_MAX_DELAY_MS', 0],
     ['OUTBOX_UNPUBLISHED_WARNING_MS', 0],
   ])('rejects non-positive %s', (name, value) => {
     expect(() => validate({ [name]: value })).toThrow();
@@ -159,4 +163,23 @@ describe('environmentSchema', () => {
       ).toThrow();
     },
   );
+
+  it('accepts equal outbox retry base and maximum delays', () => {
+    const environment = validate({
+      OUTBOX_RETRY_BASE_DELAY_MS: 5_000,
+      OUTBOX_RETRY_MAX_DELAY_MS: 5_000,
+    });
+
+    expect(environment.OUTBOX_RETRY_BASE_DELAY_MS).toBe(5_000);
+    expect(environment.OUTBOX_RETRY_MAX_DELAY_MS).toBe(5_000);
+  });
+
+  it('rejects an outbox retry maximum below its base delay', () => {
+    expect(() =>
+      validate({
+        OUTBOX_RETRY_BASE_DELAY_MS: 5_000,
+        OUTBOX_RETRY_MAX_DELAY_MS: 4_999,
+      }),
+    ).toThrow();
+  });
 });

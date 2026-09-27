@@ -16,22 +16,29 @@ describe('Transactional outbox persistence', () => {
   async function insertOutbox(
     eventId: string,
     createdAt: Date,
-    claim?: { workerId: string; until: Date },
+    options: {
+      claim?: { workerId: string; until: Date };
+      nextAttemptAt?: Date;
+    } = {},
   ): Promise<void> {
     await dataSource.query(
       `
         INSERT INTO outbox_events (
           event_id, event_type, routing_key, envelope, created_at,
-          attempt_count, claimed_by, claimed_until
-        ) VALUES ($1, 'CreditAccountInitialised', $2, $3, $4, 0, $5, $6)
+          attempt_count, claimed_by, claimed_until, next_attempt_at
+        ) VALUES (
+          $1, 'CreditAccountInitialised', $2, $3, $4, 0, $5, $6,
+          COALESCE($7, clock_timestamp())
+        )
       `,
       [
         eventId,
         ROUTING_KEY,
         { eventId, eventType: 'CreditAccountInitialised' },
         createdAt,
-        claim?.workerId ?? null,
-        claim?.until ?? null,
+        options.claim?.workerId ?? null,
+        options.claim?.until ?? null,
+        options.nextAttemptAt ?? null,
       ],
     );
   }
@@ -69,9 +76,16 @@ describe('Transactional outbox persistence', () => {
     const oldest = randomUUID();
     const middle = randomUUID();
     const newest = randomUUID();
-    await insertOutbox(newest, new Date('2026-01-03T00:00:00Z'));
-    await insertOutbox(oldest, new Date('2026-01-01T00:00:00Z'));
-    await insertOutbox(middle, new Date('2026-01-02T00:00:00Z'));
+    const eligibleAt = new Date('2026-01-01T00:00:00Z');
+    await insertOutbox(newest, new Date('2026-01-03T00:00:00Z'), {
+      nextAttemptAt: eligibleAt,
+    });
+    await insertOutbox(oldest, new Date('2026-01-01T00:00:00Z'), {
+      nextAttemptAt: eligibleAt,
+    });
+    await insertOutbox(middle, new Date('2026-01-02T00:00:00Z'), {
+      nextAttemptAt: eligibleAt,
+    });
 
     const claimed = await store.claim('worker-1', 2, 30_000);
 
@@ -89,12 +103,16 @@ describe('Transactional outbox persistence', () => {
     const active = randomUUID();
     const expired = randomUUID();
     await insertOutbox(active, new Date(), {
-      workerId: 'active-worker',
-      until: new Date(Date.now() + 60_000),
+      claim: {
+        workerId: 'active-worker',
+        until: new Date(Date.now() + 60_000),
+      },
     });
     await insertOutbox(expired, new Date(), {
-      workerId: 'dead-worker',
-      until: new Date(Date.now() - 1_000),
+      claim: {
+        workerId: 'dead-worker',
+        until: new Date(Date.now() - 1_000),
+      },
     });
 
     const claimed = await store.claim('recovery-worker', 10, 30_000);
@@ -126,7 +144,13 @@ describe('Transactional outbox persistence', () => {
     const eventId = randomUUID();
     await insertOutbox(eventId, new Date());
     await store.claim('worker-1', 1, 30_000);
-    await store.markFailed(eventId, 'worker-1', 'first failure');
+    await store.markFailed(eventId, 'worker-1', 'first failure', 60_000);
+    await dataSource.query(
+      `UPDATE outbox_events
+       SET next_attempt_at = clock_timestamp() - INTERVAL '1 second'
+       WHERE event_id = $1`,
+      [eventId],
+    );
     await store.claim('worker-2', 1, 30_000);
 
     await expect(store.markPublished(eventId, 'worker-1')).resolves.toBe(false);
@@ -154,6 +178,47 @@ describe('Transactional outbox persistence', () => {
     ]);
   });
 
+  it('backs off failed rows so newer eligible work can proceed', async () => {
+    const failed = randomUUID();
+    const healthy = randomUUID();
+    const eligibleAt = new Date('2026-01-01T00:00:00Z');
+    await insertOutbox(failed, new Date('2026-01-01T00:00:00Z'), {
+      nextAttemptAt: eligibleAt,
+    });
+    await insertOutbox(healthy, new Date('2026-01-02T00:00:00Z'), {
+      nextAttemptAt: eligibleAt,
+    });
+
+    const firstClaim = await store.claim('worker-1', 1, 30_000);
+    expect(firstClaim.map(({ eventId }) => eventId)).toEqual([failed]);
+    await store.markFailed(failed, 'worker-1', 'poison row', 60_000);
+
+    const secondClaim = await store.claim('worker-2', 1, 30_000);
+    expect(secondClaim.map(({ eventId }) => eventId)).toEqual([healthy]);
+    expect(
+      await dataSource.query(
+        `SELECT claimed_by,
+                next_attempt_at > clock_timestamp() AS retry_scheduled
+         FROM outbox_events WHERE event_id = $1`,
+        [failed],
+      ),
+    ).toEqual([{ claimed_by: null, retry_scheduled: true }]);
+
+    await dataSource.query(
+      `UPDATE outbox_events
+       SET next_attempt_at = clock_timestamp() - INTERVAL '1 second'
+       WHERE event_id = $1`,
+      [failed],
+    );
+    const retryClaim = await store.claim('worker-3', 1, 30_000);
+    expect(
+      retryClaim.map(({ eventId, attemptCount }) => ({
+        eventId,
+        attemptCount,
+      })),
+    ).toEqual([{ eventId: failed, attemptCount: 2 }]);
+  });
+
   it('discovers a pending row committed before a new relay starts', async () => {
     const eventId = randomUUID();
     await insertOutbox(eventId, new Date());
@@ -161,6 +226,8 @@ describe('Transactional outbox persistence', () => {
       OUTBOX_POLL_INTERVAL_MS: 1_000,
       OUTBOX_BATCH_SIZE: 100,
       OUTBOX_CLAIM_LEASE_MS: 30_000,
+      OUTBOX_RETRY_BASE_DELAY_MS: 1_000,
+      OUTBOX_RETRY_MAX_DELAY_MS: 60_000,
       OUTBOX_UNPUBLISHED_WARNING_MS: 60_000,
     };
     const config = {

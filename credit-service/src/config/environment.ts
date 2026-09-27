@@ -36,6 +36,8 @@ export interface EnvironmentVariables {
   OUTBOX_BATCH_SIZE: number;
   OUTBOX_CONFIRM_TIMEOUT_MS: number;
   OUTBOX_CLAIM_LEASE_MS: number;
+  OUTBOX_RETRY_BASE_DELAY_MS: number;
+  OUTBOX_RETRY_MAX_DELAY_MS: number;
   OUTBOX_UNPUBLISHED_WARNING_MS: number;
 }
 
@@ -107,14 +109,31 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
   OUTBOX_BATCH_SIZE: Joi.number().integer().min(1).default(100),
   OUTBOX_CONFIRM_TIMEOUT_MS: Joi.number().integer().min(1).default(20_000),
   OUTBOX_CLAIM_LEASE_MS: Joi.number().integer().min(1).default(30_000),
+  OUTBOX_RETRY_BASE_DELAY_MS: Joi.number()
+    .integer()
+    .min(1)
+    .max(Number.MAX_SAFE_INTEGER)
+    .default(1_000),
+  OUTBOX_RETRY_MAX_DELAY_MS: Joi.number()
+    .integer()
+    .min(1)
+    .max(Number.MAX_SAFE_INTEGER)
+    .default(60_000),
   OUTBOX_UNPUBLISHED_WARNING_MS: Joi.number().integer().min(1).default(60_000),
 })
   .custom((environment: EnvironmentVariables, helpers) => {
     const completionMargin =
       environment.OUTBOX_CLAIM_LEASE_MS - environment.OUTBOX_CONFIRM_TIMEOUT_MS;
-    return completionMargin >= MIN_OUTBOX_COMPLETION_MARGIN_MS
-      ? environment
-      : helpers.error('any.invalid');
-  }, 'outbox confirmation and claim lease safety margin')
+    if (completionMargin < MIN_OUTBOX_COMPLETION_MARGIN_MS) {
+      return helpers.error('any.invalid');
+    }
+    if (
+      environment.OUTBOX_RETRY_MAX_DELAY_MS <
+      environment.OUTBOX_RETRY_BASE_DELAY_MS
+    ) {
+      return helpers.error('any.invalid');
+    }
+    return environment;
+  }, 'outbox timing relationships')
   .unknown(true)
   .prefs({ abortEarly: false, convert: true });

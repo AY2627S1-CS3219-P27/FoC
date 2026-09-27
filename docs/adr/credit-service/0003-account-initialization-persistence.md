@@ -103,10 +103,13 @@ another allocation or outbox event.
 ### Outbox claiming
 
 Relay workers atomically claim unpublished rows with `FOR UPDATE SKIP LOCKED`,
-set `claimed_by` and an expiring `claimed_until` lease, and commit before
-contacting RabbitMQ. Confirmed publication sets `published_at` and clears the
-claim. A failed attempt records a sanitized error and releases the claim. An
-expired claim can be recovered by another worker.
+select only rows whose `next_attempt_at` is due, set `claimed_by` and an
+expiring `claimed_until` lease, and commit before contacting RabbitMQ.
+Confirmed publication sets `published_at` and clears the claim. A failed
+attempt records a sanitized error, clears the claim, and advances
+`next_attempt_at` using capped exponential backoff. An expired claim can be
+recovered by another worker, while a backed-off row does not prevent newer
+eligible work from being claimed.
 
 The event ID and stored envelope never change between attempts. A worker that
 stops after RabbitMQ confirms publication but before it records `published_at`

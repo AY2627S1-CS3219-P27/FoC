@@ -370,6 +370,7 @@ erDiagram
         timestamptz published_at "nullable"
         integer attempt_count
         text last_error "nullable"
+        timestamptz next_attempt_at
         text claimed_by "nullable"
         timestamptz claimed_until "nullable"
     }
@@ -411,7 +412,9 @@ part of the current schema.
 - Relay workers claim disjoint outbox batches with expiring PostgreSQL leases.
   Publisher-confirm timeouts end at least five seconds before claim expiry so a
   confirmed worker retains time to record publication ownership safely. Failed
-  publications are released and retried indefinitely.
+  publications are released and retried indefinitely with exponential backoff
+  capped at the configured maximum; rows waiting for retry do not block newer
+  eligible events.
 - Outbox rows are marked published only after RabbitMQ confirmation. Stale rows
   are logged by event ID and operational diagnostics without logging their
   envelope.

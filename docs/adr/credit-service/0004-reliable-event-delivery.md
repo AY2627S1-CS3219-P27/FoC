@@ -95,10 +95,12 @@ seconds, reserving time to record successful publication before another relay
 worker may reclaim the row.
 
 Rows that fail publication record a bounded, sanitized error, release their
-claim, and are retried indefinitely by later polling cycles. Multiple relay
-instances coordinate through expiring PostgreSQL claims and
-`FOR UPDATE SKIP LOCKED`. Events older than the configured warning threshold
-are logged with operational metadata but without their envelope.
+claim, and set `next_attempt_at` with capped exponential backoff. They remain
+eligible for indefinite retry without monopolizing age-ordered batches while
+they cool down. Multiple relay instances coordinate through expiring
+PostgreSQL claims and `FOR UPDATE SKIP LOCKED`. Events older than the configured
+warning threshold are logged with operational metadata but without their
+envelope.
 
 ### Shutdown
 

@@ -74,6 +74,7 @@ export class InitialPersistence1735689600000 implements MigrationInterface {
         "routing_key" text NOT NULL,
         "envelope" jsonb NOT NULL,
         "created_at" timestamptz NOT NULL DEFAULT now(),
+        "next_attempt_at" timestamptz NOT NULL DEFAULT now(),
         "published_at" timestamptz,
         "attempt_count" integer NOT NULL DEFAULT 0,
         "last_error" text,
@@ -85,8 +86,8 @@ export class InitialPersistence1735689600000 implements MigrationInterface {
     `);
 
     await queryRunner.query(`
-      CREATE INDEX "IDX_outbox_events_unpublished_created_at"
-      ON "outbox_events" ("created_at")
+      CREATE INDEX "IDX_outbox_events_unpublished_next_attempt_at_created_at"
+      ON "outbox_events" ("next_attempt_at", "created_at", "event_id")
       WHERE "published_at" IS NULL
     `);
   }

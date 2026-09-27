@@ -11,8 +11,11 @@ describe('OutboxStore', () => {
 
     const [sql, parameters] = query.mock.calls[0] as [string, unknown[]];
     expect(sql).toContain('FOR UPDATE SKIP LOCKED');
-    expect(sql).toContain('ORDER BY created_at ASC, event_id ASC');
     expect(sql).toContain('published_at IS NULL');
+    expect(sql).toContain('next_attempt_at <= clock_timestamp()');
+    expect(sql).toContain(
+      'ORDER BY next_attempt_at ASC, created_at ASC, event_id ASC',
+    );
     expect(sql).toContain('claimed_until <= clock_timestamp()');
     expect(sql).toContain('attempt_count = event.attempt_count + 1');
     expect(parameters).toEqual([25, 'worker-1', 30_000]);
@@ -39,12 +42,18 @@ describe('OutboxStore', () => {
     const store = new OutboxStore({ query } as unknown as DataSource);
 
     await expect(
-      store.markFailed('event-1', 'old-worker', 'stable failure'),
+      store.markFailed('event-1', 'old-worker', 'stable failure', 4_000),
     ).resolves.toBe(false);
 
     const [sql, parameters] = query.mock.calls[0] as [string, unknown[]];
     expect(sql).toContain('last_error = $3');
+    expect(sql).toContain('next_attempt_at = clock_timestamp()');
     expect(sql).toContain('claimed_by = $2');
-    expect(parameters).toEqual(['event-1', 'old-worker', 'stable failure']);
+    expect(parameters).toEqual([
+      'event-1',
+      'old-worker',
+      'stable failure',
+      4_000,
+    ]);
   });
 });
