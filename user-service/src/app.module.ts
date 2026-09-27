@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { createObserveModule } from '@nestjs/observe';
+import { FocAuthModule } from '@foc/auth';
 import { OtpModule } from './otp/otp.module.js';
 import { environmentSchema } from './config/environment.schema.js';
 import { AuthModule } from './auth/auth.module.js';
@@ -27,6 +28,15 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
       serviceId: 'user-service',
     }),
     SecretModule,
+    // Verifies user-service access tokens with the shared RS256 public key
+    // and exposes the standard JwtAuthGuard/RolesGuard/AdminGuard app-wide.
+    FocAuthModule.registerAsync({
+      imports: [SecretModule],
+      inject: [SecretService],
+      useFactory: (secretService: SecretService) => ({
+        publicKey: secretService.getJwtPublicKey(),
+      }),
+    }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService, SecretService],
       useFactory: (

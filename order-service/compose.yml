@@ -11,11 +11,10 @@ services:
         condition: service_healthy
     environment:
       - NODE_ENV=${NODE_ENV-development}
-      - DB_HOST=${DB_HOST}
-      - DB_PORT=${DB_PORT}
-      - DB_USERNAME=${DB_USERNAME}
-      - DB_DATABASE=${DB_DATABASE}
-      - DB_SYNCHRONIZE=${DB_SYNCHRONIZE}
+      - DB_HOST=${ORDER_DB_HOST}
+      - DB_PORT=${ORDER_DB_PORT}
+      - DB_USERNAME=${ORDER_DB_USERNAME}
+      - DB_DATABASE=${ORDER_DB_DATABASE}
       - DB_PASSWORD_FILE=/run/secrets/order_db_password
       - LOG_LEVEL=${LOG_LEVEL}
     secrets:
@@ -38,11 +37,11 @@ services:
   order-db:
     image: postgres:18-alpine
     ports:
-      - '${DB_HOST_PORT:-5436}:5432'
+      - '${ORDER_DB_HOST_PORT:-5436}:5432'
     environment:
-      - POSTGRES_USER=${DB_USERNAME}
+      - POSTGRES_USER=${ORDER_DB_USERNAME}
       - POSTGRES_PASSWORD_FILE=/run/secrets/order_db_password
-      - POSTGRES_DB=${DB_DATABASE}
+      - POSTGRES_DB=${ORDER_DB_DATABASE}
     volumes:
       - order-db-data:/var/lib/postgresql
     secrets:
