@@ -13,6 +13,8 @@ import {
   EmailAlreadyRegisteredError,
   UsersService,
 } from '../users/users.service.js';
+import { JwtService } from '@nestjs/jwt';
+import type { AccessTokenPayload } from '@foc/contracts';
 
 export const REGISTER_USER_SCRIPT = getRegisterUserScript();
 
@@ -28,6 +30,7 @@ export class AuthService {
     @Inject(REDIS) private redis: RedisClientType,
     private secretService: SecretService,
     private usersService: UsersService,
+    private jwtService: JwtService,
   ) {}
 
   /**
@@ -79,5 +82,31 @@ export class AuthService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Checks whether the provided (email, password) pair matches, and if so,
+   * returns an object with an accessToken JWT.
+   */
+  async checkCredentials(email: string, password: string) {
+    // Check if password matches
+    const user = await this.usersService.checkUserAndReturnInfo(
+      email,
+      password,
+    );
+
+    // create JWT. The access-token contract's iss/iat/exp claims are added
+    // by the signer (see AuthModule's signOptions); the identity claims below
+    // feed the rest of the verified payload.
+    const payload: Omit<AccessTokenPayload, 'iss' | 'iat' | 'exp'> = {
+      sub: user.id,
+      displayName: user.displayName,
+      email: user.email,
+      isAdmin: user.isAdmin,
+      roles: user.roles,
+    };
+    return {
+      accessToken: await this.jwtService.signAsync(payload),
+    };
   }
 }

@@ -7,7 +7,9 @@ import {
 } from '@nestjs/common';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
-import { RegisterDto } from './DTO/Register.dto.js';
+import { ConfigService } from '@nestjs/config';
+import { RegisterDto } from './DTO/register.dto.js';
+import { LoginDto } from './DTO/login.dto.js';
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -18,7 +20,12 @@ describe('AuthController', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AuthController],
-      providers: [{ provide: AuthService, useValue: authService }],
+      providers: [
+        { provide: AuthService, useValue: authService },
+        // AuthController reads NODE_ENV from ConfigService to set the cookie
+        // `secure` flag; the login tests are covered separately.
+        { provide: ConfigService, useValue: { get: vi.fn() } },
+      ],
     }).compile();
 
     controller = module.get<AuthController>(AuthController);
@@ -103,6 +110,88 @@ describe('AuthController', () => {
   });
 });
 
+describe('AuthController login', () => {
+  let controller: AuthController;
+  let authService: { checkCredentials: ReturnType<typeof vi.fn> };
+  let configGet: ReturnType<typeof vi.fn>;
+  let res: { cookie: ReturnType<typeof vi.fn> };
+
+  beforeEach(async () => {
+    authService = { checkCredentials: vi.fn() };
+    configGet = vi.fn(() => 'development');
+    res = { cookie: vi.fn() };
+
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [AuthController],
+      providers: [
+        { provide: AuthService, useValue: authService },
+        { provide: ConfigService, useValue: { get: configGet } },
+      ],
+    }).compile();
+
+    controller = module.get<AuthController>(AuthController);
+  });
+
+  const loginDto = { email: 'eve@example.com', password: 'StrongPassw0rd!' };
+
+  it('passes the credentials from the body to the service', async () => {
+    authService.checkCredentials.mockResolvedValue({ accessToken: 'token' });
+
+    await controller.login(loginDto as never, res as never);
+
+    expect(authService.checkCredentials).toHaveBeenCalledWith(
+      'eve@example.com',
+      'StrongPassw0rd!',
+    );
+  });
+
+  it('sets an httpOnly, same-site cookie with a millisecond maxAge', async () => {
+    authService.checkCredentials.mockResolvedValue({ accessToken: 'jwt-token' });
+
+    await controller.login(loginDto as never, res as never);
+
+    // Literal values pin the wire contract: the JWT lives 15 minutes and the
+    // cookie must expire in *milliseconds* (JWT_EXPIRATION_IN_SECONDS * 1000).
+    expect(res.cookie).toHaveBeenCalledWith('access_token', 'jwt-token', {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 900_000,
+      secure: false,
+    });
+  });
+
+  it('marks the cookie secure in production', async () => {
+    authService.checkCredentials.mockResolvedValue({ accessToken: 'jwt-token' });
+    configGet.mockReturnValue('production');
+
+    await controller.login(loginDto as never, res as never);
+
+    expect(res.cookie).toHaveBeenCalledWith(
+      'access_token',
+      'jwt-token',
+      expect.objectContaining({ secure: true }),
+    );
+  });
+
+  it('reports a successful login', async () => {
+    authService.checkCredentials.mockResolvedValue({ accessToken: 'jwt-token' });
+
+    await expect(
+      controller.login(loginDto as never, res as never),
+    ).resolves.toEqual({ message: 'Logged in.' });
+  });
+
+  it('sets no cookie when the credentials are rejected', async () => {
+    authService.checkCredentials.mockRejectedValue(new UnauthorizedException());
+
+    await expect(
+      controller.login(loginDto as never, res as never),
+    ).rejects.toThrow(UnauthorizedException);
+    expect(res.cookie).not.toHaveBeenCalled();
+  });
+});
+
 describe('request body validation', () => {
   const pipe = new ValidationPipe({ whitelist: true, transform: true });
   const bodyMetadata = (metatype: Function) =>
@@ -184,6 +273,82 @@ describe('request body validation', () => {
       pipe.transform(
         { displayName: 'Eve', password: 'a'.repeat(256) },
         bodyMetadata(RegisterDto),
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+});
+
+describe('login body validation', () => {
+  const pipe = new ValidationPipe({ whitelist: true, transform: true });
+  const bodyMetadata = (metatype: Function) =>
+    ({ type: 'body', metatype }) as const;
+
+  it('accepts a valid login body', async () => {
+    const value = await pipe.transform(
+      { email: 'eve@example.com', password: 'StrongPassw0rd!' },
+      bodyMetadata(LoginDto),
+    );
+    expect(value).toBeInstanceOf(LoginDto);
+    expect(value).toMatchObject({
+      email: 'eve@example.com',
+      password: 'StrongPassw0rd!',
+    });
+  });
+
+  it('rejects a non-email address before the handler runs', async () => {
+    await expect(
+      pipe.transform(
+        { email: 'not-an-email', password: 'StrongPassw0rd!' },
+        bodyMetadata(LoginDto),
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a missing email before the handler runs', async () => {
+    await expect(
+      pipe.transform({ password: 'StrongPassw0rd!' }, bodyMetadata(LoginDto)),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a non-string password before the handler runs', async () => {
+    await expect(
+      pipe.transform(
+        { email: 'eve@example.com', password: 12345678 },
+        bodyMetadata(LoginDto),
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('accepts a 12-character password', async () => {
+    const value = await pipe.transform(
+      { email: 'eve@example.com', password: 'a'.repeat(12) },
+      bodyMetadata(LoginDto),
+    );
+    expect(value).toBeInstanceOf(LoginDto);
+  });
+
+  it('accepts a 255-character password', async () => {
+    const value = await pipe.transform(
+      { email: 'eve@example.com', password: 'a'.repeat(255) },
+      bodyMetadata(LoginDto),
+    );
+    expect(value).toBeInstanceOf(LoginDto);
+  });
+
+  it('rejects a password shorter than 12 characters before the handler runs', async () => {
+    await expect(
+      pipe.transform(
+        { email: 'eve@example.com', password: 'a'.repeat(11) },
+        bodyMetadata(LoginDto),
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a password longer than 255 characters before the handler runs', async () => {
+    await expect(
+      pipe.transform(
+        { email: 'eve@example.com', password: 'a'.repeat(256) },
+        bodyMetadata(LoginDto),
       ),
     ).rejects.toThrow(BadRequestException);
   });

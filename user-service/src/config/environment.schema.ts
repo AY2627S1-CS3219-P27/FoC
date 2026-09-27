@@ -33,6 +33,8 @@ export const environmentSchema = Joi.object({
   RABBITMQ_PORT: Joi.number().port().required(),
   RABBITMQ_VHOST: Joi.string().min(1).required(),
   RABBITMQ_PASSWORD_FILE: Joi.string().min(1).required(),
+  JWT_PRIVATE_KEY_FILE: Joi.string().min(1).required(),
+  JWT_PUBLIC_KEY_FILE: Joi.string().min(1).required(),
 })
   .unknown(true)
   .prefs({ abortEarly: false, convert: true });
