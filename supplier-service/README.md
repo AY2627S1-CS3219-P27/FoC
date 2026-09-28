@@ -191,7 +191,7 @@ Rules the database **can't** express are checked in the service, inside the same
 
 ## 4. D2 point 2: Query patterns and API
 
-Built so far: `GET /health`, `GET /categories` and `POST /categories` ✅ (step 2). The rest are 🔜 (steps 5-6).
+Built so far: `GET /health`, `GET /categories`, `POST /categories` (step 2), and `GET /suppliers`, `GET /suppliers/{id}`, `GET /buildings` (step 5) ✅. The admin writes are 🔜 (step 6).
 
 **How to call it:**
 
@@ -212,6 +212,8 @@ Built so far: `GET /health`, `GET /categories` and `POST /categories` ✅ (step 
 | Combined | `GET /suppliers?categoryId={food}&buildingId={com3}&status=Active`: filters are ANDed | F5.5 |
 | Sort | Default: display name A→Z, then id. Or `?sort=name\|building\|createdAt\|updatedAt&order=asc\|desc`, always ending with id as the tie-breaker | F5.3, F5.3.1 |
 | Pages | `?offset=0&limit=25` (max 1000) | F5.2, N3.1 |
+
+Repeatable filters are passed by repeating the parameter, e.g. `?categoryId=a&categoryId=b`. Sorting uses the database's English collation (case- and punctuation-aware dictionary order).
 
 **Behaviour:**
 
@@ -235,7 +237,7 @@ Built so far: `GET /health`, `GET /categories` and `POST /categories` ✅ (step 
       "floor": "1",
       "status": "Active",
       "isOpenNow": null,
-      "thumbnailUrl": "https://…/placeholder.png"
+      "thumbnailUrl": null
     }
   ],
   "total": 21,
@@ -247,16 +249,16 @@ Built so far: `GET /health`, `GET /categories` and `POST /categories` ✅ (step 
 
 - `brand` stays `null` until brands (step 14).
 - `isOpenNow` stays `null` ("not applicable", F2.5.1) until opening hours (step 13).
-- With no photo, a placeholder image URL is returned (F1.2.9).
+- With no photo, `thumbnailUrl` is the placeholder link from the `PLACEHOLDER_IMAGE_URL` setting (F1.2.9). The setting is blank until images are hosted (step 19), so for now it is `null`.
 
 **Single supplier (`GET /suppliers/{id}`)** returns every list field plus:
 
 - `building.canonicalName`, `locationDescription`, `coordinates {latitude, longitude}`
 - `openingHours`, `nextChangeAt` (null for now)
-- image URLs
+- `images: {original, thumbnail}`: the photo for both until thumbnails exist (F17.3), the placeholder when there's no photo, or `null` when neither is set
 - `version`, `createdAt`, `updatedAt`
 
-It also returns the version in an `ETag` header. This response is also what other services rely on: it has enough detail for them to keep their own copy (F15.1). The endpoint is read-only, so it is safe to retry (F15.4).
+It also returns the version in an `ETag` header (e.g. `"3"`), which an admin edit must send back as `If-Match` (step 6). A malformed id answers 400 (`VALIDATION_FAILED`, field `id`); an unknown one 404 `SUPPLIER_NOT_FOUND`. This response is also what other services rely on: it has enough detail for them to keep their own copy (F15.1). The endpoint is read-only, so it is safe to retry (F15.4).
 
 ### Endpoints
 
@@ -305,7 +307,7 @@ Every error, from any endpoint, has one shape (✅ built in `src/common/errors/`
 | 400 | `VALIDATION_FAILED` ✅ | Bad or unknown fields or query parameters |
 | 401 | `UNAUTHENTICATED` ✅ | No login cookie, or the token is invalid or expired |
 | 403 | `FORBIDDEN` ✅ | Logged in, but not an admin, on an admin endpoint |
-| 404 | `NOT_FOUND` ✅ / `SUPPLIER_NOT_FOUND` 🔜 | Unknown id (F5.9.1) |
+| 404 | `NOT_FOUND` / `SUPPLIER_NOT_FOUND` ✅ | Unknown id (F5.9.1) |
 | 409 | `DUPLICATE_SUPPLIER`, `DUPLICATE_NAME` ✅; `VERSION_CONFLICT`, `INVALID_STATUS_TRANSITION` 🔜 | Same name+building+floor exists; the name is taken; someone else edited first (includes `currentVersion`); already in that status |
 | 413 | `PAYLOAD_TOO_LARGE` ✅ | Request body too big |
 | 428 | `PRECONDITION_REQUIRED` ✅ | An edit sent without `If-Match` |
@@ -451,7 +453,7 @@ Branches are few and large: one per area, each merged into `supplier-service` by
 | 2 | Auth: check the user-service login token; first endpoints `GET`/`POST /categories` | F13.1-F13.5, F11.2 (create), F11.4 | `auth` | ✅ built |
 | 3 | Data model, categories, buildings (no endpoints yet) | F1.1, F1.2.1-F1.2.7, F1.2.9, F1.3-F1.8, F4.1, F4.2, F4.5, F11.1, F11.3 | `database` | ✅ built (services only; endpoints in `auth`/`crud`) |
 | 4 | Seed import | F12.1, F12.2.1, F12.2.2, F12.2.4-F12.2.6, F12.3, F12.4 | `database` | ✅ built |
-| 5 | Read: list, filter, sort, get one; category/building lists | F5.1-F5.9.1 (not F5.4.6/F5.4.7), F15.1-F15.5, F4.4, F11.4 | `crud` | - |
+| 5 | Read: list, filter, sort, get one; category/building lists | F5.1-F5.9.1 (not F5.4.6/F5.4.7), F15.1-F15.5, F4.4, F11.4 | `crud` | ✅ built |
 | 6 | Create, update, status (admin); category/building admin | F7.5, F8.6, F9.1, F9.2, F9.5, F9.6, F14.1, F14.3, F4.3, F11.2 | `crud` | - |
 | 7 | D2 deliverables: Bruno collection, demo accounts, diagrams, DB-choice ADR | none | `crud` | - |
 
