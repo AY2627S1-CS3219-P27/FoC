@@ -21,6 +21,7 @@ services:
       DB_DATABASE: ${DB_DATABASE:-credit_service}
       DB_PASSWORD_FILE: /run/secrets/credit_db_password
       INITIAL_CREDIT_BALANCE: ${INITIAL_CREDIT_BALANCE:-100}
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key_credit_service
       RABBITMQ_USER: credit-service
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: 5672
@@ -45,6 +46,7 @@ services:
     secrets:
       - credit_db_password
       - rabbitmq_password_credit_service
+      - jwt_public_key_credit_service
     healthcheck:
       test:
         [
@@ -84,6 +86,19 @@ services:
           path: ../packages/contracts/package.json
         - action: rebuild
           path: ../packages/contracts/package-lock.json
+        - action: sync+restart
+          path: ../packages/auth/src
+          target: /usr/src/packages/auth/src
+        - action: sync+restart
+          path: ../packages/auth/tsconfig.json
+          target: /usr/src/packages/auth/tsconfig.json
+        - action: sync+restart
+          path: ../packages/auth/tsconfig.build.json
+          target: /usr/src/packages/auth/tsconfig.build.json
+        - action: rebuild
+          path: ../packages/auth/package.json
+        - action: rebuild
+          path: ../packages/auth/package-lock.json
 
   credit-db:
     image: postgres:18-alpine
@@ -196,3 +211,5 @@ secrets:
     file: ./secrets/credit_db_password.secret
   rabbitmq_password_credit_service:
     file: ./secrets/rabbitmq_password.secret
+  jwt_public_key_credit_service:
+    file: ../user-service/jwt_public_key.secret

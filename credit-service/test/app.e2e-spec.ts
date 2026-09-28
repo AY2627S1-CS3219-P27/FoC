@@ -1,10 +1,18 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
+import { generateKeyPairSync } from 'node:crypto';
 import request from 'supertest';
 import { AppModule } from './../src/app.module.js';
 import { RabbitMqConsumerTransport } from './../src/messaging/rabbitmq-consumer.transport.js';
 import { RABBITMQ_CONNECTION_URL } from './../src/messaging/rabbitmq-connection-url.provider.js';
 import { OutboxRelay } from './../src/outbox/outbox.relay.js';
+import { AuthKeyService } from './../src/auth/auth-key.service.js';
+
+const { publicKey } = generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+});
 
 describe('AppController (e2e)', () => {
   let app: INestApplication;
@@ -21,6 +29,8 @@ describe('AppController (e2e)', () => {
       .useValue('amqp://unused')
       .overrideProvider(OutboxRelay)
       .useValue({ start: vi.fn(), close: vi.fn() })
+      .overrideProvider(AuthKeyService)
+      .useValue({ getJwtPublicKey: () => publicKey })
       .compile();
 
     app = moduleFixture.createNestApplication();

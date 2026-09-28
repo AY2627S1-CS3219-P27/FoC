@@ -53,6 +53,11 @@ root broker definitions so it matches the ignored secret. Never commit the
 actual password. Every variable read by the service is documented in
 [.env.example](./.env.example).
 
+Credit Service also mounts User Service's RS256 public key from
+`user-service/jwt_public_key.secret`. Generate the User Service signing keypair
+before starting either service; only the public key is made available to Credit
+Service through `JWT_PUBLIC_KEY_FILE`.
+
 Install the locked dependencies:
 
 ```powershell
@@ -87,8 +92,8 @@ docker compose down
 Credit Service authenticates to `/foc` as `credit-service`. Its password is
 mounted at `/run/secrets/rabbitmq_password_credit_service`; it is never placed
 in the container environment. Docker builds use the repository root as their
-build context so the repository-local `@foc/contracts` dependency can be built
-and packaged into the service image.
+build context so the repository-local `@foc/contracts` and `@foc/auth`
+dependencies can be built and packaged into the service image.
 
 ## Testing
 

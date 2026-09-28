@@ -10,9 +10,10 @@ WORKDIR /usr/src/app
 ARG NPM_VERSION=11.18.0
 RUN npm install --global "npm@${NPM_VERSION}"
 
-# The build context is the repository root so the local @foc/contracts
-# dependency is available without relying on host-generated files.
+# The build context is the repository root so the local shared packages are
+# available without relying on host-generated files.
 COPY packages/contracts/package*.json /usr/src/packages/contracts/
+COPY packages/auth/package*.json /usr/src/packages/auth/
 COPY credit-service/package*.json ./
 
 # Install the exact dependency versions. Credit Service's postinstall also
@@ -23,6 +24,7 @@ RUN npm ci
 FROM dependencies AS development
 
 COPY packages/contracts/ /usr/src/packages/contracts/
+COPY packages/auth/ /usr/src/packages/auth/
 COPY credit-service/ .
 
 EXPOSE 3000
@@ -33,6 +35,7 @@ CMD ["npm", "run", "start:dev"]
 FROM dependencies AS build
 
 COPY packages/contracts/ /usr/src/packages/contracts/
+COPY packages/auth/ /usr/src/packages/auth/
 COPY credit-service/ .
 
 RUN npm run build
