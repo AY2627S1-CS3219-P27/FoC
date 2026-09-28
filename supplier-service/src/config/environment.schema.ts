@@ -28,6 +28,7 @@ export interface EnvironmentVariables {
   SEED_ON_STARTUP: boolean;
   SEED_CSV_PATH: string;
   JWT_PUBLIC_KEY_FILE: string;
+  PLACEHOLDER_IMAGE_URL: string;
 }
 
 /**
@@ -74,6 +75,12 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
   // user-service's JWT public key (PEM), used to verify access tokens.
   // Required, as in user-service: without it no request can be authenticated.
   JWT_PUBLIC_KEY_FILE: Joi.string().min(1).required(),
+  // Image returned for suppliers without a photo (F1.2.9). Blank until images
+  // are hosted (step 19): suppliers without a photo then return null.
+  PLACEHOLDER_IMAGE_URL: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .allow('')
+    .default(''),
 })
   .unknown(true)
   .prefs({ abortEarly: false, convert: true });

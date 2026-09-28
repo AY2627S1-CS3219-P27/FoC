@@ -13,6 +13,8 @@ export const ErrorCode = {
   DuplicateSupplier: 'DUPLICATE_SUPPLIER',
   /** A category or building name already used by a non-retired one. */
   DuplicateName: 'DUPLICATE_NAME',
+  /** No supplier has this id (never existed or hard-deleted, F5.9.1). */
+  SupplierNotFound: 'SUPPLIER_NOT_FOUND',
   PayloadTooLarge: 'PAYLOAD_TOO_LARGE',
   PreconditionRequired: 'PRECONDITION_REQUIRED',
   DependencyUnavailable: 'DEPENDENCY_UNAVAILABLE',

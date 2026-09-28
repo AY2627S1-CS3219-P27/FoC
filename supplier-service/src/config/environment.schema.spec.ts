@@ -26,6 +26,7 @@ describe('environmentSchema', () => {
       CAMPUS_MAX_LONGITUDE: 103.79,
       SEED_ON_STARTUP: true,
       SEED_CSV_PATH: '/seed-data/supplier-seed-data.csv',
+      PLACEHOLDER_IMAGE_URL: '',
     });
   });
 
@@ -71,6 +72,22 @@ describe('environmentSchema', () => {
     });
 
     expect(error?.details[0].path).toEqual(['DB_PORT']);
+  });
+});
+
+describe('PLACEHOLDER_IMAGE_URL', () => {
+  it('accepts an http(s) URL and rejects anything else', () => {
+    const ok = environmentSchema.validate({
+      ...REQUIRED,
+      PLACEHOLDER_IMAGE_URL: 'https://example.com/no-photo.png',
+    });
+    const bad = environmentSchema.validate({
+      ...REQUIRED,
+      PLACEHOLDER_IMAGE_URL: 'no-photo.png',
+    });
+
+    expect(ok.error).toBeUndefined();
+    expect(bad.error?.details[0].path).toEqual(['PLACEHOLDER_IMAGE_URL']);
   });
 });
 
