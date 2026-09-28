@@ -191,7 +191,7 @@ Rules the database **can't** express are checked in the service, inside the same
 
 ## 4. D2 point 2: Query patterns and API
 
-Built so far: `GET /health`, `GET /categories`, `POST /categories` (step 2), and `GET /suppliers`, `GET /suppliers/{id}`, `GET /buildings` (step 5) ✅. The admin writes are 🔜 (step 6).
+Built so far: `GET /health`, `GET /categories`, `POST /categories` (step 2), `GET /suppliers`, `GET /suppliers/{id}`, `GET /buildings` (step 5), and `POST /suppliers`, `PATCH /suppliers/{id}`, `PUT /suppliers/{id}/status` (step 6) ✅. Category rename/retire and building management are planned for after D2.
 
 **How to call it:**
 
@@ -272,12 +272,12 @@ It also returns the version in an `ETag` header (e.g. `"3"`), which an admin edi
 | PUT | `/suppliers/{id}/status` | **admin** | Set Active / Inactive; needs `If-Match` | F9.2, F9.5 |
 | GET | `/categories` | any logged-in user | In-use categories | F11.4 |
 | POST | `/categories` | **admin** | Create a category | F11.2 |
-| PATCH | `/categories/{id}` | **admin** | Rename | F11.2 |
-| POST | `/categories/{id}/retire` | **admin** | Retire | F11.3 |
+| PATCH | `/categories/{id}` | **admin** | Rename (after D2) | F11.2 |
+| POST | `/categories/{id}/retire` | **admin** | Retire (after D2) | F11.3 |
 | GET | `/buildings` | any logged-in user | In-use buildings with names and coordinates | F4.4 |
-| POST | `/buildings` | **admin** | Create a building | F4.3 |
-| PATCH | `/buildings/{id}` | **admin** | Rename or change aliases | F4.3 |
-| POST | `/buildings/{id}/retire` | **admin** | Retire | F4.3.1 |
+| POST | `/buildings` | **admin** | Create a building (after D2) | F4.3 |
+| PATCH | `/buildings/{id}` | **admin** | Rename or change aliases (after D2) | F4.3 |
+| POST | `/buildings/{id}/retire` | **admin** | Retire (after D2) | F4.3.1 |
 
 `retire` is a `POST` action rather than `DELETE`, so it can't be confused with deleting data.
 
@@ -308,7 +308,7 @@ Every error, from any endpoint, has one shape (✅ built in `src/common/errors/`
 | 401 | `UNAUTHENTICATED` ✅ | No login cookie, or the token is invalid or expired |
 | 403 | `FORBIDDEN` ✅ | Logged in, but not an admin, on an admin endpoint |
 | 404 | `NOT_FOUND` / `SUPPLIER_NOT_FOUND` ✅ | Unknown id (F5.9.1) |
-| 409 | `DUPLICATE_SUPPLIER`, `DUPLICATE_NAME` ✅; `VERSION_CONFLICT`, `INVALID_STATUS_TRANSITION` 🔜 | Same name+building+floor exists; the name is taken; someone else edited first (includes `currentVersion`); already in that status |
+| 409 | `DUPLICATE_SUPPLIER`, `DUPLICATE_NAME`, `VERSION_CONFLICT`, `INVALID_STATUS_TRANSITION` ✅ | Same name+building+floor exists; the name is taken; someone else edited first (includes `currentVersion`); already in that status |
 | 413 | `PAYLOAD_TOO_LARGE` ✅ | Request body too big |
 | 428 | `PRECONDITION_REQUIRED` ✅ | An edit sent without `If-Match` |
 | 503 | `DEPENDENCY_UNAVAILABLE` ✅ (`retryable: true`) | The database can't be reached. Never reported as "not found" (F15.3). |
@@ -398,13 +398,13 @@ flowchart LR
 
 ## 6. D2 point 3: CRUD without a UI
 
-🔜 step 6. Everything is done through the API; no UI is needed or running.
+✅ step 6. Everything is done through the API; no UI is needed or running.
 
 | CRUD | Call | Notes |
 |---|---|---|
-| **Create** | `POST /suppliers` | Admin. Full validation and duplicate check. Starts Active, version 1. |
+| **Create** | `POST /suppliers` | Admin. Full validation and duplicate check; field and reference problems come back together in one 400. Starts Active, version 1. Replies 201 with `Location` and `ETag`. |
 | **Read** | `GET /suppliers`, `GET /suppliers/{id}` | Any logged-in user |
-| **Update** | `PATCH /suppliers/{id}` with header `If-Match: "3"` | Admin. Only the fields sent change. The version goes up by 1. |
+| **Update** | `PATCH /suppliers/{id}` with header `If-Match: "3"` | Admin. Only the fields sent change (`photoUrl: null` removes the photo; `categoryIds` replaces the list). The version goes up by 1, even when only categories change. An edit that would duplicate another supplier is 409 `DUPLICATE_SUPPLIER`. A retired building or category the supplier already has may stay; only newly chosen ones must be in use (F1.8). |
 | **Delete (D2)** | `PUT /suppliers/{id}/status {"status":"Inactive"}` with `If-Match` | Admin. The supplier stays in the database, tagged Inactive, and can be re-activated. Errands already created are unaffected (F9.6). |
 
 **Why "delete" means Inactive for D2:** permanent deletion (F10) has to check with Order Service that no errand ever used the supplier, and needs the admin to re-enter their password through User Service. Neither exists yet, so hard delete is scheduled last (step 21). Deactivating is also the everyday way to remove a supplier, because it keeps errand history intact.
@@ -412,12 +412,13 @@ flowchart LR
 **Lost-update protection (F14.3):**
 
 - Every edit must say which version it was based on, using `If-Match`.
-- If someone changed the supplier in the meantime, the edit is refused with **409** and the current version, instead of silently overwriting their change.
+- If someone changed the supplier in the meantime, the edit is refused with **409 `VERSION_CONFLICT`** and `currentVersion`, instead of silently overwriting their change. The row is locked while it is checked and changed, so of two edits sent at once with the same version, exactly one wins.
+- Setting the status it already has is **409 `INVALID_STATUS_TRANSITION`** (F9.2).
 - Missing `If-Match` → **428**.
 
 **All-or-nothing writes (F14.1):** each write runs in one database transaction. A failure saves nothing.
 
-**How to run it:** a saved request collection (🔜 step 7, **Bruno**, in `supplier-service/api/`). Log in, then run each call in order.
+**How to run it:** a saved Postman collection (🔜 step 7, in `supplier-service/api/`). Log in, then run each call in order.
 
 ---
 
@@ -454,8 +455,8 @@ Branches are few and large: one per area, each merged into `supplier-service` by
 | 3 | Data model, categories, buildings (no endpoints yet) | F1.1, F1.2.1-F1.2.7, F1.2.9, F1.3-F1.8, F4.1, F4.2, F4.5, F11.1, F11.3 | `database` | ✅ built (services only; endpoints in `auth`/`crud`) |
 | 4 | Seed import | F12.1, F12.2.1, F12.2.2, F12.2.4-F12.2.6, F12.3, F12.4 | `database` | ✅ built |
 | 5 | Read: list, filter, sort, get one; category/building lists | F5.1-F5.9.1 (not F5.4.6/F5.4.7), F15.1-F15.5, F4.4, F11.4 | `crud` | ✅ built |
-| 6 | Create, update, status (admin); category/building admin | F7.5, F8.6, F9.1, F9.2, F9.5, F9.6, F14.1, F14.3, F4.3, F11.2 | `crud` | - |
-| 7 | D2 deliverables: Bruno collection, demo accounts, diagrams, DB-choice ADR | none | `crud` | - |
+| 6 | Create, update, status (admin) | F7.5, F8.6, F9.1, F9.2, F9.5, F9.6, F14.1, F14.3 | `crud` | ✅ built (category/building admin after D2) |
+| 7 | D2 deliverables: Postman collection, demo accounts, diagrams, DB-choice ADR | none | `crud` | - |
 
 ---
 
