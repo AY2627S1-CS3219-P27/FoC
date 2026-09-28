@@ -7,8 +7,8 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { ACCESS_TOKEN_COOKIE } from '@foc/contracts';
 import {
-  JWT_COOKIE,
   JWT_EXPIRATION_IN_SECONDS,
   REGISTRATION_TOKEN_COOKIE,
 } from '../common/constants.js';
@@ -54,7 +54,7 @@ export class AuthController {
       loginDto.password,
     );
 
-    res.cookie(JWT_COOKIE, accessToken, {
+    res.cookie(ACCESS_TOKEN_COOKIE, accessToken, {
       httpOnly: true,
       sameSite: 'lax',
       path: '/',

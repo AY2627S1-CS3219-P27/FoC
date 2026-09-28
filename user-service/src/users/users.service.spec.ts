@@ -3,6 +3,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { UnauthorizedException } from '@nestjs/common';
 import { EntityNotFoundError, QueryFailedError } from 'typeorm';
 import { hashValue } from '../common/hash/hash.js';
+import { Role } from '@foc/contracts';
 import { User } from './user.entity.js';
 import { EmailAlreadyRegisteredError, UsersService } from './users.service.js';
 
@@ -16,6 +17,7 @@ describe('UsersService', () => {
     create: ReturnType<typeof vi.fn>;
     save: ReturnType<typeof vi.fn>;
     count: ReturnType<typeof vi.fn>;
+    findOneBy: ReturnType<typeof vi.fn>;
     findOneByOrFail: ReturnType<typeof vi.fn>;
   };
 
@@ -24,6 +26,7 @@ describe('UsersService', () => {
       create: vi.fn((data) => data),
       save: vi.fn(async (data) => ({ id: 7, ...data })),
       count: vi.fn(async () => 0),
+      findOneBy: vi.fn(),
       findOneByOrFail: vi.fn(),
     };
 
@@ -54,7 +57,7 @@ describe('UsersService', () => {
 
     // Same M.1 F3.5 contract the registration flow relied on: a fresh
     // per-user salt, argon2id digest, active account — plus the new flags
-    // defaulting to false.
+    // defaulting to false and no participant roles until the user opts in.
     expect(userRepository.save).toHaveBeenCalledWith({
       email: 'eve@example.com',
       displayName: 'Eve',
@@ -63,13 +66,17 @@ describe('UsersService', () => {
       isArchived: false,
       isAdmin: false,
       isLocked: false,
+      roles: [],
     });
 
-    // Response exposes only the identifying fields, never the credentials.
+    // Response exposes the public profile: identifying fields, the role set
+    // (empty until opt-in) and the admin classification — never credentials.
     expect(user).toEqual({
       id: 7,
       email: 'eve@example.com',
       displayName: 'Eve',
+      roles: [],
+      isAdmin: false,
     });
   });
 
@@ -90,6 +97,7 @@ describe('UsersService', () => {
       isArchived: false,
       isAdmin: true,
       isLocked: true,
+      roles: [],
     });
   });
 
@@ -137,21 +145,22 @@ describe('UsersService', () => {
     });
   });
 
-  describe('checkUserAndReturnInfo', () => {
-    // A full stored row whose hash matches the module-mocked hashValue digest
-    // ('ab'.repeat(64) is 64 bytes in hex) and carries a 32-hex-char salt.
-    const registeredUser = {
-      id: 7,
-      email: 'eve@example.com',
-      displayName: 'Eve',
-      passwordHash: 'ab'.repeat(64),
-      passwordSalt: 'ab'.repeat(16),
-      isActive: true,
-      isAdmin: false,
-      isLocked: false,
-      isArchived: false,
-    };
+  // A full stored row whose hash matches the module-mocked hashValue digest
+  // ('ab'.repeat(64) is 64 bytes in hex) and carries a 32-hex-char salt.
+  const registeredUser = {
+    id: 7,
+    email: 'eve@example.com',
+    displayName: 'Eve',
+    passwordHash: 'ab'.repeat(64),
+    passwordSalt: 'ab'.repeat(16),
+    isActive: true,
+    isAdmin: false,
+    isLocked: false,
+    isArchived: false,
+    roles: [],
+  };
 
+  describe('checkUserAndReturnInfo', () => {
     it('returns the public info when the credentials match', async () => {
       userRepository.findOneByOrFail.mockResolvedValue(registeredUser);
 
@@ -161,6 +170,8 @@ describe('UsersService', () => {
         id: 7,
         email: 'eve@example.com',
         displayName: 'Eve',
+        roles: [],
+        isAdmin: false,
       });
 
       // The supplied password is re-hashed with the stored salt for the
@@ -232,6 +243,118 @@ describe('UsersService', () => {
       await expect(
         service.checkUserAndReturnInfo('eve@example.com', 'StrongPassw0rd!'),
       ).rejects.toThrow('db down');
+    });
+  });
+
+  describe('getUserById', () => {
+    it('returns the user plus their persisted roles and admin flag', async () => {
+      userRepository.findOneBy.mockResolvedValue({
+        ...registeredUser,
+        roles: [Role.Requester, Role.Courier],
+      });
+
+      await expect(service.getUserById(7)).resolves.toEqual({
+        id: 7,
+        email: 'eve@example.com',
+        displayName: 'Eve',
+        roles: [Role.Requester, Role.Courier],
+        isAdmin: false,
+      });
+      expect(userRepository.findOneBy).toHaveBeenCalledWith({ id: 7 });
+    });
+
+    it('returns null when the account no longer exists', async () => {
+      userRepository.findOneBy.mockResolvedValue(null);
+
+      await expect(service.getUserById(7)).resolves.toBeNull();
+    });
+
+    it('treats a missing roles value as an empty set', async () => {
+      userRepository.findOneBy.mockResolvedValue({
+        ...registeredUser,
+        roles: undefined,
+      });
+
+      await expect(service.getUserById(7)).resolves.toMatchObject({
+        roles: [],
+      });
+    });
+  });
+
+  describe('updateRoles', () => {
+    it('persists the set-replaced roles and returns the stored state', async () => {
+      const storedUser = {
+        ...registeredUser,
+        roles: [Role.Courier],
+      };
+      userRepository.findOneByOrFail.mockResolvedValue(storedUser);
+      // The save mock stamps an id back onto the row; assign an explicit
+      // post-save roles value to model a real subsequent read.
+      userRepository.save.mockImplementation(async (row) => ({
+        ...row,
+        id: 7,
+      }));
+
+      await expect(
+        service.updateRoles(7, [Role.Requester, Role.Courier]),
+      ).resolves.toEqual({
+        id: 7,
+        email: 'eve@example.com',
+        displayName: 'Eve',
+        roles: [Role.Requester, Role.Courier],
+        isAdmin: false,
+      });
+
+      expect(userRepository.findOneByOrFail).toHaveBeenCalledWith({ id: 7 });
+      expect(userRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 7,
+          roles: [Role.Requester, Role.Courier],
+        }),
+      );
+    });
+
+    it('normalises duplicate roles to a set', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue({
+        ...registeredUser,
+        roles: [],
+      });
+
+      const saved = await service.updateRoles(7, [
+        Role.Requester,
+        Role.Requester,
+      ]);
+
+      expect(saved.roles).toEqual([Role.Requester]);
+    });
+
+    it('allows opting out of every role', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue({
+        ...registeredUser,
+        roles: [Role.Requester],
+      });
+
+      await expect(service.updateRoles(7, [])).resolves.toMatchObject({
+        roles: [],
+      });
+    });
+
+    it('rejects a user id with no matching account', async () => {
+      userRepository.findOneByOrFail.mockRejectedValue(
+        new EntityNotFoundError(User, { id: 7 }),
+      );
+
+      await expect(service.updateRoles(7, [Role.Requester])).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('lets non-entity look-up failures propagate', async () => {
+      userRepository.findOneByOrFail.mockRejectedValue(new Error('db down'));
+
+      await expect(service.updateRoles(7, [Role.Requester])).rejects.toThrow(
+        'db down',
+      );
     });
   });
 });

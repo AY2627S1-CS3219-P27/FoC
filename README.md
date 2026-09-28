@@ -49,13 +49,15 @@ microservice (`user-service/`, `supplier-service/`, `order-service/`,
 
 ## Running via Docker Compose
 
-Run the whole project by using docker compose:
+After the service databases have been initialized, run the whole project with
+Docker Compose:
 
 ```sh
 docker compose up --watch
 ```
 
-The watch flag allows for your changes to be updated in the image.
+The watch flag synchronizes supported source changes into the development
+containers. A fresh checkout requires the initialization steps below first.
 
 ### First-time set-up
 
@@ -71,6 +73,23 @@ included service; see `env/README.md`. In addition, there are some `.secret`
 files that should be created in order to set-up passwords and authentication.
 View them in the compose files.
 
+Credit Service deliberately disables TypeORM schema synchronization and does
+not run migrations during application startup. Initialize its database before
+starting the complete stack so its consumer and outbox relay cannot access an
+empty schema:
+
+```sh
+docker compose up -d --wait rabbitmq credit-db
+docker compose build credit-service
+docker compose run --rm credit-service npm run migration:run
+docker compose up --watch
+```
+
+Run the same Credit migration command after pulling a new committed migration,
+before starting the updated Credit Service. TypeORM skips migrations that have
+already been applied. See the [Credit Service setup](credit-service/README.md#run-with-docker-compose)
+for its service-specific workflow and verification commands.
+
 ### RabbitMQ set-up
 
 Notably, RabbitMQ requires a password hash in its `definitions.json` for setup.
@@ -83,3 +102,10 @@ running the following, assuming `rabbitmq_temp` is a running rabbitmq container:
 ```sh
 docker exec rabbitmq_temp rabbitmqctl hash_password {YOUR PASSWORD HERE}
 ```
+
+Replace only the matching service user's hash. Broker definitions, including
+password hashes, remain sensitive configuration. They also seed critical
+durable ingress queues and bindings before their consumers start; services
+reassert their matching service-owned topology at runtime. Credit Service uses
+the root `/foc` broker in normal development; its local RabbitMQ containers are
+reserved for isolated messaging and recovery tests.

@@ -1,7 +1,8 @@
 services:
   credit-service:
     build:
-      context: .
+      context: ..
+      dockerfile: credit-service/Dockerfile
       target: development
     command: npm run start:dev
     restart: unless-stopped
@@ -43,6 +44,7 @@ services:
       OUTBOX_UNPUBLISHED_WARNING_MS: ${OUTBOX_UNPUBLISHED_WARNING_MS:-60000}
     secrets:
       - credit_db_password
+      - rabbitmq_password_credit_service
     healthcheck:
       test:
         [
@@ -69,6 +71,19 @@ services:
           path: package.json
         - action: rebuild
           path: package-lock.json
+        - action: sync+restart
+          path: ../packages/contracts/src
+          target: /usr/src/packages/contracts/src
+        - action: sync+restart
+          path: ../packages/contracts/tsconfig.json
+          target: /usr/src/packages/contracts/tsconfig.json
+        - action: sync+restart
+          path: ../packages/contracts/tsconfig.build.json
+          target: /usr/src/packages/contracts/tsconfig.build.json
+        - action: rebuild
+          path: ../packages/contracts/package.json
+        - action: rebuild
+          path: ../packages/contracts/package-lock.json
 
   credit-db:
     image: postgres:18-alpine
@@ -85,10 +100,7 @@ services:
       - credit_db_password
     healthcheck:
       test:
-        [
-          'CMD-SHELL',
-          'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"',
-        ]
+        ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
       interval: 5s
       timeout: 3s
       retries: 10
@@ -177,7 +189,10 @@ services:
 
 volumes:
   credit-db-data:
+  credit-rabbitmq-data:
 
 secrets:
   credit_db_password:
     file: ./secrets/credit_db_password.secret
+  rabbitmq_password_credit_service:
+    file: ./secrets/rabbitmq_password.secret
