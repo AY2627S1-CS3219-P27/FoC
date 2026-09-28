@@ -62,7 +62,7 @@ containers. A fresh checkout requires the initialization steps below first.
 ### First-time set-up
 
 The project requires several environment variables, explained in each module's
-`.env.example` file. In addition, there are some `.secret` files that should be
+`.env.example` file (copy it to `.env` in the same folder). In addition, there are some `.secret` files that should be
 created in order to set-up passwords and authentication. View them in the
 compose files.
 
