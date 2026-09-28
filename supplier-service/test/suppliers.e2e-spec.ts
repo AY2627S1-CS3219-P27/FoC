@@ -7,6 +7,7 @@ import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { BuildingsService } from '../src/buildings/buildings.service.js';
 import { SupplierQueriesService } from '../src/suppliers/supplier-queries.service.js';
+import { SuppliersService } from '../src/suppliers/suppliers.service.js';
 import { signAccessToken } from './access-token.js';
 import { seedTestEnvironment } from './test-env.js';
 
@@ -33,6 +34,11 @@ function fakes() {
         return { id, name: 'Cool Spot', version: 3 };
       }),
     },
+    suppliers: {
+      create: vi.fn(async () => ({ id: SUPPLIER_ID })),
+      update: vi.fn(async () => undefined),
+      changeStatus: vi.fn(async () => undefined),
+    },
     buildings: {
       listActive: vi.fn(async () => [
         {
@@ -48,9 +54,10 @@ function fakes() {
   };
 }
 
-describe('supplier and building read endpoints (e2e)', () => {
+describe('supplier and building endpoints (e2e)', () => {
   let app: INestApplication;
   let cookie: string;
+  let adminCookie: string;
   let stubs: ReturnType<typeof fakes>;
 
   beforeAll(async () => {
@@ -71,6 +78,8 @@ describe('supplier and building read endpoints (e2e)', () => {
       .useValue(stubs.queries)
       .overrideProvider(BuildingsService)
       .useValue(stubs.buildings)
+      .overrideProvider(SuppliersService)
+      .useValue(stubs.suppliers)
       .compile();
 
     app = moduleFixture.createNestApplication();
@@ -78,6 +87,7 @@ describe('supplier and building read endpoints (e2e)', () => {
     await app.init();
     // Reading is open to any authenticated user, not only admins (F13.3).
     cookie = `${ACCESS_TOKEN_COOKIE}=${await signAccessToken(privateKey)}`;
+    adminCookie = `${ACCESS_TOKEN_COOKIE}=${await signAccessToken(privateKey, { isAdmin: true })}`;
   });
 
   afterAll(async () => {
@@ -160,6 +170,110 @@ describe('supplier and building read endpoints (e2e)', () => {
         .expect(404);
 
       expect(response.body.code).toBe('SUPPLIER_NOT_FOUND');
+    });
+  });
+
+  describe('admin writes (F7.5, F8.6, F9.5, F13.4)', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it.each([
+      ['POST', '/suppliers'],
+      ['PATCH', `/suppliers/${SUPPLIER_ID}`],
+      ['PUT', `/suppliers/${SUPPLIER_ID}/status`],
+    ])(
+      'forbids %s %s to a basic user, changing nothing (F13.5)',
+      async (method, url) => {
+        const response = await request(app.getHttpServer())
+          [method.toLowerCase() as 'post' | 'patch' | 'put'](url)
+          .set('Cookie', cookie)
+          .set('If-Match', '"3"')
+          .send({ status: 'Inactive', floor: '2' })
+          .expect(403);
+
+        expect(response.body.code).toBe('FORBIDDEN');
+        expect(stubs.suppliers.create).not.toHaveBeenCalled();
+        expect(stubs.suppliers.update).not.toHaveBeenCalled();
+        expect(stubs.suppliers.changeStatus).not.toHaveBeenCalled();
+      },
+    );
+
+    it('creates a supplier: 201 with Location and ETag', async () => {
+      const body = { name: 'Cool Spot' };
+      const response = await request(app.getHttpServer())
+        .post('/suppliers')
+        .set('Cookie', adminCookie)
+        .send(body)
+        .expect(201);
+
+      // The raw body reaches the service, which validates it in one pass.
+      expect(stubs.suppliers.create).toHaveBeenCalledWith(body);
+      expect(response.headers.location).toBe(`/suppliers/${SUPPLIER_ID}`);
+      expect(response.headers.etag).toBe('"3"');
+    });
+
+    it('edits with the version from If-Match', async () => {
+      await request(app.getHttpServer())
+        .patch(`/suppliers/${SUPPLIER_ID}`)
+        .set('Cookie', adminCookie)
+        .set('If-Match', '"3"')
+        .send({ floor: '2' })
+        .expect(200);
+
+      expect(stubs.suppliers.update).toHaveBeenCalledWith(SUPPLIER_ID, 3, {
+        floor: '2',
+      });
+    });
+
+    it('answers 428 when If-Match is missing (F14.3)', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(`/suppliers/${SUPPLIER_ID}`)
+        .set('Cookie', adminCookie)
+        .send({ floor: '2' })
+        .expect(428);
+
+      expect(response.body.code).toBe('PRECONDITION_REQUIRED');
+      expect(stubs.suppliers.update).not.toHaveBeenCalled();
+    });
+
+    it('answers 400 for a malformed If-Match', async () => {
+      const response = await request(app.getHttpServer())
+        .put(`/suppliers/${SUPPLIER_ID}/status`)
+        .set('Cookie', adminCookie)
+        .set('If-Match', 'latest')
+        .send({ status: 'Inactive' })
+        .expect(400);
+
+      expect(response.body.violations).toEqual([
+        { field: 'If-Match', reason: expect.any(String) },
+      ]);
+    });
+
+    it('changes the status with the version from If-Match', async () => {
+      await request(app.getHttpServer())
+        .put(`/suppliers/${SUPPLIER_ID}/status`)
+        .set('Cookie', adminCookie)
+        .set('If-Match', 'W/"3"')
+        .send({ status: 'Inactive' })
+        .expect(200);
+
+      expect(stubs.suppliers.changeStatus).toHaveBeenCalledWith(
+        SUPPLIER_ID,
+        3,
+        'Inactive',
+      );
+    });
+
+    it('rejects an unknown status value', async () => {
+      const response = await request(app.getHttpServer())
+        .put(`/suppliers/${SUPPLIER_ID}/status`)
+        .set('Cookie', adminCookie)
+        .set('If-Match', '"3"')
+        .send({ status: 'Deleted' })
+        .expect(400);
+
+      expect(response.body.violations[0].field).toBe('status');
     });
   });
 
