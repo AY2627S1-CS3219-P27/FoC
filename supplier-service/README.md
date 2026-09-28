@@ -70,6 +70,8 @@ Consistency with the rest of the team comes first. New libraries need a stated r
 
 ### Why PostgreSQL
 
+Full reasoning, alternatives and consequences: [ADR 0001](../docs/adr/supplier-service/0001-database-choice.md).
+
 - **The data is structured and fixed.** Every supplier has the same fields: name, kind, building, floor, location, coordinates and status. There are no free-form documents.
 - **It is relational.** Suppliers *reference* buildings and categories, and a supplier can have several categories. The database must refuse a reference to something that doesn't exist.
 - **The database enforces the rules, not only the code.** Two admins submitting the same supplier at the same moment must not both succeed (F1.5.2). A unique constraint in the database guarantees that, and a code check alone can't.
@@ -339,60 +341,86 @@ Every error, from any endpoint, has one shape (✅ built in `src/common/errors/`
 ```mermaid
 sequenceDiagram
     autonumber
-    actor U as User (Bruno / browser)
+    actor U as User (Postman / browser)
     participant US as User Service :3000
-    participant SS as Supplier Service :3002
+    participant G as Supplier Service guards<br/>(@foc/auth)
+    participant SS as Supplier Service<br/>controller + service
     participant DB as supplier-db (PostgreSQL)
 
     U->>US: POST /auth/login {email, password}
-    US->>US: check password, sign JWT (RS256, private key)
-    US-->>U: 200 + Set-Cookie access_token (15 min)
+    US->>US: check password, sign JWT (RS256, private key)<br/>claims: sub, email, displayName, isAdmin, roles
+    US-->>U: 201 + Set-Cookie access_token (15 min)
 
-    U->>SS: GET /suppliers?buildingId=… (cookie)
-    SS->>SS: guard: verify signature (public key), issuer, expiry, claims
-    SS->>DB: SELECT … WHERE building_id = … ORDER BY … LIMIT …
-    DB-->>SS: rows
-    SS-->>U: 200 {items, total, …}
+    Note over U,DB: Any logged-in user reads (F13.3)
+    U->>G: GET /suppliers?buildingId=… (cookie or Bearer)
+    G->>G: JwtAuthGuard: signature (public key), issuer, expiry, claim contract
+    G->>SS: request.user = {sub, isAdmin: false, …}
+    SS->>DB: SELECT … WHERE building_id IN (…) ORDER BY … LIMIT … OFFSET …
+    DB-->>SS: rows + total
+    SS-->>U: 200 {items, total, offset, limit, hasMore}
 
-    Note over U,SS: Denied: basic user tries an admin action
-    U->>SS: POST /suppliers {…} (basic user's cookie)
-    SS->>SS: guard: token valid, isAdmin = false
-    SS-->>U: 403 {code: "FORBIDDEN"} (no DB call, nothing written)
+    Note over U,DB: Admin changes data (F13.4)
+    U->>G: POST /suppliers {…} (admin token)
+    G->>G: JwtAuthGuard ✓, AdminGuard: isAdmin = true ✓
+    G->>SS: body passed to SuppliersService
+    SS->>DB: one transaction: check rules + references, INSERT (unique constraint)
+    DB-->>SS: committed
+    SS-->>U: 201 + Location + ETag "1"
 
-    Note over U,SS: Denied: no login
-    U->>SS: GET /suppliers (no cookie)
-    SS-->>U: 401 {code: "UNAUTHENTICATED"}
+    Note over U,DB: Denied: basic user tries an admin action (F13.5)
+    U->>G: POST /suppliers {…} (basic user's token)
+    G->>G: JwtAuthGuard ✓, AdminGuard: isAdmin = false ✗
+    G-->>U: 403 {code: "FORBIDDEN"} (handler never runs, no DB call)
+
+    Note over U,DB: Denied: no login (F13.2)
+    U->>G: GET /suppliers (no token)
+    G-->>U: 401 {code: "UNAUTHENTICATED"}
 ```
 
 ```mermaid
 flowchart LR
-    client["Client<br/>(Bruno / future UI)"]
+    client["Client<br/>(Postman / future UI)"]
     subgraph US["user-service"]
       login["POST /auth/login<br/>signs JWT (private key)"]
     end
     subgraph SS["supplier-service (NestJS)"]
-      guard["Auth guards<br/>@foc/auth (JwtAuthGuard, AdminGuard)"]
-      pipe["ValidationPipe<br/>(class-validator DTOs)"]
-      ctrl["Controllers<br/>suppliers · categories · buildings"]
-      svc["Services<br/>rules + transactions"]
+      guards["@foc/auth guards<br/>JwtAuthGuard (401) · AdminGuard (403)"]
+      pipe["ValidationPipe<br/>class-validator DTOs"]
+      subgraph C["Controllers"]
+        sc["SuppliersController<br/>GET · POST · PATCH · PUT status"]
+        cc["CategoriesController<br/>GET · POST"]
+        bc["BuildingsController<br/>GET"]
+      end
+      subgraph S["Services"]
+        reads["SupplierQueriesService<br/>filters · sort · pages · lookup"]
+        writes["SuppliersService<br/>rules · If-Match version · transactions"]
+        cats["CategoriesService"]
+        blds["BuildingsService<br/>name keys"]
+      end
+      seed["SupplierSeedService<br/>(startup, idempotent)"]
+      filter["AllExceptionsFilter<br/>one error shape · 503 retryable"]
       orm["TypeORM<br/>entities + migrations"]
-      filter["Exception filter<br/>one error shape"]
-      seed["Seed import<br/>(startup)"]
     end
     db[("supplier-db<br/>PostgreSQL")]
-    csv[/"data/csv<br/>seed CSV"/]
+    csv[/"data/csv<br/>seed CSV (read-only mount)"/]
+    key[/"user-service JWT<br/>public key (secret)"/]
     mq{{"RabbitMQ (later, F15.7)"}}
     order["order-service"]
 
-    client -- "1. login" --> login
-    login -- "cookie access_token" --> client
-    client -- "2. API call + cookie" --> guard --> pipe --> ctrl --> svc --> orm --> db
-    seed --> svc
-    csv --> seed
+    client -- "1. log in" --> login
+    login -- "access_token" --> client
+    client -- "2. API call + token" --> guards --> pipe --> C
+    key -.-> guards
+    sc --> reads
+    sc --> writes
+    cc --> cats
+    bc --> blds
+    S --> orm --> db
+    csv --> seed --> S
     order -. "validate supplier (later)" .-> mq -.-> SS
 ```
 
-**Stale claims trade-off:** a token can be up to 15 minutes old. If an admin is demoted, their token still says `isAdmin: true` until it expires. For D2 we trust the token and state the 15-minute window. The team's RBAC ADR (unmerged) suggests re-checking admin endpoints against user-service; that is a team decision.
+**Stale claims trade-off:** a token can be up to 15 minutes old. If an admin is demoted, their token still says `isAdmin: true` until it expires. For D2 we trust the token and state the 15-minute window. The team's ADRs ([user-service 005](../docs/adr/user-service/005-user-roles-and-token-claims.md), [shared auth 0001](../docs/adr/shared-packages/0001-shared-auth-guards-package.md)) note that sensitive endpoints may need to check current state in the database; that is a team decision.
 
 ---
 
@@ -418,29 +446,20 @@ flowchart LR
 
 **All-or-nothing writes (F14.1):** each write runs in one database transaction. A failure saves nothing.
 
-**How to run it:** a saved Postman collection (🔜 step 7, in `supplier-service/api/`). Log in, then run each call in order.
+**How to run it:** the Postman collection in [`api/`](api/README.md), folder 3 "CRUD as admin". No UI is needed or running.
 
 ---
 
 ## 7. D2 point 4: End-to-end demo script
 
-🔜 step 7. Run with `docker compose up` from the repo root. Each step is a Bruno request.
+✅ step 7. The whole demo is a Postman collection: [`api/supplier-service.postman_collection.json`](api/README.md), run against `docker compose up` from the repo root. Every request checks its own result (green ticks). The same requests run as a basic user or an admin, with each user's token.
 
-| # | As | Call | Expected |
+| Folder | As | What it shows | D2 |
 |---|---|---|---|
-| 1 | nobody | `GET /suppliers` | **401** `UNAUTHENTICATED` |
-| 2 | basic user | log in at user-service | cookie set |
-| 3 | basic user | `GET /suppliers?name=cool` | **200**, matching suppliers |
-| 4 | basic user | `GET /suppliers?buildingId={COM3}&sort=name` | **200**, COM3 suppliers A→Z |
-| 5 | basic user | `GET /suppliers/{id}` | **200**, full details + `ETag` |
-| 6 | basic user | `POST /suppliers {…}` | **403** `FORBIDDEN`, nothing written |
-| 7 | admin | log in at user-service | cookie set |
-| 8 | admin | `POST /suppliers {…}` | **201**, version 1 |
-| 9 | admin | same `POST` again | **409** `DUPLICATE_SUPPLIER` |
-| 10 | admin | `PATCH /suppliers/{id}` with `If-Match: "1"` | **200**, version 2 |
-| 11 | admin | same `PATCH` with the old `If-Match: "1"` | **409** `VERSION_CONFLICT`, `currentVersion: 2` |
-| 12 | admin | `PUT /suppliers/{id}/status {"status":"Inactive"}` | **200**, Inactive |
-| 13 | basic user | `GET /suppliers?status=Active` | the deactivated supplier is gone from the list |
+| **0 Setup** | both | Log in at user-service; each user's token is saved | 4 |
+| **1 Query patterns** | basic user | List with pagination → search by name → by building (location) → by category → combined + sorted → next page → one supplier with its `ETag` → 404 → 400 listing every bad parameter | 2 |
+| **2 Denied requests** | nobody / basic user | No login → **401**; basic user creating, editing or deactivating a supplier, or creating a category → **403**, nothing changed | 2, 4 |
+| **3 CRUD as admin** | admin | Create **201** (version 1) → same again **409** → every problem in one **400** → read back → edit without `If-Match` **428** → edit (version 2) → out-of-date edit **409** with `currentVersion` → deactivate, D2's "delete" (version 3) → again **409** → gone from the Active list → still readable, tagged Inactive | 3 |
 
 ---
 
@@ -456,7 +475,7 @@ Branches are few and large: one per area, each merged into `supplier-service` by
 | 4 | Seed import | F12.1, F12.2.1, F12.2.2, F12.2.4-F12.2.6, F12.3, F12.4 | `database` | ✅ built |
 | 5 | Read: list, filter, sort, get one; category/building lists | F5.1-F5.9.1 (not F5.4.6/F5.4.7), F15.1-F15.5, F4.4, F11.4 | `crud` | ✅ built |
 | 6 | Create, update, status (admin) | F7.5, F8.6, F9.1, F9.2, F9.5, F9.6, F14.1, F14.3 | `crud` | ✅ built (category/building admin after D2) |
-| 7 | D2 deliverables: Postman collection, demo accounts, diagrams, DB-choice ADR | none | `crud` | - |
+| 7 | D2 deliverables: Postman collection, diagrams, DB-choice ADR (demo accounts: see §9) | none | `crud` | ✅ built |
 
 ---
 
