@@ -4,7 +4,10 @@
 services:
   supplier-service:
     build:
-      context: .
+      # Repository root, as in user-service, so packages/ (the shared
+      # @foc/contracts and @foc/auth) can be built into the image.
+      context: ..
+      dockerfile: supplier-service/Dockerfile
       target: development
     command: npm run start:dev
     ports:
@@ -28,11 +31,13 @@ services:
       CAMPUS_MAX_LONGITUDE: ${SUPPLIER_CAMPUS_MAX_LONGITUDE:-103.79}
       SEED_ON_STARTUP: ${SUPPLIER_SEED_ON_STARTUP:-true}
       SEED_CSV_PATH: /seed-data/supplier-seed-data.csv
+      JWT_PUBLIC_KEY_FILE: /run/secrets/supplier_jwt_public_key
     volumes:
       # The template's seed file, read in place (never copied into the image).
       - ../data/csv:/seed-data:ro
     secrets:
       - supplier_db_password
+      - supplier_jwt_public_key
     healthcheck:
       test:
         [
@@ -106,3 +111,7 @@ volumes:
 secrets:
   supplier_db_password:
     file: ./secrets/supplier_db_password.secret
+  # user-service's JWT public key: read from user-service's own file so both
+  # services always use the same key pair. Override the path if it moves.
+  supplier_jwt_public_key:
+    file: ${SUPPLIER_JWT_PUBLIC_KEY_PATH:-../user-service/jwt_public_key.secret}

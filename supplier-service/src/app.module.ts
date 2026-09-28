@@ -1,11 +1,16 @@
+import { FocAuthModule } from '@foc/auth';
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_PIPE } from '@nestjs/core';
+import { readJwtPublicKey } from './auth/jwt-public-key.js';
 import { BuildingsModule } from './buildings/buildings.module.js';
 import { CategoriesModule } from './categories/categories.module.js';
 import { AllExceptionsFilter } from './common/errors/all-exceptions.filter.js';
 import { createValidationPipe } from './common/validation/validation.pipe.js';
-import { environmentSchema } from './config/environment.schema.js';
+import {
+  type EnvironmentVariables,
+  environmentSchema,
+} from './config/environment.schema.js';
 import { DatabaseModule } from './database/database.module.js';
 import { HealthController } from './health/health.controller.js';
 import { SeedModule } from './seed/seed.module.js';
@@ -18,9 +23,18 @@ import { SuppliersModule } from './suppliers/suppliers.module.js';
       cache: true,
       validationSchema: environmentSchema,
     }),
+    // The team's shared access-token verification (@foc/auth, as in
+    // user-service): controllers apply JwtAuthGuard / AdminGuard. Only the
+    // public key is needed; the signing key never leaves user-service.
+    FocAuthModule.registerAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<EnvironmentVariables, true>) => ({
+        publicKey: readJwtPublicKey(
+          config.get('JWT_PUBLIC_KEY_FILE', { infer: true }),
+        ),
+      }),
+    }),
     DatabaseModule,
-    // Services only for now; their endpoints arrive once authentication is
-    // in place, so no route is ever exposed unprotected.
     BuildingsModule,
     CategoriesModule,
     SuppliersModule,

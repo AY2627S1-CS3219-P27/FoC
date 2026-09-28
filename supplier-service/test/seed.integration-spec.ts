@@ -156,6 +156,26 @@ describe('seed import (real PostgreSQL)', () => {
     expect((await stored('Nami')).photoUrl).toBeNull();
   });
 
+  it('strips a name suffix only when it names the row’s own building (F12.2.6)', async () => {
+    const csv = [
+      'Name,Type,Building,Floor,Location Description,Latitude,Longitude,StartingTime,ClosingTime,ImageURL',
+      'Stall @ Com2,Food,Com 2,1,By the lift,1.2940,103.7738,0900hrs,1800hrs,',
+      'Kiosk @ COM3,Food,Com 2,1,By the stairs,1.2940,103.7738,0900hrs,1800hrs,',
+      'Booth @ Nowhere,Food,Com 2,1,By the door,1.2940,103.7738,0900hrs,1800hrs,',
+    ].join('\r\n');
+
+    await expect(seed.importSeed(Buffer.from(csv))).resolves.toMatchObject({
+      created: 3,
+      rejected: 0,
+    });
+
+    // Own building (Com2 = COM2): suffix removed, display name re-adds it.
+    expect((await stored('Stall')).building?.shortName).toBe('COM2');
+    // Another real building, or no building at all: the name is kept whole.
+    expect((await stored('Kiosk @ COM3')).building?.shortName).toBe('COM2');
+    expect((await stored('Booth @ Nowhere')).building?.shortName).toBe('COM2');
+  });
+
   it('skips bad rows, reports each with row, field and reason, and keeps going (F12.4)', async () => {
     const csv = [
       'Name,Type,Building,Floor,Location Description,Latitude,Longitude,StartingTime,ClosingTime,ImageURL',

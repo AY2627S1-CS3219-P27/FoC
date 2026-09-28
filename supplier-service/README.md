@@ -59,10 +59,10 @@ Consistency with the rest of the team comes first. New libraries need a stated r
 | Config checks at startup | Joi schema; the app refuses to start on bad settings ✅ | user-service | |
 | Request validation | class-validator DTOs through one global `ValidationPipe` ✅ | user-service | **Difference:** we *reject* unknown fields instead of silently dropping them (F1.6, F1.3.2) |
 | Error format | One JSON shape for every error ✅ | none (others use Nest defaults) | Needed by F1.6.1, F14.1.1, F15.3; extends Nest's default fields |
-| Login check | `@nestjs/jwt` (RS256, public key only) + `@foc/contracts` 🔜 step 2 | user-service signs with `@nestjs/jwt`; `@foc/contracts` is shared | No token code is copied |
+| Login check | The team's shared `@foc/auth` guards (RS256, public key only) over `@foc/contracts` ✅ | user-service (same package, scripts and `cookie-parser` in `main.ts`) | No token code is copied |
 | Tests | vitest (unit + e2e), supertest ✅ | user-service | DB-backed e2e uses a throwaway Postgres, like credit-service |
 | Lint | oxlint (type-aware) ✅ | user-service | |
-| Docker | Multi-stage Dockerfile, `compose.yml` included from the root `compose.yaml` ✅ | order-service scaffold (9253390) | Build context moves to the repo root in step 2, as user-service does, so `@foc/contracts` can be built |
+| Docker | Multi-stage Dockerfile built from the repo root, `compose.yml` included from the root `compose.yaml` ✅ | order-service scaffold (9253390); repo-root context as in user-service | The root context lets the image build `packages/contracts` and `packages/auth` |
 
 ---
 
@@ -191,7 +191,7 @@ Rules the database **can't** express are checked in the service, inside the same
 
 ## 4. D2 point 2: Query patterns and API
 
-All endpoints are 🔜 (steps 5-6) except `/health`
+Built so far: `GET /health`, `GET /categories` and `POST /categories` ✅ (step 2). The rest are 🔜 (steps 5-6).
 
 **How to call it:**
 
@@ -316,23 +316,23 @@ Every error, from any endpoint, has one shape (✅ built in `src/common/errors/`
 
 ## 5. D2 points 2 and 4: Identity and roles from User Service
 
-🔜 step 2. The token format is the team's shared contract in `packages/contracts` (`@foc/contracts`).
+✅ step 2. Verification uses the team's shared `@foc/auth` package (`packages/auth`), built on the token contract in `@foc/contracts`, exactly as user-service does.
 
 **How it works:**
 
 1. The user logs in at user-service: `POST localhost:3000/auth/login`.
 2. user-service sets an httpOnly cookie `access_token`: a JWT signed with **RS256** using user-service's **private** key. It has issuer `user-service` and lasts 15 minutes.
-3. The browser (or Bruno) sends that cookie to `localhost:3002` too, because cookies are matched by host, not port.
-4. Supplier Service **verifies the token itself** with user-service's **public** key, mounted as a Docker secret (`JWT_PUBLIC_KEY_FILE`). No call to user-service is needed per request, and the private key never leaves user-service.
+3. The browser (or Postman) sends that cookie to `localhost:3002` too, because cookies are matched by host, not port.
+4. Supplier Service **verifies the token itself** with user-service's **public** key, mounted as a Docker secret (`JWT_PUBLIC_KEY_FILE`). Compose reads it from user-service's own key file (`../user-service/jwt_public_key.secret`, overridable with `SUPPLIER_JWT_PUBLIC_KEY_PATH`), so both services always use the same key pair. No call to user-service is needed per request, and the private key never leaves user-service. `cookie-parser` (in `main.ts`, as in user-service) turns the Cookie header into `request.cookies` for the guard.
 5. It then checks the token's contents with `validateAccessTokenPayload` from `@foc/contracts`. The claims are `sub` (user id), `email`, `displayName`, `isAdmin`, `roles`, `iss`, `iat` and `exp`.
 6. **Admin = `isAdmin: true` in the token.** `roles` (requester/courier) are errand roles and don't change supplier permissions. The FRs only distinguish Basic vs Admin (F13.3, F13.4).
 7. Identity comes **only** from the verified token, never from the request body (F13.1).
 
-**One global guard runs before anything else** (before validation and before the handler):
+**Guards run before anything else** (before validation and before the handler). Each controller applies `@UseGuards(JwtAuthGuard)`, and admin-only routes add `AdminGuard`, as in user-service:
 
 - no cookie, a bad signature, the wrong issuer, expired, or bad contents → **401** (F13.2)
 - valid, but not an admin on an admin endpoint → **403**, and the handler never runs (F13.5)
-- `/health` is the only endpoint marked public
+- `/health` is the only route without a guard. An e2e test lists every registered route and fails if any other one answers without a token, so a forgotten guard is caught
 
 ```mermaid
 sequenceDiagram
@@ -369,7 +369,7 @@ flowchart LR
       login["POST /auth/login<br/>signs JWT (private key)"]
     end
     subgraph SS["supplier-service (NestJS)"]
-      guard["Auth guard<br/>@nestjs/jwt + @foc/contracts"]
+      guard["Auth guards<br/>@foc/auth (JwtAuthGuard, AdminGuard)"]
       pipe["ValidationPipe<br/>(class-validator DTOs)"]
       ctrl["Controllers<br/>suppliers · categories · buildings"]
       svc["Services<br/>rules + transactions"]
@@ -448,7 +448,7 @@ Branches are few and large: one per area, each merged into `supplier-service` by
 | Step | What | FRs | Branch | Status |
 |---|---|---|---|---|
 | 1 | Scaffold: app, config, DB wiring, migrations, Docker, error format | groundwork for F1.7, F14.1.1, F15.3 | `scaffold` | ✅ merged (#598) |
-| 2 | Auth: check the user-service login token | F13.1-F13.5 | `auth` | -|
+| 2 | Auth: check the user-service login token; first endpoints `GET`/`POST /categories` | F13.1-F13.5, F11.2 (create), F11.4 | `auth` | ✅ built |
 | 3 | Data model, categories, buildings (no endpoints yet) | F1.1, F1.2.1-F1.2.7, F1.2.9, F1.3-F1.8, F4.1, F4.2, F4.5, F11.1, F11.3 | `database` | ✅ built (services only; endpoints in `auth`/`crud`) |
 | 4 | Seed import | F12.1, F12.2.1, F12.2.2, F12.2.4-F12.2.6, F12.3, F12.4 | `database` | ✅ built |
 | 5 | Read: list, filter, sort, get one; category/building lists | F5.1-F5.9.1 (not F5.4.6/F5.4.7), F15.1-F15.5, F4.4, F11.4 | `crud` | - |
@@ -477,6 +477,8 @@ cp supplier-service/secrets/supplier_db_password.secret.example \
    supplier-service/secrets/supplier_db_password.secret   # then set a password
 docker compose up
 ```
+
+Supplier Service also needs user-service's JWT key pair, set up as part of user-service (`user-service/jwt_public_key.secret`). Supplier Service only reads the public key, from that file; point `SUPPLIER_JWT_PUBLIC_KEY_PATH` elsewhere if needed.
 
 | What | Where |
 |---|---|
