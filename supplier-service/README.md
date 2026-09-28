@@ -3,14 +3,12 @@
 The Supplier Service is FoC's source of truth for **suppliers**: the physical places on campus where errand items are picked up (a shop, a facility such as a printer, or a landmark). A supplier is a **pickup point, not a shop front**. There are no menus, products, stock or prices; those are out of scope in the project brief.
 
 Other services use it like this:
+
 - **Users** browse and search suppliers when creating an errand.
 - **Admins** add, edit and deactivate suppliers, and manage categories and buildings.
 - **Order Service** checks a supplier's current details and status when an errand references it.
 
-> **Status key:** ✅ built · 🔜 planned (step N, see [Build plan](#8-build-plan)).
-> This README describes the design for the D2 milestone. Anything marked 🔜 is designed but not yet built.
-
-**Contents**
+**Contents**:
 
 1. [Scope for D2](#1-scope-for-d2)
 2. [Tech stack, compared with the other services](#2-tech-stack-compared-with-the-other-services)
@@ -21,8 +19,7 @@ Other services use it like this:
 7. [D2 point 4: End-to-end demo script](#7-d2-point-4-end-to-end-demo-script)
 8. [Build plan](#8-build-plan)
 9. [Dependencies and risks](#9-dependencies-and-risks)
-10. [Likely examiner questions](#10-likely-examiner-questions)
-11. [Running and testing](#11-running-and-testing)
+10. [Running and testing](#10-running-and-testing)
 
 ---
 
@@ -38,6 +35,7 @@ D2 asks for Supplier Service **"significant progress"**: Part 2 points 1-4 of th
 | 4. Authenticated user → API → DB, roles differ | A basic user and an admin run the same calls and get different answers | F13 + demo accounts + API collection |
 
 **Not in D2** (designed, built later):
+
 - **moderation:** basic users *request* changes and admins approve (F6-F9.4)
 - opening hours (F2)
 - brands (F3)
@@ -71,6 +69,7 @@ Consistency with the rest of the team comes first. New libraries need a stated r
 ## 3. D2 point 1: Database choice and schema
 
 ### Why PostgreSQL
+
 - **The data is structured and fixed.** Every supplier has the same fields: name, kind, building, floor, location, coordinates and status. There are no free-form documents.
 - **It is relational.** Suppliers *reference* buildings and categories, and a supplier can have several categories. The database must refuse a reference to something that doesn't exist.
 - **The database enforces the rules, not only the code.** Two admins submitting the same supplier at the same moment must not both succeed (F1.5.2). A unique constraint in the database guarantees that, and a code check alone can't.
@@ -95,20 +94,20 @@ erDiagram
         varchar canonical_name "e.g. Computing 2"
         varchar short_name "e.g. COM2"
         text_array aliases "other spellings"
-        float latitude
-        float longitude
+        double latitude
+        double longitude
         timestamptz retired_at "null = in use"
         timestamptz created_at
         timestamptz updated_at
     }
     BUILDING_NAME_KEYS {
-        varchar key PK "normalised name, short name or alias"
+        text key PK "normalised name, short name or alias"
         uuid building_id FK
     }
     CATEGORIES {
         uuid id PK
         varchar name "e.g. Food"
-        varchar name_key "lower-cased, unique among in-use"
+        text name_key "lower-cased, unique among in-use"
         timestamptz retired_at
         timestamptz created_at
         timestamptz updated_at
@@ -116,13 +115,13 @@ erDiagram
     SUPPLIERS {
         uuid id PK
         varchar name "1-100 chars"
-        varchar name_key "normalised name"
+        text name_key "normalised name"
         enum kind "Store | Facility | Landmark"
         uuid building_id FK
         varchar floor "B1-B9, 1-99, M"
         varchar location_description "e.g. Next to LT19"
-        float latitude
-        float longitude
+        double latitude
+        double longitude
         varchar photo_url "optional"
         enum status "Active | Inactive"
         int version "starts at 1, +1 per change"
@@ -152,20 +151,35 @@ Rules the database **can't** express are checked in the service, inside the same
 
 **Retire, don't delete:** buildings and categories are *retired* (`retired_at` is set), never deleted. Suppliers that already use them keep working, but they can't be chosen for new data (F1.8, F4.3.1, F11.3).
 
+**Why UUIDs, not auto-increment ids:**
+
+- F1.1 requires suppliers to have "a unique, system-generated, immutable identifier (UUID)", never reused and not derived from the name or location.
+- Other services store our ids: order-service's `errands.supplier_id` is a `uuid` column. credit-service also uses UUIDs.
+- Ids appear in URLs (`/suppliers/{id}`). Sequential numbers would let anyone count or step through every record; UUIDs reveal nothing.
+- The service creates the id before saving, which keeps transactions and the seed import simple.
+- The cost (16 bytes instead of 4-8, for a few hundred rows) is negligible. Buildings and categories use UUIDs too, so every id in this service works the same way.
+
+**Aliases vs `building_name_keys`:** a building has one full name, one short name and zero or more aliases, and can be found by any of them (F4.1, F4.5).
+
+- `buildings.aliases` is the record: the nicknames as typed, e.g. `"Prince George’s Park"`, which admins see and edit.
+- `building_name_keys` is derived from it, like an index: one row per name (full, short and every alias), lower-cased with spaces removed, for in-use buildings only. It is rebuilt whenever a building's names change.
+- It exists because F4.2 forbids two in-use buildings sharing **any** name. A normal unique index can't span three columns plus every item in a list, but a primary key on one row per name can, so the database itself enforces the rule.
+
 ### How the D2 metadata is stored and queried
 
 | Metadata | Stored as | Queried by |
 |---|---|---|
 | **Name** | `name` as typed, plus `name_key`: trimmed, spaces collapsed, lower-cased and Unicode-normalised (F1.5) | Case-insensitive partial match on `name_key` (F5.4.1). The same key drives duplicate detection. |
 | **Type** | `kind` (Store / Facility / Landmark, one per supplier) **and** categories (Food, Coffee…, one or more, via `supplier_categories`) | `?kind=` and `?categoryId=`, each accepting several values |
-| **Location** | building (reference) + floor + a short "how to find it" description + map coordinates | `?buildingId=`. "Near me" coordinate search isn't in the FRs; see [§10](#10-likely-examiner-questions). |
+| **Location** | building (reference) + floor + a short "how to find it" description + map coordinates | `?buildingId=`. "Near me" coordinate search isn't in the FRs |
 | **Display name** | Not stored; derived as `"<Name> @ <Building short name>"`, e.g. `Cool Spot @ COM3` (F1.4) | Default sort key (F5.3) |
 
 ### Seed data (✅ step 4: `src/seed/`)
+
 - **Source:** `data/csv/supplier-seed-data.csv`, 21 rows. Columns: Name, Type, Building, Floor, Location Description, Latitude, Longitude, StartingTime, ClosingTime, ImageURL. Compose mounts `data/csv` read-only; the file is never copied.
 - **Loaded on startup** (`SEED_ON_STARTUP`, default on). Each row goes through the same `SuppliersService.create` as the admin API, so seed data obeys every rule (F12.3).
 - **Safe to run again:** rows already present are skipped, keyed by the duplicate rule (F12.1). Even two copies seeding at once end with exactly 21. The log shows e.g. `seed: 0 created, 21 already present, 0 rejected`.
-- **Buildings:** the 14 initial buildings (`src/seed/reference-data.ts`) have aliases covering every spelling in the file (F12.2.1), e.g. "Com 2"/"Com2" → COM2, both "Prince George's Park" apostrophes → PGP. The Terrace is the food court in COM3, so "Terrace" is a COM3 alias. Building coordinates are the average of each building's seed suppliers, fixed once.
+- **Buildings:** the 14 initial buildings (`src/seed/reference-data.ts`) resolve every building spelling in the file (F12.2.1). Case and spaces are ignored automatically, so "Com 2", "Com2" and "COM2" all match COM2's short name. Aliases cover the rest: "Prince George’s Park" with a curly apostrophe → PGP, and "Terrace" → COM3 (the Terrace is the food court inside COM3, and the data file uses it as a building). Without these aliases, 3 of the 21 rows would be rejected as an unknown building. Building coordinates are the average of each building's seed suppliers, fixed once.
 - **Names:** an own-building suffix is removed ("Printer @ Com 2" → "Printer", shown as "Printer @ COM2"; F12.2.6). The Terrace outlets are named "InstaChef (Terrace)" and "Smooy (Terrace)", so they stay distinct from other outlets of the same business in COM3.
 - **Kind:** "Printer @ Com 2" is a Facility; everything else is a Store (F12.2.5).
 - **"Food/Coffee"** becomes two categories, created if missing (F12.2.2).
@@ -177,9 +191,10 @@ Rules the database **can't** express are checked in the service, inside the same
 
 ## 4. D2 point 2: Query patterns and API
 
-All endpoints are 🔜 (steps 5-6) except `/health` ✅.
+All endpoints are 🔜 (steps 5-6) except `/health`
 
 **How to call it:**
+
 - base URL `http://localhost:3002`
 - JSON in and out
 - the login cookie `access_token` comes from user-service; see [§5](#5-d2-points-2-and-4-identity-and-roles-from-user-service)
@@ -199,11 +214,13 @@ All endpoints are 🔜 (steps 5-6) except `/health` ✅.
 | Pages | `?offset=0&limit=25` (max 1000) | F5.2, N3.1 |
 
 **Behaviour:**
+
 - **No match** returns `200` with an empty list and `total: 0`, not a 404 (F5.6).
 - **An unknown query parameter,** or a category or building id that doesn't exist, returns `400`, not silently ignored (F5.8).
 - **Filtering by a retired category or building** returns an empty list (F5.8.1).
 
 **List response:**
+
 ```json
 {
   "items": [
@@ -227,11 +244,13 @@ All endpoints are 🔜 (steps 5-6) except `/health` ✅.
   "hasMore": false
 }
 ```
+
 - `brand` stays `null` until brands (step 14).
 - `isOpenNow` stays `null` ("not applicable", F2.5.1) until opening hours (step 13).
 - With no photo, a placeholder image URL is returned (F1.2.9).
 
 **Single supplier (`GET /suppliers/{id}`)** returns every list field plus:
+
 - `building.canonicalName`, `locationDescription`, `coordinates {latitude, longitude}`
 - `openingHours`, `nextChangeAt` (null for now)
 - image URLs
@@ -261,6 +280,7 @@ It also returns the version in an `ETag` header. This response is also what othe
 `retire` is a `POST` action rather than `DELETE`, so it can't be confused with deleting data.
 
 ### Errors
+
 Every error, from any endpoint, has one shape (✅ built in `src/common/errors/`):
 
 ```json
@@ -299,6 +319,7 @@ Every error, from any endpoint, has one shape (✅ built in `src/common/errors/`
 🔜 step 2. The token format is the team's shared contract in `packages/contracts` (`@foc/contracts`).
 
 **How it works:**
+
 1. The user logs in at user-service: `POST localhost:3000/auth/login`.
 2. user-service sets an httpOnly cookie `access_token`: a JWT signed with **RS256** using user-service's **private** key. It has issuer `user-service` and lasts 15 minutes.
 3. The browser (or Bruno) sends that cookie to `localhost:3002` too, because cookies are matched by host, not port.
@@ -308,6 +329,7 @@ Every error, from any endpoint, has one shape (✅ built in `src/common/errors/`
 7. Identity comes **only** from the verified token, never from the request body (F13.1).
 
 **One global guard runs before anything else** (before validation and before the handler):
+
 - no cookie, a bad signature, the wrong issuer, expired, or bad contents → **401** (F13.2)
 - valid, but not an admin on an admin endpoint → **403**, and the handler never runs (F13.5)
 - `/health` is the only endpoint marked public
@@ -386,6 +408,7 @@ flowchart LR
 **Why "delete" means Inactive for D2:** permanent deletion (F10) has to check with Order Service that no errand ever used the supplier, and needs the admin to re-enter their password through User Service. Neither exists yet, so hard delete is scheduled last (step 21). Deactivating is also the everyday way to remove a supplier, because it keeps errand history intact.
 
 **Lost-update protection (F14.3):**
+
 - Every edit must say which version it was based on, using `If-Match`.
 - If someone changed the supplier in the meantime, the edit is refused with **409** and the current version, instead of silently overwriting their change.
 - Missing `If-Match` → **428**.
@@ -425,31 +448,12 @@ Branches are few and large: one per area, each merged into `supplier-service` by
 | Step | What | FRs | Branch | Status |
 |---|---|---|---|---|
 | 1 | Scaffold: app, config, DB wiring, migrations, Docker, error format | groundwork for F1.7, F14.1.1, F15.3 | `scaffold` | ✅ merged (#598) |
-| 2 | Auth: check the user-service login token | F13.1-F13.5 | `auth` | 🔜 |
+| 2 | Auth: check the user-service login token | F13.1-F13.5 | `auth` | -|
 | 3 | Data model, categories, buildings (no endpoints yet) | F1.1, F1.2.1-F1.2.7, F1.2.9, F1.3-F1.8, F4.1, F4.2, F4.5, F11.1, F11.3 | `database` | ✅ built (services only; endpoints in `auth`/`crud`) |
 | 4 | Seed import | F12.1, F12.2.1, F12.2.2, F12.2.4-F12.2.6, F12.3, F12.4 | `database` | ✅ built |
-| 5 | Read: list, filter, sort, get one; category/building lists | F5.1-F5.9.1 (not F5.4.6/F5.4.7), F15.1-F15.5, F4.4, F11.4 | `crud` | 🔜 |
-| 6 | Create, update, status (admin); category/building admin | F7.5, F8.6, F9.1, F9.2, F9.5, F9.6, F14.1, F14.3, F4.3, F11.2 | `crud` | 🔜 |
-| 7 | D2 deliverables: Bruno collection, demo accounts, diagrams, DB-choice ADR | none | `crud` | 🔜 |
-
-**D2 is done when step 7 is done.**
-
-**Schedule to D2 (Wed 30 Sep):**
-- Sat-Sun: `database`
-- Mon morning: `auth`
-- Mon-Tue: `crud`
-- Tue afternoon: full run with the real user-service
-- Wed morning: dry run
-
-A teammate may help with the Bruno collection and diagrams (on `crud`).
-
-**After D2:**
-- moderation: basic users request and admins approve (steps 8-12, `moderation`)
-- opening hours, brands, building list for others (13-15, `richer-data`)
-- Order validation over RabbitMQ (15b, `order-integration`)
-- safe retries, audit log, rate limits (16-18, `robustness`)
-- images (19-20, `images`)
-- hard delete (21, `hard-delete`)
+| 5 | Read: list, filter, sort, get one; category/building lists | F5.1-F5.9.1 (not F5.4.6/F5.4.7), F15.1-F15.5, F4.4, F11.4 | `crud` | - |
+| 6 | Create, update, status (admin); category/building admin | F7.5, F8.6, F9.1, F9.2, F9.5, F9.6, F14.1, F14.3, F4.3, F11.2 | `crud` | - |
+| 7 | D2 deliverables: Bruno collection, demo accounts, diagrams, DB-choice ADR | none | `crud` | - |
 
 ---
 
@@ -464,23 +468,10 @@ A teammate may help with the Bruno collection and diagrams (on `crud`).
 
 ---
 
-## 10. Likely examiner questions
-
-- **Why PostgreSQL and not a document database?** Supplier data is fixed-shape and relational (buildings, categories). The key guarantees (no duplicates under concurrency, valid references, all-or-nothing writes) are database constraints and transactions. The query load is filter, sort and paginate. See [§3](#3-d2-point-1-database-choice-and-schema).
-- **"Finding suppliers by location"?** Location means **building** (`?buildingId=`), because errands are picked up at a building and floor. Each supplier also stores coordinates, so a "near me" search could be added later with a distance query. It isn't in the FRs.
-- **Why is "at least one category" not a database constraint?** A minimum count across a join table isn't a plain constraint in SQL. It's checked in the service inside the same transaction as the write.
-- **Why 409 for a version conflict, not 412?** HTTP's own answer to a failed `If-Match` is 412. The FR (F14.3.1) calls it a *conflict* and requires the current version in the reply, so we use 409 with `currentVersion`. This is a deliberate, documented choice.
-- **How does Supplier Service trust a token without calling user-service?** RS256: only user-service holds the private key that signs, and we verify with the public key. The claims are then checked against the shared contract.
-- **What if an admin is demoted mid-session?** Their token stays valid for up to 15 minutes. That's an accepted trade-off for D2; see [§5](#5-d2-points-2-and-4-identity-and-roles-from-user-service).
-- **How will Order Service use us?** Now: `GET /suppliers/{id}` (read-only, safe to retry, never a false "not found" when our DB is down). Later (F15.7): Order asks over RabbitMQ and we reply with exactly one FOUND/NOT_FOUND event, authenticated by broker credentials.
-- **Why do other services keep their own copy of supplier details?** Editing or deactivating a supplier must not change errands already created (F15.5, F9.6), so Order stores what it needs when the errand is created.
-- **Why are unknown fields rejected rather than ignored?** A typo like `flor` would otherwise be silently dropped, and a client could try to set `version` or `status`. The FRs require rejection (F1.6, F1.3.2).
-
----
-
-## 11. Running and testing
+## 10. Running and testing
 
 **Run with the whole stack** (from the repo root):
+
 ```sh
 cp supplier-service/secrets/supplier_db_password.secret.example \
    supplier-service/secrets/supplier_db_password.secret   # then set a password
@@ -493,11 +484,12 @@ docker compose up
 | supplier-db | `localhost:5438` (`SUPPLIER_DB_HOST_PORT`) |
 | Test database | `localhost:5439` (`SUPPLIER_DB_TEST_HOST_PORT`), only with the `test` profile |
 
-Settings shared through the root `.env` use a `SUPPLIER_` prefix, so they can't collide with other services' `DB_*` values. `compose.yml` maps them onto the app's own names.
+Every setting has a default, so no `.env` file is needed to run it. All settings are listed in `supplier-service/.env.example`. The Docker-level ones use a `SUPPLIER_` prefix so they can't collide with other services' `DB_*` values, and `compose.yml` maps them onto the app's own names.
 
 **Campus bounding box** (F1.2.7): supplier coordinates must lie inside it. Defaults: latitude 1.28–1.31, longitude 103.74–103.79 (covers every seed supplier). Set with `SUPPLIER_CAMPUS_MIN_LATITUDE`, `…_MAX_LATITUDE`, `…_MIN_LONGITUDE`, `…_MAX_LONGITUDE` (the app reads them as `CAMPUS_*`).
 
 **Develop and test** (in `supplier-service/`):
+
 ```sh
 npm install
 npm run start:dev          # watch mode
@@ -511,6 +503,7 @@ npm run build
 ```
 
 **Migrations** (tables are only ever changed through these):
+
 ```sh
 npm run migration:generate -- src/database/migrations/<Name>
 npm run migration:run

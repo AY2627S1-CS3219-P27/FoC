@@ -1,7 +1,7 @@
 include:
+  - path: supplier-service/compose.yml
   - path: user-service/compose.yml
   - path: email-service/compose.yml
-  - path: supplier-service/compose.yml
   - path: order-service/compose.yml
 
 services:
