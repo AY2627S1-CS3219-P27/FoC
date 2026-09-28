@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { errandEvents, errands } from '../db/schema.js';
 import type { Db } from './transition.js';
 
-export interface CreateInput {
+export interface CreateRequestInputs {
   requesterId: string;
   supplierId: string;
   deliveryLocation: string;
@@ -18,7 +18,7 @@ export type CreateResult = { ok: true; errandId: string; replayed?: true };
 
 // Not a transition: there is no from-status. Writes the errand and event 1
 // together, so the log starts at ErrandCreated.
-export function createErrand(db: Db, i: CreateInput): Promise<CreateResult> {
+export function createErrand(db: Db, i: CreateRequestInputs): Promise<CreateResult> {
   return db.transaction(async (tx): Promise<CreateResult> => {
     const [row] = await tx
       .insert(errands)
