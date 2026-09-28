@@ -1,0 +1,1102 @@
+{
+  "info": {
+    "_postman_id": "6f7a2b8e-1c3d-4e5f-9a0b-1c2d3e4f5a6b",
+    "name": "FoC Supplier Service (D2)",
+    "description": "The Supplier Service D2 demo: query patterns, denied requests, and CRUD through the API alone. Import together with local.postman_environment.json; see api/README.md.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "0 Setup (log in)",
+      "description": "Log in once as each demo user. Their tokens are stored in the environment (basicToken, adminToken) and sent as Authorization: Bearer by every Supplier Service request, so both users can be used side by side. Alternatively, paste tokens into the environment by hand.",
+      "item": [
+        {
+          "name": "Log in as basic user",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{userServiceUrl}}/auth/login",
+            "description": "Logs in at user-service and saves the access token as {{basicToken}}. The token arrives only as the httpOnly access_token cookie.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{basicEmail}}\",\n  \"password\": \"{{basicPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('logged in', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                  "const token = pm.cookies.get('access_token');",
+                  "pm.test('access_token cookie received', () => pm.expect(token).to.be.a('string').and.not.empty);",
+                  "pm.environment.set('basicToken', token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Log in as admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{userServiceUrl}}/auth/login",
+            "description": "Logs in at user-service and saves the access token as {{adminToken}}. The token arrives only as the httpOnly access_token cookie.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('logged in', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                  "const token = pm.cookies.get('access_token');",
+                  "pm.test('access_token cookie received', () => pm.expect(token).to.be.a('string').and.not.empty);",
+                  "pm.environment.set('adminToken', token);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1 Query patterns (D2 point 2)",
+      "description": "Any logged-in user may read (F13.3). Run as the basic user.",
+      "item": [
+        {
+          "name": "List buildings",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/buildings",
+            "description": "In-use buildings with names and coordinates (F4.4). Saves PGP and COM3 ids for later requests."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const buildings = pm.response.json();",
+                  "const pgp = buildings.find((b) => b.shortName === 'PGP');",
+                  "const com3 = buildings.find((b) => b.shortName === 'COM3');",
+                  "pm.test('seed buildings present', () => { pm.expect(pgp).to.be.ok; pm.expect(com3).to.be.ok; });",
+                  "pm.environment.set('pgpBuildingId', pgp.id);",
+                  "pm.environment.set('com3BuildingId', com3.id);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "List categories",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/categories",
+            "description": "In-use categories (F11.4). Saves the Food and Coffee ids."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const categories = pm.response.json();",
+                  "const food = categories.find((c) => c.name === 'Food');",
+                  "const coffee = categories.find((c) => c.name === 'Coffee');",
+                  "pm.test('seed categories present', () => { pm.expect(food).to.be.ok; pm.expect(coffee).to.be.ok; });",
+                  "pm.environment.set('foodCategoryId', food.id);",
+                  "pm.environment.set('coffeeCategoryId', coffee.id);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "List suppliers (first page, default sort)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers",
+            "description": "Paginated listing, sorted by display name then id (F5.1-F5.3, N3.1). Saves the first supplier's id."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const page = pm.response.json();",
+                  "pm.test('pagination metadata (N3.1.3)', () => { pm.expect(page).to.include.keys('items', 'total', 'offset', 'limit', 'hasMore'); pm.expect(page.offset).to.eql(0); pm.expect(page.limit).to.eql(25); });",
+                  "pm.test('items carry a display name', () => pm.expect(page.items[0].displayName).to.include(' @ '));",
+                  "pm.environment.set('firstSupplierId', page.items[0].id);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Search by name",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers?name=cafe",
+            "description": "Case-insensitive partial name match (F5.4.1)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('every result contains \"cafe\"', () => pm.response.json().items.forEach((s) => pm.expect(s.name.toLowerCase()).to.include('cafe')));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "By location (building)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers?buildingId={{pgpBuildingId}}",
+            "description": "Suppliers in a building: 'finding suppliers by location' (F5.4.3)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('all in PGP', () => pm.response.json().items.forEach((s) => pm.expect(s.building.shortName).to.eql('PGP')));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "By category",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers?categoryId={{coffeeCategoryId}}",
+            "description": "Suppliers with any of the given categories (F5.4.2)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('all have Coffee', () => pm.response.json().items.forEach((s) => pm.expect(s.categories.map((c) => c.name)).to.include('Coffee')));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Combined filters, sorted",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers?categoryId={{coffeeCategoryId}}&status=Active&sort=building&order=desc",
+            "description": "Filters combine with AND (F5.5); caller-chosen sort, id as final tie-breaker (F5.3.1)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const names = pm.response.json().items.map((s) => s.building.shortName.toLowerCase());",
+                  "pm.test('sorted by building, descending', () => pm.expect(names).to.eql([...names].sort().reverse()));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Next page",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers?offset=5&limit=5",
+            "description": "Offset/limit paging (F5.2, N3.1)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const page = pm.response.json();",
+                  "pm.test('page of 5 from offset 5', () => { pm.expect(page.offset).to.eql(5); pm.expect(page.items.length).to.be.at.most(5); });"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "View one supplier",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{firstSupplierId}}",
+            "description": "All fields including version; the version is also the ETag (F5.9, F15.1)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test('ETag carries the version', () => pm.expect(pm.response.headers.get('ETag')).to.eql(`\"${s.version}\"`));",
+                  "pm.test('full details', () => pm.expect(s).to.include.keys('coordinates', 'locationDescription', 'version', 'createdAt', 'updatedAt'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Unknown supplier (404)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/00000000-0000-4000-8000-000000000000",
+            "description": "A distinct not-found response (F5.9.1)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 404', () => pm.response.to.have.status(404));",
+                  "pm.test('code SUPPLIER_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('SUPPLIER_NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Bad query parameters (400)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers?limit=5000&colour=red",
+            "description": "Unknown and malformed parameters are rejected, all listed at once (F5.8, N8.4.1)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('code VALIDATION_FAILED', () => pm.expect(pm.response.json().code).to.eql('VALIDATION_FAILED'));",
+                  "const fields = pm.response.json().violations.map((v) => v.field);",
+                  "pm.test('both problems listed', () => pm.expect(fields).to.include.members(['limit', 'colour']));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "2 Denied requests (D2 points 2 and 4)",
+      "description": "How denied requests are answered: no token \u2192 401 (F13.2); a basic user on an admin action \u2192 403, and nothing is changed (F13.5).",
+      "item": [
+        {
+          "name": "No login (401)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{supplierServiceUrl}}/suppliers"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "pm.test('code UNAUTHENTICATED', () => pm.expect(pm.response.json().code).to.eql('UNAUTHENTICATED'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Basic user creates a supplier (403)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Not Allowed\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 403', () => pm.response.to.have.status(403));",
+                  "pm.test('code FORBIDDEN', () => pm.expect(pm.response.json().code).to.eql('FORBIDDEN'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Basic user edits a supplier (403)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "If-Match",
+                "value": "\"1\""
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{firstSupplierId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"floor\": \"2\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 403', () => pm.response.to.have.status(403));",
+                  "pm.test('code FORBIDDEN', () => pm.expect(pm.response.json().code).to.eql('FORBIDDEN'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Basic user deactivates a supplier (403)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "If-Match",
+                "value": "\"1\""
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{firstSupplierId}}/status",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Inactive\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 403', () => pm.response.to.have.status(403));",
+                  "pm.test('code FORBIDDEN', () => pm.expect(pm.response.json().code).to.eql('FORBIDDEN'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Basic user creates a category (403)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/categories",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Not Allowed\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 403', () => pm.response.to.have.status(403));",
+                  "pm.test('code FORBIDDEN', () => pm.expect(pm.response.json().code).to.eql('FORBIDDEN'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "3 CRUD as admin (D2 point 3)",
+      "description": "Create, read, update and 'delete' (= set Inactive) through the API alone. Each run uses a fresh supplier name, so the folder can be re-run.",
+      "item": [
+        {
+          "name": "Create a supplier (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers",
+            "description": "Admin-only direct create (F7.5): Active, version 1, with Location and ETag headers.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{demoName}}\",\n  \"kind\": \"Store\",\n  \"categoryIds\": [\n    \"{{foodCategoryId}}\"\n  ],\n  \"buildingId\": \"{{com3BuildingId}}\",\n  \"floor\": \"2\",\n  \"locationDescription\": \"Next to the lift\",\n  \"coordinates\": {\n    \"latitude\": 1.2944,\n    \"longitude\": 103.7726\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('demoName', `Demo Stall ${Date.now()}`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const s = pm.response.json();",
+                  "pm.test('Active at version 1', () => { pm.expect(s.status).to.eql('Active'); pm.expect(s.version).to.eql(1); });",
+                  "pm.test('Location header', () => pm.expect(pm.response.headers.get('Location')).to.eql(`/suppliers/${s.id}`));",
+                  "pm.environment.set('supplierId', s.id);",
+                  "pm.environment.set('supplierEtag', pm.response.headers.get('ETag'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Create the same supplier again (409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers",
+            "description": "Same name, building and floor: rejected by the database's unique constraint (F1.5, F1.5.2).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{demoName}}\",\n  \"kind\": \"Store\",\n  \"categoryIds\": [\n    \"{{foodCategoryId}}\"\n  ],\n  \"buildingId\": \"{{com3BuildingId}}\",\n  \"floor\": \"2\",\n  \"locationDescription\": \"Next to the lift\",\n  \"coordinates\": {\n    \"latitude\": 1.2944,\n    \"longitude\": 103.7726\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 409', () => pm.response.to.have.status(409));",
+                  "pm.test('code DUPLICATE_SUPPLIER', () => pm.expect(pm.response.json().code).to.eql('DUPLICATE_SUPPLIER'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Create with several problems (400, all listed)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers",
+            "description": "Field rules, unknown references and system-managed fields are all reported in one response (F1.6.1, F1.3.2).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{demoName}}\",\n  \"kind\": \"Store\",\n  \"categoryIds\": [\n    \"{{foodCategoryId}}\"\n  ],\n  \"buildingId\": \"00000000-0000-4000-8000-000000000000\",\n  \"floor\": \"Z\",\n  \"locationDescription\": \"Next to the lift\",\n  \"coordinates\": {\n    \"latitude\": 1.2944,\n    \"longitude\": 103.7726\n  },\n  \"version\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('code VALIDATION_FAILED', () => pm.expect(pm.response.json().code).to.eql('VALIDATION_FAILED'));",
+                  "const fields = pm.response.json().violations.map((v) => v.field);",
+                  "pm.test('every problem listed', () => pm.expect(fields).to.include.members(['floor', 'buildingId', 'version']));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Read it back",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{supplierId}}",
+            "description": "Any logged-in user can read it (F13.3)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('display name', () => pm.expect(pm.response.json().displayName).to.eql(`${pm.environment.get('demoName')} @ COM3`));",
+                  "pm.environment.set('supplierEtag', pm.response.headers.get('ETag'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Edit without If-Match (428)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{supplierId}}",
+            "description": "An edit must state the version it is based on (F14.3).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"locationDescription\": \"Opposite the lift\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 428', () => pm.response.to.have.status(428));",
+                  "pm.test('code PRECONDITION_REQUIRED', () => pm.expect(pm.response.json().code).to.eql('PRECONDITION_REQUIRED'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Edit with If-Match",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "If-Match",
+                "value": "{{supplierEtag}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{supplierId}}",
+            "description": "Direct admin update of some fields (F8.6); the version goes up by 1 (F1.3.1).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"locationDescription\": \"Opposite the lift\",\n  \"categoryIds\": [\n    \"{{foodCategoryId}}\",\n    \"{{coffeeCategoryId}}\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test('version 2', () => pm.expect(s.version).to.eql(2));",
+                  "pm.test('fields changed', () => { pm.expect(s.locationDescription).to.eql('Opposite the lift'); pm.expect(s.categories.map((c) => c.name)).to.have.members(['Coffee', 'Food']); });",
+                  "pm.environment.set('staleEtag', pm.environment.get('supplierEtag'));",
+                  "pm.environment.set('supplierEtag', pm.response.headers.get('ETag'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Edit with an out-of-date version (409)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "If-Match",
+                "value": "{{staleEtag}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{supplierId}}",
+            "description": "Someone else's change is not silently overwritten: conflict with the current version (F14.3.1).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"floor\": \"3\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 409', () => pm.response.to.have.status(409));",
+                  "pm.test('code VERSION_CONFLICT', () => pm.expect(pm.response.json().code).to.eql('VERSION_CONFLICT'));",
+                  "pm.test('current version included', () => pm.expect(pm.response.json().currentVersion).to.eql(2));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Deactivate (D2 'delete')",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "If-Match",
+                "value": "{{supplierEtag}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{supplierId}}/status",
+            "description": "Admin-only status change (F9.5). The supplier stays in the database, tagged Inactive; errands already created are unaffected (F9.6).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Inactive\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Inactive at version 3', () => { const s = pm.response.json(); pm.expect(s.status).to.eql('Inactive'); pm.expect(s.version).to.eql(3); });",
+                  "pm.environment.set('supplierEtag', pm.response.headers.get('ETag'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Deactivate again (409)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "If-Match",
+                "value": "{{supplierEtag}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{supplierId}}/status",
+            "description": "Only Active <-> Inactive is allowed (F9.2).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Inactive\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 409', () => pm.response.to.have.status(409));",
+                  "pm.test('code INVALID_STATUS_TRANSITION', () => pm.expect(pm.response.json().code).to.eql('INVALID_STATUS_TRANSITION'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Active list no longer shows it",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers?status=Active&name={{demoName}}",
+            "description": "Filtered by status Active (F5.4.5)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('not in the Active list', () => pm.expect(pm.response.json().total).to.eql(0));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Still readable, tagged Inactive",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{supplierId}}",
+            "description": "Inactive suppliers remain available in lookups (F5.7)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('tagged Inactive', () => pm.expect(pm.response.json().status).to.eql('Inactive'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        }
+      ]
+    }
+  ]
+}
