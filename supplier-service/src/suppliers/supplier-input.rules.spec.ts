@@ -1,6 +1,10 @@
 import 'reflect-metadata';
 import { SupplierKind } from '../database/entities/index.js';
-import { type CampusBox, checkSupplierInput } from './supplier-input.rules.js';
+import {
+  type CampusBox,
+  checkSupplierInput,
+  checkSupplierPatch,
+} from './supplier-input.rules.js';
 
 const CAMPUS: CampusBox = {
   minLatitude: 1.28,
@@ -136,5 +140,58 @@ describe('checkSupplierInput', () => {
     expect(fields(await checkSupplierInput(['Cool Spot'], CAMPUS))).toEqual([
       '',
     ]);
+  });
+});
+
+describe('checkSupplierPatch (F8.1)', () => {
+  it('accepts a single valid field and normalises it', async () => {
+    const result = await checkSupplierPatch({ floor: ' b2 ' }, CAMPUS);
+
+    expect(result.valid).toBe(true);
+    if (result.valid) {
+      expect(result.value.floor).toBe('B2');
+      expect(result.value.name).toBeUndefined();
+    }
+  });
+
+  it('requires at least one field', async () => {
+    expect(fields(await checkSupplierPatch({}, CAMPUS))).toEqual(['']);
+  });
+
+  it('checks only the supplied fields, all at once', async () => {
+    const result = await checkSupplierPatch(
+      {
+        name: '',
+        floor: '0',
+        coordinates: { latitude: 1.35, longitude: 103.77 },
+      },
+      CAMPUS,
+    );
+    expect(fields(result)).toEqual(
+      expect.arrayContaining(['name', 'floor', 'coordinates.latitude']),
+    );
+  });
+
+  it('lets photoUrl be removed with null, but not mandatory fields', async () => {
+    expect((await checkSupplierPatch({ photoUrl: null }, CAMPUS)).valid).toBe(
+      true,
+    );
+    expect(fields(await checkSupplierPatch({ name: null }, CAMPUS))).toEqual(
+      expect.arrayContaining(['name']),
+    );
+  });
+
+  it('still rejects system-managed and unknown fields (F1.3.2)', async () => {
+    expect(
+      fields(
+        await checkSupplierPatch({ version: 2, status: 'Inactive' }, CAMPUS),
+      ),
+    ).toEqual(expect.arrayContaining(['version', 'status']));
+  });
+
+  it('requires at least one category when categories are replaced', async () => {
+    expect(
+      fields(await checkSupplierPatch({ categoryIds: [] }, CAMPUS)),
+    ).toEqual(['categoryIds']);
   });
 });

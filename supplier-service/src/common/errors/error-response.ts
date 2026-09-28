@@ -15,6 +15,10 @@ export const ErrorCode = {
   DuplicateName: 'DUPLICATE_NAME',
   /** No supplier has this id (never existed or hard-deleted, F5.9.1). */
   SupplierNotFound: 'SUPPLIER_NOT_FOUND',
+  /** The If-Match version is not the supplier's current one (F14.3.1). */
+  VersionConflict: 'VERSION_CONFLICT',
+  /** Only Active <-> Inactive is allowed (F9.2). */
+  InvalidStatusTransition: 'INVALID_STATUS_TRANSITION',
   PayloadTooLarge: 'PAYLOAD_TOO_LARGE',
   PreconditionRequired: 'PRECONDITION_REQUIRED',
   DependencyUnavailable: 'DEPENDENCY_UNAVAILABLE',
@@ -31,7 +35,8 @@ export interface FieldViolation {
 /**
  * The single error body every Supplier Service endpoint returns. It keeps
  * Nest's default fields (statusCode, error, message) and adds `code`, plus
- * `violations` for validation errors and `retryable` for transient failures.
+ * `violations` for validation errors, `retryable` for transient failures and
+ * `currentVersion` for a version conflict (F14.3.1).
  */
 export interface ErrorResponseBody {
   statusCode: number;
@@ -40,4 +45,5 @@ export interface ErrorResponseBody {
   code: string;
   violations?: FieldViolation[];
   retryable?: boolean;
+  currentVersion?: number;
 }
