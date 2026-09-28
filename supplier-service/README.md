@@ -161,8 +161,8 @@ Rules the database **can't** express are checked in the service, inside the same
 
 **Aliases vs `building_name_keys`:** a building has one full name, one short name and zero or more aliases, and can be found by any of them (F4.1, F4.5).
 
-- `buildings.aliases` is the record: the nicknames as typed, e.g. `"Prince George’s Park"`, which admins see and edit.
-- `building_name_keys` is derived from it, like an index: one row per name (full, short and every alias), lower-cased with spaces removed, for in-use buildings only. It is rebuilt whenever a building's names change.
+- `buildings.aliases` is the record: genuinely different names as typed, e.g. `"Terrace"` for COM3, which admins see and edit. Spelling variants don't need aliases (see below).
+- `building_name_keys` is derived from it, like an index: one row per name (full, short and every alias), lower-cased with spaces removed and every apostrophe style made the same, for in-use buildings only. It is rebuilt whenever a building's names change. So "COM2", "Com 2" and "com2" are one name, as are "Prince George's Park" and "Prince George’s Park".
 - It exists because F4.2 forbids two in-use buildings sharing **any** name. A normal unique index can't span three columns plus every item in a list, but a primary key on one row per name can, so the database itself enforces the rule.
 
 ### How the D2 metadata is stored and queried
@@ -179,7 +179,7 @@ Rules the database **can't** express are checked in the service, inside the same
 - **Source:** `data/csv/supplier-seed-data.csv`, 21 rows. Columns: Name, Type, Building, Floor, Location Description, Latitude, Longitude, StartingTime, ClosingTime, ImageURL. Compose mounts `data/csv` read-only; the file is never copied.
 - **Loaded on startup** (`SEED_ON_STARTUP`, default on). Each row goes through the same `SuppliersService.create` as the admin API, so seed data obeys every rule (F12.3).
 - **Safe to run again:** rows already present are skipped, keyed by the duplicate rule (F12.1). Even two copies seeding at once end with exactly 21. The log shows e.g. `seed: 0 created, 21 already present, 0 rejected`.
-- **Buildings:** the 14 initial buildings (`src/seed/reference-data.ts`) resolve every building spelling in the file (F12.2.1). Case and spaces are ignored automatically, so "Com 2", "Com2" and "COM2" all match COM2's short name. Aliases cover the rest: "Prince George’s Park" with a curly apostrophe → PGP, and "Terrace" → COM3 (the Terrace is the food court inside COM3, and the data file uses it as a building). Without these aliases, 3 of the 21 rows would be rejected as an unknown building. Building coordinates are the average of each building's seed suppliers, fixed once.
+- **Buildings:** the 14 initial buildings (`src/seed/reference-data.ts`) resolve every building spelling in the file (F12.2.1). Case, spaces and apostrophe style are ignored automatically, so "Com 2", "Com2" and "COM2" all match COM2, and "Prince George’s Park" (curly apostrophe) matches PGP. The only alias needed is "Terrace" → COM3: the Terrace is the food court inside COM3, and the data file uses it as a building. Building coordinates are the average of each building's seed suppliers, fixed once.
 - **Names:** an own-building suffix is removed ("Printer @ Com 2" → "Printer", shown as "Printer @ COM2"; F12.2.6). The Terrace outlets are named "InstaChef (Terrace)" and "Smooy (Terrace)", so they stay distinct from other outlets of the same business in COM3.
 - **Kind:** "Printer @ Com 2" is a Facility; everything else is a Store (F12.2.5).
 - **"Food/Coffee"** becomes two categories, created if missing (F12.2.2).
