@@ -19,6 +19,7 @@ describe('UsersService', () => {
     count: ReturnType<typeof vi.fn>;
     findOneBy: ReturnType<typeof vi.fn>;
     findOneByOrFail: ReturnType<typeof vi.fn>;
+    exists: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(async () => {
@@ -28,6 +29,7 @@ describe('UsersService', () => {
       count: vi.fn(async () => 0),
       findOneBy: vi.fn(),
       findOneByOrFail: vi.fn(),
+      exists: vi.fn(async () => false),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -55,7 +57,7 @@ describe('UsersService', () => {
       password: 'StrongPassw0rd!',
     });
 
-    // Same M.1 F3.5 contract the registration flow relied on: a fresh
+    // Same contract the registration flow relied on: a fresh
     // per-user salt, argon2id digest, active account — plus the new flags
     // defaulting to false and no participant roles until the user opts in.
     expect(userRepository.save).toHaveBeenCalledWith({
@@ -159,6 +161,27 @@ describe('UsersService', () => {
     isArchived: false,
     roles: [],
   };
+
+  describe('existsByEmail', () => {
+    it('reports true when a matching account exists', async () => {
+      userRepository.exists.mockResolvedValue(true);
+
+      await expect(service.existsByEmail('eve@example.com')).resolves.toBe(
+        true,
+      );
+      expect(userRepository.exists).toHaveBeenCalledWith({
+        where: { email: 'eve@example.com' },
+      });
+    });
+
+    it('reports false when no account exists', async () => {
+      userRepository.exists.mockResolvedValue(false);
+
+      await expect(service.existsByEmail('ghost@example.com')).resolves.toBe(
+        false,
+      );
+    });
+  });
 
   describe('checkUserAndReturnInfo', () => {
     it('returns the public info when the credentials match', async () => {

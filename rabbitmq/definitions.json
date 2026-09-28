@@ -15,6 +15,13 @@
       "user": "user-service",
       "vhost": "/foc",
       "write": "^foc\\.events$"
+    },
+    {
+      "configure": "^(foc\\.credit\\.(retry|back|dlx)|credit-service\\..+)$",
+      "read": "^(foc\\.events|foc\\.credit\\.(retry|back|dlx)|credit-service\\..+)$",
+      "user": "credit-service",
+      "vhost": "/foc",
+      "write": "^(foc\\.events|foc\\.credit\\.(retry|back|dlx)|credit-service\\..+)$"
     }
   ],
   "rabbitmq_version": "4.3.6",
@@ -78,6 +85,13 @@
       "name": "user-service",
       "password_hash": "aZjxvyiX+QPAl8WbNLq04VI3OAf1myY0IMh8FyhngraRlhZH",
       "tags": []
+    },
+    {
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "limits": {},
+      "name": "credit-service",
+      "password_hash": "cCrZGqJNVrHK6legaAer8PjD7koLxgocDiQ/BJsrYOATi9iy",
+      "tags": []
     }
   ],
   "global_parameters": [{ "name": "cluster_tags", "value": [] }],
@@ -89,6 +103,7 @@
   "original_cluster_name": "rabbit@9e314706fc82",
   "queues": [
     { "arguments": { "x-queue-type": "classic" }, "auto_delete": false, "durable": true, "name": "otp_emails", "type": "classic", "vhost": "/foc" },
+    { "arguments": {}, "auto_delete": false, "durable": true, "name": "credit-service.user-registered.v1", "type": "classic", "vhost": "/foc" },
     {
       "arguments": {
         "x-queue-type": "classic",
@@ -141,6 +156,7 @@
   ],
   "bindings": [
     { "arguments": {}, "destination": "otp_emails", "destination_type": "queue", "routing_key": "otp.email", "source": "foc.events", "vhost": "/foc" },
+    { "arguments": {}, "destination": "credit-service.user-registered.v1", "destination_type": "queue", "routing_key": "user.registered.v1", "source": "foc.events", "vhost": "/foc" },
     { "arguments": { "x-match": "all", "foc-delay": "60000" }, "destination": "email_retry_60s", "destination_type": "queue", "routing_key": "", "source": "foc.retry", "vhost": "/foc" },
     { "arguments": { "x-match": "all", "foc-delay": "120000" }, "destination": "email_retry_120s", "destination_type": "queue", "routing_key": "", "source": "foc.retry", "vhost": "/foc" },
     { "arguments": { "x-match": "all", "foc-delay": "240000" }, "destination": "email_retry_240s", "destination_type": "queue", "routing_key": "", "source": "foc.retry", "vhost": "/foc" },
