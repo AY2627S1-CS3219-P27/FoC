@@ -14,7 +14,7 @@ function event(): UserRegisteredEvent {
     timestamp: new Date().toISOString(),
     publisher: 'user-service',
     payload: {
-      userId: randomUUID(),
+      userId: 7,
       email: 'alex@example.edu',
       displayName: 'Alex',
     },

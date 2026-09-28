@@ -11,7 +11,7 @@ const validEvent = {
   timestamp: '2026-09-22T08:31:00.000Z',
   publisher: 'credit-service',
   payload: {
-    userId: 'db3f2ca7-1f10-4fd3-965d-a721d26ba80b',
+    userId: 7,
     creditAmountAllocated: 100,
     creditAllocationId: 'd8a889a1-994d-4e98-8a16-9f89de1a332f',
   },
@@ -71,15 +71,24 @@ describe('CreditAccountInitialised v1 contract', () => {
     },
   );
 
-  it.each(['userId', 'creditAllocationId'])(
-    'rejects an invalid %s',
-    (field) => {
+  it.each([0, -1, 1.5, 2_147_483_648])(
+    'rejects invalid user ID %s',
+    (userId) => {
       const input = copy();
-      (input.payload as Record<string, unknown>)[field] = 'not-a-uuid';
+      input.payload.userId = userId;
 
       expect(
         validator.validate(CREDIT_ACCOUNT_INITIALISED_V1_ROUTING_KEY, input),
       ).toMatchObject({ valid: false, code: 'INVALID_PAYLOAD' });
     },
   );
+
+  it('rejects an invalid credit allocation ID', () => {
+    const input = copy();
+    input.payload.creditAllocationId = 'not-a-uuid';
+
+    expect(
+      validator.validate(CREDIT_ACCOUNT_INITIALISED_V1_ROUTING_KEY, input),
+    ).toMatchObject({ valid: false, code: 'INVALID_PAYLOAD' });
+  });
 });

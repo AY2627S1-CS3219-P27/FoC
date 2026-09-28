@@ -5,7 +5,7 @@ export const CREDIT_ACCOUNT_INITIALISED_V1_ROUTING_KEY =
   'credit.account-initialised.v1';
 
 export interface CreditAccountInitialisedPayload {
-  userId: string;
+  userId: number;
   creditAmountAllocated: number;
   creditAllocationId: string;
 }

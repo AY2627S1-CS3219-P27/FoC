@@ -1,10 +1,9 @@
-import { randomUUID } from 'node:crypto';
 import type { UserRegisteredPayload } from '@foc/contracts';
 import { hashUserRegisteredPayload } from './account-initialization.service.js';
 
 describe('hashUserRegisteredPayload', () => {
   it('is independent of the input property insertion order', () => {
-    const userId = randomUUID();
+    const userId = 7;
     const canonical: UserRegisteredPayload = {
       userId,
       email: 'alex@example.edu',
@@ -24,7 +23,7 @@ describe('hashUserRegisteredPayload', () => {
 
   it('changes when any validated payload field changes', () => {
     const payload: UserRegisteredPayload = {
-      userId: randomUUID(),
+      userId: 7,
       email: 'alex@example.edu',
       displayName: 'Alex',
     };
@@ -37,7 +36,7 @@ describe('hashUserRegisteredPayload', () => {
       hashUserRegisteredPayload({ ...payload, displayName: 'Other' }),
     ).not.toBe(original);
     expect(
-      hashUserRegisteredPayload({ ...payload, userId: randomUUID() }),
+      hashUserRegisteredPayload({ ...payload, userId: 8 }),
     ).not.toBe(original);
   });
 });

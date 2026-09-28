@@ -204,7 +204,7 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
         timestamp: '2026-09-22T08:30:00.000Z',
         publisher: 'user-service',
         payload: {
-          userId: 'db3f2ca7-1f10-4fd3-965d-a721d26ba80b',
+          userId: 7,
           email: 'student@u.nus.edu',
           displayName: 'Student One',
         },

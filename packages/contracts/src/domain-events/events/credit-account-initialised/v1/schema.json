@@ -21,8 +21,9 @@
           "required": ["userId", "creditAmountAllocated", "creditAllocationId"],
           "properties": {
             "userId": {
-              "type": "string",
-              "format": "uuid"
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
             },
             "creditAmountAllocated": {
               "type": "integer",

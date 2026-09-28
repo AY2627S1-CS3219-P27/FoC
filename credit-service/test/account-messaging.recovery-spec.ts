@@ -26,6 +26,7 @@ import { OutboxRelay } from '../src/outbox/outbox.relay.js';
 const execFileAsync = promisify(execFile);
 const dockerServices = ['credit-db-recovery', 'credit-rabbitmq-recovery'];
 const suffix = randomUUID().replaceAll('-', '');
+let nextUserId = 1;
 const topology = {
   domainExchange: `foc.events.recovery.${suffix}`,
   incomingQueue: `credit-service.user-registered.recovery.${suffix}`,
@@ -65,7 +66,7 @@ async function waitFor<T>(
 }
 
 function registration(
-  userId: string = randomUUID(),
+  userId: number = nextUserId++,
   eventId: string = randomUUID(),
 ): UserRegisteredEvent {
   return {
@@ -173,7 +174,7 @@ describe.sequential('account messaging recovery', () => {
   }
 
   async function takeOutgoingForUser(
-    userId: string,
+    userId: number,
     timeoutMilliseconds = 15_000,
   ): Promise<{
     message: GetMessage;
@@ -202,7 +203,7 @@ describe.sequential('account messaging recovery', () => {
     );
   }
 
-  async function userCounts(userId: string): Promise<{
+  async function userCounts(userId: number): Promise<{
     accounts: number;
     allocations: number;
     inbox: number;
@@ -237,7 +238,7 @@ describe.sequential('account messaging recovery', () => {
   }
 
   async function waitForUserCounts(
-    userId: string,
+    userId: number,
     expected: Awaited<ReturnType<typeof userCounts>>,
   ): Promise<void> {
     await waitFor(async () =>
@@ -434,7 +435,7 @@ describe.sequential('account messaging recovery', () => {
       outbox: 1,
     });
 
-    const concurrentUser = randomUUID();
+    const concurrentUser = nextUserId++;
     await Promise.all([
       publishEvent(registration(concurrentUser)),
       publishEvent(registration(concurrentUser)),

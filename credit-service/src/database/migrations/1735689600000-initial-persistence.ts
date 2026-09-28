@@ -7,13 +7,14 @@ export class InitialPersistence1735689600000 implements MigrationInterface {
   async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       CREATE TABLE "credit_accounts" (
-        "user_id" uuid NOT NULL,
+        "user_id" integer NOT NULL,
         "credit_balance" bigint NOT NULL,
         "reserved_balance" bigint NOT NULL DEFAULT 0,
         "created_at" timestamptz NOT NULL DEFAULT now(),
         "updated_at" timestamptz NOT NULL DEFAULT now(),
         "version" integer NOT NULL DEFAULT 1,
         CONSTRAINT "PK_credit_accounts" PRIMARY KEY ("user_id"),
+        CONSTRAINT "CHK_credit_accounts_user_id" CHECK ("user_id" > 0),
         CONSTRAINT "CHK_credit_accounts_credit_balance" CHECK ("credit_balance" >= 0),
         CONSTRAINT "CHK_credit_accounts_reserved_balance" CHECK ("reserved_balance" >= 0)
       )
@@ -22,7 +23,7 @@ export class InitialPersistence1735689600000 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE "credit_allocations" (
         "id" uuid NOT NULL,
-        "user_id" uuid NOT NULL,
+        "user_id" integer NOT NULL,
         "amount" bigint NOT NULL,
         "created_at" timestamptz NOT NULL DEFAULT now(),
         CONSTRAINT "PK_credit_allocations" PRIMARY KEY ("id"),

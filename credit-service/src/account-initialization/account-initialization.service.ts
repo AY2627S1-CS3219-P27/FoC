@@ -16,13 +16,13 @@ import { SerializableTransactionRunner } from '../database/serializable-transact
 export type AccountInitializationOutcome =
   | {
       status: 'created';
-      userId: string;
+      userId: number;
       allocationId: string;
       outboxEventId: string;
     }
   | {
       status: 'existing-allocation' | 'duplicate-event';
-      userId: string;
+      userId: number;
       allocationId: string;
     }
   | { status: 'event-id-conflict'; eventId: string };

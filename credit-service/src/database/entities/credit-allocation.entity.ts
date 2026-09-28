@@ -21,8 +21,8 @@ export class CreditAllocation {
   @PrimaryColumn({ type: 'uuid' })
   id: string;
 
-  @Column({ name: 'user_id', type: 'uuid' })
-  userId: string;
+  @Column({ name: 'user_id', type: 'integer' })
+  userId: number;
 
   @ManyToOne(() => CreditAccount, { onDelete: 'RESTRICT' })
   @JoinColumn({
