@@ -5,6 +5,7 @@ include:
     env_file: email-service/.env
   - path: order-service/compose.yml
     env_file: order-service/.env
+  - path: credit-service/compose.yml
 
 services:
   rabbitmq:
@@ -39,6 +40,11 @@ services:
         condition: service_started
 
   user-service:
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  credit-service:
     depends_on:
       rabbitmq:
         condition: service_healthy
