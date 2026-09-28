@@ -148,6 +148,14 @@ export class UsersService {
   }
 
   /**
+   * Whether any account — archived or locked included — is tied to the given
+   * email.
+   */
+  async existsByEmail(email: string): Promise<boolean> {
+    return this.userRepository.exists({ where: { email } });
+  }
+
+  /**
    * Counts the admin accounts that are not archived. Locked admins still
    * count.
    */
