@@ -337,7 +337,7 @@ erDiagram
     CREDIT_ALLOCATIONS ||--o{ INBOX_EVENTS : "establishes outcome for"
 
     CREDIT_ACCOUNTS {
-        uuid user_id PK
+        integer user_id PK
         bigint credit_balance
         bigint reserved_balance
         timestamptz created_at
@@ -347,7 +347,7 @@ erDiagram
 
     CREDIT_ALLOCATIONS {
         uuid id PK
-        uuid user_id FK, UK
+        integer user_id FK, UK
         bigint amount
         timestamptz created_at
     }
@@ -441,8 +441,9 @@ process after changing the package. Docker Compose watches package sources and
 restarts the development container automatically; manifest changes rebuild the
 image.
 
-Contracts reject unknown envelope and payload properties. IDs must be UUIDs,
-timestamps must be RFC 3339 date-times ending in uppercase `Z`, and validation
+Contracts reject unknown envelope and payload properties. User IDs are positive
+PostgreSQL integers matching User Service; event and allocation IDs are UUIDs.
+Timestamps must be RFC 3339 date-times ending in uppercase `Z`, and validation
 errors expose sanitized violations without payload values.
 
 ## Publish a registration fixture
@@ -471,6 +472,13 @@ node scripts/publish-event-fixture.mjs test/fixtures/my-registration.json
 TypeORM uses [data-source.ts](./src/database/data-source.ts) for CLI commands.
 The CLI reads `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_DATABASE`, and
 `DB_PASSWORD_FILE` from the environment or service-local `.env` file.
+
+The initial migration now uses User Service's integer user IDs. A database
+created from the earlier UUID-based migration cannot be upgraded in place
+because those synthetic UUIDs have no mapping to User Service accounts. Before
+running this version, explicitly back up any data that must be retained and
+recreate only the Credit database or its `credit-db-data` volume. The service
+does not delete or reset databases automatically.
 
 ```powershell
 npm run migration:show
