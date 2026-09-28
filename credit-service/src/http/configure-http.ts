@@ -50,12 +50,17 @@ export function configureHttp(app: INestApplication): void {
     .setTitle('Friend on Campus Credit Service')
     .setDescription('Credit balance and advisory sufficiency APIs')
     .setVersion('1.0')
+    .addTag(
+      'credits',
+      'Authenticated, self-only balance reads and non-reserving sufficiency advice',
+    )
     .addBearerAuth(
       {
         type: 'http',
         scheme: 'bearer',
         bearerFormat: 'JWT',
-        description: 'Access token supplied as an Authorization bearer token',
+        description:
+          'User Service access token. Used only when the access_token cookie is absent.',
       },
       BEARER_SECURITY_SCHEME,
     )
@@ -64,7 +69,8 @@ export function configureHttp(app: INestApplication): void {
       {
         type: 'apiKey',
         in: 'cookie',
-        description: 'Access token supplied in the access_token cookie',
+        description:
+          'Preferred User Service access token input when both cookie and bearer credentials are present.',
       },
       ACCESS_TOKEN_COOKIE_SECURITY_SCHEME,
     )

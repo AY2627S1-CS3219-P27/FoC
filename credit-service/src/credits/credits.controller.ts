@@ -16,7 +16,9 @@ import {
   ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
+  ApiBody,
   ApiOperation,
+  ApiProduces,
   ApiSecurity,
   ApiTags,
   ApiUnauthorizedResponse,
@@ -35,6 +37,25 @@ import {
   CreditSufficiencyResponseDto,
 } from './credits.dto.js';
 
+type ResponseModel =
+  typeof CreditBalanceResponseDto | typeof CreditSufficiencyResponseDto;
+
+function successResponse(
+  model: ResponseModel,
+  description: string,
+  example: Record<string, unknown>,
+) {
+  return {
+    description,
+    content: {
+      'application/json': {
+        schema: { $ref: getSchemaPath(model) },
+        example,
+      },
+    },
+  };
+}
+
 function errorResponse(description: string, example: Record<string, unknown>) {
   return {
     description,
@@ -48,7 +69,12 @@ function errorResponse(description: string, example: Record<string, unknown>) {
 }
 
 @ApiTags('credits')
-@ApiExtraModels(ApiErrorResponseDto)
+@ApiExtraModels(
+  ApiErrorResponseDto,
+  CreditBalanceResponseDto,
+  CreditSufficiencyResponseDto,
+)
+@ApiProduces('application/json')
 @ApiBearerAuth(BEARER_SECURITY_SCHEME)
 @ApiSecurity(ACCESS_TOKEN_COOKIE_SECURITY_SCHEME)
 @ApiUnauthorizedResponse(
@@ -63,8 +89,18 @@ export class CreditsController {
   constructor(private readonly accounts: CreditAccountQueryService) {}
 
   @Get('balance')
-  @ApiOperation({ summary: 'Get the authenticated user credit balance' })
-  @ApiOkResponse({ type: CreditBalanceResponseDto })
+  @ApiOperation({
+    summary: 'Get the authenticated user credit balance',
+    description:
+      'Returns available and reserved credit without locking or changing the account.',
+  })
+  @ApiOkResponse(
+    successResponse(
+      CreditBalanceResponseDto,
+      'The current balance for the authenticated user.',
+      { userId: 7, creditBalance: 100, reservedBalance: 0 },
+    ),
+  )
   @ApiNotFoundResponse(
     errorResponse('The authenticated user has no Credit account.', {
       code: 'CREDIT_ACCOUNT_NOT_FOUND',
@@ -79,8 +115,31 @@ export class CreditsController {
 
   @Post('sufficiency')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Check available credit without reserving it' })
-  @ApiOkResponse({ type: CreditSufficiencyResponseDto })
+  @ApiOperation({
+    summary: 'Check available credit without reserving it',
+    description:
+      'Returns point-in-time advice only. It does not lock the account, reserve credit, or authorize a later reservation.',
+  })
+  @ApiBody({
+    type: CreditSufficiencyRequestDto,
+    examples: {
+      sufficient: {
+        summary: 'Available credit covers the amount',
+        value: { userId: 7, amount: 50 },
+      },
+      insufficient: {
+        summary: 'Requested amount exceeds available credit',
+        value: { userId: 7, amount: 150 },
+      },
+    },
+  })
+  @ApiOkResponse(
+    successResponse(
+      CreditSufficiencyResponseDto,
+      'Point-in-time sufficiency advice for the authenticated user.',
+      { userId: 7, amount: 50, sufficient: true },
+    ),
+  )
   @ApiBadRequestResponse(
     errorResponse('The request body violates the API contract.', {
       code: 'VALIDATION_ERROR',

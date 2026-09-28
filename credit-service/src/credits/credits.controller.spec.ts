@@ -206,5 +206,21 @@ describe('CreditsController', () => {
       code: 'SUBJECT_MISMATCH',
       message: 'Requested user does not match authenticated user',
     });
+    expect(
+      response.body.paths['/v1/credits/balance'].get.responses['200'].content[
+        'application/json'
+      ].example,
+    ).toEqual({ userId: 7, creditBalance: 100, reservedBalance: 0 });
+    expect(
+      response.body.paths['/v1/credits/sufficiency'].post.requestBody.content[
+        'application/json'
+      ].examples,
+    ).toMatchObject({
+      sufficient: { value: { userId: 7, amount: 50 } },
+      insufficient: { value: { userId: 7, amount: 150 } },
+    });
+    expect(response.body.tags).toContainEqual(
+      expect.objectContaining({ name: 'credits' }),
+    );
   });
 });
