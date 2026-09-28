@@ -475,6 +475,7 @@ Branches are few and large: one per area, each merged into `supplier-service` by
 ```sh
 cp supplier-service/secrets/supplier_db_password.secret.example \
    supplier-service/secrets/supplier_db_password.secret   # then set a password
+cp supplier-service/.env.example supplier-service/.env      # loaded by compose.yaml
 docker compose up
 ```
 
