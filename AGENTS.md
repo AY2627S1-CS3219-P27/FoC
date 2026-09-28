@@ -1,6 +1,6 @@
 # FoC (Friend on Campus)
 
-Peer-to-peer campus errand platform: four microservices (`user-service`, `supplier-service`, `order-service`, `credit-service`), one top-level folder each, wired by `compose.yaml`. Glossary: `CONTEXT.md`. Every env var a service reads must appear in `.env.example`.
+Peer-to-peer campus errand platform: four microservices (`user-service`, `supplier-service`, `order-service`, `credit-service`), one top-level folder each, wired by `compose.yaml`. Glossary: `CONTEXT.md`. Every env var a service reads must appear in that service's `env/<service>.env.example` (shared ones in `env/shared.env.example`).
 
 ## Conventions
 

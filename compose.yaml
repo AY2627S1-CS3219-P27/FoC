@@ -1,8 +1,24 @@
 include:
   - path: user-service/compose.yml
+    env_file:
+      - env/shared.env
+      - env/user-service.env
   - path: email-service/compose.yml
+    env_file:
+      - env/shared.env
+      - env/email-service.env
+  - path: frontend/compose.yml
+    env_file:
+      - env/shared.env
+      - env/frontend.env
   - path: order-service/compose.yml
+    env_file:
+      - env/shared.env
+      - env/order-service.env
   - path: credit-service/compose.yml
+    env_file:
+      - env/shared.env
+      - env/credit-service.env
 
 services:
   rabbitmq:
@@ -34,6 +50,8 @@ services:
       rabbitmq:
         condition: service_healthy
       redis:
+        condition: service_started
+      papercut: # dev-only SMTP sink; prod points SMTP_* at a real provider
         condition: service_started
 
   user-service:

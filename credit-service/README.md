@@ -39,6 +39,12 @@ repository root; service-local Compose profiles are reserved for tests.
 
 ## Local setup
 
+The app + DB config for the root-orchestrated stack lives in
+[`../env/credit-service.env.example`](../env/credit-service.env.example) (see
+`../env/README.md`) — copy it along with the repo's other root env files.
+This service's own [.env.example](./.env.example) only covers the
+test/recovery Compose profiles below, which run standalone.
+
 Create the service-local environment and secret files:
 
 ```powershell
@@ -50,8 +56,7 @@ Copy-Item secrets/rabbitmq_password.secret.example secrets/rabbitmq_password.sec
 Replace both example secrets. Generate the RabbitMQ password hash with
 `rabbitmqctl hash_password`, then update only the `credit-service` hash in the
 root broker definitions so it matches the ignored secret. Never commit the
-actual password. Every variable read by the service is documented in
-[.env.example](./.env.example).
+actual password.
 
 Install the locked dependencies:
 

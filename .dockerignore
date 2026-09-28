@@ -4,6 +4,7 @@
 **/.git
 **/.gitignore
 **/.env
+env
 **/.env.*
 !**/.env.example
 **/secrets

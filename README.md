@@ -61,10 +61,17 @@ containers. A fresh checkout requires the initialization steps below first.
 
 ### First-time set-up
 
-The project requires several environment variables, explained in each module's
-`.env.example` file. In addition, there are some `.secret` files that should be
-created in order to set-up passwords and authentication. View them in the
-compose files.
+Environment variables live in the root `env/` folder: one `shared.env` plus
+one `<service>.env` per service. Create them all with:
+
+```sh
+for f in env/*.env.example; do cp "$f" "${f%.example}"; done
+```
+
+`compose.yaml` loads `shared.env` and the matching service file for each
+included service; see `env/README.md`. In addition, there are some `.secret`
+files that should be created in order to set-up passwords and authentication.
+View them in the compose files.
 
 Credit Service deliberately disables TypeORM schema synchronization and does
 not run migrations during application startup. Initialize its database before
@@ -85,11 +92,12 @@ for its service-specific workflow and verification commands.
 
 ### RabbitMQ set-up
 
-RabbitMQ uses one user per service. Each ignored `rabbitmq_password.secret`
-must match that user's salted hash in `rabbitmq/definitions.json`; plaintext
-passwords must not be committed or placed in service environment variables.
-Generate a strong password locally, save it in the service's secret file, and
-generate its definition hash with:
+Notably, RabbitMQ requires a password hash in its `definitions.json` for setup.
+There already is a password hash defined in them - these should directly
+correspond with the `rabbitmq_<service>_password.secret` files that modules have (e.g. `rabbitmq_user_password.secret`, `rabbitmq_email_password.secret`). You may
+either match the password with the one in the hash (ask a dev), or create your
+own secret and overwrite the one in `definitions.json`. You may create a hash by
+running the following, assuming `rabbitmq_temp` is a running rabbitmq container:
 
 ```sh
 docker exec rabbitmq_temp rabbitmqctl hash_password {YOUR PASSWORD HERE}
