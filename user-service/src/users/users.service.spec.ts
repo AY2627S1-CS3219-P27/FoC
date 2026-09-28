@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { UnauthorizedException } from '@nestjs/common';
-import { EntityNotFoundError, QueryFailedError } from 'typeorm';
+import { ArrayContains, EntityNotFoundError, QueryFailedError } from 'typeorm';
 import { hashValue } from '../common/hash/hash.js';
 import { Role } from '@foc/contracts';
 import { User } from './user.entity.js';
@@ -20,6 +20,7 @@ describe('UsersService', () => {
     findOneBy: ReturnType<typeof vi.fn>;
     findOneByOrFail: ReturnType<typeof vi.fn>;
     exists: ReturnType<typeof vi.fn>;
+    findAndCount: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(async () => {
@@ -30,6 +31,7 @@ describe('UsersService', () => {
       findOneBy: vi.fn(),
       findOneByOrFail: vi.fn(),
       exists: vi.fn(async () => false),
+      findAndCount: vi.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -377,6 +379,98 @@ describe('UsersService', () => {
 
       await expect(service.updateRoles(7, [Role.Requester])).rejects.toThrow(
         'db down',
+      );
+    });
+  });
+
+  describe('listUsers', () => {
+    it('lists the whole directory in a stable order with the paged window', async () => {
+      userRepository.findAndCount.mockResolvedValue([
+        [{ id: 1 }, { id: 2 }],
+        42,
+      ]);
+
+      await expect(
+        service.listUsers({ offset: 0, limit: 25 }),
+      ).resolves.toEqual({
+        users: [{ id: 1 }, { id: 2 }],
+        total: 42,
+        offset: 0,
+        limit: 25,
+      });
+
+      // Unfiltered: empty where, N3.1.2 default window, deterministic
+      // ordering for stable pagination across pages.
+      expect(userRepository.findAndCount).toHaveBeenCalledWith({
+        where: {},
+        skip: 0,
+        take: 25,
+        order: { id: 'ASC' },
+      });
+    });
+
+    it('filters by a participant role via array containment (F10.3)', async () => {
+      userRepository.findAndCount.mockResolvedValue([[], 0]);
+
+      await service.listUsers({ role: Role.Requester, offset: 5, limit: 10 });
+
+      expect(userRepository.findAndCount).toHaveBeenCalledWith({
+        where: { roles: ArrayContains([Role.Requester]) },
+        skip: 5,
+        take: 10,
+        order: { id: 'ASC' },
+      });
+    });
+
+    it('combines the admin-only account flags when supplied (F10.4)', async () => {
+      userRepository.findAndCount.mockResolvedValue([[], 0]);
+
+      await service.listUsers({
+        isAdmin: true,
+        isLocked: false,
+        isArchived: true,
+        offset: 0,
+        limit: 1,
+      });
+
+      expect(userRepository.findAndCount).toHaveBeenCalledWith({
+        where: { isAdmin: true, isLocked: false, isArchived: true },
+        skip: 0,
+        take: 1,
+        order: { id: 'ASC' },
+      });
+    });
+
+    it('clamps a requested limit to the 1000 hard ceiling (N3.1.1)', async () => {
+      userRepository.findAndCount.mockResolvedValue([[], 0]);
+
+      const result = await service.listUsers({ offset: 0, limit: 5000 });
+
+      expect(result.limit).toBe(1000);
+      expect(userRepository.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({ take: 1000 }),
+      );
+    });
+
+    it('floors a negative offset to the first page', async () => {
+      userRepository.findAndCount.mockResolvedValue([[], 0]);
+
+      const result = await service.listUsers({ offset: -5, limit: 1 });
+
+      expect(result.offset).toBe(0);
+      expect(userRepository.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({ skip: 0 }),
+      );
+    });
+
+    it('raises a sub-minimum limit to one row', async () => {
+      userRepository.findAndCount.mockResolvedValue([[], 0]);
+
+      const result = await service.listUsers({ offset: 0, limit: 0 });
+
+      expect(result.limit).toBe(1);
+      expect(userRepository.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({ take: 1 }),
       );
     });
   });
