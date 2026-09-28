@@ -51,6 +51,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      papercut: # dev-only SMTP sink; prod points SMTP_* at a real provider
+        condition: service_started
 
   user-service:
     depends_on:
