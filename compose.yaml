@@ -1,10 +1,24 @@
 include:
   - path: user-service/compose.yml
-    env_file: .env
+    env_file:
+      - env/shared.env
+      - env/user-service.env
   - path: email-service/compose.yml
-    env_file: .env
+    env_file:
+      - env/shared.env
+      - env/email-service.env
   - path: frontend/compose.yml
-    env_file: .env
+    env_file:
+      - env/shared.env
+      - env/frontend.env
+  - path: order-service/compose.yml
+    env_file:
+      - env/shared.env
+      - env/order-service.env
+  - path: credit-service/compose.yml
+    env_file:
+      - env/shared.env
+      - env/credit-service.env
 
 services:
   rabbitmq:

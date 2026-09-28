@@ -44,6 +44,7 @@ coverage
 .env.test.local
 .env.production.local
 .env.local
+env/*.env
 
 # Docker secrests
 *.secret
@@ -58,6 +59,7 @@ pids
 *.seed
 *.pid.lock
 
+#Next files
 .next
 
 # Diagnostic reports (https://nodejs.org/api/report.html)

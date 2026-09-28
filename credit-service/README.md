@@ -27,11 +27,35 @@
 
 ## Project setup
 
-```bash
-$ npm install
+## Prerequisites
+
+- Node.js 22
+- npm 11.18.0
+- Docker with Docker Compose
+
+Run npm commands in `credit-service`. Run the normal application stack from the
+repository root; service-local Compose profiles are reserved for tests.
+
+## Local setup
+
+The app + DB config for the root-orchestrated stack lives in
+[`../env/credit-service.env.example`](../env/credit-service.env.example) (see
+`../env/README.md`) — copy it along with the repo's other root env files.
+This service's own [.env.example](./.env.example) only covers the
+test/recovery Compose profiles below, which run standalone.
+
+Create the service-local environment and secret files:
+
+```powershell
+Copy-Item .env.example .env
+Copy-Item secrets/credit_db_password.secret.example secrets/credit_db_password.secret
+Copy-Item secrets/rabbitmq_password.secret.example secrets/rabbitmq_password.secret
 ```
 
-## Compile and run the project
+Replace both example secrets. Generate the RabbitMQ password hash with
+`rabbitmqctl hash_password`, then update only the `credit-service` hash in the
+root broker definitions so it matches the ignored secret. Never commit the
+actual password.
 
 ```bash
 # development

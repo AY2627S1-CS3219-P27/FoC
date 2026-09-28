@@ -59,10 +59,17 @@ The watch flag allows for your changes to be updated in the image.
 
 ### First-time set-up
 
-All environment variables live in one root `.env` (`cp .env.example .env`);
-there are no per-service `.env` files. In addition, there are some `.secret` files that should be
-created in order to set-up passwords and authentication. View them in the
-compose files.
+Environment variables live in the root `env/` folder: one `shared.env` plus
+one `<service>.env` per service. Create them all with:
+
+```sh
+for f in env/*.env.example; do cp "$f" "${f%.example}"; done
+```
+
+`compose.yaml` loads `shared.env` and the matching service file for each
+included service; see `env/README.md`. In addition, there are some `.secret`
+files that should be created in order to set-up passwords and authentication.
+View them in the compose files.
 
 ### RabbitMQ set-up
 
