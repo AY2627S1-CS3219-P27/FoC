@@ -2,11 +2,10 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { FocAuthModule } from '@foc/auth';
 import { AccountInitializationModule } from './account-initialization/account-initialization.module.js';
-import { AppController } from './app.controller.js';
-import { AppService } from './app.service.js';
 import { AuthKeyModule } from './auth/auth-key.module.js';
 import { AuthKeyService } from './auth/auth-key.service.js';
 import { environmentSchema } from './config/environment.js';
+import { CreditsModule } from './credits/credits.module.js';
 import { OutboxModule } from './outbox/outbox.module.js';
 
 @Module({
@@ -25,9 +24,8 @@ import { OutboxModule } from './outbox/outbox.module.js';
       }),
     }),
     AccountInitializationModule,
+    CreditsModule,
     OutboxModule,
   ],
-  controllers: [AppController],
-  providers: [AppService],
 })
 export class AppModule {}

@@ -80,9 +80,9 @@ Applying migrations before starting the application prevents consumers and the
 outbox relay from accessing an empty schema. TypeORM schema synchronization is
 intentionally disabled.
 
-The temporary HTTP root endpoint is available at
-`http://localhost:3003/` by default. Follow the service logs or stop the stack
-with:
+Swagger UI is available at `http://localhost:3003/docs` and the generated
+OpenAPI document at `http://localhost:3003/docs-json` by default. Follow the
+service logs or stop the stack with:
 
 ```powershell
 docker compose logs -f credit-service

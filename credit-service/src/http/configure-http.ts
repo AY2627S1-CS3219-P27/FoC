@@ -1,20 +1,48 @@
-import { ValidationPipe } from '@nestjs/common';
+import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import type { INestApplication } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import type { ValidationError } from 'class-validator';
 import cookieParser from 'cookie-parser';
+import { InvalidAccessTokenFilter } from './invalid-access-token.filter.js';
 
 export const OPENAPI_DOCUMENT_PATH = '/docs-json';
 export const SWAGGER_UI_PATH = '/docs';
 export const BEARER_SECURITY_SCHEME = 'bearer';
 export const ACCESS_TOKEN_COOKIE_SECURITY_SCHEME = 'access_token';
 
+interface ValidationReason {
+  field: string;
+  reason: string;
+}
+
+function validationReasons(
+  errors: ValidationError[],
+  parent = '',
+): ValidationReason[] {
+  return errors.flatMap((error) => {
+    const field = parent ? `${parent}.${error.property}` : error.property;
+    const reasons = Object.values(error.constraints ?? {}).map((reason) => ({
+      field,
+      reason,
+    }));
+    return [...reasons, ...validationReasons(error.children ?? [], field)];
+  });
+}
+
 export function configureHttp(app: INestApplication): void {
   app.use(cookieParser());
+  app.useGlobalFilters(new InvalidAccessTokenFilter());
   app.useGlobalPipes(
     new ValidationPipe({
       transform: true,
       whitelist: true,
       forbidNonWhitelisted: true,
+      exceptionFactory: (errors) =>
+        new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: 'Request validation failed',
+          reasons: validationReasons(errors),
+        }),
     }),
   );
 

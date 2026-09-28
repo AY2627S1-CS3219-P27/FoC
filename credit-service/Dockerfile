@@ -64,8 +64,8 @@ USER node
 # Expose the application port
 EXPOSE 3000
 
-# Check the temporary root endpoint until a dedicated health route is added
+# Check the public OpenAPI document until a dedicated health route is added
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider "http://127.0.0.1:${PORT:-3000}/" || exit 1
+  CMD wget --no-verbose --tries=1 --spider "http://127.0.0.1:${PORT:-3000}/docs-json" || exit 1
 
 CMD ["npm", "run", "start:prod"]

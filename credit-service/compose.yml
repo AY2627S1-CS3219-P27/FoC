@@ -51,7 +51,7 @@ services:
       test:
         [
           'CMD-SHELL',
-          'wget --no-verbose --tries=1 --spider "http://127.0.0.1:$${PORT:-3000}/"',
+          'wget --no-verbose --tries=1 --spider "http://127.0.0.1:$${PORT:-3000}/docs-json"',
         ]
       interval: 10s
       timeout: 3s

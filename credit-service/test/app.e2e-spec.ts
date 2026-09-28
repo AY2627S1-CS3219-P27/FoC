@@ -7,6 +7,7 @@ import { RabbitMqConsumerTransport } from './../src/messaging/rabbitmq-consumer.
 import { RABBITMQ_CONNECTION_URL } from './../src/messaging/rabbitmq-connection-url.provider.js';
 import { OutboxRelay } from './../src/outbox/outbox.relay.js';
 import { AuthKeyService } from './../src/auth/auth-key.service.js';
+import { configureHttp } from './../src/http/configure-http.js';
 
 const { publicKey } = generateKeyPairSync('rsa', {
   modulusLength: 2048,
@@ -14,7 +15,7 @@ const { publicKey } = generateKeyPairSync('rsa', {
   privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
 });
 
-describe('AppController (e2e)', () => {
+describe('Credit Service (e2e)', () => {
   let app: INestApplication;
 
   beforeEach(async () => {
@@ -34,14 +35,18 @@ describe('AppController (e2e)', () => {
       .compile();
 
     app = moduleFixture.createNestApplication();
+    configureHttp(app);
     await app.init();
   });
 
-  it('/ (GET)', () => {
+  it('/docs-json (GET)', () => {
     return request(app.getHttpServer())
-      .get('/')
+      .get('/docs-json')
       .expect(200)
-      .expect('Hello World!');
+      .expect(({ body }) => {
+        expect(body.paths['/v1/credits/balance']).toBeDefined();
+        expect(body.paths['/v1/credits/sufficiency']).toBeDefined();
+      });
   });
 
   afterEach(async () => {

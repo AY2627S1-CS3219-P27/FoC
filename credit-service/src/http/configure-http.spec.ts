@@ -79,9 +79,16 @@ describe('configureHttp', () => {
       .send({ label: 'credits', amount: 5, unexpected: true })
       .expect(400);
 
-    expect(response.body.message).toContain(
-      'property unexpected should not exist',
-    );
+    expect(response.body).toMatchObject({
+      code: 'VALIDATION_ERROR',
+      message: 'Request validation failed',
+      reasons: [
+        {
+          field: 'unexpected',
+          reason: 'property unexpected should not exist',
+        },
+      ],
+    });
   });
 
   it('serves Swagger UI and the OpenAPI document', async () => {
