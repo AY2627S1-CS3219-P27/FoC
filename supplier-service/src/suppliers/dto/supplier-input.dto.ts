@@ -5,6 +5,7 @@ import {
   IsArray,
   IsDefined,
   IsEnum,
+  IsObject,
   IsNumber,
   IsOptional,
   IsString,
@@ -27,6 +28,21 @@ const trim = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim() : value;
 
 const FINITE = { allowNaN: false, allowInfinity: false } as const;
+
+/**
+ * UUIDs are case-insensitive, but PostgreSQL returns them lower-case, so ids
+ * are lower-cased on the way in. Duplicates and lookups then compare equal.
+ */
+const lowerCaseIds = ({ value }: { value: unknown }) => {
+  if (typeof value === 'string') {
+    return value.toLowerCase();
+  }
+  return Array.isArray(value)
+    ? value.map((item) =>
+        typeof item === 'string' ? item.toLowerCase() : item,
+      )
+    : value;
+};
 
 export class CoordinatesDto {
   @IsNumber(FINITE, { message: 'latitude must be a number' })
@@ -59,12 +75,14 @@ export class SupplierInputDto {
   })
   kind: SupplierKind;
 
+  @Transform(lowerCaseIds)
   @IsArray()
   @ArrayMinSize(1, { message: 'at least one category is required' })
   @ArrayUnique({ message: 'categoryIds must not contain duplicates' })
   @IsUUID('all', { each: true, message: 'each category id must be a UUID' })
   categoryIds: string[];
 
+  @Transform(lowerCaseIds)
   @IsUUID('all', { message: 'buildingId must be a UUID' })
   buildingId: string;
 
@@ -83,6 +101,11 @@ export class SupplierInputDto {
   locationDescription: string;
 
   @IsDefined({ message: 'coordinates are required' })
+  // ValidateNested checks each element of an array, so a list (even an empty
+  // one) would otherwise pass: coordinates must be one object.
+  @IsObject({
+    message: 'coordinates must be an object with latitude and longitude',
+  })
   @ValidateNested()
   @Type(() => CoordinatesDto)
   coordinates: CoordinatesDto;
