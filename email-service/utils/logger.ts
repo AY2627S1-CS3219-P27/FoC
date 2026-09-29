@@ -1,5 +1,5 @@
 import { pino } from 'pino';
-import { envs } from './validator.ts';
+import { envs } from './envs.ts';
 
 // zod already guarantees LOG_LEVEL is a supported pino value
 export const logger = pino({
