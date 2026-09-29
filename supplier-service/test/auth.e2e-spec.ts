@@ -209,7 +209,25 @@ describe('authentication and roles (e2e)', () => {
 
   it('leaves no route open without a token except /health (F13.2)', async () => {
     const routes = registeredRoutes(app);
-    expect(routes).toContainEqual({ method: 'post', path: '/categories' });
+    expect(routes).toEqual(
+      expect.arrayContaining([
+        { method: 'post', path: '/categories' },
+        { method: 'get', path: '/suppliers' },
+        { method: 'get', path: '/suppliers/:id' },
+        { method: 'get', path: '/buildings' },
+        { method: 'post', path: '/suppliers' },
+        { method: 'patch', path: '/suppliers/:id' },
+        { method: 'put', path: '/suppliers/:id/status' },
+        { method: 'post', path: '/supplier-requests/creations' },
+        { method: 'post', path: '/supplier-requests/updates' },
+        { method: 'get', path: '/supplier-requests' },
+        { method: 'get', path: '/supplier-requests/mine' },
+        { method: 'get', path: '/supplier-requests/:id' },
+        { method: 'post', path: '/supplier-requests/:id/withdraw' },
+        { method: 'post', path: '/supplier-requests/:id/approve' },
+        { method: 'post', path: '/supplier-requests/:id/deny' },
+      ]),
+    );
 
     const open: string[] = [];
     for (const { method, path } of routes) {

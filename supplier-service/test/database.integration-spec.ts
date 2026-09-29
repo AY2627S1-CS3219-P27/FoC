@@ -60,7 +60,7 @@ describe('supplier schema (real PostgreSQL)', () => {
 
   beforeEach(async () => {
     await dataSource.query(`
-      TRUNCATE supplier_categories, suppliers, categories,
+      TRUNCATE supplier_requests, supplier_categories, suppliers, categories,
                building_name_keys, buildings
     `);
   });

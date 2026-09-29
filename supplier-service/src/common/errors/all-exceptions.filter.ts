@@ -132,6 +132,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       code?: unknown;
       violations?: unknown;
       retryable?: unknown;
+      currentVersion?: unknown;
     } = typeof raw === 'object' && raw !== null ? raw : { message: raw };
 
     const message = Array.isArray(details.message)
@@ -148,9 +149,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
         typeof details.code === 'string'
           ? details.code
           : (DEFAULT_CODES[statusCode] ??
-            (statusCode >= 500 ? ErrorCode.InternalError : ErrorCode.BadRequest)),
+            (statusCode >= 500
+              ? ErrorCode.InternalError
+              : ErrorCode.BadRequest)),
     };
 
+    if (typeof details.currentVersion === 'number') {
+      body.currentVersion = details.currentVersion;
+    }
     if (Array.isArray(details.violations)) {
       body.violations = details.violations as FieldViolation[];
     }

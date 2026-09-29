@@ -1,0 +1,2095 @@
+{
+  "info": {
+    "_postman_id": "6f7a2b8e-1c3d-4e5f-9a0b-1c2d3e4f5a6b",
+    "name": "FoC Supplier Service (D2)",
+    "description": "The Supplier Service D2 demo: query patterns, denied requests, and CRUD through the API alone. Import together with local.postman_environment.json; see api/README.md.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "0 Setup (log in)",
+      "description": "Log in once as each demo user. Their tokens are stored in the environment (basicToken, adminToken) and sent as Authorization: Bearer by every Supplier Service request, so both users can be used side by side. Alternatively, paste tokens into the environment by hand.",
+      "item": [
+        {
+          "name": "Log in as basic user",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{userServiceUrl}}/auth/login",
+            "description": "Logs in at user-service and saves the access token as {{basicToken}}. The token arrives only as the httpOnly access_token cookie.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{basicEmail}}\",\n  \"password\": \"{{basicPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('logged in', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                  "const token = pm.cookies.get('access_token');",
+                  "pm.test('access_token cookie received', () => pm.expect(token).to.be.a('string').and.not.empty);",
+                  "pm.environment.set('basicToken', token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Log in as admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{userServiceUrl}}/auth/login",
+            "description": "Logs in at user-service and saves the access token as {{adminToken}}. The token arrives only as the httpOnly access_token cookie.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('logged in', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                  "const token = pm.cookies.get('access_token');",
+                  "pm.test('access_token cookie received', () => pm.expect(token).to.be.a('string').and.not.empty);",
+                  "pm.environment.set('adminToken', token);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1 Query patterns (D2 point 2)",
+      "description": "Any logged-in user may read (F13.3). Run as the basic user.",
+      "item": [
+        {
+          "name": "List buildings",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/buildings",
+            "description": "In-use buildings with names and coordinates (F4.4). Saves PGP and COM3 ids for later requests."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const buildings = pm.response.json();",
+                  "const pgp = buildings.find((b) => b.shortName === 'PGP');",
+                  "const com3 = buildings.find((b) => b.shortName === 'COM3');",
+                  "pm.test('seed buildings present', () => { pm.expect(pgp).to.be.ok; pm.expect(com3).to.be.ok; });",
+                  "pm.environment.set('pgpBuildingId', pgp.id);",
+                  "pm.environment.set('com3BuildingId', com3.id);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "List categories",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/categories",
+            "description": "In-use categories (F11.4). Saves the Food and Coffee ids."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const categories = pm.response.json();",
+                  "const food = categories.find((c) => c.name === 'Food');",
+                  "const coffee = categories.find((c) => c.name === 'Coffee');",
+                  "pm.test('seed categories present', () => { pm.expect(food).to.be.ok; pm.expect(coffee).to.be.ok; });",
+                  "pm.environment.set('foodCategoryId', food.id);",
+                  "pm.environment.set('coffeeCategoryId', coffee.id);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "List suppliers (first page, default sort)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers",
+            "description": "Paginated listing, sorted by display name then id (F5.1-F5.3, N3.1). Saves the first supplier's id."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const page = pm.response.json();",
+                  "pm.test('pagination metadata (N3.1.3)', () => { pm.expect(page).to.include.keys('items', 'total', 'offset', 'limit', 'hasMore'); pm.expect(page.offset).to.eql(0); pm.expect(page.limit).to.eql(25); });",
+                  "pm.test('items carry a display name', () => pm.expect(page.items[0].displayName).to.include(' @ '));",
+                  "pm.environment.set('firstSupplierId', page.items[0].id);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Search by name",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers?name=cafe",
+            "description": "Case-insensitive partial name match (F5.4.1)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('every result contains \"cafe\"', () => pm.response.json().items.forEach((s) => pm.expect(s.name.toLowerCase()).to.include('cafe')));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "By location (building)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers?buildingId={{pgpBuildingId}}",
+            "description": "Suppliers in a building: 'finding suppliers by location' (F5.4.3)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('all in PGP', () => pm.response.json().items.forEach((s) => pm.expect(s.building.shortName).to.eql('PGP')));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "By category",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers?categoryId={{coffeeCategoryId}}",
+            "description": "Suppliers with any of the given categories (F5.4.2)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('all have Coffee', () => pm.response.json().items.forEach((s) => pm.expect(s.categories.map((c) => c.name)).to.include('Coffee')));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Combined filters, sorted",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers?categoryId={{coffeeCategoryId}}&status=Active&sort=building&order=desc",
+            "description": "Filters combine with AND (F5.5); caller-chosen sort, id as final tie-breaker (F5.3.1)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const names = pm.response.json().items.map((s) => s.building.shortName.toLowerCase());",
+                  "pm.test('sorted by building, descending', () => pm.expect(names).to.eql([...names].sort().reverse()));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Next page",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers?offset=5&limit=5",
+            "description": "Offset/limit paging (F5.2, N3.1)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const page = pm.response.json();",
+                  "pm.test('page of 5 from offset 5', () => { pm.expect(page.offset).to.eql(5); pm.expect(page.items.length).to.be.at.most(5); });"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "View one supplier",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{firstSupplierId}}",
+            "description": "All fields including version; the version is also the ETag (F5.9, F15.1)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test('ETag carries the version', () => pm.expect(pm.response.headers.get('ETag')).to.eql(`\"${s.version}\"`));",
+                  "pm.test('full details', () => pm.expect(s).to.include.keys('coordinates', 'locationDescription', 'version', 'createdAt', 'updatedAt'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Unknown supplier (404)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/00000000-0000-4000-8000-000000000000",
+            "description": "A distinct not-found response (F5.9.1)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 404', () => pm.response.to.have.status(404));",
+                  "pm.test('code SUPPLIER_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('SUPPLIER_NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Bad query parameters (400)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers?limit=5000&colour=red",
+            "description": "Unknown and malformed parameters are rejected, all listed at once (F5.8, N8.4.1)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('code VALIDATION_FAILED', () => pm.expect(pm.response.json().code).to.eql('VALIDATION_FAILED'));",
+                  "const fields = pm.response.json().violations.map((v) => v.field);",
+                  "pm.test('both problems listed', () => pm.expect(fields).to.include.members(['limit', 'colour']));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "2 Denied requests (D2 points 2 and 4)",
+      "description": "How denied requests are answered: no token → 401 (F13.2); a basic user on an admin action → 403, and nothing is changed (F13.5).",
+      "item": [
+        {
+          "name": "No login (401)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{supplierServiceUrl}}/suppliers"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "pm.test('code UNAUTHENTICATED', () => pm.expect(pm.response.json().code).to.eql('UNAUTHENTICATED'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Basic user creates a supplier (403)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Not Allowed\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 403', () => pm.response.to.have.status(403));",
+                  "pm.test('code FORBIDDEN', () => pm.expect(pm.response.json().code).to.eql('FORBIDDEN'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Basic user edits a supplier (403)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "If-Match",
+                "value": "\"1\""
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{firstSupplierId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"floor\": \"2\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 403', () => pm.response.to.have.status(403));",
+                  "pm.test('code FORBIDDEN', () => pm.expect(pm.response.json().code).to.eql('FORBIDDEN'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Basic user deactivates a supplier (403)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "If-Match",
+                "value": "\"1\""
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{firstSupplierId}}/status",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Inactive\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 403', () => pm.response.to.have.status(403));",
+                  "pm.test('code FORBIDDEN', () => pm.expect(pm.response.json().code).to.eql('FORBIDDEN'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Basic user creates a category (403)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/categories",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Not Allowed\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 403', () => pm.response.to.have.status(403));",
+                  "pm.test('code FORBIDDEN', () => pm.expect(pm.response.json().code).to.eql('FORBIDDEN'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "3 CRUD as admin (D2 point 3)",
+      "description": "Create, read, update and 'delete' (= set Inactive) through the API alone. Each run uses a fresh supplier name, so the folder can be re-run.",
+      "item": [
+        {
+          "name": "Create a supplier (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers",
+            "description": "Admin-only direct create (F7.5): Active, version 1, with Location and ETag headers.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{demoName}}\",\n  \"kind\": \"Store\",\n  \"categoryIds\": [\n    \"{{foodCategoryId}}\"\n  ],\n  \"buildingId\": \"{{com3BuildingId}}\",\n  \"floor\": \"2\",\n  \"locationDescription\": \"Next to the lift\",\n  \"coordinates\": {\n    \"latitude\": 1.2944,\n    \"longitude\": 103.7726\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('demoName', `Demo Stall ${Date.now()}`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const s = pm.response.json();",
+                  "pm.test('Active at version 1', () => { pm.expect(s.status).to.eql('Active'); pm.expect(s.version).to.eql(1); });",
+                  "pm.test('Location header', () => pm.expect(pm.response.headers.get('Location')).to.eql(`/suppliers/${s.id}`));",
+                  "pm.environment.set('supplierId', s.id);",
+                  "pm.environment.set('supplierEtag', pm.response.headers.get('ETag'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Create the same supplier again (409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers",
+            "description": "Same name, building and floor: rejected by the database's unique constraint (F1.5, F1.5.2).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{demoName}}\",\n  \"kind\": \"Store\",\n  \"categoryIds\": [\n    \"{{foodCategoryId}}\"\n  ],\n  \"buildingId\": \"{{com3BuildingId}}\",\n  \"floor\": \"2\",\n  \"locationDescription\": \"Next to the lift\",\n  \"coordinates\": {\n    \"latitude\": 1.2944,\n    \"longitude\": 103.7726\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 409', () => pm.response.to.have.status(409));",
+                  "pm.test('code DUPLICATE_SUPPLIER', () => pm.expect(pm.response.json().code).to.eql('DUPLICATE_SUPPLIER'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Create with several problems (400, all listed)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers",
+            "description": "Field rules, unknown references and system-managed fields are all reported in one response (F1.6.1, F1.3.2).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{demoName}}\",\n  \"kind\": \"Store\",\n  \"categoryIds\": [\n    \"{{foodCategoryId}}\"\n  ],\n  \"buildingId\": \"00000000-0000-4000-8000-000000000000\",\n  \"floor\": \"Z\",\n  \"locationDescription\": \"Next to the lift\",\n  \"coordinates\": {\n    \"latitude\": 1.2944,\n    \"longitude\": 103.7726\n  },\n  \"version\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('code VALIDATION_FAILED', () => pm.expect(pm.response.json().code).to.eql('VALIDATION_FAILED'));",
+                  "const fields = pm.response.json().violations.map((v) => v.field);",
+                  "pm.test('every problem listed', () => pm.expect(fields).to.include.members(['floor', 'buildingId', 'version']));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Read it back",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{supplierId}}",
+            "description": "Any logged-in user can read it (F13.3)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('display name', () => pm.expect(pm.response.json().displayName).to.eql(`${pm.environment.get('demoName')} @ COM3`));",
+                  "pm.environment.set('supplierEtag', pm.response.headers.get('ETag'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Edit without If-Match (428)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{supplierId}}",
+            "description": "An edit must state the version it is based on (F14.3).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"locationDescription\": \"Opposite the lift\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 428', () => pm.response.to.have.status(428));",
+                  "pm.test('code PRECONDITION_REQUIRED', () => pm.expect(pm.response.json().code).to.eql('PRECONDITION_REQUIRED'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Edit with If-Match",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "If-Match",
+                "value": "{{supplierEtag}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{supplierId}}",
+            "description": "Direct admin update of some fields (F8.6); the version goes up by 1 (F1.3.1).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"locationDescription\": \"Opposite the lift\",\n  \"categoryIds\": [\n    \"{{foodCategoryId}}\",\n    \"{{coffeeCategoryId}}\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test('version 2', () => pm.expect(s.version).to.eql(2));",
+                  "pm.test('fields changed', () => { pm.expect(s.locationDescription).to.eql('Opposite the lift'); pm.expect(s.categories.map((c) => c.name)).to.have.members(['Coffee', 'Food']); });",
+                  "pm.environment.set('staleEtag', pm.environment.get('supplierEtag'));",
+                  "pm.environment.set('supplierEtag', pm.response.headers.get('ETag'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Edit with an out-of-date version (409)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "If-Match",
+                "value": "{{staleEtag}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{supplierId}}",
+            "description": "Someone else's change is not silently overwritten: conflict with the current version (F14.3.1).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"floor\": \"3\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 409', () => pm.response.to.have.status(409));",
+                  "pm.test('code VERSION_CONFLICT', () => pm.expect(pm.response.json().code).to.eql('VERSION_CONFLICT'));",
+                  "pm.test('current version included', () => pm.expect(pm.response.json().currentVersion).to.eql(2));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Deactivate (D2 'delete')",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "If-Match",
+                "value": "{{supplierEtag}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{supplierId}}/status",
+            "description": "Admin-only status change (F9.5). The supplier stays in the database, tagged Inactive; errands already created are unaffected (F9.6).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Inactive\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Inactive at version 3', () => { const s = pm.response.json(); pm.expect(s.status).to.eql('Inactive'); pm.expect(s.version).to.eql(3); });",
+                  "pm.environment.set('supplierEtag', pm.response.headers.get('ETag'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Deactivate again (409)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "If-Match",
+                "value": "{{supplierEtag}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{supplierId}}/status",
+            "description": "Only Active <-> Inactive is allowed (F9.2).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Inactive\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 409', () => pm.response.to.have.status(409));",
+                  "pm.test('code INVALID_STATUS_TRANSITION', () => pm.expect(pm.response.json().code).to.eql('INVALID_STATUS_TRANSITION'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Active list no longer shows it",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers?status=Active&name={{demoName}}",
+            "description": "Filtered by status Active (F5.4.5)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('not in the Active list', () => pm.expect(pm.response.json().total).to.eql(0));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Still readable, tagged Inactive",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{supplierId}}",
+            "description": "Inactive suppliers remain available in lookups (F5.7)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('tagged Inactive', () => pm.expect(pm.response.json().status).to.eql('Inactive'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "4 Supplier requests (D2 points 3 and 4)",
+      "description": "Moderated changes (F6, F7, F8): a basic user asks for a new supplier or an edit; an admin reviews, approves or denies; the user follows their own requests and may withdraw a pending one. Nothing changes until an admin approves.",
+      "item": [
+        {
+          "name": "Basic user asks to add a supplier (201, Pending)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/creations",
+            "description": "Any logged-in user may file a request (F7.1, F13.3). It is validated exactly like an admin's create; the supplier does not exist yet.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{requestedName}}\",\n  \"kind\": \"Store\",\n  \"categoryIds\": [\n    \"{{foodCategoryId}}\"\n  ],\n  \"buildingId\": \"{{com3BuildingId}}\",\n  \"floor\": \"3\",\n  \"locationDescription\": \"Beside the vending machines\",\n  \"coordinates\": {\n    \"latitude\": 1.2944,\n    \"longitude\": 103.7726\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('requestedName', `Requested Stall ${Date.now()}`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const r = pm.response.json();",
+                  "pm.test('Pending Create request', () => { pm.expect(r.type).to.eql('Create'); pm.expect(r.state).to.eql('Pending'); });",
+                  "pm.test('submitter taken from the token', () => pm.expect(r.submittedBy).to.be.a('string').and.not.empty);",
+                  "pm.environment.set('requestId', r.id);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Same request again (409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/creations",
+            "description": "An identical request is already Pending (F7.2), enforced by a partial unique index in the database.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{requestedName}}\",\n  \"kind\": \"Store\",\n  \"categoryIds\": [\n    \"{{foodCategoryId}}\"\n  ],\n  \"buildingId\": \"{{com3BuildingId}}\",\n  \"floor\": \"3\",\n  \"locationDescription\": \"Beside the vending machines\",\n  \"coordinates\": {\n    \"latitude\": 1.2944,\n    \"longitude\": 103.7726\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 409', () => pm.response.to.have.status(409));",
+                  "pm.test('code DUPLICATE_REQUEST', () => pm.expect(pm.response.json().code).to.eql('DUPLICATE_REQUEST'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Not listed until approved",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers?name={{requestedName}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('not listed yet', () => pm.expect(pm.response.json().total).to.eql(0));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Basic user lists requests (403)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests",
+            "description": "Reviewing requests is admin-only (F13.4)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 403', () => pm.response.to.have.status(403));",
+                  "pm.test('code FORBIDDEN', () => pm.expect(pm.response.json().code).to.eql('FORBIDDEN'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Basic user approves own request (403)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/{{requestId}}/approve"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 403', () => pm.response.to.have.status(403));",
+                  "pm.test('code FORBIDDEN', () => pm.expect(pm.response.json().code).to.eql('FORBIDDEN'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Admin lists pending requests",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests?type=Create",
+            "description": "Pending requests, oldest first (F6.7)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const page = pm.response.json();",
+                  "pm.test('paged envelope', () => pm.expect(page).to.include.keys('items', 'total', 'offset', 'limit', 'hasMore'));",
+                  "pm.test('our request is pending', () => pm.expect(page.items.map((r) => r.id)).to.include(pm.environment.get('requestId')));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Admin approves (200, supplier created)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/{{requestId}}/approve",
+            "description": "Creates the supplier and records the approval in one transaction (F6.8). Duplicates are checked again at this moment (F7.3.1)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test('Approved, with who and when', () => { pm.expect(r.state).to.eql('Approved'); pm.expect(r.resolvedBy).to.be.ok; pm.expect(r.resolvedAt).to.be.ok; });",
+                  "pm.test('supplier created', () => pm.expect(r.createdSupplierId).to.be.a('string'));",
+                  "pm.environment.set('requestedSupplierId', r.createdSupplierId);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Approve again (409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/{{requestId}}/approve",
+            "description": "A request is resolved exactly once (F6.3)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 409', () => pm.response.to.have.status(409));",
+                  "pm.test('code REQUEST_ALREADY_RESOLVED', () => pm.expect(pm.response.json().code).to.eql('REQUEST_ALREADY_RESOLVED'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Now listed",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers?name={{requestedName}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const page = pm.response.json();",
+                  "pm.test('listed, Active', () => { pm.expect(page.total).to.eql(1); pm.expect(page.items[0].status).to.eql('Active'); });"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Read it (ETag for an edit)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{requestedSupplierId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.environment.set('requestedSupplierEtag', pm.response.headers.get('ETag'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Basic user asks to edit it (201, Pending)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "If-Match",
+                "value": "{{requestedSupplierEtag}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/updates",
+            "description": "Any logged-in user may propose an edit (F8.1), based on the version they saw (If-Match, as for an admin edit). Validated exactly like an admin PATCH.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"supplierId\": \"{{requestedSupplierId}}\",\n  \"changes\": {\n    \"locationDescription\": \"Beside the vending machines, level 3 lobby\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const r = pm.response.json();",
+                  "pm.test('Pending Update request on version 1', () => { pm.expect(r.type).to.eql('Update'); pm.expect(r.state).to.eql('Pending'); pm.expect(r.supplierVersion).to.eql(1); });",
+                  "pm.test('only the changed field is recorded', () => pm.expect(r.values).to.eql({ locationDescription: 'Beside the vending machines, level 3 lobby' }));",
+                  "pm.environment.set('editRequestId', r.id);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Edit request without If-Match (428)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/updates",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"supplierId\": \"{{requestedSupplierId}}\",\n  \"changes\": {\n    \"locationDescription\": \"Beside the vending machines, level 3 lobby\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 428', () => pm.response.to.have.status(428));",
+                  "pm.test('code PRECONDITION_REQUIRED', () => pm.expect(pm.response.json().code).to.eql('PRECONDITION_REQUIRED'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Second edit for the same supplier (409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "If-Match",
+                "value": "{{requestedSupplierEtag}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/updates",
+            "description": "A supplier has at most one pending edit (F8.3), enforced by a partial unique index.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"supplierId\": \"{{requestedSupplierId}}\",\n  \"changes\": {\n    \"floor\": \"4\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 409', () => pm.response.to.have.status(409));",
+                  "pm.test('code DUPLICATE_REQUEST', () => pm.expect(pm.response.json().code).to.eql('DUPLICATE_REQUEST'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Live supplier unchanged until approved",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{requestedSupplierId}}",
+            "description": "F8.2: the listing keeps returning the live record until an admin approves."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test('still version 1, old description', () => { pm.expect(s.version).to.eql(1); pm.expect(s.locationDescription).to.eql('Beside the vending machines'); });"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Admin approves the edit (200)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/{{editRequestId}}/approve",
+            "description": "Applies the changes through the same code as an admin PATCH (F8.4). Refused with 409 VERSION_CONFLICT if the supplier changed since the request was filed (F8.4.1)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Approved', () => pm.expect(pm.response.json().state).to.eql('Approved'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Edit applied, version 2",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{requestedSupplierId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test('new description at version 2', () => { pm.expect(s.version).to.eql(2); pm.expect(s.locationDescription).to.eql('Beside the vending machines, level 3 lobby'); });"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Basic user asks for another supplier",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/creations",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{deniedName}}\",\n  \"kind\": \"Store\",\n  \"categoryIds\": [\n    \"{{foodCategoryId}}\"\n  ],\n  \"buildingId\": \"{{com3BuildingId}}\",\n  \"floor\": \"4\",\n  \"locationDescription\": \"Beside the vending machines\",\n  \"coordinates\": {\n    \"latitude\": 1.2944,\n    \"longitude\": 103.7726\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('deniedName', `Doubtful Stall ${Date.now()}`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.environment.set('deniedRequestId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Deny without a reason (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/{{deniedRequestId}}/deny",
+            "description": "A denial needs a reason of 1-500 characters (F6.4).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"  \"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('code VALIDATION_FAILED', () => pm.expect(pm.response.json().code).to.eql('VALIDATION_FAILED'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Deny with a reason (200)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/{{deniedRequestId}}/deny",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Could not find it at COM3 level 4\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test('Denied, with the reason', () => { pm.expect(r.state).to.eql('Denied'); pm.expect(r.denialReason).to.eql('Could not find it at COM3 level 4'); pm.expect(r.createdSupplierId).to.eql(null); });"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Basic user lists own requests",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/mine?limit=50",
+            "description": "The caller's own requests of every type and state, newest first, paged (F6.5). Filter with ?state= and ?type=."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const page = pm.response.json();",
+                  "const byId = Object.fromEntries(page.items.map((r) => [r.id, r]));",
+                  "pm.test('newest first', () => { const t = page.items.map((r) => r.submittedAt); pm.expect(t).to.eql([...t].sort().reverse()); });",
+                  "pm.test('shows approved and denied requests', () => { pm.expect(byId[pm.environment.get('requestId')].state).to.eql('Approved'); pm.expect(byId[pm.environment.get('editRequestId')].state).to.eql('Approved'); });",
+                  "pm.test('includes the denial reason', () => pm.expect(byId[pm.environment.get('deniedRequestId')].denialReason).to.eql('Could not find it at COM3 level 4'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Basic user views the denied request",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/{{deniedRequestId}}",
+            "description": "One request, for its submitter or an admin. Anyone else gets 404, exactly as for an unknown id (F13.6)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Denied, with the reason', () => { const r = pm.response.json(); pm.expect(r.state).to.eql('Denied'); pm.expect(r.denialReason).to.be.a('string'); });"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Unknown request (404)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/00000000-0000-4000-8000-000000000000"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 404', () => pm.response.to.have.status(404));",
+                  "pm.test('code REQUEST_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('REQUEST_NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Basic user asks for a third supplier",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/creations",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{withdrawName}}\",\n  \"kind\": \"Store\",\n  \"categoryIds\": [\n    \"{{foodCategoryId}}\"\n  ],\n  \"buildingId\": \"{{com3BuildingId}}\",\n  \"floor\": \"5\",\n  \"locationDescription\": \"Beside the vending machines\",\n  \"coordinates\": {\n    \"latitude\": 1.2944,\n    \"longitude\": 103.7726\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('withdrawName', `Second Thoughts Stall ${Date.now()}`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.environment.set('withdrawRequestId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Admin withdraws someone else's request (404)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/{{withdrawRequestId}}/withdraw",
+            "description": "Only the submitter may withdraw. To anyone else the request does not exist (F13.6); an admin rejects a request by denying it."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 404', () => pm.response.to.have.status(404));",
+                  "pm.test('code REQUEST_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('REQUEST_NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Basic user withdraws it (200)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/{{withdrawRequestId}}/withdraw",
+            "description": "Withdraws the caller's own Pending request (F6.6). It leaves the admin queue, and the same request may be filed again."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Withdrawn', () => pm.expect(pm.response.json().state).to.eql('Withdrawn'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Withdraw again (409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/{{withdrawRequestId}}/withdraw"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 409', () => pm.response.to.have.status(409));",
+                  "pm.test('code REQUEST_ALREADY_RESOLVED', () => pm.expect(pm.response.json().code).to.eql('REQUEST_ALREADY_RESOLVED'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Tidy up: read the approved supplier",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{requestedSupplierId}}",
+            "description": "The last two requests deactivate the demo supplier, so re-runs don't fill the Active list."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.environment.set('requestedSupplierEtag', pm.response.headers.get('ETag'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Tidy up: deactivate it",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "If-Match",
+                "value": "{{requestedSupplierEtag}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{requestedSupplierId}}/status",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Inactive\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        }
+      ]
+    }
+  ]
+}

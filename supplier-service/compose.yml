@@ -32,6 +32,7 @@ services:
       SEED_ON_STARTUP: ${SUPPLIER_SEED_ON_STARTUP:-true}
       SEED_CSV_PATH: /seed-data/supplier-seed-data.csv
       JWT_PUBLIC_KEY_FILE: /run/secrets/supplier_jwt_public_key
+      PLACEHOLDER_IMAGE_URL: ${SUPPLIER_PLACEHOLDER_IMAGE_URL:-}
     volumes:
       # The template's seed file, read in place (never copied into the image).
       - ../data/csv:/seed-data:ro
