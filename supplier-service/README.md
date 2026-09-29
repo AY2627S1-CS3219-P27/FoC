@@ -214,7 +214,7 @@ Rules the database **can't** express are checked in the service, inside the same
 
 ## 4. D2 point 2: Query patterns and API
 
-Built so far: `GET /health`, `GET /categories`, `POST /categories` (step 2), `GET /suppliers`, `GET /suppliers/{id}`, `GET /buildings` (step 5), and `POST /suppliers`, `PATCH /suppliers/{id}`, `PUT /suppliers/{id}/status` (step 6) ✅. Category rename/retire and building management are planned for after D2.
+Built so far ✅: `GET /health`; `GET`/`POST /categories` (step 2); `GET /suppliers`, `GET /suppliers/{id}`, `GET /buildings` (step 5); `POST /suppliers`, `PATCH /suppliers/{id}`, `PUT /suppliers/{id}/status` (step 6); and the `/supplier-requests` endpoints for moderated changes (steps 8-10, 12; see [§6](#6-d2-point-3-crud-without-a-ui)). Category rename/retire, building management and status-change requests are planned for after D2.
 
 **How to call it:**
 
@@ -419,12 +419,14 @@ flowchart LR
         sc["SuppliersController<br/>GET · POST · PATCH · PUT status"]
         cc["CategoriesController<br/>GET · POST"]
         bc["BuildingsController<br/>GET"]
+        rc["SupplierRequestsController<br/>creations · updates · mine · get<br/>withdraw · queue · approve · deny"]
       end
       subgraph S["Services"]
         reads["SupplierQueriesService<br/>filters · sort · pages · lookup"]
         writes["SuppliersService<br/>rules · If-Match version · transactions"]
         cats["CategoriesService"]
         blds["BuildingsService<br/>name keys"]
+        reqs["SupplierRequestsService<br/>request states · row locks"]
       end
       seed["SupplierSeedService<br/>(startup, idempotent)"]
       filter["AllExceptionsFilter<br/>one error shape · 503 retryable"]
@@ -444,6 +446,8 @@ flowchart LR
     sc --> writes
     cc --> cats
     bc --> blds
+    rc --> reqs
+    reqs -- "approve = same create / update code" --> writes
     S --> orm --> db
     csv --> seed --> S
     order -. "validate supplier (later)" .-> mq -.-> SS
@@ -542,8 +546,9 @@ Branches are few and large: one per area, each merged into `supplier-service` by
 
 | Risk | Impact | Owner / action |
 |---|---|---|
-| **user-service tokens don't yet include `isAdmin` and `roles`.** Login (#594) signs only `{sub, displayName, email}`, but the shared contract requires `isAdmin` and `roles`. | Every real token fails the contract check, so every real login gets 401 at Supplier Service, and admins can't be told apart | user-service: finish `feature/user-svc/opt-in-roles` |
-| **The bootstrap admin can't log in.** It's created Locked with a random password, and login rejects Locked accounts. | No admin for the D2 demo | user-service: unlock / password-reset flow |
+| ~~user-service tokens lack `isAdmin` and `roles`~~ | ✅ Resolved by #600: login tokens carry `{sub, email, displayName, isAdmin, roles}` and pass the shared contract | none |
+| ~~The bootstrap admin can't log in~~ (created Locked, random password) | ✅ Resolved by #609: a password reset sets a new password **and unlocks** the account, so the bootstrap admin can be activated (see [`api/README.md`](api/README.md#demo-accounts)) | none |
+| ~~User ids change from numbers to UUIDs (#611)~~ | ✅ Done: tokens carry a UUID `sub`; request user-id columns migrated to `uuid` (`1790899200000-store-user-ids-as-uuid.ts`) | none |
 | Hard delete needs Order's "is this supplier used?" check and User's password re-entry proof | No hard delete for D2 (deactivate instead) | Order + User, later sprints |
 | The team hasn't decided on stale-claims handling | Explained as a trade-off in [§5](#5-d2-points-2-and-4-identity-and-roles-from-user-service) | Team decision |
 
@@ -551,7 +556,7 @@ Branches are few and large: one per area, each merged into `supplier-service` by
 
 ## 10. Running and testing
 
-**Run with the whole stack** (from the repo root):
+**Run with the whole stack** (always from the **repo root**: Compose names the project after the folder it runs in, so the containers are `foc-supplier-service-1` and `foc-supplier-db-1`, image `foc-supplier-service`. Running `docker compose` inside `supplier-service/` would start a separate project named `supplier-service`, with its own empty database):
 
 ```sh
 cp supplier-service/secrets/supplier_db_password.secret.example \

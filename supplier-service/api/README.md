@@ -9,7 +9,7 @@ The D2 demo as a runnable Postman collection: query patterns, denied requests, C
 
 ## Set up
 
-1. Start the stack from the repo root: `docker compose up` (see the main README for secrets and `.env` files). user-service must be running for the logins.
+1. Start the stack from the repo root: `docker compose up -d --build` (see the main README for secrets and `.env` files). user-service and the email service must be running for the logins and the account set-up.
 2. In VS Code, open the **Postman** extension, then **Import** both files.
 3. Select the environment **FoC Supplier Service (local)** and fill in `basicEmail`, `basicPassword`, `adminEmail` and `adminPassword` (see *Demo accounts*). Don't commit real passwords: they stay in your local Postman.
 
@@ -34,7 +34,7 @@ Run the folders in order, either one request at a time (for the live demo) or wi
 ## Demo accounts
 
 - **Basic user:** register through user-service (request an email code, read it in Papercut at `http://localhost:3050`, validate it, register), then use that email and password.
-- **Admin:** a user-service account with `isAdmin: true`. The bootstrap admin is created locked, so this depends on user-service's unlock or reset flow.
+- **Admin:** a user-service account with `isAdmin: true`. user-service creates the first one at startup from `ADMIN_BOOTSTRAP_EMAIL` and `ADMIN_BOOTSTRAP_DISPLAY_NAME` in `user-service/.env` (only when no admin exists yet). It starts **locked, with a random password**. To activate it, reset its password: `POST http://localhost:3000/password-reset/request` with `{"email": "<ADMIN_BOOTSTRAP_EMAIL>"}`, read the token in Papercut, then `POST http://localhost:3000/password-reset/confirm` with `{"token": "…", "password": "<12+ characters>"}`. The reset also unlocks the account (#609).
 
 ## Command line
 
