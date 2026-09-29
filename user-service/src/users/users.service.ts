@@ -1,6 +1,6 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import {
   ArrayContains,
   EntityNotFoundError,
@@ -91,6 +91,7 @@ export class UsersService {
         this.userRepository.create({
           email,
           displayName,
+          uuid: randomUUID(),
           passwordHash,
           passwordSalt,
           isArchived: false,

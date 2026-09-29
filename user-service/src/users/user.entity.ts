@@ -12,6 +12,9 @@ export class User {
   @PrimaryGeneratedColumn()
   id: number;
 
+  @Column({ type: 'uuid', unique: true, default: () => 'gen_random_uuid()' })
+  uuid: string;
+
   @Column({ length: 255, unique: true })
   email: string;
 

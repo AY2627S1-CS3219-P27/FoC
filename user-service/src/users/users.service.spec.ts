@@ -11,6 +11,11 @@ vi.mock('../common/hash/hash.js', () => ({
   hashValue: vi.fn(async () => 'ab'.repeat(64)),
 }));
 
+/** Canonical lowercase v4 UUID, as produced by node:crypto randomUUID. */
+// Obtained from: https://stackoverflow.com/a/13653180
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
 describe('UsersService', () => {
   let service: UsersService;
   let userRepository: {
@@ -65,6 +70,7 @@ describe('UsersService', () => {
     expect(userRepository.save).toHaveBeenCalledWith({
       email: 'eve@example.com',
       displayName: 'Eve',
+      uuid: expect.stringMatching(UUID_PATTERN),
       passwordHash: 'ab'.repeat(64),
       passwordSalt: expect.stringMatching(/^[0-9a-f]{32}$/),
       isArchived: false,
@@ -74,7 +80,8 @@ describe('UsersService', () => {
     });
 
     // Response exposes the public profile: identifying fields, the role set
-    // (empty until opt-in) and the admin classification — never credentials.
+    // (empty until opt-in) and the admin classification — never credentials,
+    // nor the internal uuid identity.
     expect(user).toEqual({
       id: 7,
       email: 'eve@example.com',
@@ -96,6 +103,7 @@ describe('UsersService', () => {
     expect(userRepository.save).toHaveBeenCalledWith({
       email: 'root@example.com',
       displayName: 'Root',
+      uuid: expect.stringMatching(UUID_PATTERN),
       passwordHash: 'ab'.repeat(64),
       passwordSalt: expect.stringMatching(/^[0-9a-f]{32}$/),
       isArchived: false,
