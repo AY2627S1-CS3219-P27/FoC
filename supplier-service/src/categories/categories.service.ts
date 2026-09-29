@@ -43,6 +43,22 @@ export class CategoriesService {
     });
   }
 
+  /**
+   * The category with this name, ignoring case: the non-retired one if there
+   * is one, else the most recently retired one; null if none ever existed.
+   */
+  async findByName(name: string): Promise<Category | null> {
+    const matches = await this.categories.find({
+      where: { nameKey: nameKey(name) },
+      order: { createdAt: 'DESC' },
+    });
+    return (
+      matches.find((category) => category.retiredAt === null) ??
+      matches[0] ??
+      null
+    );
+  }
+
   async create(name: string): Promise<Category> {
     const category = this.categories.create({
       id: randomUUID(),

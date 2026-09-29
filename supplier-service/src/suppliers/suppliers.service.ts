@@ -11,7 +11,7 @@ import {
   ErrorCode,
   type FieldViolation,
 } from '../common/errors/error-response.js';
-import { nameKey } from '../common/normalise/normalise.js';
+import { nameKey, normaliseFloor } from '../common/normalise/normalise.js';
 import type { EnvironmentVariables } from '../config/environment.schema.js';
 import {
   Building,
@@ -42,6 +42,26 @@ export class SuppliersService {
       minLongitude: config.get('CAMPUS_MIN_LONGITUDE', { infer: true }),
       maxLongitude: config.get('CAMPUS_MAX_LONGITUDE', { infer: true }),
     };
+  }
+
+  /**
+   * The field-rule problems of a raw submission (F1.2, F1.6, campus box),
+   * without touching the database. Empty when the fields are valid.
+   */
+  async fieldViolations(input: unknown): Promise<FieldViolation[]> {
+    const checked = await checkSupplierInput(input, this.campus);
+    return checked.valid ? [] : checked.violations;
+  }
+
+  /** Whether a supplier with this duplicate key (F1.5) already exists. */
+  exists(name: string, buildingId: string, floor: string): Promise<boolean> {
+    return this.dataSource.getRepository(Supplier).exists({
+      where: {
+        nameKey: nameKey(name),
+        buildingId,
+        floor: normaliseFloor(floor),
+      },
+    });
   }
 
   /**
