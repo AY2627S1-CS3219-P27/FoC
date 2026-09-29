@@ -185,6 +185,94 @@ describe('UsersService', () => {
     });
   });
 
+  describe('findActiveUserByEmail', () => {
+    it('returns an un-archived account tied to the email', async () => {
+      userRepository.findOneBy.mockResolvedValue(registeredUser);
+
+      await expect(
+        service.findActiveUserByEmail('eve@example.com'),
+      ).resolves.toEqual({
+        id: 7,
+        email: 'eve@example.com',
+        displayName: 'Eve',
+        roles: [],
+        isAdmin: false,
+      });
+      expect(userRepository.findOneBy).toHaveBeenCalledWith({
+        email: 'eve@example.com',
+        isArchived: false,
+      });
+    });
+
+    it('returns null when no un-archived account exists', async () => {
+      userRepository.findOneBy.mockResolvedValue(null);
+
+      await expect(
+        service.findActiveUserByEmail('ghost@example.com'),
+      ).resolves.toBeNull();
+    });
+  });
+
+  describe('updatePassword', () => {
+    it('re-hashes the new password with a fresh salt and persists it (F8.5.2)', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue({
+        ...registeredUser,
+        passwordHash: 'old-hash',
+        passwordSalt: 'old-salt',
+      });
+
+      await expect(
+        service.updatePassword(7, 'NewStrongPassw0rd!'),
+      ).resolves.toBeUndefined();
+
+      expect(userRepository.findOneByOrFail).toHaveBeenCalledWith({ id: 7 });
+      expect(userRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 7,
+          passwordHash: 'ab'.repeat(64),
+          passwordSalt: expect.stringMatching(/^[0-9a-f]{32}$/),
+          isLocked: false,
+        }),
+      );
+    });
+
+    it('clears the lock on a successful reset', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue({
+        ...registeredUser,
+        isLocked: true,
+      });
+
+      await service.updatePassword(7, 'NewStrongPassw0rd!');
+
+      // The bootstrap admin is seated locked on a discarded password; the
+      // reset write must unseat it in the same save as the new hash.
+      expect(userRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 7,
+          isLocked: false,
+        }),
+      );
+    });
+
+    it('rejects a user id with no matching account', async () => {
+      userRepository.findOneByOrFail.mockRejectedValue(
+        new EntityNotFoundError(User, { id: 7 }),
+      );
+
+      await expect(
+        service.updatePassword(7, 'NewStrongPassw0rd!'),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('lets non-entity look-up failures propagate', async () => {
+      userRepository.findOneByOrFail.mockRejectedValue(new Error('db down'));
+
+      await expect(
+        service.updatePassword(7, 'NewStrongPassw0rd!'),
+      ).rejects.toThrow('db down');
+    });
+  });
+
   describe('checkUserAndReturnInfo', () => {
     it('returns the public info when the credentials match', async () => {
       userRepository.findOneByOrFail.mockResolvedValue(registeredUser);
