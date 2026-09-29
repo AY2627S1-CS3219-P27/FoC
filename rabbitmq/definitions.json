@@ -2,11 +2,11 @@
   "permissions": [
     { "configure": ".*", "read": ".*", "user": "guest", "vhost": "/", "write": ".*" },
     {
-      "configure": "^(foc\\.(retry|dlq|back)|email_retry_\\d+s|otp_emails(\\.dlq)?)$",
-      "read": "^(foc\\.(retry|dlq|back)|email_retry_\\d+s|otp_emails)$",
+      "configure": "^(foc\\.(retry|dlq|back)|email_retry_\\d+s|otp_emails(\\.dlq)?|password_reset_emails(\\.dlq)?)$",
+      "read": "^(foc\\.(retry|dlq|back)|email_retry_\\d+s|otp_emails|password_reset_emails)$",
       "user": "email-service",
       "vhost": "/foc",
-      "write": "^(foc\\.(retry|dlq|back)|email_retry_\\d+s|otp_emails(\\.dlq)?)$"
+      "write": "^(foc\\.(retry|dlq|back)|email_retry_\\d+s|otp_emails(\\.dlq)?|password_reset_emails(\\.dlq)?)$"
     },
     { "configure": ".*", "read": ".*", "user": "guest", "vhost": "/foc", "write": ".*" },
     {
@@ -103,6 +103,7 @@
   "original_cluster_name": "rabbit@9e314706fc82",
   "queues": [
     { "arguments": { "x-queue-type": "classic" }, "auto_delete": false, "durable": true, "name": "otp_emails", "type": "classic", "vhost": "/foc" },
+    { "arguments": { "x-queue-type": "classic" }, "auto_delete": false, "durable": true, "name": "password_reset_emails", "type": "classic", "vhost": "/foc" },
     { "arguments": {}, "auto_delete": false, "durable": true, "name": "credit-service.user-registered.v1", "type": "classic", "vhost": "/foc" },
     {
       "arguments": {
@@ -152,16 +153,20 @@
       "type": "classic",
       "vhost": "/foc"
     },
-    { "arguments": { "x-queue-type": "classic" }, "auto_delete": false, "durable": true, "name": "otp_emails.dlq", "type": "classic", "vhost": "/foc" }
+    { "arguments": { "x-queue-type": "classic" }, "auto_delete": false, "durable": true, "name": "otp_emails.dlq", "type": "classic", "vhost": "/foc" },
+    { "arguments": { "x-queue-type": "classic" }, "auto_delete": false, "durable": true, "name": "password_reset_emails.dlq", "type": "classic", "vhost": "/foc" }
   ],
   "bindings": [
     { "arguments": {}, "destination": "otp_emails", "destination_type": "queue", "routing_key": "otp.email", "source": "foc.events", "vhost": "/foc" },
+    { "arguments": {}, "destination": "password_reset_emails", "destination_type": "queue", "routing_key": "password-reset.email", "source": "foc.events", "vhost": "/foc" },
     { "arguments": {}, "destination": "credit-service.user-registered.v1", "destination_type": "queue", "routing_key": "user.registered.v1", "source": "foc.events", "vhost": "/foc" },
     { "arguments": { "x-match": "all", "foc-delay": "60000" }, "destination": "email_retry_60s", "destination_type": "queue", "routing_key": "", "source": "foc.retry", "vhost": "/foc" },
     { "arguments": { "x-match": "all", "foc-delay": "120000" }, "destination": "email_retry_120s", "destination_type": "queue", "routing_key": "", "source": "foc.retry", "vhost": "/foc" },
     { "arguments": { "x-match": "all", "foc-delay": "240000" }, "destination": "email_retry_240s", "destination_type": "queue", "routing_key": "", "source": "foc.retry", "vhost": "/foc" },
     { "arguments": { "x-match": "all", "foc-delay": "480000" }, "destination": "email_retry_480s", "destination_type": "queue", "routing_key": "", "source": "foc.retry", "vhost": "/foc" },
     { "arguments": {}, "destination": "otp_emails.dlq", "destination_type": "queue", "routing_key": "otp.email", "source": "foc.dlq", "vhost": "/foc" },
-    { "arguments": {}, "destination": "otp_emails", "destination_type": "queue", "routing_key": "otp.email", "source": "foc.back", "vhost": "/foc" }
+    { "arguments": {}, "destination": "otp_emails", "destination_type": "queue", "routing_key": "otp.email", "source": "foc.back", "vhost": "/foc" },
+    { "arguments": {}, "destination": "password_reset_emails.dlq", "destination_type": "queue", "routing_key": "password-reset.email", "source": "foc.dlq", "vhost": "/foc" },
+    { "arguments": {}, "destination": "password_reset_emails", "destination_type": "queue", "routing_key": "password-reset.email", "source": "foc.back", "vhost": "/foc" }
   ]
 }

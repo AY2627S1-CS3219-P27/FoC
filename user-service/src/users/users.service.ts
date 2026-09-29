@@ -62,6 +62,15 @@ export interface UserListResult {
   limit: number;
 }
 
+async function generatePasswordHash(password: string) {
+  const passwordSalt = randomBytes(16).toString('hex');
+  const passwordHash = await hashValue(password, passwordSalt);
+  return {
+    passwordSalt,
+    passwordHash,
+  };
+}
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -75,10 +84,7 @@ export class UsersService {
     isAdmin = false,
     isLocked = false,
   }: ProvisionUserParams): Promise<PublicUserInfo> {
-    // Fresh per-account salt, stored next to the hash so the credentials can
-    // be re-verified later without derivable state.
-    const passwordSalt = randomBytes(16).toString('hex');
-    const passwordHash = await hashValue(password, passwordSalt);
+    const { passwordSalt, passwordHash } = await generatePasswordHash(password);
 
     try {
       const user = await this.userRepository.save(
@@ -183,6 +189,41 @@ export class UsersService {
    */
   async existsByEmail(email: string): Promise<boolean> {
     return this.userRepository.exists({ where: { email } });
+  }
+
+  /**
+   * Finds an **un-archived** user by email
+   */
+  async findActiveUserByEmail(email: string): Promise<PublicUserInfo | null> {
+    const user = await this.userRepository.findOneBy({
+      email,
+      isArchived: false,
+    });
+    return user === null ? null : this.getPublicUserInfo(user);
+  }
+
+  /**
+   * Re-hashes and stores a new password with a fresh per-account salt, using
+   * the same mechanism as provisioning.
+   *
+   * Additionally clears lock on the associated user
+   */
+  async updatePassword(userId: number, password: string): Promise<void> {
+    let user: User;
+    try {
+      user = await this.userRepository.findOneByOrFail({ id: userId });
+    } catch (error) {
+      if (error instanceof EntityNotFoundError) {
+        throw new UnauthorizedException();
+      }
+      throw error;
+    }
+
+    const { passwordSalt, passwordHash } = await generatePasswordHash(password);
+    user.passwordHash = passwordHash;
+    user.passwordSalt = passwordSalt;
+    user.isLocked = false;
+    await this.userRepository.save(user);
   }
 
   /**

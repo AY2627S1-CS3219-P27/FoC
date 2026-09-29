@@ -4,6 +4,8 @@ import { hmacValue } from './hash.js';
 const REGISTRATION_TOKEN_PREFIX = 'regtoken';
 const REGISTRATION_HASH_LENGTH = 32;
 const OTP_HASH_LENGTH = 16;
+const RESET_TOKEN_PREFIX = 'resettoken';
+const RESET_HASH_LENGTH = 32;
 
 /**
  * Shared Redis key derivation for OTPs and registration tokens.
@@ -32,4 +34,18 @@ export function registrationTokenRecordKey(
     secret,
     REGISTRATION_HASH_LENGTH,
   )}`;
+}
+
+export function resetTokenRecordKey(token: string, secret: string): string {
+  return `${RESET_TOKEN_PREFIX}:${hmacValue(token, secret, RESET_HASH_LENGTH)}`;
+}
+
+/**
+ * Per-account generation counter for reset tokens, mirroring the OTP counter
+ * (`otp:count:<email>`). A new request INCRs it and stamps the generation onto
+ * the record; validation rejects anything from an older generation, so issuing
+ * a token implicitly revokes every prior unconsumed one (F8.1.2).
+ */
+export function resetTokenCountKey(email: string): string {
+  return `${RESET_TOKEN_PREFIX}:count:${email}`;
 }
