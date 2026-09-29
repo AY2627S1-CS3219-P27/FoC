@@ -1,6 +1,9 @@
 import { ACCESS_TOKEN_ISSUER, Role } from '@foc/contracts';
 import { JwtService } from '@nestjs/jwt';
 
+/** The test user's id: user-service identifies users by UUID (#611). */
+export const TEST_USER_ID = '11111111-1111-4111-8111-111111111111';
+
 export interface TokenOptions {
   isAdmin?: boolean;
   issuer?: string;
@@ -20,7 +23,7 @@ export function signAccessToken(
 ): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const payload: Record<string, unknown> = {
-    sub: 7,
+    sub: TEST_USER_ID,
     email: 'eve@u.nus.edu',
     displayName: 'Eve',
     isAdmin: options.isAdmin ?? false,
