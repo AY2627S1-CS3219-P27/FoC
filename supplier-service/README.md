@@ -5,6 +5,7 @@ The Supplier Service is FoC's source of truth for **suppliers**: the physical pl
 Other services use it like this:
 
 - **Users** browse and search suppliers when creating an errand.
+- **Users** ask for a missing supplier to be added; an admin approves or denies the request.
 - **Admins** add, edit and deactivate suppliers, and manage categories and buildings.
 - **Order Service** checks a supplier's current details and status when an errand references it.
 
@@ -29,14 +30,14 @@ D2 asks for Supplier Service **"significant progress"**: Part 2 points 1-4 of th
 
 | D2 point | What we show | Requirements (FR v2) |
 |---|---|---|
-| 1. DB choice + schema + metadata | PostgreSQL, the five tables, how name, type and location are stored and queried | F1, F4, F11, F12 |
+| 1. DB choice + schema + metadata | PostgreSQL, the six tables, how name, type and location are stored and queried | F1, F4, F11, F12 |
 | 2. Query patterns + API + identity/roles | List, search, filter, sort, paginate and get-one through working API calls; how the user-service login is checked; what a denied request looks like | F5, F15.1-F15.5, F13 |
 | 3. CRUD through the API alone | Create, read, update, and "delete" (= set Inactive) with no UI running | F7.5, F8.6, F9, F14.1, F14.3 |
-| 4. Authenticated user → API → DB, roles differ | A basic user and an admin run the same calls and get different answers | F13 + demo accounts + API collection |
+| 4. Authenticated user → API → DB, roles differ | A basic user and an admin run the same calls and get different answers; a basic user asks for a supplier and an admin approves it | F13, F6, F7 + demo accounts + API collection |
 
 **Not in D2** (designed, built later):
 
-- **moderation:** basic users *request* changes and admins approve (F6-F9.4)
+- **the rest of moderation:** edit requests (F8.1-F8.5), status-change requests (F9.3, F9.4), and a user's own requests with withdraw (F6.5, F6.6, F13.6). Requests to *add* a supplier are built (F6.1-F6.4, F6.7, F6.8, F7.1-F7.3.1); admins amending a request before approving it (F7.4, F8.5) comes after D2.
 - opening hours (F2)
 - brands (F3)
 - Order validation over RabbitMQ (F15.7)
@@ -134,6 +135,25 @@ erDiagram
         uuid supplier_id PK, FK
         uuid category_id PK, FK
     }
+    SUPPLIERS |o--o{ SUPPLIER_REQUESTS : "is the target of"
+    BUILDINGS ||--o{ SUPPLIER_REQUESTS : "is proposed in"
+    SUPPLIER_REQUESTS {
+        uuid id PK
+        enum type "Create | Update | StatusChange"
+        enum state "Pending | Approved | Denied | Withdrawn"
+        uuid supplier_id FK "Update, StatusChange"
+        int supplier_version "version the request was based on"
+        jsonb payload "the requested values"
+        text name_key "Create: duplicate key"
+        uuid building_id FK "Create: duplicate key"
+        varchar floor "Create: duplicate key"
+        text submitted_by "user id from the token"
+        timestamptz submitted_at
+        text resolved_by "admin id"
+        timestamptz resolved_at
+        varchar denial_reason "1-500 chars, Denied only"
+        uuid created_supplier_id FK "approved Create only"
+    }
 ```
 
 | Table | Purpose | Rules the database enforces |
@@ -143,6 +163,7 @@ erDiagram
 | `building_name_keys` | Every name, short name and alias of each in-use building, normalised | The primary key makes two in-use buildings sharing a name impossible (F4.2). Looking up a building by any name is one key lookup (F4.5). |
 | `categories` | The controlled list of categories (F11) | Partial unique index on `name_key` among non-retired categories (F11.2.1) |
 | `supplier_categories` | Which categories each supplier has (many-to-many) | The primary key stops the same category being added twice (F1.2.3). A category in use can't be removed. |
+| `supplier_requests` (✅ step 8, migration `1790640000000-create-supplier-requests.ts`) | A basic user's request to add (and later edit or change the status of) a supplier, moderated by an admin (F6) | A partial unique index on `(name_key, building_id, floor)` among **Pending Create** requests: two identical requests can't both be pending, even when filed at the same moment (F7.2). CHECKs: a Create carries the duplicate key and no target supplier, the other types the reverse; Pending means no resolver, and a resolved request always records who and when; only a Denied request has a reason, never blank (F6.4). |
 
 Rules the database **can't** express are checked in the service, inside the same transaction:
 - **"at least one category"** (F1.2.3)
@@ -280,6 +301,10 @@ It also returns the version in an `ETag` header (e.g. `"3"`), which an admin edi
 | POST | `/buildings` | **admin** | Create a building (after D2) | F4.3 |
 | PATCH | `/buildings/{id}` | **admin** | Rename or change aliases (after D2) | F4.3 |
 | POST | `/buildings/{id}/retire` | **admin** | Retire (after D2) | F4.3.1 |
+| POST | `/supplier-requests/creations` | any logged-in user | Ask for a supplier to be added (same body as `POST /suppliers`); 201, Pending | F7.1, F7.2 |
+| GET | `/supplier-requests?type=&offset=&limit=` | **admin** | Pending requests, oldest first, paged | F6.7 |
+| POST | `/supplier-requests/{id}/approve` | **admin** | Approve: creates the supplier | F6.3, F6.8, F7.3 |
+| POST | `/supplier-requests/{id}/deny` | **admin** | Deny, with `{"reason": "..."}` (1-500 chars) | F6.4 |
 
 `retire` is a `POST` action rather than `DELETE`, so it can't be confused with deleting data.
 
@@ -309,8 +334,8 @@ Every error, from any endpoint, has one shape (✅ built in `src/common/errors/`
 | 400 | `VALIDATION_FAILED` ✅ | Bad or unknown fields or query parameters |
 | 401 | `UNAUTHENTICATED` ✅ | No login cookie, or the token is invalid or expired |
 | 403 | `FORBIDDEN` ✅ | Logged in, but not an admin, on an admin endpoint |
-| 404 | `NOT_FOUND` / `SUPPLIER_NOT_FOUND` ✅ | Unknown id (F5.9.1) |
-| 409 | `DUPLICATE_SUPPLIER`, `DUPLICATE_NAME`, `VERSION_CONFLICT`, `INVALID_STATUS_TRANSITION` ✅ | Same name+building+floor exists; the name is taken; someone else edited first (includes `currentVersion`); already in that status |
+| 404 | `NOT_FOUND` / `SUPPLIER_NOT_FOUND` / `REQUEST_NOT_FOUND` ✅ | Unknown id (F5.9.1) |
+| 409 | `DUPLICATE_SUPPLIER`, `DUPLICATE_NAME`, `VERSION_CONFLICT`, `INVALID_STATUS_TRANSITION`, `DUPLICATE_REQUEST`, `REQUEST_ALREADY_RESOLVED` ✅ | Same name+building+floor exists; the name is taken; someone else edited first (includes `currentVersion`); already in that status; an identical request is already pending; the request was already approved or denied |
 | 413 | `PAYLOAD_TOO_LARGE` ✅ | Request body too big |
 | 428 | `PRECONDITION_REQUIRED` ✅ | An edit sent without `If-Match` |
 | 503 | `DEPENDENCY_UNAVAILABLE` ✅ (`retryable: true`) | The database can't be reached. Never reported as "not found" (F15.3). |
@@ -448,6 +473,28 @@ flowchart LR
 
 **How to run it:** the Postman collection in [`api/`](api/README.md), folder 3 "CRUD as admin". No UI is needed or running.
 
+### Moderated creation: basic users ask, admins decide (✅ steps 8-9)
+
+A basic user can't create a supplier directly, but can **ask** for one to be added. An admin then approves or denies the request.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Pending: POST /supplier-requests/creations
+    Pending --> Approved: admin approves (supplier created)
+    Pending --> Denied: admin denies, with a reason
+    Pending --> Withdrawn: submitter withdraws (step 12)
+    Approved --> [*]
+    Denied --> [*]
+    Withdrawn --> [*]
+```
+
+- **Filing (F7.1, F7.2):** the body is validated exactly like an admin's `POST /suppliers`, with every problem in one 400. It is refused with 409 `DUPLICATE_SUPPLIER` if the supplier already exists, or 409 `DUPLICATE_REQUEST` if an identical request is already pending (enforced by the database, so it holds even for two requests filed at once). The submitter comes only from the token (F13.1). The supplier **doesn't exist yet**, so it isn't listed.
+- **Approving (F6.3, F6.8, F7.3):** runs the same create code as `POST /suppliers`, in the **same transaction** as marking the request Approved. Everything is checked again at that moment: if an admin created the same supplier meanwhile (409 `DUPLICATE_SUPPLIER`), or the building was retired (400), nothing changes and the request stays Pending.
+- **Denying (F6.4):** needs a reason of 1-500 characters, stored with who denied it and when.
+- **Exactly once (F6.3):** the request row is locked while it is resolved, so of two admins acting at once, one wins and the other gets 409 `REQUEST_ALREADY_RESOLVED`. The allowed moves are one small table (`src/requests/request-state.ts`); Approved, Denied and Withdrawn are final.
+
+**User ids are stored as text** (`submitted_by`, `resolved_by`). user-service's ids are numbers today and are moving to UUIDs (user-service PR #611). Text holds both, so no migration is forced on us mid-sprint; once #611 lands, the columns can become `uuid`.
+
 ---
 
 ## 7. D2 point 4: End-to-end demo script
@@ -460,6 +507,7 @@ flowchart LR
 | **1 Query patterns** | basic user | List with pagination → search by name → by building (location) → by category → combined + sorted → next page → one supplier with its `ETag` → 404 → 400 listing every bad parameter | 2 |
 | **2 Denied requests** | nobody / basic user | No login → **401**; basic user creating, editing or deactivating a supplier, or creating a category → **403**, nothing changed | 2, 4 |
 | **3 CRUD as admin** | admin | Create **201** (version 1) → same again **409** → every problem in one **400** → read back → edit without `If-Match` **428** → edit (version 2) → out-of-date edit **409** with `currentVersion` → deactivate, D2's "delete" (version 3) → again **409** → gone from the Active list → still readable, tagged Inactive | 3 |
+| **4 Supplier requests** | basic user, then admin | Basic user asks for a supplier **201** Pending → same again **409** → not listed yet → basic user lists or approves requests **403** → admin lists pending → approves **200** (supplier created) → again **409** → now listed → a second request: deny with a blank reason **400**, then with a reason **200** | 3, 4 |
 
 ---
 
@@ -476,6 +524,11 @@ Branches are few and large: one per area, each merged into `supplier-service` by
 | 5 | Read: list, filter, sort, get one; category/building lists | F5.1-F5.9.1 (not F5.4.6/F5.4.7), F15.1-F15.5, F4.4, F11.4 | `crud` | ✅ built |
 | 6 | Create, update, status (admin) | F7.5, F8.6, F9.1, F9.2, F9.5, F9.6, F14.1, F14.3 | `crud` | ✅ built (category/building admin after D2) |
 | 7 | D2 deliverables: Postman collection, diagrams, DB-choice ADR (demo accounts: see §9) | none | `crud` | ✅ built |
+| 8 | Request basics: the requests table, states, admin list, approve, deny | F6.1-F6.4, F6.7, F6.8 | `crud` | ✅ built |
+| 9 | "Add supplier" requests | F7.1-F7.3.1 | `crud` | ✅ built (F7.4 amend: after D2) |
+| 10 | "Edit supplier" requests | F8.1-F8.5 | `crud` | 🔜 |
+| 12 | My requests, withdraw | F6.5, F6.6, F13.6 | `crud` | 🔜 |
+| 11 | "Change status" requests | F9.3, F9.3.1, F9.3.2, F9.4 | `crud` | 🔜 |
 
 ---
 
