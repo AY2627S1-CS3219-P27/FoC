@@ -17,7 +17,10 @@ describe('AdminBootstrapService', () => {
   beforeEach(async () => {
     usersService = {
       countActiveAdmins: vi.fn(async () => 0),
-      provisionUser: vi.fn(async (args) => ({ id: 1, ...args })),
+      provisionUser: vi.fn(async (args) => ({
+        uuid: '11111111-1111-4111-8111-111111111111',
+        ...args,
+      })),
     };
     configService = {
       get: vi.fn((key: string) =>

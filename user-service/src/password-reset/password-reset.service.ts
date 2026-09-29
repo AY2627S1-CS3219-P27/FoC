@@ -116,7 +116,7 @@ export class PasswordResetService {
     if (user === null) {
       throw new BadRequestException('Invalid or expired reset token.');
     }
-    await this.usersService.updatePassword(user.id, password);
+    await this.usersService.updatePassword(user.uuid, password);
   }
 
   private buildResetLink(token: string): string {

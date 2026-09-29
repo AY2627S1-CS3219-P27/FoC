@@ -1,6 +1,6 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import {
   ArrayContains,
   EntityNotFoundError,
@@ -31,7 +31,7 @@ export interface ProvisionUserParams {
 }
 
 export interface PublicUserInfo {
-  id: number;
+  uuid: string;
   email: string;
   displayName: string;
   roles: Role[];
@@ -91,6 +91,7 @@ export class UsersService {
         this.userRepository.create({
           email,
           displayName,
+          uuid: randomUUID(),
           passwordHash,
           passwordSalt,
           isArchived: false,
@@ -156,8 +157,8 @@ export class UsersService {
    * The authenticated user's persisted account state, or null when the
    * account no longer exists (e.g. pruned after the token was issued).
    */
-  async getUserById(id: number): Promise<PublicUserInfo | null> {
-    const user = await this.userRepository.findOneBy({ id });
+  async getUserByUuid(uuid: string): Promise<PublicUserInfo | null> {
+    const user = await this.userRepository.findOneBy({ uuid });
     return user === null ? null : this.getPublicUserInfo(user);
   }
 
@@ -166,10 +167,10 @@ export class UsersService {
    * out-of-order input is normalised to a set; the two participant roles are
    * the only possible values, so escalation to admin is impossible here.
    */
-  async updateRoles(id: number, roles: Role[]): Promise<PublicUserInfo> {
+  async updateRoles(uuid: string, roles: Role[]): Promise<PublicUserInfo> {
     let user: User;
     try {
-      user = await this.userRepository.findOneByOrFail({ id });
+      user = await this.userRepository.findOneByOrFail({ uuid });
     } catch (error) {
       if (error instanceof EntityNotFoundError) {
         throw new UnauthorizedException();
@@ -208,10 +209,10 @@ export class UsersService {
    *
    * Additionally clears lock on the associated user
    */
-  async updatePassword(userId: number, password: string): Promise<void> {
+  async updatePassword(uuid: string, password: string): Promise<void> {
     let user: User;
     try {
-      user = await this.userRepository.findOneByOrFail({ id: userId });
+      user = await this.userRepository.findOneByOrFail({ uuid });
     } catch (error) {
       if (error instanceof EntityNotFoundError) {
         throw new UnauthorizedException();
@@ -264,7 +265,7 @@ export class UsersService {
       where,
       skip: safeOffset,
       take: safeLimit,
-      order: { id: 'ASC' },
+      order: { uuid: 'ASC' },
     });
 
     return { users, total, offset: safeOffset, limit: safeLimit };
@@ -275,7 +276,7 @@ export class UsersService {
    */
   private getPublicUserInfo(user: User): PublicUserInfo {
     return {
-      id: user.id,
+      uuid: user.uuid,
       email: user.email,
       displayName: user.displayName,
       roles: user.roles ?? [],

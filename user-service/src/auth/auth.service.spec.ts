@@ -31,7 +31,7 @@ describe('AuthService', () => {
     redis = { eval: vi.fn() };
     usersService = {
       provisionUser: vi.fn(async (args) => ({
-        id: 7,
+        uuid: '11111111-1111-4111-8111-111111111111',
         email: args.email,
         displayName: args.displayName,
         roles: [],
@@ -108,7 +108,7 @@ describe('AuthService', () => {
     // Response exposes the public profile: identifying fields, the role set
     // (empty until opt-in) and the admin classification — never credentials.
     expect(user).toEqual({
-      id: 7,
+      uuid: '11111111-1111-4111-8111-111111111111',
       email: 'eve@example.com',
       displayName: 'Eve',
       roles: [],
@@ -170,7 +170,7 @@ describe('AuthService', () => {
   describe('checkCredentials', () => {
     it('signs a JWT carrying the user identity and roles when the credentials match', async () => {
       usersService.checkUserAndReturnInfo.mockResolvedValue({
-        id: 7,
+        uuid: '11111111-1111-4111-8111-111111111111',
         email: 'eve@example.com',
         displayName: 'Eve',
         isAdmin: false,
@@ -186,7 +186,7 @@ describe('AuthService', () => {
         'StrongPassw0rd!',
       );
       expect(jwtService.signAsync).toHaveBeenCalledWith({
-        sub: 7,
+        sub: '11111111-1111-4111-8111-111111111111',
         displayName: 'Eve',
         email: 'eve@example.com',
         isAdmin: false,
@@ -238,7 +238,7 @@ describe('access token contract conformance', () => {
           provide: UsersService,
           useValue: {
             checkUserAndReturnInfo: vi.fn(async () => ({
-              id: 7,
+              uuid: '11111111-1111-4111-8111-111111111111',
               email: 'eve@example.com',
               displayName: 'Eve',
               isAdmin: false,
@@ -261,7 +261,7 @@ describe('access token contract conformance', () => {
 
     expect(result.valid).toBe(true);
     expect(result.valid && result.value).toMatchObject({
-      sub: 7,
+      sub: '11111111-1111-4111-8111-111111111111',
       email: 'eve@example.com',
       displayName: 'Eve',
       isAdmin: false,

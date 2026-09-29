@@ -8,8 +8,8 @@ import type { Role } from '../user-roles/role.js';
  * fixed configuration, `iat`/`exp` by the JWT library.
  */
 export interface AccessTokenPayload {
-  /** The user's database id (JWT `sub`). */
-  sub: number;
+  /** The user's stable uuid identity (JWT `sub`). */
+  sub: string;
   email: string;
   displayName: string;
   /** Account classification, assigned by the system via admin bootstrap. */
