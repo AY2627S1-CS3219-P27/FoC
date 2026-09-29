@@ -42,7 +42,7 @@ export class SupplierRequestsController {
     @Body() body: unknown,
     @Req() request: AuthenticatedRequest,
   ): Promise<RequestView> {
-    return this.requests.submitCreation(body, String(request.user.sub));
+    return this.requests.submitCreation(body, actingUserId(request));
   }
 
   /**
@@ -59,7 +59,7 @@ export class SupplierRequestsController {
       body.supplierId,
       parseIfMatch(ifMatch),
       body.changes,
-      String(request.user.sub),
+      actingUserId(request),
     );
   }
 
@@ -81,7 +81,7 @@ export class SupplierRequestsController {
     @Query() query: ListMyRequestsQueryDto,
     @Req() request: AuthenticatedRequest,
   ): Promise<Page<RequestView>> {
-    return this.requests.listMine(String(request.user.sub), query);
+    return this.requests.listMine(actingUserId(request), query);
   }
 
   /** One request, for its submitter or an admin; anyone else 404 (F13.6). */
@@ -91,7 +91,7 @@ export class SupplierRequestsController {
     @Req() request: AuthenticatedRequest,
   ): Promise<RequestView> {
     return this.requests.get(id, {
-      id: String(request.user.sub),
+      id: actingUserId(request),
       isAdmin: request.user.isAdmin,
     });
   }
@@ -103,7 +103,7 @@ export class SupplierRequestsController {
     @Param('id', uuidParam('id')) id: string,
     @Req() request: AuthenticatedRequest,
   ): Promise<RequestView> {
-    return this.requests.withdraw(id, String(request.user.sub));
+    return this.requests.withdraw(id, actingUserId(request));
   }
 
   @Post(':id/approve')
@@ -113,7 +113,7 @@ export class SupplierRequestsController {
     @Param('id', uuidParam('id')) id: string,
     @Req() request: AuthenticatedRequest,
   ): Promise<RequestView> {
-    return this.requests.approve(id, String(request.user.sub));
+    return this.requests.approve(id, actingUserId(request));
   }
 
   @Post(':id/deny')
@@ -124,6 +124,15 @@ export class SupplierRequestsController {
     @Body() body: DenyRequestDto,
     @Req() request: AuthenticatedRequest,
   ): Promise<RequestView> {
-    return this.requests.deny(id, String(request.user.sub), body.reason);
+    return this.requests.deny(id, actingUserId(request), body.reason);
   }
+}
+
+/**
+ * The acting user's id: the verified token's `sub`, a user-service UUID
+ * (F13.1, #611). Lower-cased like every other id, because PostgreSQL returns
+ * UUIDs lower-case and ownership is compared against the stored value (F13.6).
+ */
+function actingUserId(request: AuthenticatedRequest): string {
+  return request.user.sub.toLowerCase();
 }

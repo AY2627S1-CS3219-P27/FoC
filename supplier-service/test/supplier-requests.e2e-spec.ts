@@ -6,7 +6,7 @@ import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { SupplierRequestsService } from '../src/requests/supplier-requests.service.js';
-import { signAccessToken } from './access-token.js';
+import { signAccessToken, TEST_USER_ID } from './access-token.js';
 import { seedTestEnvironment } from './test-env.js';
 
 const REQUEST_ID = randomUUID();
@@ -45,9 +45,10 @@ describe('supplier request endpoints (e2e)', () => {
   let cookie: string;
   let adminCookie: string;
   let stub: ReturnType<typeof fakes>;
+  let privateKey: string;
 
   beforeAll(async () => {
-    const { privateKey } = seedTestEnvironment();
+    ({ privateKey } = seedTestEnvironment());
     const { AppModule } = await import('../src/app.module.js');
     stub = fakes();
 
@@ -67,7 +68,7 @@ describe('supplier request endpoints (e2e)', () => {
     app = moduleFixture.createNestApplication();
     app.use(cookieParser());
     await app.init();
-    // The token's sub is 7 (see access-token.ts).
+    // The token's sub is TEST_USER_ID (see access-token.ts).
     cookie = `${ACCESS_TOKEN_COOKIE}=${await signAccessToken(privateKey)}`;
     adminCookie = `${ACCESS_TOKEN_COOKIE}=${await signAccessToken(privateKey, { isAdmin: true })}`;
   });
@@ -89,7 +90,7 @@ describe('supplier request endpoints (e2e)', () => {
       .expect(201);
 
     // The raw body reaches the service; the submitter comes from the token.
-    expect(stub.submitCreation).toHaveBeenCalledWith(body, '7');
+    expect(stub.submitCreation).toHaveBeenCalledWith(body, TEST_USER_ID);
     expect(response.body).toMatchObject({ id: REQUEST_ID, state: 'Pending' });
   });
 
@@ -106,7 +107,7 @@ describe('supplier request endpoints (e2e)', () => {
       supplierId,
       3,
       { floor: '2' },
-      '7',
+      TEST_USER_ID,
     );
   });
 
@@ -162,7 +163,7 @@ describe('supplier request endpoints (e2e)', () => {
       .expect(200);
 
     expect(stub.listMine).toHaveBeenCalledWith(
-      '7',
+      TEST_USER_ID,
       expect.objectContaining({ state: 'Denied', offset: 0, limit: 25 }),
     );
     expect(response.body).toMatchObject({ total: 0, limit: 25 });
@@ -187,7 +188,10 @@ describe('supplier request endpoints (e2e)', () => {
       .set('Cookie', isAdmin ? adminCookie : cookie)
       .expect(200);
 
-    expect(stub.get).toHaveBeenCalledWith(REQUEST_ID, { id: '7', isAdmin });
+    expect(stub.get).toHaveBeenCalledWith(REQUEST_ID, {
+      id: TEST_USER_ID,
+      isAdmin,
+    });
   });
 
   it('withdraws as the user in the token, answering 200 (F6.6)', async () => {
@@ -196,8 +200,20 @@ describe('supplier request endpoints (e2e)', () => {
       .set('Cookie', cookie)
       .expect(200);
 
-    expect(stub.withdraw).toHaveBeenCalledWith(REQUEST_ID, '7');
+    expect(stub.withdraw).toHaveBeenCalledWith(REQUEST_ID, TEST_USER_ID);
     expect(response.body.state).toBe('Withdrawn');
+  });
+
+  it('compares the acting user id lower-cased, as the database stores it', async () => {
+    const upperCaseToken = await signAccessToken(privateKey, {
+      claims: { sub: TEST_USER_ID.toUpperCase() },
+    });
+    await request(app.getHttpServer())
+      .post(`/supplier-requests/${REQUEST_ID}/withdraw`)
+      .set('Cookie', `${ACCESS_TOKEN_COOKIE}=${upperCaseToken}`)
+      .expect(200);
+
+    expect(stub.withdraw).toHaveBeenCalledWith(REQUEST_ID, TEST_USER_ID);
   });
 
   it('lists pending requests for an admin with paging defaults (F6.7)', async () => {
@@ -218,7 +234,7 @@ describe('supplier request endpoints (e2e)', () => {
       .set('Cookie', adminCookie)
       .expect(200);
 
-    expect(stub.approve).toHaveBeenCalledWith(REQUEST_ID, '7');
+    expect(stub.approve).toHaveBeenCalledWith(REQUEST_ID, TEST_USER_ID);
     expect(response.body.state).toBe('Approved');
   });
 
@@ -229,7 +245,11 @@ describe('supplier request endpoints (e2e)', () => {
       .send({ reason: '  Closed down ' })
       .expect(200);
 
-    expect(stub.deny).toHaveBeenCalledWith(REQUEST_ID, '7', 'Closed down');
+    expect(stub.deny).toHaveBeenCalledWith(
+      REQUEST_ID,
+      TEST_USER_ID,
+      'Closed down',
+    );
   });
 
   it('refuses a denial without a reason', async () => {
