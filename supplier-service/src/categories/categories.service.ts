@@ -74,6 +74,13 @@ export class CategoriesService {
     if (!category) {
       throw categoryNotFound(id);
     }
+    // Retired categories are frozen, as retired buildings are.
+    if (category.retiredAt) {
+      throw new ConflictException({
+        code: ErrorCode.Conflict,
+        message: 'A retired category cannot be renamed.',
+      });
+    }
     category.name = name.trim();
     category.nameKey = nameKey(name);
     return this.withDuplicateNameMapped(() => this.categories.save(category));

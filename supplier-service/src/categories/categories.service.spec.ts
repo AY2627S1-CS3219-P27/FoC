@@ -65,6 +65,20 @@ describe('CategoriesService', () => {
     });
   });
 
+  it('refuses to rename a retired category, like buildings (review #605)', async () => {
+    const { service, repository } = setup({
+      id: 'c1',
+      name: 'Food',
+      nameKey: 'food',
+      retiredAt: new Date(),
+    });
+
+    const error = await service.rename('c1', 'Meals').catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(ConflictException);
+    expect(repository.save).not.toHaveBeenCalled();
+  });
+
   it('answers 404 for an unknown category', async () => {
     const { service } = setup(null);
 
