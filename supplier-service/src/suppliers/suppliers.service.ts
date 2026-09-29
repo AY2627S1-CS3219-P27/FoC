@@ -102,6 +102,10 @@ export class SuppliersService {
  * Newly supplied building and category ids must exist and must not be
  * retired (F1.2.3, F1.2.4, F1.8). Ids that are not UUIDs are already
  * reported by the field rules, so they are skipped here.
+ *
+ * The rows are read with a shared lock (FOR SHARE) held until the write
+ * commits, so a building or category being retired at the same moment
+ * waits, and cannot be retired between this check and the insert.
  */
 async function referenceViolations(
   manager: EntityManager,
@@ -113,8 +117,12 @@ async function referenceViolations(
   };
   const violations: FieldViolation[] = [];
 
+  // Ids are compared lower-case: PostgreSQL returns UUIDs lower-case.
   if (typeof raw.buildingId === 'string' && isUUID(raw.buildingId)) {
-    const building = await manager.findOneBy(Building, { id: raw.buildingId });
+    const building = await manager.findOne(Building, {
+      where: { id: raw.buildingId.toLowerCase() },
+      lock: { mode: 'pessimistic_read' },
+    });
     if (!building) {
       violations.push({
         field: 'buildingId',
@@ -131,13 +139,18 @@ async function referenceViolations(
   if (Array.isArray(raw.categoryIds)) {
     const ids = [
       ...new Set(
-        raw.categoryIds.filter(
-          (id): id is string => typeof id === 'string' && isUUID(id),
-        ),
+        raw.categoryIds
+          .filter((id): id is string => typeof id === 'string' && isUUID(id))
+          .map((id) => id.toLowerCase()),
       ),
     ];
     const found =
-      ids.length > 0 ? await manager.findBy(Category, { id: In(ids) }) : [];
+      ids.length > 0
+        ? await manager.find(Category, {
+            where: { id: In(ids) },
+            lock: { mode: 'pessimistic_read' },
+          })
+        : [];
     for (const id of ids) {
       const category = found.find((candidate) => candidate.id === id);
       if (!category) {
