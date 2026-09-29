@@ -36,10 +36,10 @@ describe('JwtAuthGuard', () => {
     await expect(guard.canActivate(contextFor(request))).resolves.toBe(true);
 
     const user = (request as { user: unknown }).user as {
-      sub: number;
+      sub: string;
       roles: Role[];
     };
-    expect(user.sub).toBe(7);
+    expect(user.sub).toBe('11111111-1111-4111-8111-111111111111');
     expect(user.roles).toEqual([Role.Requester]);
   });
 

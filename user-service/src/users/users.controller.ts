@@ -86,7 +86,7 @@ export class UsersController {
    */
   @Get('me')
   async getMe(@Req() request: AuthenticatedRequest) {
-    const user = await this.usersService.getUserById(request.user.sub);
+    const user = await this.usersService.getUserByUuid(request.user.sub);
     if (user === null) {
       throw new UnauthorizedException();
     }

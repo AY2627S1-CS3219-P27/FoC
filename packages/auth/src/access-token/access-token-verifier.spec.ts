@@ -26,7 +26,7 @@ describe('AccessTokenVerifier', () => {
     });
 
     await expect(verifier.verify(token)).resolves.toEqual({
-      sub: 7,
+      sub: '11111111-1111-4111-8111-111111111111',
       email: 'eve@example.com',
       displayName: 'Eve',
       isAdmin: true,

@@ -18,7 +18,8 @@ import { ACCESS_TOKEN_COOKIE, Role } from '@foc/contracts';
 describe('UsersController', () => {
   let controller: UsersController;
   let usersService: {
-    getUserById: ReturnType<typeof vi.fn>;
+    getUserByUuid: ReturnType<typeof vi.fn>;
+    updateProfile: ReturnType<typeof vi.fn>;
     updateRoles: ReturnType<typeof vi.fn>;
     listUsers: ReturnType<typeof vi.fn>;
   };
@@ -27,7 +28,7 @@ describe('UsersController', () => {
 
   beforeEach(async () => {
     usersService = {
-      getUserById: vi.fn(),
+      getUserByUuid: vi.fn(),
       updateProfile: vi.fn(),
       updateRoles: vi.fn(),
       listUsers: vi.fn(),
@@ -54,7 +55,7 @@ describe('UsersController', () => {
 
   const authenticatedRequest = {
     user: {
-      sub: 7,
+      sub: '11111111-1111-4111-8111-111111111111',
       email: 'eve@example.com',
       displayName: 'Eve',
       isAdmin: false,
@@ -64,8 +65,8 @@ describe('UsersController', () => {
 
   describe('getMe', () => {
     it('returns the authenticated user from the database', async () => {
-      usersService.getUserById.mockResolvedValue({
-        id: 7,
+      usersService.getUserByUuid.mockResolvedValue({
+        uuid: '11111111-1111-4111-8111-111111111111',
         email: 'eve@example.com',
         displayName: 'Eve',
         profilePictureUrl: null,
@@ -76,18 +77,20 @@ describe('UsersController', () => {
       await expect(
         controller.getMe(authenticatedRequest as never),
       ).resolves.toEqual({
-        id: 7,
+        uuid: '11111111-1111-4111-8111-111111111111',
         email: 'eve@example.com',
         displayName: 'Eve',
         profilePictureUrl: null,
         roles: [Role.Requester],
         isAdmin: false,
       });
-      expect(usersService.getUserById).toHaveBeenCalledWith(7);
+      expect(usersService.getUserByUuid).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111',
+      );
     });
 
     it('rejects when the account no longer exists', async () => {
-      usersService.getUserById.mockResolvedValue(null);
+      usersService.getUserByUuid.mockResolvedValue(null);
 
       await expect(
         controller.getMe(authenticatedRequest as never),
@@ -97,7 +100,7 @@ describe('UsersController', () => {
 
   describe('updateMeProfile', () => {
     const updatedProfile = {
-      id: 7,
+      uuid: '11111111-1111-4111-8111-111111111111',
       email: 'eve@example.com',
       displayName: 'Eve Newman',
       profilePictureUrl: 'https://example.com/new.png',
@@ -119,10 +122,13 @@ describe('UsersController', () => {
         ),
       ).resolves.toEqual(updatedProfile);
 
-      expect(usersService.updateProfile).toHaveBeenCalledWith(7, {
-        displayName: 'Eve Newman',
-        profilePictureUrl: 'https://example.com/new.png',
-      });
+      expect(usersService.updateProfile).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111',
+        {
+          displayName: 'Eve Newman',
+          profilePictureUrl: 'https://example.com/new.png',
+        },
+      );
     });
 
     it('clears the access token cookie when the display name changes', async () => {
@@ -191,7 +197,7 @@ describe('UsersController', () => {
   describe('updateMeRoles', () => {
     it('persists the new roles for the authenticated user', async () => {
       usersService.updateRoles.mockResolvedValue({
-        id: 7,
+        uuid: '11111111-1111-4111-8111-111111111111',
         email: 'eve@example.com',
         displayName: 'Eve',
         roles: [Role.Requester, Role.Courier],
@@ -206,10 +212,10 @@ describe('UsersController', () => {
         ),
       ).resolves.toEqual({ roles: [Role.Requester, Role.Courier] });
 
-      expect(usersService.updateRoles).toHaveBeenCalledWith(7, [
-        Role.Requester,
-        Role.Courier,
-      ]);
+      expect(usersService.updateRoles).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111',
+        [Role.Requester, Role.Courier],
+      );
     });
 
     it('clears the access token cookie in development', async () => {
@@ -265,7 +271,7 @@ describe('UsersController', () => {
   describe('listUsers', () => {
     // A stored row as the repository would hand it to the projectors.
     const storedUser = {
-      id: 7,
+      uuid: '11111111-1111-4111-8111-111111111111',
       email: 'eve@example.com',
       displayName: 'Eve',
       isAdmin: false,
@@ -298,7 +304,7 @@ describe('UsersController', () => {
       ).resolves.toEqual({
         items: [
           {
-            id: 7,
+            uuid: '11111111-1111-4111-8111-111111111111',
             displayName: 'Eve',
             email: 'eve@example.com',
             roles: [Role.Requester],
@@ -341,7 +347,7 @@ describe('UsersController', () => {
       ).resolves.toEqual({
         items: [
           {
-            id: 7,
+            uuid: '11111111-1111-4111-8111-111111111111',
             displayName: 'Eve',
             email: 'eve@example.com',
             roles: [Role.Requester],

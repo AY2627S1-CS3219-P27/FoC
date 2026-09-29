@@ -2,15 +2,15 @@ import {
   Column,
   CreateDateColumn,
   Entity,
-  PrimaryGeneratedColumn,
+  PrimaryColumn,
   UpdateDateColumn,
 } from 'typeorm';
 import { Role } from '@foc/contracts';
 
 @Entity('users')
 export class User {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryColumn({ type: 'uuid', default: () => 'gen_random_uuid()' })
+  uuid: string;
 
   @Column({ length: 255, unique: true })
   email: string;
