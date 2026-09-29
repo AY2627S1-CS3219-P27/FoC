@@ -7,7 +7,9 @@ import {
 } from './config/environment.schema.js';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  // Buffered until the configured logger is set, so startup logs (e.g. the
+  // seed import) are not lost.
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
   const config = app.get(ConfigService<EnvironmentVariables, true>);
 
   app.useLogger(logLevelsUpTo(config.get('LOG_LEVEL', { infer: true })));
