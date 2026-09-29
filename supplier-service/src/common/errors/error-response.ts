@@ -19,6 +19,12 @@ export const ErrorCode = {
   VersionConflict: 'VERSION_CONFLICT',
   /** Only Active <-> Inactive is allowed (F9.2). */
   InvalidStatusTransition: 'INVALID_STATUS_TRANSITION',
+  /** No supplier request has this id. */
+  RequestNotFound: 'REQUEST_NOT_FOUND',
+  /** The request is no longer Pending (F6.3). */
+  RequestAlreadyResolved: 'REQUEST_ALREADY_RESOLVED',
+  /** An identical request is already Pending (F7.2). */
+  DuplicateRequest: 'DUPLICATE_REQUEST',
   PayloadTooLarge: 'PAYLOAD_TOO_LARGE',
   PreconditionRequired: 'PRECONDITION_REQUIRED',
   DependencyUnavailable: 'DEPENDENCY_UNAVAILABLE',

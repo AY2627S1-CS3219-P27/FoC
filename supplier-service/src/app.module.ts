@@ -13,6 +13,7 @@ import {
 } from './config/environment.schema.js';
 import { DatabaseModule } from './database/database.module.js';
 import { HealthController } from './health/health.controller.js';
+import { RequestsModule } from './requests/requests.module.js';
 import { SeedModule } from './seed/seed.module.js';
 import { SuppliersModule } from './suppliers/suppliers.module.js';
 
@@ -38,6 +39,7 @@ import { SuppliersModule } from './suppliers/suppliers.module.js';
     BuildingsModule,
     CategoriesModule,
     SuppliersModule,
+    RequestsModule,
     SeedModule,
   ],
   controllers: [HealthController],
