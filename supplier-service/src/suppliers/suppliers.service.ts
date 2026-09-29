@@ -22,6 +22,7 @@ import {
   SupplierStatus,
 } from '../database/entities/index.js';
 import { isUniqueViolation } from '../database/postgres-errors.js';
+import type { SupplierInputDto } from './dto/supplier-input.dto.js';
 import {
   type CampusBox,
   checkSupplierInput,
@@ -76,14 +77,34 @@ export class SuppliersService {
   }
 
   /**
+   * Checks a proposed new supplier against every rule a create applies (field
+   * rules, references, campus box), reporting every problem at once, without
+   * saving anything. Returns the validated, normalised values. Used to file a
+   * creation request (F7.1).
+   */
+  async validateNew(input: unknown): Promise<SupplierInputDto> {
+    const checked = await checkSupplierInput(input, this.campus);
+    return this.dataSource.transaction(async (manager) => {
+      const violations = checked.valid ? [] : [...checked.violations];
+      violations.push(...(await referenceViolations(manager, input)));
+      if (!checked.valid || violations.length > 0) {
+        throw validationFailed(violations);
+      }
+      return checked.value;
+    });
+  }
+
+  /**
    * Creates an Active supplier at version 1 (F7.5, F9.1, F1.3.1). The input
    * is untrusted: the seed import and the admin API both pass raw values.
+   * Given a transaction, it runs inside it (approving a creation request
+   * applies the create and records the approval atomically, F6.8).
    */
-  async create(input: unknown): Promise<Supplier> {
+  async create(input: unknown, within?: EntityManager): Promise<Supplier> {
     const checked = await checkSupplierInput(input, this.campus);
 
     return withDuplicateMapped(() =>
-      this.dataSource.transaction(async (manager) => {
+      this.inTransaction(within, async (manager) => {
         const violations = checked.valid ? [] : [...checked.violations];
         violations.push(...(await referenceViolations(manager, input)));
         if (!checked.valid || violations.length > 0) {
@@ -128,11 +149,12 @@ export class SuppliersService {
     id: string,
     expectedVersion: number,
     input: unknown,
+    within?: EntityManager,
   ): Promise<void> {
     const checked = await checkSupplierPatch(input, this.campus);
 
     await withDuplicateMapped(() =>
-      this.dataSource.transaction(async (manager) => {
+      this.inTransaction(within, async (manager) => {
         const supplier = await lockForChange(manager, id, expectedVersion);
         const current: CurrentReferences = {
           buildingId: supplier.buildingId,
@@ -195,8 +217,9 @@ export class SuppliersService {
     id: string,
     expectedVersion: number,
     status: SupplierStatus,
+    within?: EntityManager,
   ): Promise<void> {
-    await this.dataSource.transaction(async (manager) => {
+    await this.inTransaction(within, async (manager) => {
       const supplier = await lockForChange(manager, id, expectedVersion);
       if (supplier.status === status) {
         throw new ConflictException({
@@ -206,6 +229,14 @@ export class SuppliersService {
       }
       await bumpVersion(manager, id, { status });
     });
+  }
+
+  /** Runs the work inside the given transaction, or in a new one. */
+  private inTransaction<T>(
+    within: EntityManager | undefined,
+    work: (manager: EntityManager) => Promise<T>,
+  ): Promise<T> {
+    return within ? work(within) : this.dataSource.transaction(work);
   }
 }
 
