@@ -6,7 +6,7 @@ import { User } from './user.entity.js';
  * internal flags are never projected here.
  */
 export interface BasicUserInfoView {
-  id: number;
+  uuid: string;
   displayName: string;
   email: string;
   roles: Role[];
@@ -35,7 +35,7 @@ export function toUserInfoView(
   { includeAdminFlags }: { includeAdminFlags: boolean },
 ): UserInfoView {
   const basic: BasicUserInfoView = {
-    id: user.id,
+    uuid: user.uuid,
     displayName: user.displayName,
     email: user.email,
     roles: user.roles ?? [],

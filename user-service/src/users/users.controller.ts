@@ -17,6 +17,7 @@ import type { AuthenticatedRequest } from '@foc/auth';
 import type { Paginated } from '@foc/contracts';
 import { ACCESS_TOKEN_COOKIE } from '@foc/contracts';
 import { UpdateRolesDto } from './DTO/update-roles.dto.js';
+import { UpdateProfileDto } from './DTO/update-profile.dto.js';
 import { ListUsersQueryDto } from './DTO/list-users.query.dto.js';
 import { toUserInfoView, UserInfoView } from './user-info.view.js';
 import { UsersService } from './users.service.js';
@@ -85,11 +86,41 @@ export class UsersController {
    */
   @Get('me')
   async getMe(@Req() request: AuthenticatedRequest) {
-    const user = await this.usersService.getUserById(request.user.sub);
+    const user = await this.usersService.getUserByUuid(request.user.sub);
     if (user === null) {
       throw new UnauthorizedException();
     }
     return user;
+  }
+
+  /**
+   * Updates the authenticated user's particulars: display name and
+   * profile picture URL, each optional.
+   *
+   * When the display name actually changes the access token is
+   * cleared, since the token embeds the display name as a claim.
+   */
+  @Patch('me')
+  async updateMeProfile(
+    @Req() request: AuthenticatedRequest,
+    @Body() updateProfileDto: UpdateProfileDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const updated = await this.usersService.updateProfile(
+      request.user.sub,
+      updateProfileDto,
+    );
+
+    if (updated.displayName !== request.user.displayName) {
+      res.clearCookie(ACCESS_TOKEN_COOKIE, {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: this.configService.get('NODE_ENV') === 'production',
+      });
+    }
+
+    return updated;
   }
 
   /**
