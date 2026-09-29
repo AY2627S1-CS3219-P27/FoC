@@ -74,7 +74,8 @@ export enum RequestState {
 @Index('IDX_supplier_requests_pending_queue', ['type', 'submittedAt'], {
   where: `state = 'Pending'`,
 })
-@Index('IDX_supplier_requests_submitted_by', ['submittedBy'])
+// A user's own requests, newest first (F6.5).
+@Index('IDX_supplier_requests_submitted_by', ['submittedBy', 'submittedAt'])
 export class SupplierRequest {
   @PrimaryColumn({
     type: 'uuid',
