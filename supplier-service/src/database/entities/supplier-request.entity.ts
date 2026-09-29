@@ -32,8 +32,9 @@ export enum RequestState {
  * request of each type and state must carry is a named CHECK, so the
  * database refuses an inconsistent row whatever the code does.
  *
- * User ids (`submittedBy`, `resolvedBy`) are text: user-service ids are
- * numbers today and are moving to UUIDs, and text holds both.
+ * User ids (`submittedBy`, `resolvedBy`) are user-service's UUIDs, taken
+ * from the verified access token (#611). They are not foreign keys: users
+ * live in user-service's database.
  */
 @Entity({ name: 'supplier_requests' })
 // Create requests carry the duplicate key; the others target a supplier.
@@ -135,14 +136,14 @@ export class SupplierRequest {
   floor: string | null;
 
   /** The submitting user's id, from their access token (F13.1). */
-  @Column({ name: 'submitted_by', type: 'text' })
+  @Column({ name: 'submitted_by', type: 'uuid' })
   submittedBy: string;
 
   @CreateDateColumn({ name: 'submitted_at', type: 'timestamptz' })
   submittedAt: Date;
 
   /** Who approved, denied or withdrew it, and when (F6.4, F6.8). */
-  @Column({ name: 'resolved_by', type: 'text', nullable: true })
+  @Column({ name: 'resolved_by', type: 'uuid', nullable: true })
   resolvedBy: string | null;
 
   @Column({ name: 'resolved_at', type: 'timestamptz', nullable: true })

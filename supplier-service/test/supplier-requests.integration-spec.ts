@@ -38,9 +38,11 @@ const config = {
   get: (key: string) => VALUES[key],
 } as unknown as ConfigService<EnvironmentVariables, true>;
 
-const BASIC_USER = '42';
-const ADMIN = '1';
-const OTHER_ADMIN = '2';
+// user-service identifies users by UUID (#611).
+const BASIC_USER = '42424242-4242-4242-8242-424242424242';
+const OTHER_USER = '43434343-4343-4343-8343-434343434343';
+const ADMIN = '01010101-0101-4101-8101-010101010101';
+const OTHER_ADMIN = '02020202-0202-4202-8202-020202020202';
 
 /** The response body of a thrown HttpException. */
 async function failure(promise: Promise<unknown>) {
@@ -187,7 +189,10 @@ describe('supplier requests (real PostgreSQL)', () => {
       await requests.submitCreation(coolSpot(), BASIC_USER);
 
       const { status, body } = await failure(
-        requests.submitCreation({ ...coolSpot(), name: 'COOL spot' }, '43'),
+        requests.submitCreation(
+          { ...coolSpot(), name: 'COOL spot' },
+          OTHER_USER,
+        ),
       );
 
       expect(status).toBe(409);
@@ -197,7 +202,7 @@ describe('supplier requests (real PostgreSQL)', () => {
     it('lets exactly one of two concurrent identical filings win', async () => {
       const results = await Promise.allSettled([
         requests.submitCreation(coolSpot(), BASIC_USER),
-        requests.submitCreation(coolSpot(), '43'),
+        requests.submitCreation(coolSpot(), OTHER_USER),
       ]);
 
       expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
@@ -484,7 +489,7 @@ describe('supplier requests (real PostgreSQL)', () => {
 
       const results = await Promise.allSettled([
         requests.submitUpdate(id, 1, { floor: '2' }, BASIC_USER),
-        requests.submitUpdate(id, 1, { floor: '3' }, '43'),
+        requests.submitUpdate(id, 1, { floor: '3' }, OTHER_USER),
       ]);
 
       expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
@@ -596,7 +601,7 @@ describe('supplier requests (real PostgreSQL)', () => {
         { floor: '6' },
         BASIC_USER,
       );
-      await requests.submitCreation({ ...coolSpot(), floor: '2' }, '43');
+      await requests.submitCreation({ ...coolSpot(), floor: '2' }, OTHER_USER);
       await requests.deny(first.id, ADMIN, 'Closed down');
 
       const page = await mine(BASIC_USER);
@@ -637,11 +642,11 @@ describe('supplier requests (real PostgreSQL)', () => {
 
       // Exactly the answer for an id that does not exist.
       const hidden = await failure(
-        requests.get(filed.id, { id: '43', isAdmin: false }),
+        requests.get(filed.id, { id: OTHER_USER, isAdmin: false }),
       );
       const unknown = await failure(
         requests.get('00000000-0000-4000-8000-000000000009', {
-          id: '43',
+          id: OTHER_USER,
           isAdmin: false,
         }),
       );
@@ -671,7 +676,7 @@ describe('supplier requests (real PostgreSQL)', () => {
     it("refuses withdrawing someone else's request with 404, admins included (F13.6)", async () => {
       const filed = await requests.submitCreation(coolSpot(), BASIC_USER);
 
-      for (const userId of ['43', ADMIN]) {
+      for (const userId of [OTHER_USER, ADMIN]) {
         const { status, body } = await failure(
           requests.withdraw(filed.id, userId),
         );
@@ -736,16 +741,26 @@ describe('supplier requests (real PostgreSQL)', () => {
     it('refuses a creation without its duplicate key', async () => {
       await expect(
         insert(`(gen_random_uuid(), 'Create', 'Pending', NULL, NULL, '{}',
-                 NULL, NULL, NULL, '42', NULL, NULL, NULL)`),
+                 NULL, NULL, NULL, '${BASIC_USER}', NULL, NULL, NULL)`),
       ).rejects.toMatchObject({
         driverError: { constraint: 'CHK_supplier_requests_target' },
+      });
+    });
+
+    it('stores user ids as UUIDs, refusing anything else (#611)', async () => {
+      await expect(
+        insert(`(gen_random_uuid(), 'Create', 'Pending', NULL, NULL, '{}',
+                 'x', '${com2.id}', '1', '42', NULL, NULL, NULL)`),
+      ).rejects.toMatchObject({
+        // invalid_text_representation
+        driverError: { code: '22P02' },
       });
     });
 
     it('refuses a resolved request with no resolver', async () => {
       await expect(
         insert(`(gen_random_uuid(), 'Create', 'Approved', NULL, NULL, '{}',
-                 'x', '${com2.id}', '1', '42', NULL, NULL, NULL)`),
+                 'x', '${com2.id}', '1', '${BASIC_USER}', NULL, NULL, NULL)`),
       ).rejects.toMatchObject({
         driverError: { constraint: 'CHK_supplier_requests_resolution' },
       });
@@ -755,7 +770,7 @@ describe('supplier requests (real PostgreSQL)', () => {
       for (const reason of ['NULL', `'   '`]) {
         await expect(
           insert(`(gen_random_uuid(), 'Create', 'Denied', NULL, NULL, '{}',
-                   'x', '${com2.id}', '1', '42', '1', now(), ${reason})`),
+                   'x', '${com2.id}', '1', '${BASIC_USER}', '${ADMIN}', now(), ${reason})`),
         ).rejects.toMatchObject({
           driverError: { constraint: 'CHK_supplier_requests_denial_reason' },
         });

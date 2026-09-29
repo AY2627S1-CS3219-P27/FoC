@@ -147,9 +147,9 @@ erDiagram
         text name_key "Create: duplicate key"
         uuid building_id FK "Create: duplicate key"
         varchar floor "Create: duplicate key"
-        text submitted_by "user id from the token"
+        uuid submitted_by "user id from the token"
         timestamptz submitted_at
-        text resolved_by "admin id"
+        uuid resolved_by "who resolved it"
         timestamptz resolved_at
         varchar denial_reason "1-500 chars, Denied only"
         uuid created_supplier_id FK "approved Create only"
@@ -499,7 +499,7 @@ stateDiagram-v2
 - **Following your own requests (F6.5, F6.6, F13.6):** `GET /supplier-requests/mine` lists the caller's requests of every type and state, newest first, with denial reasons. A Pending one can be withdrawn by its submitter only, which frees its slot so the same request can be filed again. Someone else's request, whether viewed or withdrawn, gets the **same 404 as an id that doesn't exist**, so ids reveal nothing. Admins can view any request, but withdraw only their own; they reject other people's by denying them.
 - **Exactly once (F6.3):** the request row is locked while it is resolved, so of two people acting at once (two admins, or an admin approving while the submitter withdraws), one wins and the other gets 409 `REQUEST_ALREADY_RESOLVED`. The allowed moves are one small table (`src/requests/request-state.ts`); Approved, Denied and Withdrawn are final.
 
-**User ids are stored as text** (`submitted_by`, `resolved_by`). user-service's ids are numbers today and are moving to UUIDs (user-service PR #611). Text holds both, so no migration is forced on us mid-sprint; once #611 lands, the columns can become `uuid`.
+**User ids are UUIDs** (`submitted_by`, `resolved_by`), taken only from the verified token's `sub` (F13.1). They were first stored as text, while user-service ids were numbers; once user-service switched to UUIDs (#611), migration `1790899200000-store-user-ids-as-uuid.ts` made the columns `uuid`. A row with an old numeric id makes that migration fail and change nothing, instead of silently losing who acted. The ids are not foreign keys, because users live in user-service's database.
 
 ---
 
