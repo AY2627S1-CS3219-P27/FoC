@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { isUUID } from 'class-validator';
-import { DataSource, type EntityManager, In } from 'typeorm';
+import { DataSource, type EntityManager, In, Not } from 'typeorm';
 import {
   ErrorCode,
   type FieldViolation,
@@ -95,6 +95,64 @@ export class SuppliersService {
   }
 
   /**
+   * Checks a proposed edit against every rule an admin edit applies, without
+   * saving anything (F8.1): unknown supplier (404), stale version (409),
+   * every field and reference problem at once (400), and whether the edited
+   * record would duplicate another supplier (409, F1.5.1). Returns the
+   * validated, normalised changes. Used to file an update request; the
+   * supplier is share-locked so it cannot change until the request is saved.
+   */
+  async validatePatch(
+    id: string,
+    expectedVersion: number,
+    input: unknown,
+    within?: EntityManager,
+  ): Promise<SupplierInputDto> {
+    const checked = await checkSupplierPatch(input, this.campus);
+
+    return this.inTransaction(within, async (manager) => {
+      const supplier = await lockForChange(
+        manager,
+        id,
+        expectedVersion,
+        'pessimistic_read',
+      );
+      const violations = checked.valid ? [] : [...checked.violations];
+      violations.push(
+        ...(await referenceViolations(
+          manager,
+          input,
+          await currentReferences(manager, supplier),
+        )),
+      );
+      if (!checked.valid || violations.length > 0) {
+        throw validationFailed(violations);
+      }
+
+      const dto = checked.value;
+      if (
+        dto.name !== undefined ||
+        dto.buildingId !== undefined ||
+        dto.floor !== undefined
+      ) {
+        const duplicate = await manager.exists(Supplier, {
+          where: {
+            id: Not(id),
+            nameKey:
+              dto.name !== undefined ? nameKey(dto.name) : supplier.nameKey,
+            buildingId: dto.buildingId ?? supplier.buildingId,
+            floor: dto.floor ?? supplier.floor,
+          },
+        });
+        if (duplicate) {
+          throw duplicateSupplier();
+        }
+      }
+      return dto;
+    });
+  }
+
+  /**
    * Creates an Active supplier at version 1 (F7.5, F9.1, F1.3.1). The input
    * is untrusted: the seed import and the admin API both pass raw values.
    * Given a transaction, it runs inside it (approving a creation request
@@ -156,16 +214,13 @@ export class SuppliersService {
     await withDuplicateMapped(() =>
       this.inTransaction(within, async (manager) => {
         const supplier = await lockForChange(manager, id, expectedVersion);
-        const current: CurrentReferences = {
-          buildingId: supplier.buildingId,
-          categoryIds: (
-            await manager.findBy(SupplierCategory, { supplierId: id })
-          ).map((link) => link.categoryId),
-        };
-
         const violations = checked.valid ? [] : [...checked.violations];
         violations.push(
-          ...(await referenceViolations(manager, input, current)),
+          ...(await referenceViolations(
+            manager,
+            input,
+            await currentReferences(manager, supplier),
+          )),
         );
         if (!checked.valid || violations.length > 0) {
           throw validationFailed(violations);
@@ -242,16 +297,18 @@ export class SuppliersService {
 
 /**
  * Loads the supplier with a row lock held until the transaction ends, and
- * checks the version the change is based on (F14.3.1).
+ * checks the version the change is based on (F14.3.1). A change takes the
+ * exclusive lock; a check that only reads takes a shared one.
  */
 async function lockForChange(
   manager: EntityManager,
   id: string,
   expectedVersion: number,
+  mode: 'pessimistic_write' | 'pessimistic_read' = 'pessimistic_write',
 ): Promise<Supplier> {
   const supplier = await manager.findOne(Supplier, {
     where: { id },
-    lock: { mode: 'pessimistic_write' },
+    lock: { mode },
   });
   if (!supplier) {
     throw new NotFoundException({
@@ -268,6 +325,20 @@ async function lockForChange(
     });
   }
   return supplier;
+}
+
+/** The building and categories the supplier references now (F1.8). */
+async function currentReferences(
+  manager: EntityManager,
+  supplier: Supplier,
+): Promise<CurrentReferences> {
+  const links = await manager.findBy(SupplierCategory, {
+    supplierId: supplier.id,
+  });
+  return {
+    buildingId: supplier.buildingId,
+    categoryIds: links.map((link) => link.categoryId),
+  };
 }
 
 /** Applies the column changes and increments the version, in one UPDATE. */
@@ -298,14 +369,18 @@ async function withDuplicateMapped<T>(work: () => Promise<T>): Promise<T> {
     return await work();
   } catch (error) {
     if (isUniqueViolation(error, 'UQ_suppliers_name_key_building_floor')) {
-      throw new ConflictException({
-        code: ErrorCode.DuplicateSupplier,
-        message:
-          'A supplier with the same name already exists on this floor of this building.',
-      });
+      throw duplicateSupplier();
     }
     throw error;
   }
+}
+
+function duplicateSupplier(): ConflictException {
+  return new ConflictException({
+    code: ErrorCode.DuplicateSupplier,
+    message:
+      'A supplier with the same name already exists on this floor of this building.',
+  });
 }
 
 /**
