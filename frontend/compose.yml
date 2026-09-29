@@ -1,0 +1,18 @@
+services:
+  frontend:
+    build:
+      context: .
+    environment:
+      - USER_SERVICE_URL=${USER_SERVICE_URL-http://user-service:3000}
+    ports:
+      - '3001:3000' # 3000 is user-service
+    develop:
+      watch:
+        - action: sync
+          path: .
+          target: /usr/src/app
+          ignore:
+            - node_modules/
+            - .next/
+        - action: rebuild
+          path: package.json
