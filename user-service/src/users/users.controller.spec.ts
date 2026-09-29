@@ -10,6 +10,7 @@ import { UsersController } from './users.controller.js';
 import { UsersService } from './users.service.js';
 import { ConfigService } from '@nestjs/config';
 import { JwtAuthGuard } from '@foc/auth';
+import { UpdateProfileDto } from './DTO/update-profile.dto.js';
 import { UpdateRolesDto } from './DTO/update-roles.dto.js';
 import { ListUsersQueryDto } from './DTO/list-users.query.dto.js';
 import { ACCESS_TOKEN_COOKIE, Role } from '@foc/contracts';
@@ -17,7 +18,8 @@ import { ACCESS_TOKEN_COOKIE, Role } from '@foc/contracts';
 describe('UsersController', () => {
   let controller: UsersController;
   let usersService: {
-    getUserById: ReturnType<typeof vi.fn>;
+    getUserByUuid: ReturnType<typeof vi.fn>;
+    updateProfile: ReturnType<typeof vi.fn>;
     updateRoles: ReturnType<typeof vi.fn>;
     listUsers: ReturnType<typeof vi.fn>;
   };
@@ -26,7 +28,8 @@ describe('UsersController', () => {
 
   beforeEach(async () => {
     usersService = {
-      getUserById: vi.fn(),
+      getUserByUuid: vi.fn(),
+      updateProfile: vi.fn(),
       updateRoles: vi.fn(),
       listUsers: vi.fn(),
     };
@@ -52,7 +55,7 @@ describe('UsersController', () => {
 
   const authenticatedRequest = {
     user: {
-      sub: 7,
+      sub: '11111111-1111-4111-8111-111111111111',
       email: 'eve@example.com',
       displayName: 'Eve',
       isAdmin: false,
@@ -62,10 +65,11 @@ describe('UsersController', () => {
 
   describe('getMe', () => {
     it('returns the authenticated user from the database', async () => {
-      usersService.getUserById.mockResolvedValue({
-        id: 7,
+      usersService.getUserByUuid.mockResolvedValue({
+        uuid: '11111111-1111-4111-8111-111111111111',
         email: 'eve@example.com',
         displayName: 'Eve',
+        profilePictureUrl: null,
         roles: [Role.Requester],
         isAdmin: false,
       });
@@ -73,17 +77,20 @@ describe('UsersController', () => {
       await expect(
         controller.getMe(authenticatedRequest as never),
       ).resolves.toEqual({
-        id: 7,
+        uuid: '11111111-1111-4111-8111-111111111111',
         email: 'eve@example.com',
         displayName: 'Eve',
+        profilePictureUrl: null,
         roles: [Role.Requester],
         isAdmin: false,
       });
-      expect(usersService.getUserById).toHaveBeenCalledWith(7);
+      expect(usersService.getUserByUuid).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111',
+      );
     });
 
     it('rejects when the account no longer exists', async () => {
-      usersService.getUserById.mockResolvedValue(null);
+      usersService.getUserByUuid.mockResolvedValue(null);
 
       await expect(
         controller.getMe(authenticatedRequest as never),
@@ -91,10 +98,106 @@ describe('UsersController', () => {
     });
   });
 
+  describe('updateMeProfile', () => {
+    const updatedProfile = {
+      uuid: '11111111-1111-4111-8111-111111111111',
+      email: 'eve@example.com',
+      displayName: 'Eve Newman',
+      profilePictureUrl: 'https://example.com/new.png',
+      roles: [] as Role[],
+      isAdmin: false,
+    };
+
+    it('persists the updated particulars for the authenticated user', async () => {
+      usersService.updateProfile.mockResolvedValue(updatedProfile);
+
+      await expect(
+        controller.updateMeProfile(
+          authenticatedRequest as never,
+          {
+            displayName: 'Eve Newman',
+            profilePictureUrl: 'https://example.com/new.png',
+          } as never,
+          res as never,
+        ),
+      ).resolves.toEqual(updatedProfile);
+
+      expect(usersService.updateProfile).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111',
+        {
+          displayName: 'Eve Newman',
+          profilePictureUrl: 'https://example.com/new.png',
+        },
+      );
+    });
+
+    it('clears the access token cookie when the display name changes', async () => {
+      usersService.updateProfile.mockResolvedValue(updatedProfile);
+
+      await controller.updateMeProfile(
+        authenticatedRequest as never,
+        { displayName: 'Eve Newman' } as never,
+        res as never,
+      );
+
+      // Literal options pin the wire contract: the clear must mirror the
+      // cookie's path and flags so the browser actually drops it.
+      expect(res.clearCookie).toHaveBeenCalledWith('access_token', {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: false,
+      });
+    });
+
+    it('clears the cookie as secure in production', async () => {
+      configGet.mockReturnValue('production');
+      usersService.updateProfile.mockResolvedValue(updatedProfile);
+
+      await controller.updateMeProfile(
+        authenticatedRequest as never,
+        { displayName: 'Eve Newman' } as never,
+        res as never,
+      );
+
+      expect(res.clearCookie).toHaveBeenCalledWith(
+        ACCESS_TOKEN_COOKIE,
+        expect.objectContaining({ secure: true }),
+      );
+    });
+
+    it('keeps the session when only the profile picture changes', async () => {
+      usersService.updateProfile.mockResolvedValue({
+        ...updatedProfile,
+        displayName: 'Eve',
+      });
+
+      await controller.updateMeProfile(
+        authenticatedRequest as never,
+        { profilePictureUrl: 'https://example.com/new.png' } as never,
+        res as never,
+      );
+
+      expect(res.clearCookie).not.toHaveBeenCalled();
+    });
+
+    it('reports the updated profile after the change', async () => {
+      usersService.updateProfile.mockResolvedValue(updatedProfile);
+
+      await expect(
+        controller.updateMeProfile(
+          authenticatedRequest as never,
+          { displayName: 'Eve Newman' } as never,
+          res as never,
+        ),
+      ).resolves.toMatchObject({ displayName: 'Eve Newman' });
+    });
+  });
+
   describe('updateMeRoles', () => {
     it('persists the new roles for the authenticated user', async () => {
       usersService.updateRoles.mockResolvedValue({
-        id: 7,
+        uuid: '11111111-1111-4111-8111-111111111111',
         email: 'eve@example.com',
         displayName: 'Eve',
         roles: [Role.Requester, Role.Courier],
@@ -109,10 +212,10 @@ describe('UsersController', () => {
         ),
       ).resolves.toEqual({ roles: [Role.Requester, Role.Courier] });
 
-      expect(usersService.updateRoles).toHaveBeenCalledWith(7, [
-        Role.Requester,
-        Role.Courier,
-      ]);
+      expect(usersService.updateRoles).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111',
+        [Role.Requester, Role.Courier],
+      );
     });
 
     it('clears the access token cookie in development', async () => {
@@ -168,7 +271,7 @@ describe('UsersController', () => {
   describe('listUsers', () => {
     // A stored row as the repository would hand it to the projectors.
     const storedUser = {
-      id: 7,
+      uuid: '11111111-1111-4111-8111-111111111111',
       email: 'eve@example.com',
       displayName: 'Eve',
       isAdmin: false,
@@ -201,7 +304,7 @@ describe('UsersController', () => {
       ).resolves.toEqual({
         items: [
           {
-            id: 7,
+            uuid: '11111111-1111-4111-8111-111111111111',
             displayName: 'Eve',
             email: 'eve@example.com',
             roles: [Role.Requester],
@@ -244,7 +347,7 @@ describe('UsersController', () => {
       ).resolves.toEqual({
         items: [
           {
-            id: 7,
+            uuid: '11111111-1111-4111-8111-111111111111',
             displayName: 'Eve',
             email: 'eve@example.com',
             roles: [Role.Requester],
@@ -367,6 +470,71 @@ describe('update roles body validation', () => {
   it('rejects a missing roles field', async () => {
     await expect(
       pipe.transform({}, bodyMetadata(UpdateRolesDto)),
+    ).rejects.toThrow(BadRequestException);
+  });
+});
+
+describe('update profile body validation', () => {
+  const pipe = new ValidationPipe({ whitelist: true, transform: true });
+  const bodyMetadata = (metatype: Function) =>
+    ({ type: 'body', metatype }) as const;
+
+  it('accepts a full valid update body', async () => {
+    const value = await pipe.transform(
+      {
+        displayName: 'Eve Newman',
+        profilePictureUrl: 'https://example.com/new.png',
+      },
+      bodyMetadata(UpdateProfileDto),
+    );
+    expect(value).toBeInstanceOf(UpdateProfileDto);
+    expect(value).toMatchObject({
+      displayName: 'Eve Newman',
+      profilePictureUrl: 'https://example.com/new.png',
+    });
+  });
+
+  it('trims the display name and accepts an explicit null picture', async () => {
+    const value = await pipe.transform(
+      { displayName: '  Eve Newman  ', profilePictureUrl: null },
+      bodyMetadata(UpdateProfileDto),
+    );
+    expect(value.displayName).toBe('Eve Newman');
+    expect(value.profilePictureUrl).toBeNull();
+  });
+
+  it('accepts an empty body as a no-op update', async () => {
+    const value = await pipe.transform({}, bodyMetadata(UpdateProfileDto));
+    expect(value).toBeInstanceOf(UpdateProfileDto);
+  });
+
+  it('rejects a display name that is too long after trimming', async () => {
+    await expect(
+      pipe.transform(
+        { displayName: 'x'.repeat(256) },
+        bodyMetadata(UpdateProfileDto),
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a whitespace-only display name', async () => {
+    await expect(
+      pipe.transform({ displayName: '   ' }, bodyMetadata(UpdateProfileDto)),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a profile picture that is not an http(s) URL', async () => {
+    await expect(
+      pipe.transform(
+        { profilePictureUrl: 'ftp://example.com/avatar.png' },
+        bodyMetadata(UpdateProfileDto),
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a non-string profile picture', async () => {
+    await expect(
+      pipe.transform({ profilePictureUrl: 42 }, bodyMetadata(UpdateProfileDto)),
     ).rejects.toThrow(BadRequestException);
   });
 });

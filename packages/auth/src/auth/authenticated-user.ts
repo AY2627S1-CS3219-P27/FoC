@@ -6,8 +6,8 @@ import type { Request } from 'express';
  * the access token.
  **/
 export interface AuthenticatedUser {
-  /** The user's database id (JWT `sub`). */
-  sub: number;
+  /** The user's stable uuid identity (JWT `sub`). */
+  sub: string;
   email: string;
   displayName: string;
   /** Account classification, assigned by the system via admin bootstrap. */

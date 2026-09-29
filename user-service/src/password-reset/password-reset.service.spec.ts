@@ -51,7 +51,7 @@ describe('PasswordResetService', () => {
     // tokens; the missing/archived tests flip this to null.
     usersService = {
       findActiveUserByEmail: vi.fn(async () => ({
-        id: 7,
+        uuid: '11111111-1111-4111-8111-111111111111',
         email: EMAIL,
         displayName: 'Eve',
         roles: [],
@@ -229,7 +229,7 @@ describe('PasswordResetService', () => {
       // password written for it — never for a client-supplied identifier.
       expect(usersService.findActiveUserByEmail).toHaveBeenCalledWith(EMAIL);
       expect(usersService.updatePassword).toHaveBeenCalledWith(
-        7,
+        '11111111-1111-4111-8111-111111111111',
         'NewStrongPassw0rd!',
       );
     });
