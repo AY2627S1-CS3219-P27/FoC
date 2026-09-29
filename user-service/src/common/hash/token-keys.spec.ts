@@ -1,4 +1,9 @@
-import { otpRecordKey, registrationTokenRecordKey } from './token-keys.js';
+import {
+  otpRecordKey,
+  registrationTokenRecordKey,
+  resetTokenCountKey,
+  resetTokenRecordKey,
+} from './token-keys.js';
 
 describe('token-keys', () => {
   it('derives a deterministic OTP record key (16-byte digest)', () => {
@@ -18,6 +23,21 @@ describe('token-keys', () => {
     expect(first).toMatch(/^regtoken:[0-9a-f]{64}$/);
   });
 
+  it('derives a deterministic reset token record key (32-byte digest)', () => {
+    const token = 'Ab3_-x9Qrstuvwxyz1234567890-_ABCD';
+    const first = resetTokenRecordKey(token, 'server-secret');
+    const second = resetTokenRecordKey(token, 'server-secret');
+
+    expect(first).toBe(second);
+    expect(first).toMatch(/^resettoken:[0-9a-f]{64}$/);
+  });
+
+  it('derives the per-account reset counter key from the email', () => {
+    expect(resetTokenCountKey('eve@u.nus.edu')).toBe(
+      'resettoken:count:eve@u.nus.edu',
+    );
+  });
+
   it('differs when the server secret differs', () => {
     expect(
       otpRecordKey('eve@example.com', 'Ab3_-x', 'secret-a'),
@@ -25,5 +45,8 @@ describe('token-keys', () => {
     expect(
       registrationTokenRecordKey('Ab3_-x9Qrst', 'secret-a'),
     ).not.toBe(registrationTokenRecordKey('Ab3_-x9Qrst', 'secret-b'));
+    expect(resetTokenRecordKey('Ab3_-x9Qrst', 'secret-a')).not.toBe(
+      resetTokenRecordKey('Ab3_-x9Qrst', 'secret-b'),
+    );
   });
 });

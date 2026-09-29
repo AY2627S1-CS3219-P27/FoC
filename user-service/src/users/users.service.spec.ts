@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { UnauthorizedException } from '@nestjs/common';
-import { EntityNotFoundError, QueryFailedError } from 'typeorm';
+import { ArrayContains, EntityNotFoundError, QueryFailedError } from 'typeorm';
 import { hashValue } from '../common/hash/hash.js';
 import { Role } from '@foc/contracts';
 import { User } from './user.entity.js';
@@ -20,6 +20,7 @@ describe('UsersService', () => {
     findOneBy: ReturnType<typeof vi.fn>;
     findOneByOrFail: ReturnType<typeof vi.fn>;
     exists: ReturnType<typeof vi.fn>;
+    findAndCount: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(async () => {
@@ -30,6 +31,7 @@ describe('UsersService', () => {
       findOneBy: vi.fn(),
       findOneByOrFail: vi.fn(),
       exists: vi.fn(async () => false),
+      findAndCount: vi.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -180,6 +182,94 @@ describe('UsersService', () => {
       await expect(service.existsByEmail('ghost@example.com')).resolves.toBe(
         false,
       );
+    });
+  });
+
+  describe('findActiveUserByEmail', () => {
+    it('returns an un-archived account tied to the email', async () => {
+      userRepository.findOneBy.mockResolvedValue(registeredUser);
+
+      await expect(
+        service.findActiveUserByEmail('eve@example.com'),
+      ).resolves.toEqual({
+        id: 7,
+        email: 'eve@example.com',
+        displayName: 'Eve',
+        roles: [],
+        isAdmin: false,
+      });
+      expect(userRepository.findOneBy).toHaveBeenCalledWith({
+        email: 'eve@example.com',
+        isArchived: false,
+      });
+    });
+
+    it('returns null when no un-archived account exists', async () => {
+      userRepository.findOneBy.mockResolvedValue(null);
+
+      await expect(
+        service.findActiveUserByEmail('ghost@example.com'),
+      ).resolves.toBeNull();
+    });
+  });
+
+  describe('updatePassword', () => {
+    it('re-hashes the new password with a fresh salt and persists it (F8.5.2)', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue({
+        ...registeredUser,
+        passwordHash: 'old-hash',
+        passwordSalt: 'old-salt',
+      });
+
+      await expect(
+        service.updatePassword(7, 'NewStrongPassw0rd!'),
+      ).resolves.toBeUndefined();
+
+      expect(userRepository.findOneByOrFail).toHaveBeenCalledWith({ id: 7 });
+      expect(userRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 7,
+          passwordHash: 'ab'.repeat(64),
+          passwordSalt: expect.stringMatching(/^[0-9a-f]{32}$/),
+          isLocked: false,
+        }),
+      );
+    });
+
+    it('clears the lock on a successful reset', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue({
+        ...registeredUser,
+        isLocked: true,
+      });
+
+      await service.updatePassword(7, 'NewStrongPassw0rd!');
+
+      // The bootstrap admin is seated locked on a discarded password; the
+      // reset write must unseat it in the same save as the new hash.
+      expect(userRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 7,
+          isLocked: false,
+        }),
+      );
+    });
+
+    it('rejects a user id with no matching account', async () => {
+      userRepository.findOneByOrFail.mockRejectedValue(
+        new EntityNotFoundError(User, { id: 7 }),
+      );
+
+      await expect(
+        service.updatePassword(7, 'NewStrongPassw0rd!'),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('lets non-entity look-up failures propagate', async () => {
+      userRepository.findOneByOrFail.mockRejectedValue(new Error('db down'));
+
+      await expect(
+        service.updatePassword(7, 'NewStrongPassw0rd!'),
+      ).rejects.toThrow('db down');
     });
   });
 
@@ -377,6 +467,98 @@ describe('UsersService', () => {
 
       await expect(service.updateRoles(7, [Role.Requester])).rejects.toThrow(
         'db down',
+      );
+    });
+  });
+
+  describe('listUsers', () => {
+    it('lists the whole directory in a stable order with the paged window', async () => {
+      userRepository.findAndCount.mockResolvedValue([
+        [{ id: 1 }, { id: 2 }],
+        42,
+      ]);
+
+      await expect(
+        service.listUsers({ offset: 0, limit: 25 }),
+      ).resolves.toEqual({
+        users: [{ id: 1 }, { id: 2 }],
+        total: 42,
+        offset: 0,
+        limit: 25,
+      });
+
+      // Unfiltered: empty where, N3.1.2 default window, deterministic
+      // ordering for stable pagination across pages.
+      expect(userRepository.findAndCount).toHaveBeenCalledWith({
+        where: {},
+        skip: 0,
+        take: 25,
+        order: { id: 'ASC' },
+      });
+    });
+
+    it('filters by a participant role via array containment (F10.3)', async () => {
+      userRepository.findAndCount.mockResolvedValue([[], 0]);
+
+      await service.listUsers({ role: Role.Requester, offset: 5, limit: 10 });
+
+      expect(userRepository.findAndCount).toHaveBeenCalledWith({
+        where: { roles: ArrayContains([Role.Requester]) },
+        skip: 5,
+        take: 10,
+        order: { id: 'ASC' },
+      });
+    });
+
+    it('combines the admin-only account flags when supplied (F10.4)', async () => {
+      userRepository.findAndCount.mockResolvedValue([[], 0]);
+
+      await service.listUsers({
+        isAdmin: true,
+        isLocked: false,
+        isArchived: true,
+        offset: 0,
+        limit: 1,
+      });
+
+      expect(userRepository.findAndCount).toHaveBeenCalledWith({
+        where: { isAdmin: true, isLocked: false, isArchived: true },
+        skip: 0,
+        take: 1,
+        order: { id: 'ASC' },
+      });
+    });
+
+    it('clamps a requested limit to the 1000 hard ceiling (N3.1.1)', async () => {
+      userRepository.findAndCount.mockResolvedValue([[], 0]);
+
+      const result = await service.listUsers({ offset: 0, limit: 5000 });
+
+      expect(result.limit).toBe(1000);
+      expect(userRepository.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({ take: 1000 }),
+      );
+    });
+
+    it('floors a negative offset to the first page', async () => {
+      userRepository.findAndCount.mockResolvedValue([[], 0]);
+
+      const result = await service.listUsers({ offset: -5, limit: 1 });
+
+      expect(result.offset).toBe(0);
+      expect(userRepository.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({ skip: 0 }),
+      );
+    });
+
+    it('raises a sub-minimum limit to one row', async () => {
+      userRepository.findAndCount.mockResolvedValue([[], 0]);
+
+      const result = await service.listUsers({ offset: 0, limit: 0 });
+
+      expect(result.limit).toBe(1);
+      expect(userRepository.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({ take: 1 }),
       );
     });
   });

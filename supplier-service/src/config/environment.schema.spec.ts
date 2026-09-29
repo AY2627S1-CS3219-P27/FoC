@@ -30,6 +30,15 @@ describe('environmentSchema', () => {
     });
   });
 
+  it('rejects a minimum above the default maximum (review #605)', () => {
+    const { error } = environmentSchema.validate({
+      ...REQUIRED,
+      CAMPUS_MIN_LATITUDE: '1.5',
+    });
+
+    expect(error?.message).toContain('CAMPUS_MIN_LATITUDE');
+  });
+
   it('rejects a campus box whose maximum is not above its minimum', () => {
     const { error } = environmentSchema.validate({
       ...REQUIRED,

@@ -12,7 +12,7 @@ import {
   ErrorCode,
   type FieldViolation,
 } from '../common/errors/error-response.js';
-import { nameKey } from '../common/normalise/normalise.js';
+import { nameKey, normaliseFloor } from '../common/normalise/normalise.js';
 import type { EnvironmentVariables } from '../config/environment.schema.js';
 import {
   Building,
@@ -53,6 +53,26 @@ export class SuppliersService {
       minLongitude: config.get('CAMPUS_MIN_LONGITUDE', { infer: true }),
       maxLongitude: config.get('CAMPUS_MAX_LONGITUDE', { infer: true }),
     };
+  }
+
+  /**
+   * The field-rule problems of a raw submission (F1.2, F1.6, campus box),
+   * without touching the database. Empty when the fields are valid.
+   */
+  async fieldViolations(input: unknown): Promise<FieldViolation[]> {
+    const checked = await checkSupplierInput(input, this.campus);
+    return checked.valid ? [] : checked.violations;
+  }
+
+  /** Whether a supplier with this duplicate key (F1.5) already exists. */
+  exists(name: string, buildingId: string, floor: string): Promise<boolean> {
+    return this.dataSource.getRepository(Supplier).exists({
+      where: {
+        nameKey: nameKey(name),
+        buildingId,
+        floor: normaliseFloor(floor),
+      },
+    });
   }
 
   /**
@@ -262,6 +282,10 @@ async function withDuplicateMapped<T>(work: () => Promise<T>): Promise<T> {
  * retired (F1.2.3, F1.2.4). Ids the supplier already references may stay
  * retired (F1.8). Ids that are not UUIDs are already reported by the field
  * rules, so they are skipped here.
+ *
+ * The rows are read with a shared lock (FOR SHARE) held until the write
+ * commits, so a building or category being retired at the same moment
+ * waits, and cannot be retired between this check and the change.
  */
 async function referenceViolations(
   manager: EntityManager,
@@ -274,8 +298,12 @@ async function referenceViolations(
   };
   const violations: FieldViolation[] = [];
 
+  // Ids are compared lower-case: PostgreSQL returns UUIDs lower-case.
   if (typeof raw.buildingId === 'string' && isUUID(raw.buildingId)) {
-    const building = await manager.findOneBy(Building, { id: raw.buildingId });
+    const building = await manager.findOne(Building, {
+      where: { id: raw.buildingId.toLowerCase() },
+      lock: { mode: 'pessimistic_read' },
+    });
     if (!building) {
       violations.push({
         field: 'buildingId',
@@ -295,13 +323,18 @@ async function referenceViolations(
   if (Array.isArray(raw.categoryIds)) {
     const ids = [
       ...new Set(
-        raw.categoryIds.filter(
-          (id): id is string => typeof id === 'string' && isUUID(id),
-        ),
+        raw.categoryIds
+          .filter((id): id is string => typeof id === 'string' && isUUID(id))
+          .map((id) => id.toLowerCase()),
       ),
     ];
     const found =
-      ids.length > 0 ? await manager.findBy(Category, { id: In(ids) }) : [];
+      ids.length > 0
+        ? await manager.find(Category, {
+            where: { id: In(ids) },
+            lock: { mode: 'pessimistic_read' },
+          })
+        : [];
     for (const id of ids) {
       const category = found.find((candidate) => candidate.id === id);
       if (!category) {

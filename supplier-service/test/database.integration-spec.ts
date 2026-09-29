@@ -186,6 +186,52 @@ describe('supplier schema (real PostgreSQL)', () => {
       expect(await dataSource.getRepository(Supplier).count()).toBe(0);
     });
 
+    it('accepts ids written in upper case (review #605)', async () => {
+      const input = await supplierInput();
+
+      const saved = await suppliers.create({
+        ...input,
+        buildingId: input.buildingId.toUpperCase(),
+        categoryIds: input.categoryIds.map((id) => id.toUpperCase()),
+      });
+
+      expect(saved.buildingId).toBe(input.buildingId);
+    });
+
+    it('makes a create wait for a building being retired, then refuses it (review #605)', async () => {
+      const input = await supplierInput();
+      const retiring = dataSource.createQueryRunner();
+      await retiring.connect();
+      await retiring.startTransaction();
+      try {
+        // Another admin is mid-way through retiring the building.
+        await retiring.query(
+          `SELECT id FROM buildings WHERE id = $1 FOR UPDATE`,
+          [input.buildingId],
+        );
+        await retiring.query(
+          `UPDATE buildings SET retired_at = now() WHERE id = $1`,
+          [input.buildingId],
+        );
+
+        const create = suppliers.create(input);
+        const settled = vi.fn();
+        void create.then(settled, settled);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        // The create's shared lock waits for the retire to finish.
+        expect(settled).not.toHaveBeenCalled();
+
+        await retiring.commitTransaction();
+        await expect(create).rejects.toBeInstanceOf(BadRequestException);
+        expect(await dataSource.getRepository(Supplier).count()).toBe(0);
+      } finally {
+        if (retiring.isTransactionActive) {
+          await retiring.rollbackTransaction();
+        }
+        await retiring.release();
+      }
+    });
+
     it('keeps a retired building on existing suppliers but refuses it for new ones (F1.8)', async () => {
       const input = await supplierInput();
       const existing = await suppliers.create(input);

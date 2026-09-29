@@ -122,8 +122,8 @@ describe('checkSupplierInput', () => {
   it('reports missing or malformed coordinates without a campus error', async () => {
     const { coordinates: _c, ...withoutCoordinates } = VALID;
     expect(
-      fields(await checkSupplierInput(withoutCoordinates, CAMPUS)),
-    ).toEqual(['coordinates']);
+      new Set(fields(await checkSupplierInput(withoutCoordinates, CAMPUS))),
+    ).toEqual(new Set(['coordinates']));
 
     // One violation per broken rule (not a number, below min, above max), all
     // on the one field, and no campus-box violation on top.
@@ -140,6 +140,40 @@ describe('checkSupplierInput', () => {
     expect(fields(await checkSupplierInput(['Cool Spot'], CAMPUS))).toEqual([
       '',
     ]);
+  });
+
+  it('rejects coordinates given as a list instead of an object (review #605)', async () => {
+    for (const coordinates of [[], [{ latitude: 1.29, longitude: 103.77 }]]) {
+      expect(
+        fields(await checkSupplierInput({ ...VALID, coordinates }, CAMPUS)),
+      ).toContain('coordinates');
+    }
+  });
+
+  it('accepts upper-case ids and stores them lower-case (review #605)', async () => {
+    const result = await checkSupplierInput(
+      {
+        ...VALID,
+        categoryIds: [VALID.categoryIds[0].toUpperCase()],
+        buildingId: VALID.buildingId.toUpperCase(),
+      },
+      CAMPUS,
+    );
+
+    expect(result.valid).toBe(true);
+    if (result.valid) {
+      expect(result.value.categoryIds).toEqual(VALID.categoryIds);
+      expect(result.value.buildingId).toBe(VALID.buildingId);
+    }
+  });
+
+  it('treats ids differing only in case as duplicates', async () => {
+    const id = VALID.categoryIds[0];
+    const result = await checkSupplierInput(
+      { ...VALID, categoryIds: [id, id.toUpperCase()] },
+      CAMPUS,
+    );
+    expect(fields(result)).toEqual(['categoryIds']);
   });
 });
 

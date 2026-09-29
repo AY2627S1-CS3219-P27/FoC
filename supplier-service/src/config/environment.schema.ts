@@ -83,6 +83,22 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
     .default(''),
 })
   .unknown(true)
+  // Checked on the whole object, after defaults are applied: setting only a
+  // minimum above the default maximum would otherwise pass.
+  .custom((env: EnvironmentVariables, helpers) => {
+    const invalid = [
+      ['CAMPUS_MIN_LATITUDE', 'CAMPUS_MAX_LATITUDE'],
+      ['CAMPUS_MIN_LONGITUDE', 'CAMPUS_MAX_LONGITUDE'],
+    ] as const;
+    for (const [min, max] of invalid) {
+      if (env[min] >= env[max]) {
+        return helpers.message({
+          custom: `${min} (${env[min]}) must be below ${max} (${env[max]})`,
+        });
+      }
+    }
+    return env;
+  })
   .prefs({ abortEarly: false, convert: true });
 
 /**
