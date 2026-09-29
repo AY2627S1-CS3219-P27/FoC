@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 interface UserProfile {
   uuid: string;
@@ -45,7 +45,6 @@ export default function HomePage() {
   const [userLoading, setUserLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("suppliers");
 
-  // Supplier state
   const [suppliers, setSuppliers] = useState<SupplierItem[]>([]);
   const [buildings, setBuildings] = useState<BuildingItem[]>([]);
   const [categories, setCategories] = useState<CategoryItem[]>([]);
@@ -55,12 +54,9 @@ export default function HomePage() {
   const [filterKind, setFilterKind] = useState("");
   const [selectedSupplier, setSelectedSupplier] = useState<string | null>(null);
 
-  // Profile edit state
   const [editingProfile, setEditingProfile] = useState(false);
   const [newDisplayName, setNewDisplayName] = useState("");
   const [profileMsg, setProfileMsg] = useState("");
-
-  // Role state
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
   const [roleMsg, setRoleMsg] = useState("");
 
@@ -158,15 +154,15 @@ export default function HomePage() {
   if (userLoading) {
     return (
       <div className="flex flex-1 items-center justify-center">
-        <div className="text-muted">Loading...</div>
+        <div className="text-muted fade-in">Loading...</div>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col min-h-full">
-      {/* Navigation */}
-      <header className="bg-nus-blue text-white">
+      {/* Translucent navigation bar (§12: glass material) */}
+      <header className="glass-heavy text-white sticky top-0 z-40">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-6">
             <Link href="/home" className="text-xl font-bold tracking-tight">
@@ -175,7 +171,7 @@ export default function HomePage() {
             <nav className="hidden sm:flex gap-1">
               <button
                 onClick={() => setTab("suppliers")}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                className={`btn-press px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   tab === "suppliers"
                     ? "bg-white/20 text-white"
                     : "text-white/70 hover:text-white hover:bg-white/10"
@@ -185,7 +181,7 @@ export default function HomePage() {
               </button>
               <button
                 onClick={() => setTab("profile")}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                className={`btn-press px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   tab === "profile"
                     ? "bg-white/20 text-white"
                     : "text-white/70 hover:text-white hover:bg-white/10"
@@ -206,23 +202,23 @@ export default function HomePage() {
             )}
             <Link
               href="/login"
-              className="text-sm text-white/70 hover:text-white"
+              className="text-sm text-white/70 hover:text-white transition-colors"
             >
               Sign out
             </Link>
           </div>
         </div>
         {/* Mobile tabs */}
-        <div className="sm:hidden flex border-t border-white/20">
+        <div className="sm:hidden flex border-t border-white/10">
           <button
             onClick={() => setTab("suppliers")}
-            className={`flex-1 py-2 text-sm font-medium ${tab === "suppliers" ? "bg-white/20" : "text-white/70"}`}
+            className={`btn-press flex-1 py-2.5 text-sm font-medium transition-colors ${tab === "suppliers" ? "bg-white/15 text-white" : "text-white/60"}`}
           >
             Suppliers
           </button>
           <button
             onClick={() => setTab("profile")}
-            className={`flex-1 py-2 text-sm font-medium ${tab === "profile" ? "bg-white/20" : "text-white/70"}`}
+            className={`btn-press flex-1 py-2.5 text-sm font-medium transition-colors ${tab === "profile" ? "bg-white/15 text-white" : "text-white/60"}`}
           >
             My Account
           </button>
@@ -230,39 +226,136 @@ export default function HomePage() {
       </header>
 
       <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6">
-        {tab === "suppliers" && (
-          <SuppliersTab
-            suppliers={suppliers}
-            buildings={buildings}
-            categories={categories}
-            loading={suppliersLoading}
-            searchName={searchName}
-            setSearchName={setSearchName}
-            filterBuilding={filterBuilding}
-            setFilterBuilding={setFilterBuilding}
-            filterKind={filterKind}
-            setFilterKind={setFilterKind}
-            selectedSupplier={selectedSupplier}
-            setSelectedSupplier={setSelectedSupplier}
-          />
-        )}
+        <div key={tab} className="fade-in">
+          {tab === "suppliers" && (
+            <SuppliersTab
+              suppliers={suppliers}
+              buildings={buildings}
+              categories={categories}
+              loading={suppliersLoading}
+              searchName={searchName}
+              setSearchName={setSearchName}
+              filterBuilding={filterBuilding}
+              setFilterBuilding={setFilterBuilding}
+              filterKind={filterKind}
+              setFilterKind={setFilterKind}
+              selectedSupplier={selectedSupplier}
+              setSelectedSupplier={setSelectedSupplier}
+            />
+          )}
 
-        {tab === "profile" && user && (
-          <ProfileTab
-            user={user}
-            editingProfile={editingProfile}
-            setEditingProfile={setEditingProfile}
-            newDisplayName={newDisplayName}
-            setNewDisplayName={setNewDisplayName}
-            profileMsg={profileMsg}
-            handleProfileUpdate={handleProfileUpdate}
-            selectedRoles={selectedRoles}
-            toggleRole={toggleRole}
-            handleRoleUpdate={handleRoleUpdate}
-            roleMsg={roleMsg}
-          />
-        )}
+          {tab === "profile" && user && (
+            <ProfileTab
+              user={user}
+              editingProfile={editingProfile}
+              setEditingProfile={setEditingProfile}
+              newDisplayName={newDisplayName}
+              setNewDisplayName={setNewDisplayName}
+              profileMsg={profileMsg}
+              handleProfileUpdate={handleProfileUpdate}
+              selectedRoles={selectedRoles}
+              toggleRole={toggleRole}
+              handleRoleUpdate={handleRoleUpdate}
+              roleMsg={roleMsg}
+            />
+          )}
+        </div>
       </main>
+    </div>
+  );
+}
+
+/* --- Supplier detail drawer with spatial animation (§7) --- */
+
+function SupplierDrawer({
+  supplier,
+  onClose,
+}: {
+  supplier: SupplierItem;
+  onClose: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => setOpen(true));
+    });
+  }, []);
+
+  function handleClose() {
+    setOpen(false);
+    const panel = panelRef.current;
+    if (panel) {
+      panel.addEventListener("transitionend", onClose, { once: true });
+    } else {
+      onClose();
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div
+        className={`absolute inset-0 scrim drawer-backdrop ${open ? "open" : ""}`}
+        onClick={handleClose}
+      />
+      <div
+        ref={panelRef}
+        className={`relative w-full max-w-md bg-background border-l border-border overflow-y-auto drawer-panel ${open ? "open" : ""}`}
+      >
+        <div className="p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-xl font-bold">{supplier.displayName}</h3>
+            <button
+              onClick={handleClose}
+              className="btn-press flex items-center justify-center w-8 h-8 rounded-full bg-surface text-muted hover:text-foreground transition-colors"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M4 4l8 8M12 4l-8 8"/>
+              </svg>
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            <InfoRow label="Type" value={supplier.kind} />
+            <InfoRow
+              label="Building"
+              value={supplier.building?.shortName ?? "—"}
+            />
+            <InfoRow label="Floor" value={supplier.floor} />
+            <InfoRow label="Location" value={supplier.locationDescription} />
+            <InfoRow
+              label="Status"
+              value={
+                <span
+                  className={
+                    supplier.status === "Active"
+                      ? "text-success"
+                      : "text-danger"
+                  }
+                >
+                  {supplier.status}
+                </span>
+              }
+            />
+            <div>
+              <span className="text-sm text-muted block mb-1.5">
+                Categories
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {supplier.categories.map((cat) => (
+                  <span
+                    key={cat.id}
+                    className="text-sm bg-nus-orange/10 text-nus-orange px-2.5 py-1 rounded-full font-medium"
+                  >
+                    {cat.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -308,15 +401,15 @@ function SuppliersTab({
       <div className="flex flex-wrap gap-3 mb-6">
         <input
           type="text"
-          placeholder="Search by name..."
+          placeholder="Search by name…"
           value={searchName}
           onChange={(e) => setSearchName(e.target.value)}
-          className="flex-1 min-w-[200px] rounded-lg border border-border bg-surface px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-nus-orange"
+          className="flex-1 min-w-[200px] rounded-xl border border-border bg-surface px-3.5 py-2.5 text-sm transition-shadow"
         />
         <select
           value={filterBuilding}
           onChange={(e) => setFilterBuilding(e.target.value)}
-          className="rounded-lg border border-border bg-surface px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-nus-orange"
+          className="rounded-xl border border-border bg-surface px-3.5 py-2.5 text-sm transition-shadow"
         >
           <option value="">All buildings</option>
           {buildings.map((b) => (
@@ -328,7 +421,7 @@ function SuppliersTab({
         <select
           value={filterKind}
           onChange={(e) => setFilterKind(e.target.value)}
-          className="rounded-lg border border-border bg-surface px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-nus-orange"
+          className="rounded-xl border border-border bg-surface px-3.5 py-2.5 text-sm transition-shadow"
         >
           <option value="">All types</option>
           <option value="Store">Store</option>
@@ -338,11 +431,11 @@ function SuppliersTab({
       </div>
 
       {loading ? (
-        <div className="text-center py-12 text-muted">
+        <div className="text-center py-12 text-muted fade-in">
           Loading suppliers...
         </div>
       ) : suppliers.length === 0 ? (
-        <div className="text-center py-12">
+        <div className="text-center py-12 fade-in">
           <p className="text-muted text-lg">No suppliers found</p>
           <p className="text-muted text-sm mt-1">
             Try adjusting your filters or check if the supplier service is
@@ -359,7 +452,7 @@ function SuppliersTab({
                   selectedSupplier === supplier.id ? null : supplier.id
                 )
               }
-              className={`text-left rounded-xl border p-4 transition-all hover:shadow-md ${
+              className={`card-press text-left rounded-2xl border p-4 hover:shadow-md ${
                 selectedSupplier === supplier.id
                   ? "border-nus-orange ring-2 ring-nus-orange/30 bg-surface"
                   : "border-border bg-surface hover:border-nus-orange/50"
@@ -399,65 +492,11 @@ function SuppliersTab({
         </div>
       )}
 
-      {/* Supplier detail drawer */}
       {selected && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/30">
-          <div className="w-full max-w-md bg-background border-l border-border overflow-y-auto">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-xl font-bold">{selected.displayName}</h3>
-                <button
-                  onClick={() => setSelectedSupplier(null)}
-                  className="text-muted hover:text-foreground text-2xl leading-none"
-                >
-                  &times;
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                <InfoRow label="Type" value={selected.kind} />
-                <InfoRow
-                  label="Building"
-                  value={selected.building?.shortName ?? "—"}
-                />
-                <InfoRow label="Floor" value={selected.floor} />
-                <InfoRow
-                  label="Location"
-                  value={selected.locationDescription}
-                />
-                <InfoRow
-                  label="Status"
-                  value={
-                    <span
-                      className={
-                        selected.status === "Active"
-                          ? "text-success"
-                          : "text-danger"
-                      }
-                    >
-                      {selected.status}
-                    </span>
-                  }
-                />
-                <div>
-                  <span className="text-sm text-muted block mb-1">
-                    Categories
-                  </span>
-                  <div className="flex flex-wrap gap-1">
-                    {selected.categories.map((cat) => (
-                      <span
-                        key={cat.id}
-                        className="text-sm bg-nus-orange/10 text-nus-orange px-2.5 py-1 rounded-full"
-                      >
-                        {cat.name}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <SupplierDrawer
+          supplier={selected}
+          onClose={() => setSelectedSupplier(null)}
+        />
       )}
     </div>
   );
@@ -508,16 +547,16 @@ function ProfileTab({
       <h2 className="text-2xl font-bold mb-6">My Account</h2>
 
       {/* Profile card */}
-      <div className="rounded-xl border border-border bg-surface p-6 mb-6">
+      <div className="rounded-2xl border border-border bg-surface p-6 mb-6 shadow-sm">
         <h3 className="text-lg font-semibold mb-4">Profile</h3>
         <div className="space-y-3">
           <InfoRow label="Email" value={user.email} />
           <InfoRow label="User ID" value={user.uuid} />
 
           {editingProfile ? (
-            <form onSubmit={handleProfileUpdate} className="space-y-3 pt-2">
+            <form onSubmit={handleProfileUpdate} className="space-y-3 pt-2 fade-in">
               <div>
-                <label className="block text-sm font-medium mb-1">
+                <label className="block text-sm font-medium mb-1.5">
                   Display name
                 </label>
                 <input
@@ -525,20 +564,20 @@ function ProfileTab({
                   onChange={(e) => setNewDisplayName(e.target.value)}
                   required
                   maxLength={255}
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-nus-orange"
+                  className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm transition-shadow"
                 />
               </div>
               <div className="flex gap-2">
                 <button
                   type="submit"
-                  className="rounded-lg bg-nus-orange px-4 py-2 text-sm font-semibold text-white hover:bg-nus-orange-hover"
+                  className="btn-press rounded-xl bg-nus-orange px-4 py-2 text-sm font-semibold text-white hover:bg-nus-orange-hover transition-colors"
                 >
                   Save
                 </button>
                 <button
                   type="button"
                   onClick={() => setEditingProfile(false)}
-                  className="rounded-lg border border-border px-4 py-2 text-sm"
+                  className="btn-press rounded-xl border border-border px-4 py-2 text-sm hover:bg-background transition-colors"
                 >
                   Cancel
                 </button>
@@ -552,7 +591,7 @@ function ProfileTab({
                   setNewDisplayName(user.displayName);
                   setEditingProfile(true);
                 }}
-                className="text-sm text-nus-blue hover:underline"
+                className="btn-press text-sm text-nus-blue hover:underline"
               >
                 Edit
               </button>
@@ -560,13 +599,13 @@ function ProfileTab({
           )}
 
           {profileMsg && (
-            <p className="text-sm text-nus-orange">{profileMsg}</p>
+            <p className="text-sm text-nus-orange fade-in">{profileMsg}</p>
           )}
         </div>
       </div>
 
       {/* Roles card */}
-      <div className="rounded-xl border border-border bg-surface p-6 mb-6">
+      <div className="rounded-2xl border border-border bg-surface p-6 mb-6 shadow-sm">
         <h3 className="text-lg font-semibold mb-2">Errand Roles</h3>
         <p className="text-sm text-muted mb-4">
           Choose how you want to participate on the platform.
@@ -576,7 +615,7 @@ function ProfileTab({
             <button
               key={role}
               onClick={() => toggleRole(role)}
-              className={`flex-1 rounded-lg border-2 px-4 py-3 text-sm font-medium transition-all ${
+              className={`btn-press flex-1 rounded-xl border-2 px-4 py-3 text-sm font-medium transition-all ${
                 selectedRoles.includes(role)
                   ? "border-nus-orange bg-nus-orange/10 text-nus-orange"
                   : "border-border text-muted hover:border-nus-orange/50"
@@ -593,22 +632,22 @@ function ProfileTab({
         </div>
         <button
           onClick={handleRoleUpdate}
-          className="rounded-lg bg-nus-blue px-4 py-2 text-sm font-semibold text-white hover:bg-nus-blue-light"
+          className="btn-press rounded-xl bg-nus-blue px-4 py-2 text-sm font-semibold text-white hover:bg-nus-blue-light transition-colors"
         >
           Update roles
         </button>
-        {roleMsg && <p className="text-sm text-nus-orange mt-2">{roleMsg}</p>}
+        {roleMsg && <p className="text-sm text-nus-orange mt-2 fade-in">{roleMsg}</p>}
       </div>
 
       {/* Password reset */}
-      <div className="rounded-xl border border-border bg-surface p-6">
+      <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
         <h3 className="text-lg font-semibold mb-2">Security</h3>
         <p className="text-sm text-muted mb-4">
           Manage your password and account security.
         </p>
         <Link
           href="/forgot-password"
-          className="inline-block rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-background transition-colors"
+          className="btn-press inline-block rounded-xl border border-border px-4 py-2 text-sm font-medium hover:bg-background transition-colors"
         >
           Reset password
         </Link>

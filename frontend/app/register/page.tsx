@@ -71,10 +71,10 @@ export default function RegisterPage() {
 
   return (
     <main className="flex flex-1 items-center justify-center p-6 bg-background">
-      <div className="w-full max-w-md">
+      <div className="w-full max-w-md fade-in">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-nus-blue mb-4">
-            <span className="text-2xl font-bold text-white">FoC</span>
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-nus-blue mb-4 shadow-lg">
+            <span className="text-2xl font-bold text-white tracking-tight">FoC</span>
           </div>
           <h1 className="text-3xl font-bold text-foreground">
             Create your account
@@ -87,13 +87,19 @@ export default function RegisterPage() {
           {steps.map((s, i) => (
             <div key={s.key} className="flex items-center gap-2">
               <div
-                className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-semibold ${
+                className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-semibold transition-colors ${
                   i <= stepIndex
                     ? "bg-nus-orange text-white"
                     : "bg-border text-muted"
                 }`}
               >
-                {i + 1}
+                {i < stepIndex ? (
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <path d="M2.5 7l3 3 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                ) : (
+                  i + 1
+                )}
               </div>
               <span
                 className={`text-sm ${i <= stepIndex ? "text-foreground font-medium" : "text-muted"}`}
@@ -102,7 +108,7 @@ export default function RegisterPage() {
               </span>
               {i < steps.length - 1 && (
                 <div
-                  className={`w-8 h-0.5 ${i < stepIndex ? "bg-nus-orange" : "bg-border"}`}
+                  className={`w-8 h-0.5 rounded-full transition-colors ${i < stepIndex ? "bg-nus-orange" : "bg-border"}`}
                 />
               )}
             </div>
@@ -112,11 +118,11 @@ export default function RegisterPage() {
         <form
           key={step}
           onSubmit={onSubmit}
-          className="flex flex-col gap-4 rounded-xl border border-border bg-surface p-6"
+          className="flex flex-col gap-4 rounded-2xl border border-border bg-surface p-6 shadow-sm fade-in"
         >
           {step === "email" && (
             <div>
-              <label className="block text-sm font-medium mb-1">
+              <label className="block text-sm font-medium mb-1.5">
                 NUS Email
               </label>
               <input
@@ -125,9 +131,9 @@ export default function RegisterPage() {
                 placeholder="e0123456@u.nus.edu"
                 required
                 autoComplete="email"
-                className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-nus-orange"
+                className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm transition-shadow"
               />
-              <p className="text-xs text-muted mt-1">
+              <p className="text-xs text-muted mt-1.5">
                 Only @u.nus.edu addresses are accepted.
               </p>
             </div>
@@ -139,7 +145,7 @@ export default function RegisterPage() {
                 Enter the 6-character code sent to{" "}
                 <span className="font-medium text-foreground">{email}</span>.
               </p>
-              <label className="block text-sm font-medium mb-1">
+              <label className="block text-sm font-medium mb-1.5">
                 Verification code
               </label>
               <input
@@ -149,7 +155,7 @@ export default function RegisterPage() {
                 minLength={6}
                 maxLength={6}
                 autoComplete="one-time-code"
-                className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm tracking-widest text-center font-mono focus:outline-none focus:ring-2 focus:ring-nus-orange"
+                className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm tracking-widest text-center font-mono transition-shadow"
               />
             </div>
           )}
@@ -157,7 +163,7 @@ export default function RegisterPage() {
           {step === "details" && (
             <>
               <div>
-                <label className="block text-sm font-medium mb-1">
+                <label className="block text-sm font-medium mb-1.5">
                   Display name
                 </label>
                 <input
@@ -165,11 +171,11 @@ export default function RegisterPage() {
                   placeholder="How others will see you"
                   required
                   maxLength={255}
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-nus-orange"
+                  className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm transition-shadow"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">
+                <label className="block text-sm font-medium mb-1.5">
                   Password
                 </label>
                 <input
@@ -180,24 +186,24 @@ export default function RegisterPage() {
                   minLength={12}
                   maxLength={255}
                   autoComplete="new-password"
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-nus-orange"
+                  className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm transition-shadow"
                 />
               </div>
             </>
           )}
 
           {error && (
-            <p role="alert" className="text-sm text-danger">
+            <p role="alert" className="text-sm text-danger fade-in">
               {error}
             </p>
           )}
 
           <button
             disabled={pending}
-            className="w-full rounded-lg bg-nus-orange px-4 py-2.5 text-sm font-semibold text-white hover:bg-nus-orange-hover disabled:opacity-50 transition-colors"
+            className="btn-press w-full rounded-xl bg-nus-orange px-4 py-2.5 text-sm font-semibold text-white hover:bg-nus-orange-hover disabled:opacity-50 transition-colors"
           >
             {pending
-              ? "Please wait..."
+              ? "Please wait…"
               : step === "details"
                 ? "Create account"
                 : "Continue"}

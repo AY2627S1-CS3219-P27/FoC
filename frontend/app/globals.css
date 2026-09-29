@@ -33,7 +33,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --background: #0f172a;
     --foreground: #e2e8f0;
     --surface: #1e293b;
@@ -42,8 +42,211 @@
   }
 }
 
+:root[data-theme="dark"] {
+  --background: #0f172a;
+  --foreground: #e2e8f0;
+  --surface: #1e293b;
+  --border: #334155;
+  --muted: #94a3b8;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --- Typography: size-specific tracking and leading (§15) --- */
+
+.display-heading {
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  font-weight: 700;
+}
+
+h1, .heading-1 {
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+h2, .heading-2 {
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+}
+
+h3, .heading-3 {
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+/* Body text: near-zero tracking, comfortable leading */
+body {
+  letter-spacing: 0;
+  line-height: 1.5;
+}
+
+/* Small text: slightly positive tracking for legibility */
+.text-sm, small {
+  letter-spacing: 0.01em;
+}
+
+/* --- Press feedback: respond on pointer-down (§1) --- */
+
+.btn-press {
+  transition: transform 120ms ease-out, opacity 120ms ease-out;
+  will-change: transform;
+}
+
+.btn-press:active {
+  transform: scale(0.97);
+}
+
+.btn-press:disabled {
+  transform: none;
+}
+
+/* Card press */
+.card-press {
+  transition: transform 200ms ease-out, box-shadow 200ms ease-out, border-color 200ms ease-out;
+  will-change: transform;
+}
+
+.card-press:active {
+  transform: scale(0.985);
+}
+
+/* --- Translucent material (§12) --- */
+
+.glass-heavy {
+  background: rgba(0, 61, 124, 0.82);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+
+.glass-light {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .glass-light {
+    background: rgba(30, 41, 59, 0.78);
+  }
+}
+
+/* --- Focus rings --- */
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(239, 124, 0, 0.35);
+  border-color: var(--nus-orange);
+  transition: box-shadow 150ms ease-out, border-color 150ms ease-out;
+}
+
+/* --- Drawer / sheet slide (§4, §7: spatial consistency) --- */
+
+.drawer-backdrop {
+  opacity: 0;
+  transition: opacity 280ms ease-out;
+}
+
+.drawer-backdrop.open {
+  opacity: 1;
+}
+
+.drawer-panel {
+  transform: translateX(100%);
+  transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1);
+  will-change: transform;
+}
+
+.drawer-panel.open {
+  transform: translateX(0);
+}
+
+/* --- Fade transitions for tab/step changes --- */
+
+.fade-in {
+  animation: fadeIn 250ms ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* --- Scrim for modals (§12: dim to focus) --- */
+
+.scrim {
+  background: rgba(0, 0, 0, 0.32);
+}
+
+/* --- Scroll edge: soft gradient instead of hard border --- */
+
+.scroll-edge-bottom::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 24px;
+  background: linear-gradient(to top, var(--background), transparent);
+  pointer-events: none;
+}
+
+/* --- Accessibility (§14) --- */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .drawer-panel {
+    transition: none;
+    transform: none;
+  }
+
+  .btn-press:active {
+    transform: none;
+  }
+
+  .card-press:active {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass-heavy {
+    background: var(--nus-blue);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .glass-light {
+    background: var(--surface);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .glass-heavy {
+    background: var(--nus-blue);
+    backdrop-filter: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  .glass-light {
+    background: var(--surface);
+    backdrop-filter: none;
+    border: 1px solid var(--border);
+  }
 }
