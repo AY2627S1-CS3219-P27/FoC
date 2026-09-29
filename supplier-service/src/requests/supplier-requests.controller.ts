@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   HttpCode,
   Param,
   Post,
@@ -10,10 +11,12 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { parseIfMatch } from '../common/validation/if-match.js';
 import { uuidParam } from '../common/validation/parse-uuid.pipe.js';
 import type { Page } from '../suppliers/supplier-view.js';
 import { DenyRequestDto } from './dto/deny-request.dto.js';
 import { ListRequestsQueryDto } from './dto/list-requests-query.dto.js';
+import { SubmitUpdateRequestDto } from './dto/submit-update-request.dto.js';
 import type { RequestView } from './request-view.js';
 import { SupplierRequestsService } from './supplier-requests.service.js';
 
@@ -38,6 +41,24 @@ export class SupplierRequestsController {
     @Req() request: AuthenticatedRequest,
   ): Promise<RequestView> {
     return this.requests.submitCreation(body, String(request.user.sub));
+  }
+
+  /**
+   * Files a request to edit a supplier (F8.1), based on the version in
+   * If-Match, as for an admin edit: missing → 428, out of date → 409.
+   */
+  @Post('updates')
+  submitUpdate(
+    @Body() body: SubmitUpdateRequestDto,
+    @Headers('if-match') ifMatch: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<RequestView> {
+    return this.requests.submitUpdate(
+      body.supplierId,
+      parseIfMatch(ifMatch),
+      body.changes,
+      String(request.user.sub),
+    );
   }
 
   /** Pending requests, oldest first (F6.7). */

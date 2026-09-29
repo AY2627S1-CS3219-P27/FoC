@@ -16,6 +16,7 @@ function fakes() {
   const view = (state: string) => ({ id: REQUEST_ID, type: 'Create', state });
   return {
     submitCreation: vi.fn(async () => view('Pending')),
+    submitUpdate: vi.fn(async () => view('Pending')),
     listPending: vi.fn(async (query: { offset: number; limit: number }) => ({
       items: [],
       total: 0,
@@ -79,6 +80,48 @@ describe('supplier request endpoints (e2e)', () => {
     // The raw body reaches the service; the submitter comes from the token.
     expect(stub.submitCreation).toHaveBeenCalledWith(body, '7');
     expect(response.body).toMatchObject({ id: REQUEST_ID, state: 'Pending' });
+  });
+
+  it('lets a basic user file an edit, based on the If-Match version (F8.1)', async () => {
+    const supplierId = randomUUID();
+    await request(app.getHttpServer())
+      .post('/supplier-requests/updates')
+      .set('Cookie', cookie)
+      .set('If-Match', '"3"')
+      .send({ supplierId: supplierId.toUpperCase(), changes: { floor: '2' } })
+      .expect(201);
+
+    expect(stub.submitUpdate).toHaveBeenCalledWith(
+      supplierId,
+      3,
+      { floor: '2' },
+      '7',
+    );
+  });
+
+  it('answers 428 for an edit request without If-Match (F14.3)', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/supplier-requests/updates')
+      .set('Cookie', cookie)
+      .send({ supplierId: randomUUID(), changes: { floor: '2' } })
+      .expect(428);
+
+    expect(response.body.code).toBe('PRECONDITION_REQUIRED');
+    expect(stub.submitUpdate).not.toHaveBeenCalled();
+  });
+
+  it('rejects an edit request with a bad supplier id or no changes object', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/supplier-requests/updates')
+      .set('Cookie', cookie)
+      .set('If-Match', '"3"')
+      .send({ supplierId: 'nope', changes: 'floor 2' })
+      .expect(400);
+
+    expect(
+      response.body.violations.map((v: { field: string }) => v.field),
+    ).toEqual(expect.arrayContaining(['supplierId', 'changes']));
+    expect(stub.submitUpdate).not.toHaveBeenCalled();
   });
 
   it.each([

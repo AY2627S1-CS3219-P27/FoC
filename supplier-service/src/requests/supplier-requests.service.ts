@@ -67,20 +67,55 @@ export class SupplierRequestsService {
       denialReason: null,
       createdSupplierId: null,
     });
-    try {
-      return toRequestView(await this.dataSource.manager.save(request));
-    } catch (error) {
-      // The partial unique index decides, so two identical requests filed at
-      // the same moment cannot both be Pending (F7.2).
-      if (isUniqueViolation(error, 'UQ_supplier_requests_pending_create')) {
-        throw new ConflictException({
-          code: ErrorCode.DuplicateRequest,
-          message:
-            'An identical request to add this supplier is already pending.',
+    return withPendingDuplicateMapped(async () =>
+      toRequestView(await this.dataSource.manager.save(request)),
+    );
+  }
+
+  /**
+   * Files a request to edit a supplier (F8.1), based on the version the user
+   * last saw (F6.2): it is validated exactly like an admin edit, including
+   * whether the edited record would duplicate another supplier. The live
+   * supplier is unchanged until an admin approves (F8.2), and a supplier
+   * has at most one Pending update request (F8.3).
+   */
+  async submitUpdate(
+    supplierId: string,
+    expectedVersion: number,
+    changes: unknown,
+    userId: string,
+  ): Promise<RequestView> {
+    return withPendingDuplicateMapped(() =>
+      this.dataSource.transaction(async (manager) => {
+        const values = await this.suppliers.validatePatch(
+          supplierId,
+          expectedVersion,
+          changes,
+          manager,
+        );
+        const request = manager.create(SupplierRequest, {
+          id: randomUUID(),
+          type: RequestType.Update,
+          state: RequestState.Pending,
+          supplierId,
+          supplierVersion: expectedVersion,
+          // Only the supplied fields, validated and normalised, as plain JSON.
+          payload: JSON.parse(JSON.stringify(values)) as Record<
+            string,
+            unknown
+          >,
+          nameKey: null,
+          buildingId: null,
+          floor: null,
+          submittedBy: userId,
+          resolvedBy: null,
+          resolvedAt: null,
+          denialReason: null,
+          createdSupplierId: null,
         });
-      }
-      throw error;
-    }
+        return toRequestView(await manager.save(request));
+      }),
+    );
   }
 
   /** Pending requests, optionally of one type, oldest first (F6.7, N3.1). */
@@ -126,8 +161,18 @@ export class SupplierRequestsService {
           request.createdSupplierId = supplier.id;
           break;
         }
+        case RequestType.Update:
+          // Refused with VERSION_CONFLICT if the supplier changed since the
+          // request was filed (F8.4.1).
+          await this.suppliers.update(
+            request.supplierId!,
+            request.supplierVersion!,
+            request.payload,
+            manager,
+          );
+          break;
         default:
-          // Update and StatusChange requests cannot be filed yet.
+          // StatusChange requests cannot be filed yet.
           throw new ConflictException({
             code: ErrorCode.Conflict,
             message: `${request.type} requests cannot be approved yet.`,
@@ -155,6 +200,34 @@ export class SupplierRequestsService {
       request.denialReason = reason;
       return toRequestView(await manager.save(request));
     });
+  }
+}
+
+/**
+ * Turns a partial unique index firing into 409 DUPLICATE_REQUEST. The index
+ * decides, so two requests filed at the same moment cannot both be Pending:
+ * one creation per duplicate key (F7.2), one update per supplier (F8.3).
+ */
+async function withPendingDuplicateMapped<T>(
+  work: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    if (isUniqueViolation(error, 'UQ_supplier_requests_pending_create')) {
+      throw new ConflictException({
+        code: ErrorCode.DuplicateRequest,
+        message:
+          'An identical request to add this supplier is already pending.',
+      });
+    }
+    if (isUniqueViolation(error, 'UQ_supplier_requests_pending_target')) {
+      throw new ConflictException({
+        code: ErrorCode.DuplicateRequest,
+        message: 'This supplier already has a pending request of this type.',
+      });
+    }
+    throw error;
   }
 }
 
