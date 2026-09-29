@@ -65,6 +65,11 @@ export enum RequestState {
   ['nameKey', 'buildingId', 'floor'],
   { unique: true, where: `type = 'Create' AND state = 'Pending'` },
 )
+// Only one Pending update (F8.3) or status change (F9.3.2) per supplier.
+@Index('UQ_supplier_requests_pending_target', ['supplierId', 'type'], {
+  unique: true,
+  where: `type <> 'Create' AND state = 'Pending'`,
+})
 // The admin queue: Pending requests by type, oldest first (F6.7).
 @Index('IDX_supplier_requests_pending_queue', ['type', 'submittedAt'], {
   where: `state = 'Pending'`,
