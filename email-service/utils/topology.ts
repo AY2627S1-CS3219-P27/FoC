@@ -25,9 +25,13 @@ export const OTP_QUEUE = 'otp_emails';
 export const DLQ_QUEUE = 'otp_emails.dlq';
 export const OTP_EMAIL_ROUTING_KEY = 'otp.email';
 
+export const PASSWORD_RESET_QUEUE = 'password_reset_emails';
+export const PASSWORD_RESET_DLQ_QUEUE = 'password_reset_emails.dlq';
+export const PASSWORD_RESET_EMAIL_ROUTING_KEY = 'password-reset.email';
+
 /**
  * One generic parking-lot queue per backoff hop, shared by every message type
- * the email service handles (OTP).
+ * the email service handles (OTP and password-reset today).
  */
 export interface RetryStep {
   /** Name of the retry queue; served by foc.retry's headers exchange. */
@@ -79,6 +83,10 @@ export async function assertTopology(ch1: amqplib.Channel) {
     durable: true,
     arguments: { 'x-queue-type': 'classic' },
   });
+  await ch1.assertQueue(PASSWORD_RESET_QUEUE, {
+    durable: true,
+    arguments: { 'x-queue-type': 'classic' },
+  });
 
   // Check retry queues have expected TTL and DLEs
   for (const step of RETRY_STEPS) {
@@ -101,6 +109,20 @@ export async function assertTopology(ch1: amqplib.Channel) {
     durable: true,
     arguments: { 'x-queue-type': 'classic' },
   });
+  await ch1.assertQueue(PASSWORD_RESET_DLQ_QUEUE, {
+    durable: true,
+    arguments: { 'x-queue-type': 'classic' },
+  });
   await ch1.bindQueue(DLQ_QUEUE, DLQ_EXCHANGE, OTP_EMAIL_ROUTING_KEY);
   await ch1.bindQueue(OTP_QUEUE, BACK_EXCHANGE, OTP_EMAIL_ROUTING_KEY);
+  await ch1.bindQueue(
+    PASSWORD_RESET_DLQ_QUEUE,
+    DLQ_EXCHANGE,
+    PASSWORD_RESET_EMAIL_ROUTING_KEY,
+  );
+  await ch1.bindQueue(
+    PASSWORD_RESET_QUEUE,
+    BACK_EXCHANGE,
+    PASSWORD_RESET_EMAIL_ROUTING_KEY,
+  );
 }

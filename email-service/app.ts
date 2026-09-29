@@ -5,6 +5,7 @@ import amqplib from 'amqplib';
 import { assertTopology, ATTEMPT_HEADER, attemptOf } from './utils/topology.ts';
 import type { Listener } from './handlers/types.ts';
 import { OtpEmailListener } from './handlers/otp.ts';
+import { ResetPasswordEmailListener } from './handlers/password-reset.ts';
 import { dispatchOutcome } from './handlers/common/dispatcher.ts';
 
 const RABBITMQ_PASS = readFileSync(envs.RABBITMQ_PASSWORD_FILE, 'utf8').trim();
@@ -14,7 +15,10 @@ const brokerUrl =
   `${encodeURIComponent(RABBITMQ_PASS)}@` +
   `${envs.RABBITMQ_HOST}:${envs.RABBITMQ_PORT}/${encodeURIComponent(envs.RABBITMQ_VHOST)}`;
 
-const emailListeners: Listener[] = [OtpEmailListener];
+const emailListeners: Listener[] = [
+  OtpEmailListener,
+  ResetPasswordEmailListener,
+];
 
 (async () => {
   const conn = await amqplib.connect(brokerUrl);

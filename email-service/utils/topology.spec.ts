@@ -10,6 +10,9 @@ import {
   MAX_EMAIL_ATTEMPTS,
   OTP_EMAIL_ROUTING_KEY,
   OTP_QUEUE,
+  PASSWORD_RESET_DLQ_QUEUE,
+  PASSWORD_RESET_EMAIL_ROUTING_KEY,
+  PASSWORD_RESET_QUEUE,
   RETRY_EXCHANGE,
   RETRY_STEPS,
 } from './topology.ts';
@@ -53,12 +56,20 @@ describe('assertTopology', () => {
         'otp_emails',
         { durable: true, arguments: { 'x-queue-type': 'classic' } },
       ],
+      [
+        'password_reset_emails',
+        { durable: true, arguments: { 'x-queue-type': 'classic' } },
+      ],
       ['email_retry_60s', RETRY_QUEUE_ARGS(60_000)],
       ['email_retry_120s', RETRY_QUEUE_ARGS(120_000)],
       ['email_retry_240s', RETRY_QUEUE_ARGS(240_000)],
       ['email_retry_480s', RETRY_QUEUE_ARGS(480_000)],
       [
         'otp_emails.dlq',
+        { durable: true, arguments: { 'x-queue-type': 'classic' } },
+      ],
+      [
+        'password_reset_emails.dlq',
         { durable: true, arguments: { 'x-queue-type': 'classic' } },
       ],
     ]);
@@ -95,6 +106,8 @@ describe('assertTopology', () => {
       ],
       ['otp_emails.dlq', 'foc.dlq', 'otp.email'],
       ['otp_emails', 'foc.back', 'otp.email'],
+      ['password_reset_emails.dlq', 'foc.dlq', 'password-reset.email'],
+      ['password_reset_emails', 'foc.back', 'password-reset.email'],
     ]);
   });
 });
@@ -109,6 +122,9 @@ describe('topology constants', () => {
     expect(OTP_QUEUE).toBe('otp_emails');
     expect(DLQ_QUEUE).toBe('otp_emails.dlq');
     expect(OTP_EMAIL_ROUTING_KEY).toBe('otp.email');
+    expect(PASSWORD_RESET_QUEUE).toBe('password_reset_emails');
+    expect(PASSWORD_RESET_DLQ_QUEUE).toBe('password_reset_emails.dlq');
+    expect(PASSWORD_RESET_EMAIL_ROUTING_KEY).toBe('password-reset.email');
   });
 
   it('derives one parking-lot queue per backoff hop and MAX from the steps', () => {
@@ -137,3 +153,4 @@ describe('attemptOf', () => {
     expect(attemptOf(raw)).toBe(expected);
   });
 });
+

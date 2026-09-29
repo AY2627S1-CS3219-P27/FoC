@@ -125,6 +125,7 @@ type Handler = (msg: ConsumeMessage | null) => Promise<void>;
 type UnknownFn = (...args: unknown[]) => void;
 
 let otpHandler: Handler;
+let resetHandler: Handler;
 let loggerInfo: MockInstance;
 let loggerError: MockInstance;
 
@@ -187,15 +188,14 @@ beforeAll(async () => {
   loggerError = vi.mocked(logger.error);
 
   // The IIFE awaits connect/createChannel/assertTopology before consuming;
-  // give those microtasks time to settle, then capture the OTP handler and
+  // give those microtasks time to settle, then capture the handlers and
   // snapshot the wiring calls before `clearMocks` wipes them.
-  await vi.waitFor(() =>
-    expect(
-      mocks.consume.mock.calls.some((call) => call[0] === 'otp_emails'),
-    ).toBe(true),
-  );
+  await vi.waitFor(() => expect(mocks.consume).toHaveBeenCalledTimes(2));
   otpHandler = mocks.consume.mock.calls.find(
     (call) => call[0] === 'otp_emails',
+  )?.[1] as Handler;
+  resetHandler = mocks.consume.mock.calls.find(
+    (call) => call[0] === 'password_reset_emails',
   )?.[1] as Handler;
   wiring = {
     brokerUrl: mocks.connect.mock.calls[0]?.[0],
@@ -260,10 +260,12 @@ describe('startup IIFE', () => {
     expect(wiring.bindQueueCalls.length).toBeGreaterThan(0);
   });
 
-  it('registers a consumer for the OTP email listener', () => {
-    const otp = wiring.consumeCalls.find((call) => call[0] === 'otp_emails');
-    expect(otp).toBeDefined();
-    expect(typeof otp?.[1]).toBe('function');
+  it('registers one consumer per email listener', () => {
+    expect(wiring.consumeCalls).toHaveLength(2);
+    expect(wiring.consumeCalls.map((call) => call[0])).toEqual([
+      'otp_emails',
+      'password_reset_emails',
+    ]);
   });
 
   it('logs connection and channel handler errors instead of crashing', () => {
@@ -301,5 +303,39 @@ describe('consume handler dispatch wiring', () => {
     expect(mocks.ack).not.toHaveBeenCalled();
     expect(mocks.nack).not.toHaveBeenCalled();
     expect(mocks.publish).not.toHaveBeenCalled();
+  });
+
+  it('wires the password-reset queue to its own consumer', async () => {
+    const msg = fakeMessage(
+      Buffer.from(
+        JSON.stringify({
+          data: {
+            messageId: UUID,
+            recipient: 'student@example.com',
+            resetLink: 'https://foc.example/reset-password?token=abc',
+            subject: 'Reset your password',
+            expiry: 10,
+          },
+        }),
+      ),
+    );
+
+    await resetHandler(msg);
+
+    expect(mocks.ack).toHaveBeenCalledWith(msg);
+    expect(mocks.nack).not.toHaveBeenCalled();
+    expect(mocks.sendMail).toHaveBeenCalledTimes(1);
+    expect(mocks.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'student@example.com',
+        subject: 'Reset your password',
+        text: expect.stringContaining(
+          'https://foc.example/reset-password?token=abc',
+        ),
+        html: expect.stringContaining(
+          'https://foc.example/reset-password?token=abc',
+        ),
+      }),
+    );
   });
 });
