@@ -32,13 +32,13 @@ const jwtService = new JwtService({
 
 function signAccessToken(
   overrides: {
-    sub?: number;
+    sub?: string;
     roles?: Role[];
     isAdmin?: boolean;
   } = {},
 ) {
   return jwtService.signAsync({
-    sub: overrides.sub ?? 7,
+    sub: overrides.sub ?? '11111111-1111-4111-8111-111111111111',
     email: 'eve@example.com',
     displayName: 'Eve',
     isAdmin: overrides.isAdmin ?? false,
@@ -79,15 +79,15 @@ describe('user-service (e2e)', () => {
       // Postgres container
       .overrideProvider(UsersService)
       .useValue({
-        getUserById: vi.fn(async (id: number) => ({
-          id,
+        getUserByUuid: vi.fn(async (uuid: string) => ({
+          uuid,
           email: 'eve@example.com',
           displayName: 'Eve',
           roles: [Role.Requester],
           isAdmin: false,
         })),
-        updateRoles: vi.fn(async (id: number, roles: Role[]) => ({
-          id,
+        updateRoles: vi.fn(async (uuid: string, roles: Role[]) => ({
+          uuid,
           email: 'eve@example.com',
           displayName: 'Eve',
           roles,
@@ -144,7 +144,7 @@ describe('user-service (e2e)', () => {
         .expect(200);
 
       expect(response.body).toMatchObject({
-        id: 7,
+        uuid: '11111111-1111-4111-8111-111111111111',
         email: 'eve@example.com',
         roles: [Role.Requester],
       });
@@ -156,7 +156,10 @@ describe('user-service (e2e)', () => {
         .set('Cookie', `${ACCESS_TOKEN_COOKIE}=${await signAccessToken()}`)
         .expect(200);
 
-      expect(response.body).toMatchObject({ id: 7, email: 'eve@example.com' });
+      expect(response.body).toMatchObject({
+        uuid: '11111111-1111-4111-8111-111111111111',
+        email: 'eve@example.com',
+      });
     });
   });
 
