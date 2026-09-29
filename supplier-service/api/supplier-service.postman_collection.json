@@ -1100,7 +1100,7 @@
     },
     {
       "name": "4 Supplier requests (D2 points 3 and 4)",
-      "description": "Moderated creation (F6, F7): a basic user asks for a new supplier, an admin reviews, approves or denies it. The supplier only appears once approved.",
+      "description": "Moderated changes (F6, F7, F8): a basic user asks for a new supplier or an edit; an admin reviews, approves or denies. Nothing changes until an admin approves.",
       "item": [
         {
           "name": "Basic user asks to add a supplier (201, Pending)",
@@ -1396,6 +1396,258 @@
                   "pm.test('status 200', () => pm.response.to.have.status(200));",
                   "const page = pm.response.json();",
                   "pm.test('listed, Active', () => { pm.expect(page.total).to.eql(1); pm.expect(page.items[0].status).to.eql('Active'); });"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Read it (ETag for an edit)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{requestedSupplierId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.environment.set('requestedSupplierEtag', pm.response.headers.get('ETag'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Basic user asks to edit it (201, Pending)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "If-Match",
+                "value": "{{requestedSupplierEtag}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/updates",
+            "description": "Any logged-in user may propose an edit (F8.1), based on the version they saw (If-Match, as for an admin edit). Validated exactly like an admin PATCH.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"supplierId\": \"{{requestedSupplierId}}\",\n  \"changes\": {\n    \"locationDescription\": \"Beside the vending machines, level 3 lobby\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const r = pm.response.json();",
+                  "pm.test('Pending Update request on version 1', () => { pm.expect(r.type).to.eql('Update'); pm.expect(r.state).to.eql('Pending'); pm.expect(r.supplierVersion).to.eql(1); });",
+                  "pm.test('only the changed field is recorded', () => pm.expect(r.values).to.eql({ locationDescription: 'Beside the vending machines, level 3 lobby' }));",
+                  "pm.environment.set('editRequestId', r.id);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Edit request without If-Match (428)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/updates",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"supplierId\": \"{{requestedSupplierId}}\",\n  \"changes\": {\n    \"locationDescription\": \"Beside the vending machines, level 3 lobby\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 428', () => pm.response.to.have.status(428));",
+                  "pm.test('code PRECONDITION_REQUIRED', () => pm.expect(pm.response.json().code).to.eql('PRECONDITION_REQUIRED'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Second edit for the same supplier (409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "If-Match",
+                "value": "{{requestedSupplierEtag}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/updates",
+            "description": "A supplier has at most one pending edit (F8.3), enforced by a partial unique index.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"supplierId\": \"{{requestedSupplierId}}\",\n  \"changes\": {\n    \"floor\": \"4\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 409', () => pm.response.to.have.status(409));",
+                  "pm.test('code DUPLICATE_REQUEST', () => pm.expect(pm.response.json().code).to.eql('DUPLICATE_REQUEST'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Live supplier unchanged until approved",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{requestedSupplierId}}",
+            "description": "F8.2: the listing keeps returning the live record until an admin approves."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test('still version 1, old description', () => { pm.expect(s.version).to.eql(1); pm.expect(s.locationDescription).to.eql('Beside the vending machines'); });"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Admin approves the edit (200)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/{{editRequestId}}/approve",
+            "description": "Applies the changes through the same code as an admin PATCH (F8.4). Refused with 409 VERSION_CONFLICT if the supplier changed since the request was filed (F8.4.1)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Approved', () => pm.expect(pm.response.json().state).to.eql('Approved'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Edit applied, version 2",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{requestedSupplierId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test('new description at version 2', () => { pm.expect(s.version).to.eql(2); pm.expect(s.locationDescription).to.eql('Beside the vending machines, level 3 lobby'); });"
                 ]
               }
             }
