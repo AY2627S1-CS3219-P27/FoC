@@ -48,6 +48,15 @@ describe('ListSuppliersQueryDto', () => {
     });
   });
 
+  it('lower-cases ids, so upper-case UUIDs match (review #605)', async () => {
+    await expect(
+      parse({
+        categoryId: FOOD.toUpperCase(),
+        buildingId: [COFFEE.toUpperCase()],
+      }),
+    ).resolves.toMatchObject({ categoryId: [FOOD], buildingId: [COFFEE] });
+  });
+
   it('treats a blank name as no name filter', async () => {
     const query = await parse({ name: '   ' });
     expect(query.name).toBeUndefined();

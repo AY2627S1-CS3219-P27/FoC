@@ -198,6 +198,17 @@ describe('supplier listing and lookup (real PostgreSQL, seeded)', () => {
       ).resolves.toMatchObject({ total: 7 });
     });
 
+    it('accepts filter ids written in upper case (review #605)', async () => {
+      const coffee = await categoryId('Coffee');
+      await expect(
+        queries.list(
+          Object.assign(new ListSuppliersQueryDto(), {
+            categoryId: [coffee.toUpperCase()],
+          }),
+        ),
+      ).resolves.toMatchObject({ total: 5 });
+    });
+
     it('finds suppliers by building, i.e. by location (F5.4.3)', async () => {
       const page = await queries.list(
         query({ buildingId: [await buildingId('PGP')] }),

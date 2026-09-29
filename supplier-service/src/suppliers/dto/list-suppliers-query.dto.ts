@@ -28,6 +28,19 @@ const asArray = ({ value }: { value: unknown }) =>
   value === undefined || Array.isArray(value) ? value : [value];
 
 /**
+ * An id list, lower-cased: UUIDs are case-insensitive, but PostgreSQL
+ * returns them lower-case, so this is how they compare equal.
+ */
+const asIdArray = (params: { value: unknown }) => {
+  const list = asArray(params) as unknown;
+  return Array.isArray(list)
+    ? list.map((id: unknown) =>
+        typeof id === 'string' ? id.toLowerCase() : id,
+      )
+    : list;
+};
+
+/**
  * The listing's query parameters (F5.2-F5.4, N3.1). Unknown parameters are
  * rejected by the global ValidationPipe rather than ignored (F5.8).
  * Repeatable filters are passed as repeated parameters, e.g.
@@ -49,13 +62,13 @@ export class ListSuppliersQueryDto {
 
   /** Matches suppliers with any of these categories (F5.4.2). */
   @IsOptional()
-  @Transform(asArray)
+  @Transform(asIdArray)
   @IsUUID('all', { each: true, message: 'each categoryId must be a UUID' })
   categoryId?: string[];
 
   /** Suppliers in any of these buildings (F5.4.3). */
   @IsOptional()
-  @Transform(asArray)
+  @Transform(asIdArray)
   @IsUUID('all', { each: true, message: 'each buildingId must be a UUID' })
   buildingId?: string[];
 

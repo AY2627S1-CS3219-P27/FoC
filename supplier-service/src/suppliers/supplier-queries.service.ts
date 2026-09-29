@@ -187,7 +187,8 @@ export class SupplierQueriesService {
     if (requested === undefined) {
       return undefined;
     }
-    const ids = [...new Set(requested)];
+    // Compared lower-case: PostgreSQL returns UUIDs lower-case.
+    const ids = [...new Set(requested.map((id) => id.toLowerCase()))];
     const found = await this.dataSource.manager.findBy(entity, {
       id: In(ids),
     });
