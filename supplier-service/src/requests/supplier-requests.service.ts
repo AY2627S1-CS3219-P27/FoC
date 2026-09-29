@@ -15,13 +15,15 @@ import {
 import { isUniqueViolation } from '../database/postgres-errors.js';
 import type { Page } from '../suppliers/supplier-view.js';
 import { SuppliersService } from '../suppliers/suppliers.service.js';
+import type { ListMyRequestsQueryDto } from './dto/list-my-requests-query.dto.js';
 import type { ListRequestsQueryDto } from './dto/list-requests-query.dto.js';
 import { canMove } from './request-state.js';
 import { type RequestView, toRequestView } from './request-view.js';
 
 /**
- * Admin-moderated supplier requests (F6). Basic users file requests; admins
- * list the Pending ones, and approve or deny each exactly once. Approving
+ * Admin-moderated supplier requests (F6). Basic users file requests, follow
+ * and withdraw their own; admins list the Pending ones, and approve or deny
+ * each exactly once. Approving
  * reuses the same SuppliersService code as a direct admin change, inside the
  * same transaction as recording the approval (F6.8).
  */
@@ -133,13 +135,69 @@ export class SupplierRequestsService {
         take: limit,
       },
     );
-    return {
-      items: requests.map(toRequestView),
-      total,
-      offset,
-      limit,
-      hasMore: offset + requests.length < total,
-    };
+    return toPage(requests, total, offset, limit);
+  }
+
+  /**
+   * The caller's own requests of every type and state, newest first, with
+   * the denial reason of denied ones (F6.5, N3.1).
+   */
+  async listMine(
+    userId: string,
+    query: ListMyRequestsQueryDto,
+  ): Promise<Page<RequestView>> {
+    const { offset, limit } = query;
+    const [requests, total] = await this.dataSource.manager.findAndCount(
+      SupplierRequest,
+      {
+        where: {
+          submittedBy: userId,
+          ...(query.type !== undefined && { type: query.type }),
+          ...(query.state !== undefined && { state: query.state }),
+        },
+        order: { submittedAt: 'DESC', id: 'DESC' },
+        skip: offset,
+        take: limit,
+      },
+    );
+    return toPage(requests, total, offset, limit);
+  }
+
+  /**
+   * One request, for its submitter or an admin. Anyone else gets the same
+   * 404 as for an unknown id, so ids reveal nothing (F13.6).
+   */
+  async get(
+    id: string,
+    viewer: { id: string; isAdmin: boolean },
+  ): Promise<RequestView> {
+    const request = await this.dataSource.manager.findOneBy(SupplierRequest, {
+      id,
+    });
+    if (!request || (!viewer.isAdmin && request.submittedBy !== viewer.id)) {
+      throw requestNotFound(id);
+    }
+    return toRequestView(request);
+  }
+
+  /**
+   * Withdraws the caller's own Pending request (F6.6). Only the submitter
+   * may, admins included: an admin rejects a request by denying it. Someone
+   * else's request is 404 (F13.6); a resolved one is 409 (F6.3).
+   */
+  async withdraw(id: string, userId: string): Promise<RequestView> {
+    return this.dataSource.transaction(async (manager) => {
+      const request = await lockPending(
+        manager,
+        id,
+        RequestState.Withdrawn,
+        userId,
+      );
+      request.state = RequestState.Withdrawn;
+      request.resolvedBy = userId;
+      request.resolvedAt = new Date();
+      return toRequestView(await manager.save(request));
+    });
   }
 
   /**
@@ -233,23 +291,23 @@ async function withPendingDuplicateMapped<T>(
 
 /**
  * Loads the request with a row lock held until the transaction ends, so two
- * admins acting on it at once cannot both succeed, and checks it can still
- * move to the target state: a resolved request is 409 (F6.3).
+ * people acting on it at once cannot both succeed, and checks it can still
+ * move to the target state: a resolved request is 409 (F6.3). Given an
+ * owner, someone else's request is 404, checked before its state so that
+ * nothing about it is revealed (F13.6).
  */
 async function lockPending(
   manager: EntityManager,
   id: string,
   to: RequestState,
+  ownerId?: string,
 ): Promise<SupplierRequest> {
   const request = await manager.findOne(SupplierRequest, {
     where: { id },
     lock: { mode: 'pessimistic_write' },
   });
-  if (!request) {
-    throw new NotFoundException({
-      code: ErrorCode.RequestNotFound,
-      message: `Request ${id} does not exist.`,
-    });
+  if (!request || (ownerId !== undefined && request.submittedBy !== ownerId)) {
+    throw requestNotFound(id);
   }
   if (!canMove(request.state, to)) {
     throw new ConflictException({
@@ -258,4 +316,26 @@ async function lockPending(
     });
   }
   return request;
+}
+
+function requestNotFound(id: string): NotFoundException {
+  return new NotFoundException({
+    code: ErrorCode.RequestNotFound,
+    message: `Request ${id} does not exist.`,
+  });
+}
+
+function toPage(
+  requests: SupplierRequest[],
+  total: number,
+  offset: number,
+  limit: number,
+): Page<RequestView> {
+  return {
+    items: requests.map(toRequestView),
+    total,
+    offset,
+    limit,
+    hasMore: offset + requests.length < total,
+  };
 }

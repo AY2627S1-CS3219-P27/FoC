@@ -20,6 +20,7 @@ import {
   SupplierKind,
   SupplierRequest,
 } from '../src/database/entities/index.js';
+import { ListMyRequestsQueryDto } from '../src/requests/dto/list-my-requests-query.dto.js';
 import { ListRequestsQueryDto } from '../src/requests/dto/list-requests-query.dto.js';
 import { SupplierRequestsService } from '../src/requests/supplier-requests.service.js';
 import { ListSuppliersQueryDto } from '../src/suppliers/dto/list-suppliers-query.dto.js';
@@ -576,6 +577,149 @@ describe('supplier requests (real PostgreSQL)', () => {
         state: RequestState.Pending,
       });
       await expect(queries.get(id)).resolves.toMatchObject({ version: 1 });
+    });
+  });
+
+  describe("a user's own requests (F6.5, F6.6, F13.6)", () => {
+    const mine = (userId: string, filters: Record<string, unknown> = {}) =>
+      requests.listMine(
+        userId,
+        Object.assign(new ListMyRequestsQueryDto(), filters),
+      );
+
+    it('lists only their own, every type and state, newest first, with the denial reason', async () => {
+      const first = await requests.submitCreation(coolSpot(), BASIC_USER);
+      const { id } = await suppliers.create({ ...coolSpot(), floor: '5' });
+      const second = await requests.submitUpdate(
+        id,
+        1,
+        { floor: '6' },
+        BASIC_USER,
+      );
+      await requests.submitCreation({ ...coolSpot(), floor: '2' }, '43');
+      await requests.deny(first.id, ADMIN, 'Closed down');
+
+      const page = await mine(BASIC_USER);
+
+      expect(page).toMatchObject({ total: 2, hasMore: false });
+      expect(page.items.map((r) => r.id)).toEqual([second.id, first.id]);
+      expect(page.items[1]).toMatchObject({
+        state: RequestState.Denied,
+        denialReason: 'Closed down',
+      });
+    });
+
+    it('filters by state and type, with paging', async () => {
+      const first = await requests.submitCreation(coolSpot(), BASIC_USER);
+      await requests.submitCreation({ ...coolSpot(), floor: '2' }, BASIC_USER);
+      await requests.deny(first.id, ADMIN, 'No');
+
+      await expect(
+        mine(BASIC_USER, { state: RequestState.Denied }),
+      ).resolves.toMatchObject({ total: 1, items: [{ id: first.id }] });
+      await expect(
+        mine(BASIC_USER, { type: RequestType.Update }),
+      ).resolves.toMatchObject({ total: 0 });
+      await expect(
+        mine(BASIC_USER, { offset: 0, limit: 1 }),
+      ).resolves.toMatchObject({ total: 2, hasMore: true });
+    });
+
+    it('shows one request to its submitter and to admins, and 404 to anyone else', async () => {
+      const filed = await requests.submitCreation(coolSpot(), BASIC_USER);
+
+      await expect(
+        requests.get(filed.id, { id: BASIC_USER, isAdmin: false }),
+      ).resolves.toMatchObject({ id: filed.id });
+      await expect(
+        requests.get(filed.id, { id: ADMIN, isAdmin: true }),
+      ).resolves.toMatchObject({ id: filed.id });
+
+      // Exactly the answer for an id that does not exist.
+      const hidden = await failure(
+        requests.get(filed.id, { id: '43', isAdmin: false }),
+      );
+      const unknown = await failure(
+        requests.get('00000000-0000-4000-8000-000000000009', {
+          id: '43',
+          isAdmin: false,
+        }),
+      );
+      expect(hidden.status).toBe(404);
+      expect(hidden.body.code).toBe(unknown.body.code);
+      expect(hidden.body.message).toBe(`Request ${filed.id} does not exist.`);
+    });
+
+    it('withdraws a Pending request, recording who and when, and frees its slot', async () => {
+      const filed = await requests.submitCreation(coolSpot(), BASIC_USER);
+
+      const withdrawn = await requests.withdraw(filed.id, BASIC_USER);
+
+      expect(withdrawn).toMatchObject({
+        state: RequestState.Withdrawn,
+        resolvedBy: BASIC_USER,
+        denialReason: null,
+      });
+      expect(withdrawn.resolvedAt).toBeInstanceOf(Date);
+      await expect(pending()).resolves.toMatchObject({ total: 0 });
+      // The same request can be filed again.
+      await expect(
+        requests.submitCreation(coolSpot(), BASIC_USER),
+      ).resolves.toMatchObject({ state: RequestState.Pending });
+    });
+
+    it("refuses withdrawing someone else's request with 404, admins included (F13.6)", async () => {
+      const filed = await requests.submitCreation(coolSpot(), BASIC_USER);
+
+      for (const userId of ['43', ADMIN]) {
+        const { status, body } = await failure(
+          requests.withdraw(filed.id, userId),
+        );
+        expect(status).toBe(404);
+        expect(body.code).toBe('REQUEST_NOT_FOUND');
+      }
+      await expect(stored(filed.id)).resolves.toMatchObject({
+        state: RequestState.Pending,
+      });
+    });
+
+    it('refuses withdrawing a resolved request, and approving a withdrawn one (F6.3)', async () => {
+      const denied = await requests.submitCreation(coolSpot(), BASIC_USER);
+      await requests.deny(denied.id, ADMIN, 'No');
+      const withdrawn = await requests.submitCreation(
+        { ...coolSpot(), floor: '2' },
+        BASIC_USER,
+      );
+      await requests.withdraw(withdrawn.id, BASIC_USER);
+
+      for (const attempt of [
+        () => requests.withdraw(denied.id, BASIC_USER),
+        () => requests.withdraw(withdrawn.id, BASIC_USER),
+        () => requests.approve(withdrawn.id, ADMIN),
+      ]) {
+        const { status, body } = await failure(attempt());
+        expect(status).toBe(409);
+        expect(body.code).toBe('REQUEST_ALREADY_RESOLVED');
+      }
+      expect(await dataSource.getRepository(Supplier).count()).toBe(0);
+    });
+
+    it('lets exactly one of a withdrawal and an approval at the same moment win', async () => {
+      const filed = await requests.submitCreation(coolSpot(), BASIC_USER);
+
+      const results = await Promise.allSettled([
+        requests.withdraw(filed.id, BASIC_USER),
+        requests.approve(filed.id, ADMIN),
+      ]);
+
+      expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+      const final = await stored(filed.id);
+      expect([RequestState.Withdrawn, RequestState.Approved]).toContain(
+        final.state,
+      );
+      expect(await dataSource.getRepository(Supplier).count()).toBe(
+        final.state === RequestState.Approved ? 1 : 0,
+      );
     });
   });
 

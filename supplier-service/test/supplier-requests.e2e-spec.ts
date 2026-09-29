@@ -24,6 +24,17 @@ function fakes() {
       limit: query.limit,
       hasMore: false,
     })),
+    listMine: vi.fn(
+      async (_: string, query: { offset: number; limit: number }) => ({
+        items: [],
+        total: 0,
+        offset: query.offset,
+        limit: query.limit,
+        hasMore: false,
+      }),
+    ),
+    get: vi.fn(async () => view('Pending')),
+    withdraw: vi.fn(async () => view('Withdrawn')),
     approve: vi.fn(async () => view('Approved')),
     deny: vi.fn(async () => view('Denied')),
   };
@@ -143,6 +154,51 @@ describe('supplier request endpoints (e2e)', () => {
       expect(stub.deny).not.toHaveBeenCalled();
     },
   );
+
+  it("lists the caller's own requests, not mistaking 'mine' for an id (F6.5)", async () => {
+    const response = await request(app.getHttpServer())
+      .get('/supplier-requests/mine?state=Denied')
+      .set('Cookie', cookie)
+      .expect(200);
+
+    expect(stub.listMine).toHaveBeenCalledWith(
+      '7',
+      expect.objectContaining({ state: 'Denied', offset: 0, limit: 25 }),
+    );
+    expect(response.body).toMatchObject({ total: 0, limit: 25 });
+  });
+
+  it('rejects an unknown state filter', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/supplier-requests/mine?state=Lost')
+      .set('Cookie', cookie)
+      .expect(400);
+
+    expect(response.body.violations[0].field).toBe('state');
+    expect(stub.listMine).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a basic user', false],
+    ['an admin', true],
+  ])('passes who is viewing one request, as %s (F13.6)', async (_, isAdmin) => {
+    await request(app.getHttpServer())
+      .get(`/supplier-requests/${REQUEST_ID}`)
+      .set('Cookie', isAdmin ? adminCookie : cookie)
+      .expect(200);
+
+    expect(stub.get).toHaveBeenCalledWith(REQUEST_ID, { id: '7', isAdmin });
+  });
+
+  it('withdraws as the user in the token, answering 200 (F6.6)', async () => {
+    const response = await request(app.getHttpServer())
+      .post(`/supplier-requests/${REQUEST_ID}/withdraw`)
+      .set('Cookie', cookie)
+      .expect(200);
+
+    expect(stub.withdraw).toHaveBeenCalledWith(REQUEST_ID, '7');
+    expect(response.body.state).toBe('Withdrawn');
+  });
 
   it('lists pending requests for an admin with paging defaults (F6.7)', async () => {
     const response = await request(app.getHttpServer())
