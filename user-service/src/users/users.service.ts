@@ -1,10 +1,16 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { EntityNotFoundError, QueryFailedError, Repository } from 'typeorm';
+import {
+  ArrayContains,
+  EntityNotFoundError,
+  FindOptionsWhere,
+  QueryFailedError,
+  Repository,
+} from 'typeorm';
 import { hashValue } from '../common/hash/hash.js';
 import { User } from './user.entity.js';
-import { Role } from '@foc/contracts';
+import { MAX_PAGE_LIMIT, Role } from '@foc/contracts';
 
 /** The PostgreSQL driver error code for a unique-constraint violation. */
 const UNIQUE_VIOLATION_CODE = '23505';
@@ -32,6 +38,39 @@ export interface PublicUserInfo {
   isAdmin: boolean;
 }
 
+/**
+ * Filters and pagination for listing users.
+ **/
+export interface ListUsersQuery {
+  role?: Role;
+  isAdmin?: boolean;
+  isLocked?: boolean;
+  isArchived?: boolean;
+  /** Zero-based offset into the full result set */
+  offset: number;
+  /** Maximum rows to return */
+  limit: number;
+}
+
+export interface UserListResult {
+  users: User[];
+  /** Count of records matching the filters across all pages (N3.1.3). */
+  total: number;
+  /** The offset actually applied, after clamping. */
+  offset: number;
+  /** The limit actually applied, after clamping. */
+  limit: number;
+}
+
+async function generatePasswordHash(password: string) {
+  const passwordSalt = randomBytes(16).toString('hex');
+  const passwordHash = await hashValue(password, passwordSalt);
+  return {
+    passwordSalt,
+    passwordHash,
+  };
+}
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -45,10 +84,7 @@ export class UsersService {
     isAdmin = false,
     isLocked = false,
   }: ProvisionUserParams): Promise<PublicUserInfo> {
-    // Fresh per-account salt, stored next to the hash so the credentials can
-    // be re-verified later without derivable state.
-    const passwordSalt = randomBytes(16).toString('hex');
-    const passwordHash = await hashValue(password, passwordSalt);
+    const { passwordSalt, passwordHash } = await generatePasswordHash(password);
 
     try {
       const user = await this.userRepository.save(
@@ -148,6 +184,49 @@ export class UsersService {
   }
 
   /**
+   * Whether any account — archived or locked included — is tied to the given
+   * email.
+   */
+  async existsByEmail(email: string): Promise<boolean> {
+    return this.userRepository.exists({ where: { email } });
+  }
+
+  /**
+   * Finds an **un-archived** user by email
+   */
+  async findActiveUserByEmail(email: string): Promise<PublicUserInfo | null> {
+    const user = await this.userRepository.findOneBy({
+      email,
+      isArchived: false,
+    });
+    return user === null ? null : this.getPublicUserInfo(user);
+  }
+
+  /**
+   * Re-hashes and stores a new password with a fresh per-account salt, using
+   * the same mechanism as provisioning.
+   *
+   * Additionally clears lock on the associated user
+   */
+  async updatePassword(userId: number, password: string): Promise<void> {
+    let user: User;
+    try {
+      user = await this.userRepository.findOneByOrFail({ id: userId });
+    } catch (error) {
+      if (error instanceof EntityNotFoundError) {
+        throw new UnauthorizedException();
+      }
+      throw error;
+    }
+
+    const { passwordSalt, passwordHash } = await generatePasswordHash(password);
+    user.passwordHash = passwordHash;
+    user.passwordSalt = passwordSalt;
+    user.isLocked = false;
+    await this.userRepository.save(user);
+  }
+
+  /**
    * Counts the admin accounts that are not archived. Locked admins still
    * count.
    */
@@ -155,6 +234,40 @@ export class UsersService {
     return this.userRepository.count({
       where: { isAdmin: true, isArchived: false },
     });
+  }
+
+  /**
+   * Lists users matching the authorised filters, one page at a time.
+   */
+  async listUsers({
+    role,
+    isAdmin,
+    isLocked,
+    isArchived,
+    offset,
+    limit,
+  }: ListUsersQuery): Promise<UserListResult> {
+    // Ensure offset is an integer value
+    const safeOffset = Math.max(0, Math.trunc(offset));
+    const safeLimit = Math.min(MAX_PAGE_LIMIT, Math.max(1, Math.trunc(limit)));
+
+    const where: FindOptionsWhere<User> = {};
+    if (role !== undefined) {
+      // Postgres enum-array containment: rows whose roles include `role`.
+      where.roles = ArrayContains([role]);
+    }
+    if (isAdmin !== undefined) where.isAdmin = isAdmin;
+    if (isLocked !== undefined) where.isLocked = isLocked;
+    if (isArchived !== undefined) where.isArchived = isArchived;
+
+    const [users, total] = await this.userRepository.findAndCount({
+      where,
+      skip: safeOffset,
+      take: safeLimit,
+      order: { id: 'ASC' },
+    });
+
+    return { users, total, offset: safeOffset, limit: safeLimit };
   }
 
   /**

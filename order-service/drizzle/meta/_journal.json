@@ -6,7 +6,7 @@
       "idx": 0,
       "version": "7",
       "when": 1790331567739,
-      "tag": "0000_plain_network",
+      "tag": "0000_init_errands_schema",
       "breakpoints": true
     },
     {
@@ -20,7 +20,7 @@
       "idx": 2,
       "version": "7",
       "when": 1790345749479,
-      "tag": "0002_fresh_ezekiel",
+      "tag": "0002_idempotency_keys_table",
       "breakpoints": true
     }
   ]

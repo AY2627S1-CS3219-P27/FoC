@@ -3,10 +3,12 @@ import { SupplierKind } from '../database/entities/index.js';
 import type { CreateBuildingInput } from '../buildings/buildings.service.js';
 
 /**
- * The initial campus building list. Aliases cover every building spelling in
- * data/csv/supplier-seed-data.csv (F12.2.1). The seed file has no building
- * coordinates, so each building's are the average of its seed suppliers',
- * computed once and fixed here.
+ * The initial campus building list. Every building spelling in
+ * data/csv/supplier-seed-data.csv resolves to one of these (F12.2.1):
+ * buildingKey already ignores case, whitespace and apostrophe style ("Com2",
+ * "Prince George’s Park"), so aliases are only needed for genuinely different
+ * names. The seed file has no building coordinates, so each building's are
+ * the average of its seed suppliers', computed once and fixed here.
  */
 export const SEED_BUILDINGS: CreateBuildingInput[] = [
   {
@@ -19,7 +21,7 @@ export const SEED_BUILDINGS: CreateBuildingInput[] = [
   {
     canonicalName: 'Computing 2',
     shortName: 'COM2',
-    aliases: ['Com 2'],
+    aliases: [],
     latitude: 1.293925,
     longitude: 103.774152,
   },
@@ -34,7 +36,7 @@ export const SEED_BUILDINGS: CreateBuildingInput[] = [
   {
     canonicalName: "Prince George's Park",
     shortName: 'PGP',
-    aliases: ['Prince George’s Park'],
+    aliases: [],
     latitude: 1.290888,
     longitude: 103.777828,
   },

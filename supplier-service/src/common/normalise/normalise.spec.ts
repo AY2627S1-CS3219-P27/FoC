@@ -29,9 +29,16 @@ describe('buildingKey', () => {
     expect(buildingKey(' Central  Library ')).toBe('centrallibrary');
   });
 
-  it('keeps apostrophe variants distinct (aliases cover them)', () => {
-    expect(buildingKey("Prince George's Park")).not.toBe(
-      buildingKey('Prince George’s Park'),
+  it('treats every apostrophe style as the same', () => {
+    const plain = buildingKey("Prince George's Park");
+    expect(buildingKey('Prince George’s Park')).toBe(plain);
+    expect(buildingKey('Prince George‘s Park')).toBe(plain);
+    expect(buildingKey('Prince George`s Park')).toBe(plain);
+  });
+
+  it('still tells apart names that differ by more than apostrophes', () => {
+    expect(buildingKey('Prince Georges Park')).not.toBe(
+      buildingKey("Prince George's Park"),
     );
   });
 });

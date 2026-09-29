@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   BadRequestException,
+  ForbiddenException,
   UnauthorizedException,
   ValidationPipe,
 } from '@nestjs/common';
@@ -10,6 +11,7 @@ import { UsersService } from './users.service.js';
 import { ConfigService } from '@nestjs/config';
 import { JwtAuthGuard } from '@foc/auth';
 import { UpdateRolesDto } from './DTO/update-roles.dto.js';
+import { ListUsersQueryDto } from './DTO/list-users.query.dto.js';
 import { ACCESS_TOKEN_COOKIE, Role } from '@foc/contracts';
 
 describe('UsersController', () => {
@@ -17,6 +19,7 @@ describe('UsersController', () => {
   let usersService: {
     getUserById: ReturnType<typeof vi.fn>;
     updateRoles: ReturnType<typeof vi.fn>;
+    listUsers: ReturnType<typeof vi.fn>;
   };
   let configGet: ReturnType<typeof vi.fn>;
   let res: { clearCookie: ReturnType<typeof vi.fn> };
@@ -25,6 +28,7 @@ describe('UsersController', () => {
     usersService = {
       getUserById: vi.fn(),
       updateRoles: vi.fn(),
+      listUsers: vi.fn(),
     };
     configGet = vi.fn(() => 'development');
     res = { clearCookie: vi.fn() };
@@ -160,6 +164,157 @@ describe('UsersController', () => {
       ).resolves.toEqual({ roles: [Role.Requester] });
     });
   });
+
+  describe('listUsers', () => {
+    // A stored row as the repository would hand it to the projectors.
+    const storedUser = {
+      id: 7,
+      email: 'eve@example.com',
+      displayName: 'Eve',
+      isAdmin: false,
+      isLocked: false,
+      isArchived: false,
+      roles: [Role.Requester] as Role[],
+      profilePictureUrl: null,
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      updatedAt: new Date('2026-01-01T00:00:00Z'),
+    };
+
+    const listedPage = {
+      users: [storedUser],
+      total: 1,
+      offset: 0,
+      limit: 25,
+    };
+
+    it('returns the basic field view for non-admin callers (F10.1)', async () => {
+      usersService.listUsers.mockResolvedValue(listedPage);
+
+      const query: ListUsersQueryDto = {
+        offset: 0,
+        limit: 25,
+        role: Role.Requester,
+      };
+
+      await expect(
+        controller.listUsers(authenticatedRequest as never, query),
+      ).resolves.toEqual({
+        items: [
+          {
+            id: 7,
+            displayName: 'Eve',
+            email: 'eve@example.com',
+            roles: [Role.Requester],
+            profilePictureUrl: null,
+          },
+        ],
+        total: 1,
+        offset: 0,
+        limit: 25,
+        hasMore: false,
+      });
+
+      // Basic callers may filter by role (F10.3); admin flags never leave
+      // the service.
+      expect(usersService.listUsers).toHaveBeenCalledWith({
+        role: Role.Requester,
+        isAdmin: undefined,
+        isLocked: undefined,
+        isArchived: undefined,
+        offset: 0,
+        limit: 25,
+      });
+    });
+
+    it('adds the account-management flags and filters for admins (F10.2/F10.4)', async () => {
+      usersService.listUsers.mockResolvedValue(listedPage);
+      const adminRequest = {
+        user: { ...authenticatedRequest.user, isAdmin: true },
+      };
+      const query: ListUsersQueryDto = {
+        offset: 0,
+        limit: 25,
+        isAdmin: false,
+        isLocked: true,
+        isArchived: false,
+      };
+
+      await expect(
+        controller.listUsers(adminRequest as never, query),
+      ).resolves.toEqual({
+        items: [
+          {
+            id: 7,
+            displayName: 'Eve',
+            email: 'eve@example.com',
+            roles: [Role.Requester],
+            profilePictureUrl: null,
+            isAdmin: false,
+            isLocked: false,
+            isArchived: false,
+          },
+        ],
+        total: 1,
+        offset: 0,
+        limit: 25,
+        hasMore: false,
+      });
+
+      expect(usersService.listUsers).toHaveBeenCalledWith({
+        role: undefined,
+        isAdmin: false,
+        isLocked: true,
+        isArchived: false,
+        offset: 0,
+        limit: 25,
+      });
+    });
+
+    it('rejects admin-only filters from a non-admin caller outright', async () => {
+      const query: ListUsersQueryDto = {
+        offset: 0,
+        limit: 25,
+        isLocked: false,
+      };
+
+      await expect(
+        controller.listUsers(authenticatedRequest as never, query),
+      ).rejects.toThrow(ForbiddenException);
+      expect(usersService.listUsers).not.toHaveBeenCalled();
+    });
+
+    it('reports hasMore when another page exists (N3.1.3)', async () => {
+      usersService.listUsers.mockResolvedValue({
+        users: [storedUser],
+        total: 40,
+        offset: 25,
+        limit: 25,
+      });
+
+      await expect(
+        controller.listUsers(
+          authenticatedRequest as never,
+          { offset: 25, limit: 25 } as ListUsersQueryDto,
+        ),
+      ).resolves.toMatchObject({ hasMore: true });
+    });
+
+    it('reports hasMore false on the final page (N3.1.3)', async () => {
+      usersService.listUsers.mockResolvedValue({
+        users: [storedUser, storedUser],
+        total: 27,
+        offset: 25,
+        limit: 25,
+      });
+
+      await expect(
+        controller.listUsers(
+          authenticatedRequest as never,
+          { offset: 25, limit: 25 } as ListUsersQueryDto,
+        ),
+      ).resolves.toMatchObject({ hasMore: false });
+    });
+  });
 });
 
 describe('update roles body validation', () => {
@@ -212,6 +367,74 @@ describe('update roles body validation', () => {
   it('rejects a missing roles field', async () => {
     await expect(
       pipe.transform({}, bodyMetadata(UpdateRolesDto)),
+    ).rejects.toThrow(BadRequestException);
+  });
+});
+
+describe('list users query validation', () => {
+  const pipe = new ValidationPipe({ whitelist: true, transform: true });
+  const queryMetadata = (metatype: Function) =>
+    ({ type: 'query', metatype }) as const;
+
+  it('defaults offset to 0 and limit to 25 (N3.1.2)', async () => {
+    const value = await pipe.transform({}, queryMetadata(ListUsersQueryDto));
+    expect(value.offset).toBe(0);
+    expect(value.limit).toBe(25);
+  });
+
+  it('accepts explicit pagination and a role filter (F10.3)', async () => {
+    const value = await pipe.transform(
+      { offset: '50', limit: '100', role: 'courier' },
+      queryMetadata(ListUsersQueryDto),
+    );
+    expect(value.offset).toBe(50);
+    expect(value.limit).toBe(100);
+    expect(value.role).toBe(Role.Courier);
+  });
+
+  it('accepts the admin-only flags as explicit booleans (F10.4)', async () => {
+    const value = await pipe.transform(
+      { isAdmin: 'true', isLocked: 'false', isArchived: 'true' },
+      queryMetadata(ListUsersQueryDto),
+    );
+    expect(value.isAdmin).toBe(true);
+    expect(value.isLocked).toBe(false);
+    expect(value.isArchived).toBe(true);
+  });
+
+  it('rejects a limit above the 1000 hard ceiling (N3.1.1)', async () => {
+    await expect(
+      pipe.transform({ limit: '1001' }, queryMetadata(ListUsersQueryDto)),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a zero limit', async () => {
+    await expect(
+      pipe.transform({ limit: '0' }, queryMetadata(ListUsersQueryDto)),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a negative offset', async () => {
+    await expect(
+      pipe.transform({ offset: '-1' }, queryMetadata(ListUsersQueryDto)),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a non-integer offset', async () => {
+    await expect(
+      pipe.transform({ offset: 'abc' }, queryMetadata(ListUsersQueryDto)),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a role that is not a participant role', async () => {
+    await expect(
+      pipe.transform({ role: 'admin' }, queryMetadata(ListUsersQueryDto)),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a garbage admin-only flag instead of coercing it', async () => {
+    await expect(
+      pipe.transform({ isAdmin: 'yes' }, queryMetadata(ListUsersQueryDto)),
     ).rejects.toThrow(BadRequestException);
   });
 });

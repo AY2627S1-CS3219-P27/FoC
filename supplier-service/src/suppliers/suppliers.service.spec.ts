@@ -46,10 +46,10 @@ function setup(
   const categories = options.categories ?? [{ id: FOOD_ID, retiredAt: null }];
 
   const manager = {
-    findOneBy: vi.fn(async (entity: unknown) =>
+    findOne: vi.fn(async (entity: unknown) =>
       entity === Building ? building : null,
     ),
-    findBy: vi.fn(async (entity: unknown) =>
+    find: vi.fn(async (entity: unknown) =>
       entity === Category ? categories : [],
     ),
     create: vi.fn((_entity: unknown, values: object) => ({ ...values })),

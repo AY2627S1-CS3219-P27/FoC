@@ -95,7 +95,7 @@ describe('OtpController', () => {
       });
     });
 
-    it('rejects with the same fixed error for every F1.4 failure and sets no cookie', async () => {
+    it('rejects with the same fixed error for every validation failure and sets no cookie', async () => {
       // Unknown, expired, revoked and consumed OTPs all surface identically:
       // the controller must not reveal which condition failed.
       otpService.validateOtpAndIssueToken.mockResolvedValue(null);
@@ -124,30 +124,30 @@ describe('request body validation', () => {
   const bodyMetadata = (metatype: Function) =>
     ({ type: 'body', metatype }) as const;
 
-  it('accepts a valid email', async () => {
+  it('accepts an NUS email and normalizes it to lowercase', async () => {
     const value = await pipe.transform(
-      { email: 'eve@example.com' },
+      { email: 'EVE@U.NUS.EDU' },
       bodyMetadata(RequestOtpDto),
     );
 
     expect(value).toBeInstanceOf(RequestOtpDto);
-    expect(value).toMatchObject({ email: 'eve@example.com' });
+    expect(value).toMatchObject({ email: 'eve@u.nus.edu' });
   });
 
-  it('rejects a malformed email before the handler runs', async () => {
+  it('rejects a non-NUS email before the handler runs', async () => {
     await expect(
-      pipe.transform({ email: 'not-an-email' }, bodyMetadata(RequestOtpDto)),
+      pipe.transform({ email: 'eve@example.com' }, bodyMetadata(RequestOtpDto)),
     ).rejects.toThrow(BadRequestException);
   });
 
-  it('accepts a valid email and six-character otp', async () => {
+  it('accepts a valid email and six-character otp, normalizing the email', async () => {
     const value = await pipe.transform(
-      { email: 'eve@example.com', otp: 'abc123' },
+      { email: 'EVE@U.NUS.EDU', otp: 'abc123' },
       bodyMetadata(ValidateOtpDto),
     );
 
     expect(value).toBeInstanceOf(ValidateOtpDto);
-    expect(value).toMatchObject({ email: 'eve@example.com', otp: 'abc123' });
+    expect(value).toMatchObject({ email: 'eve@u.nus.edu', otp: 'abc123' });
   });
 
   it('rejects a malformed email before the handler runs', async () => {

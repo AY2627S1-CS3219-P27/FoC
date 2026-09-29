@@ -43,6 +43,22 @@ export class CategoriesService {
     });
   }
 
+  /**
+   * The category with this name, ignoring case: the non-retired one if there
+   * is one, else the most recently retired one; null if none ever existed.
+   */
+  async findByName(name: string): Promise<Category | null> {
+    const matches = await this.categories.find({
+      where: { nameKey: nameKey(name) },
+      order: { createdAt: 'DESC' },
+    });
+    return (
+      matches.find((category) => category.retiredAt === null) ??
+      matches[0] ??
+      null
+    );
+  }
+
   async create(name: string): Promise<Category> {
     const category = this.categories.create({
       id: randomUUID(),
@@ -57,6 +73,13 @@ export class CategoriesService {
     const category = await this.categories.findOneBy({ id });
     if (!category) {
       throw categoryNotFound(id);
+    }
+    // Retired categories are frozen, as retired buildings are.
+    if (category.retiredAt) {
+      throw new ConflictException({
+        code: ErrorCode.Conflict,
+        message: 'A retired category cannot be renamed.',
+      });
     }
     category.name = name.trim();
     category.nameKey = nameKey(name);

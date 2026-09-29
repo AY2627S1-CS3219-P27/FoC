@@ -35,6 +35,10 @@ export const environmentSchema = Joi.object({
   RABBITMQ_PASSWORD_FILE: Joi.string().min(1).required(),
   JWT_PRIVATE_KEY_FILE: Joi.string().min(1).required(),
   JWT_PUBLIC_KEY_FILE: Joi.string().min(1).required(),
+  FRONTEND_BASE_URL: Joi.string().uri().required(),
+  FRONTEND_PASSWORD_RESET_PATH: Joi.string()
+    .pattern(/^\//)
+    .default('/reset-password'),
 })
   .unknown(true)
   .prefs({ abortEarly: false, convert: true });

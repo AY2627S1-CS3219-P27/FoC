@@ -20,16 +20,21 @@ export function nameKey(value: string): string {
     .normalize('NFC');
 }
 
+/** Curly, backtick and other apostrophe-like characters. */
+const APOSTROPHES = /[‘’‛ʼ`´′]/g;
+
 /**
  * The lookup key for building names, short names and aliases (F4.2, F4.5):
- * case-insensitive and ignoring whitespace entirely, so "Com 2", "COM2" and
- * "com2" are the same building name.
+ * case-insensitive, ignoring whitespace entirely, and treating every
+ * apostrophe style as a plain "'", so "Com 2", "COM2" and "com2" are the same
+ * building name, and so are "Prince George's Park" and "Prince George’s Park".
  */
 export function buildingKey(value: string): string {
   return value
     .normalize('NFC')
     .toLowerCase()
     .replace(/\s+/g, '')
+    .replace(APOSTROPHES, "'")
     .normalize('NFC');
 }
 
