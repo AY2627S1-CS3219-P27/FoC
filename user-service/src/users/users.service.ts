@@ -34,6 +34,7 @@ export interface PublicUserInfo {
   uuid: string;
   email: string;
   displayName: string;
+  profilePictureUrl: string | null;
   roles: Role[];
   isAdmin: boolean;
 }
@@ -185,6 +186,37 @@ export class UsersService {
   }
 
   /**
+   * Updates the authenticated user's particulars. Only the fields
+   * present in the request are written; an explicit `null`
+   * profilePictureUrl clears/keeps the picture respectively. Returns the
+   * updated public profile.
+   */
+  async updateProfile(
+    id: number,
+    fields: { displayName?: string; profilePictureUrl?: string | null },
+  ): Promise<PublicUserInfo> {
+    let user: User;
+    try {
+      user = await this.userRepository.findOneByOrFail({ id });
+    } catch (error) {
+      if (error instanceof EntityNotFoundError) {
+        throw new UnauthorizedException();
+      }
+      throw error;
+    }
+
+    if (fields.displayName !== undefined) {
+      user.displayName = fields.displayName;
+    }
+    if (fields.profilePictureUrl !== undefined) {
+      user.profilePictureUrl = fields.profilePictureUrl;
+    }
+
+    const saved = await this.userRepository.save(user);
+    return this.getPublicUserInfo(saved);
+  }
+
+  /**
    * Whether any account — archived or locked included — is tied to the given
    * email.
    */
@@ -279,6 +311,7 @@ export class UsersService {
       uuid: user.uuid,
       email: user.email,
       displayName: user.displayName,
+      profilePictureUrl: user.profilePictureUrl ?? null,
       roles: user.roles ?? [],
       isAdmin: user.isAdmin,
     };
