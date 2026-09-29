@@ -79,6 +79,7 @@ describe('UsersService', () => {
       id: 7,
       email: 'eve@example.com',
       displayName: 'Eve',
+      profilePictureUrl: null,
       roles: [],
       isAdmin: false,
     });
@@ -195,6 +196,7 @@ describe('UsersService', () => {
         id: 7,
         email: 'eve@example.com',
         displayName: 'Eve',
+        profilePictureUrl: null,
         roles: [],
         isAdmin: false,
       });
@@ -283,6 +285,7 @@ describe('UsersService', () => {
         id: 7,
         email: 'eve@example.com',
         displayName: 'Eve',
+        profilePictureUrl: null,
         roles: [],
         isAdmin: false,
       });
@@ -370,6 +373,7 @@ describe('UsersService', () => {
         id: 7,
         email: 'eve@example.com',
         displayName: 'Eve',
+        profilePictureUrl: null,
         roles: [Role.Requester, Role.Courier],
         isAdmin: false,
       });
@@ -414,6 +418,7 @@ describe('UsersService', () => {
         id: 7,
         email: 'eve@example.com',
         displayName: 'Eve',
+        profilePictureUrl: null,
         roles: [Role.Requester, Role.Courier],
         isAdmin: false,
       });
@@ -468,6 +473,99 @@ describe('UsersService', () => {
       await expect(service.updateRoles(7, [Role.Requester])).rejects.toThrow(
         'db down',
       );
+    });
+  });
+
+  describe('updateProfile', () => {
+    const makeStoredUser = () => ({
+      ...registeredUser,
+      profilePictureUrl: 'https://example.com/avatar.png',
+    });
+
+    it('updates only the fields present in the request', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue(makeStoredUser());
+
+      await expect(
+        service.updateProfile(7, { displayName: 'Eve Newman' }),
+      ).resolves.toEqual({
+        id: 7,
+        email: 'eve@example.com',
+        displayName: 'Eve Newman',
+        profilePictureUrl: 'https://example.com/avatar.png',
+        roles: [],
+        isAdmin: false,
+      });
+
+      expect(userRepository.findOneByOrFail).toHaveBeenCalledWith({ id: 7 });
+      expect(userRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 7,
+          displayName: 'Eve Newman',
+          profilePictureUrl: 'https://example.com/avatar.png',
+        }),
+      );
+    });
+
+    it('sets the profile picture URL when supplied', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue({
+        ...makeStoredUser(),
+        profilePictureUrl: null,
+      });
+
+      await service.updateProfile(7, {
+        profilePictureUrl: 'https://example.com/new.png',
+      });
+
+      expect(userRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          displayName: 'Eve',
+          profilePictureUrl: 'https://example.com/new.png',
+        }),
+      );
+    });
+
+    it('clears the profile picture URL when null is supplied', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue(makeStoredUser());
+
+      await service.updateProfile(7, { profilePictureUrl: null });
+
+      expect(userRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ profilePictureUrl: null }),
+      );
+    });
+
+    it('persists the unchanged profile for a request with neither field', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue(makeStoredUser());
+
+      await expect(service.updateProfile(7, {})).resolves.toMatchObject({
+        displayName: 'Eve',
+        profilePictureUrl: 'https://example.com/avatar.png',
+      });
+
+      expect(userRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          displayName: 'Eve',
+          profilePictureUrl: 'https://example.com/avatar.png',
+        }),
+      );
+    });
+
+    it('rejects a user id with no matching account', async () => {
+      userRepository.findOneByOrFail.mockRejectedValue(
+        new EntityNotFoundError(User, { id: 7 }),
+      );
+
+      await expect(
+        service.updateProfile(7, { displayName: 'Eve Newman' }),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('lets non-entity look-up failures propagate', async () => {
+      userRepository.findOneByOrFail.mockRejectedValue(new Error('db down'));
+
+      await expect(
+        service.updateProfile(7, { displayName: 'Eve Newman' }),
+      ).rejects.toThrow('db down');
     });
   });
 

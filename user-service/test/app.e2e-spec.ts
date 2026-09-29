@@ -83,13 +83,28 @@ describe('user-service (e2e)', () => {
           id,
           email: 'eve@example.com',
           displayName: 'Eve',
+          profilePictureUrl: null,
           roles: [Role.Requester],
           isAdmin: false,
         })),
+        updateProfile: vi.fn(
+          async (
+            id: number,
+            fields: { displayName?: string; profilePictureUrl?: string | null },
+          ) => ({
+            id,
+            email: 'eve@example.com',
+            displayName: fields.displayName ?? 'Eve',
+            profilePictureUrl: fields.profilePictureUrl ?? null,
+            roles: [Role.Requester],
+            isAdmin: false,
+          }),
+        ),
         updateRoles: vi.fn(async (id: number, roles: Role[]) => ({
           id,
           email: 'eve@example.com',
           displayName: 'Eve',
+          profilePictureUrl: null,
           roles,
           isAdmin: false,
         })),
@@ -179,6 +194,52 @@ describe('user-service (e2e)', () => {
         roles: [Role.Requester, Role.Courier],
       });
       expect(response.headers['set-cookie']).toBeDefined();
+    });
+  });
+
+  describe('profile endpoint', () => {
+    it('rejects an unauthenticated profile update with 401', async () => {
+      await request(app.getHttpServer())
+        .patch('/users/me')
+        .send({ displayName: 'Eve Newman' })
+        .expect(401);
+    });
+
+    it('updates the profile and clears the token when the display name changes', async () => {
+      const response = await request(app.getHttpServer())
+        .patch('/users/me')
+        .set('Cookie', `${ACCESS_TOKEN_COOKIE}=${await signAccessToken()}`)
+        .send({
+          displayName: 'Eve Newman',
+          profilePictureUrl: 'https://example.com/new.png',
+        })
+        .expect(200);
+
+      expect(response.body).toEqual({
+        id: 7,
+        email: 'eve@example.com',
+        displayName: 'Eve Newman',
+        profilePictureUrl: 'https://example.com/new.png',
+        roles: [Role.Requester],
+        isAdmin: false,
+      });
+      // The token embeds the display name; a changed one invalidates it.
+      expect(response.headers['set-cookie']).toBeDefined();
+    });
+
+    it('keeps the session when only the profile picture changes', async () => {
+      const response = await request(app.getHttpServer())
+        .patch('/users/me')
+        .set('Cookie', `${ACCESS_TOKEN_COOKIE}=${await signAccessToken()}`)
+        .send({ profilePictureUrl: 'https://example.com/new.png' })
+        .expect(200);
+
+      expect(response.body).toMatchObject({
+        id: 7,
+        displayName: 'Eve',
+        profilePictureUrl: 'https://example.com/new.png',
+      });
+      expect(response.headers['set-cookie']).toBeUndefined();
     });
   });
 });
