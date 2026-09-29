@@ -4,6 +4,7 @@ services:
       context: .
     environment:
       - USER_SERVICE_URL=${USER_SERVICE_URL-http://user-service:3000}
+      - SUPPLIER_SERVICE_URL=${SUPPLIER_SERVICE_URL-http://supplier-service:3000}
     ports:
       - '3001:3000' # 3000 is user-service
     develop:

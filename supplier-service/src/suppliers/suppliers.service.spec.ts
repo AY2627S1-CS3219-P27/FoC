@@ -70,7 +70,17 @@ function setup(
     get: (key: string) => CAMPUS[key],
   } as unknown as ConfigService<EnvironmentVariables, true>;
 
-  return { service: new SuppliersService(dataSource, config), manager };
+  const suppliersRepo = {
+    createQueryBuilder: vi.fn(() => ({
+      leftJoinAndSelect: vi.fn().mockReturnThis(),
+      andWhere: vi.fn().mockReturnThis(),
+      orderBy: vi.fn().mockReturnThis(),
+      getMany: vi.fn(async () => []),
+    })),
+    findOne: vi.fn(async () => null),
+  } as any;
+
+  return { service: new SuppliersService(dataSource, suppliersRepo, config), manager };
 }
 
 async function violationsOf(promise: Promise<unknown>) {
