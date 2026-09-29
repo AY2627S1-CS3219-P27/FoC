@@ -1,10 +1,16 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { EntityNotFoundError, QueryFailedError, Repository } from 'typeorm';
+import {
+  ArrayContains,
+  EntityNotFoundError,
+  FindOptionsWhere,
+  QueryFailedError,
+  Repository,
+} from 'typeorm';
 import { hashValue } from '../common/hash/hash.js';
 import { User } from './user.entity.js';
-import { Role } from '@foc/contracts';
+import { MAX_PAGE_LIMIT, Role } from '@foc/contracts';
 
 /** The PostgreSQL driver error code for a unique-constraint violation. */
 const UNIQUE_VIOLATION_CODE = '23505';
@@ -30,6 +36,30 @@ export interface PublicUserInfo {
   displayName: string;
   roles: Role[];
   isAdmin: boolean;
+}
+
+/**
+ * Filters and pagination for listing users.
+ **/
+export interface ListUsersQuery {
+  role?: Role;
+  isAdmin?: boolean;
+  isLocked?: boolean;
+  isArchived?: boolean;
+  /** Zero-based offset into the full result set */
+  offset: number;
+  /** Maximum rows to return */
+  limit: number;
+}
+
+export interface UserListResult {
+  users: User[];
+  /** Count of records matching the filters across all pages (N3.1.3). */
+  total: number;
+  /** The offset actually applied, after clamping. */
+  offset: number;
+  /** The limit actually applied, after clamping. */
+  limit: number;
 }
 
 @Injectable()
@@ -163,6 +193,40 @@ export class UsersService {
     return this.userRepository.count({
       where: { isAdmin: true, isArchived: false },
     });
+  }
+
+  /**
+   * Lists users matching the authorised filters, one page at a time.
+   */
+  async listUsers({
+    role,
+    isAdmin,
+    isLocked,
+    isArchived,
+    offset,
+    limit,
+  }: ListUsersQuery): Promise<UserListResult> {
+    // Ensure offset is an integer value
+    const safeOffset = Math.max(0, Math.trunc(offset));
+    const safeLimit = Math.min(MAX_PAGE_LIMIT, Math.max(1, Math.trunc(limit)));
+
+    const where: FindOptionsWhere<User> = {};
+    if (role !== undefined) {
+      // Postgres enum-array containment: rows whose roles include `role`.
+      where.roles = ArrayContains([role]);
+    }
+    if (isAdmin !== undefined) where.isAdmin = isAdmin;
+    if (isLocked !== undefined) where.isLocked = isLocked;
+    if (isArchived !== undefined) where.isArchived = isArchived;
+
+    const [users, total] = await this.userRepository.findAndCount({
+      where,
+      skip: safeOffset,
+      take: safeLimit,
+      order: { id: 'ASC' },
+    });
+
+    return { users, total, offset: safeOffset, limit: safeLimit };
   }
 
   /**

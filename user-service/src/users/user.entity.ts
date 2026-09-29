@@ -18,6 +18,9 @@ export class User {
   @Column({ length: 255 })
   displayName: string;
 
+  @Column({ type: 'varchar', length: 2083, nullable: true })
+  profilePictureUrl: string | null;
+
   @Column({ length: 128 })
   passwordHash: string;
 
