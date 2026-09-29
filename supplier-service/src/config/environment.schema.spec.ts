@@ -6,6 +6,7 @@ const REQUIRED = {
   DB_USERNAME: 'supplier_service',
   DB_DATABASE: 'supplier_service',
   DB_PASSWORD_FILE: '/run/secrets/supplier_db_password',
+  JWT_PUBLIC_KEY_FILE: '/run/secrets/supplier_jwt_public_key',
 };
 
 describe('environmentSchema', () => {
@@ -58,6 +59,7 @@ describe('environmentSchema', () => {
         'DB_USERNAME',
         'DB_DATABASE',
         'DB_PASSWORD_FILE',
+        'JWT_PUBLIC_KEY_FILE',
       ]),
     );
   });

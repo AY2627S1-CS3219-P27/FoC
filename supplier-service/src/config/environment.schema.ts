@@ -27,6 +27,7 @@ export interface EnvironmentVariables {
   CAMPUS_MAX_LONGITUDE: number;
   SEED_ON_STARTUP: boolean;
   SEED_CSV_PATH: string;
+  JWT_PUBLIC_KEY_FILE: string;
 }
 
 /**
@@ -70,6 +71,9 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
   SEED_CSV_PATH: Joi.string()
     .min(1)
     .default('/seed-data/supplier-seed-data.csv'),
+  // user-service's JWT public key (PEM), used to verify access tokens.
+  // Required, as in user-service: without it no request can be authenticated.
+  JWT_PUBLIC_KEY_FILE: Joi.string().min(1).required(),
 })
   .unknown(true)
   // Checked on the whole object, after defaults are applied: setting only a
