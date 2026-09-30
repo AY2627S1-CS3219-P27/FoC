@@ -24,7 +24,9 @@ export default function LoginPage() {
         }),
       });
       if (res.ok) return router.push("/home");
-      setError(res.status === 401 ? "Invalid email or password." : "Login failed.");
+      setError(
+        res.status === 401 ? "Invalid email or password." : "Login failed."
+      );
     } catch {
       setError("Could not reach the server.");
     }
@@ -32,35 +34,72 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex flex-1 items-center justify-center p-6">
-      <form onSubmit={onSubmit} className="flex w-full max-w-sm flex-col gap-4">
-        <h1 className="text-2xl font-semibold">Log in to FoC</h1>
-        <input
-          name="email"
-          type="email"
-          placeholder="Email"
-          required
-          autoComplete="email"
-          className="rounded border border-zinc-300 p-2 dark:border-zinc-700 dark:bg-black"
-        />
-        <input
-          name="password"
-          type="password"
-          placeholder="Password"
-          required
-          minLength={12}
-          autoComplete="current-password"
-          className="rounded border border-zinc-300 p-2 dark:border-zinc-700 dark:bg-black"
-        />
-        {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
-        <button
-          disabled={pending}
-          className="rounded bg-foreground p-2 text-background disabled:opacity-50"
+    <main className="flex flex-1 items-center justify-center p-6 bg-background">
+      <div className="w-full max-w-md fade-in">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-nus-blue mb-4 shadow-lg">
+            <span className="text-2xl font-bold text-white tracking-tight">FoC</span>
+          </div>
+          <h1 className="text-3xl font-bold text-foreground">Welcome back</h1>
+          <p className="text-muted mt-1">
+            Sign in to Friend on Campus
+          </p>
+        </div>
+
+        <form
+          onSubmit={onSubmit}
+          className="flex flex-col gap-4 rounded-2xl border border-border bg-surface p-6 shadow-sm"
         >
-          {pending ? "Logging in…" : "Log in"}
-        </button>
-        <Link href="/register" className="text-sm underline">No account? Register</Link>
-      </form>
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Email</label>
+            <input
+              name="email"
+              type="email"
+              placeholder="e0123456@u.nus.edu"
+              required
+              autoComplete="email"
+              className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm transition-shadow"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Password</label>
+            <input
+              name="password"
+              type="password"
+              placeholder="Enter your password"
+              required
+              minLength={12}
+              autoComplete="current-password"
+              className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm transition-shadow"
+            />
+          </div>
+
+          {error && (
+            <p role="alert" className="text-sm text-danger fade-in">
+              {error}
+            </p>
+          )}
+
+          <button
+            disabled={pending}
+            className="btn-press w-full rounded-xl bg-nus-orange px-4 py-2.5 text-sm font-semibold text-white hover:bg-nus-orange-hover disabled:opacity-50 transition-colors"
+          >
+            {pending ? "Signing in…" : "Sign in"}
+          </button>
+
+          <div className="flex items-center justify-between text-sm">
+            <Link
+              href="/forgot-password"
+              className="text-nus-blue hover:underline"
+            >
+              Forgot password?
+            </Link>
+            <Link href="/register" className="text-nus-blue hover:underline">
+              Create account
+            </Link>
+          </div>
+        </form>
+      </div>
     </main>
   );
 }
