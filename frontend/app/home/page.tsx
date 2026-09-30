@@ -37,7 +37,18 @@ interface CategoryItem {
   name: string;
 }
 
-type Tab = "suppliers" | "profile";
+interface UserListItem {
+  uuid: string;
+  email: string;
+  displayName: string;
+  roles: string[];
+  profilePictureUrl: string | null;
+  isAdmin?: boolean;
+  isLocked?: boolean;
+  isArchived?: boolean;
+}
+
+type Tab = "suppliers" | "profile" | "users";
 
 export default function HomePage() {
   const router = useRouter();
@@ -59,6 +70,11 @@ export default function HomePage() {
   const [profileMsg, setProfileMsg] = useState("");
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
   const [roleMsg, setRoleMsg] = useState("");
+
+  // Admin users list state
+  const [allUsers, setAllUsers] = useState<UserListItem[]>([]);
+  const [usersTotal, setUsersTotal] = useState(0);
+  const [usersLoading, setUsersLoading] = useState(false);
 
   useEffect(() => {
     fetch("/api/users/me")
@@ -145,6 +161,27 @@ export default function HomePage() {
     }
   }
 
+  const loadAllUsers = useCallback(async () => {
+    setUsersLoading(true);
+    try {
+      const res = await fetch("/api/users?limit=100");
+      if (res.ok) {
+        const data = await res.json();
+        setAllUsers(data.items);
+        setUsersTotal(data.total);
+      }
+    } catch {
+      /* user service might not be running */
+    }
+    setUsersLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (tab === "users" && user?.isAdmin) {
+      loadAllUsers();
+    }
+  }, [tab, user?.isAdmin, loadAllUsers]);
+
   function toggleRole(role: string) {
     setSelectedRoles((prev) =>
       prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]
@@ -189,6 +226,18 @@ export default function HomePage() {
               >
                 My Account
               </button>
+              {user?.isAdmin && (
+                <button
+                  onClick={() => setTab("users")}
+                  className={`btn-press px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                    tab === "users"
+                      ? "bg-white/20 text-white"
+                      : "text-white/70 hover:text-white hover:bg-white/10"
+                  }`}
+                >
+                  Users
+                </button>
+              )}
             </nav>
           </div>
           <div className="flex items-center gap-3">
@@ -222,6 +271,14 @@ export default function HomePage() {
           >
             My Account
           </button>
+          {user?.isAdmin && (
+            <button
+              onClick={() => setTab("users")}
+              className={`btn-press flex-1 py-2.5 text-sm font-medium transition-colors ${tab === "users" ? "bg-white/15 text-white" : "text-white/60"}`}
+            >
+              Users
+            </button>
+          )}
         </div>
       </header>
 
@@ -241,6 +298,14 @@ export default function HomePage() {
               setFilterKind={setFilterKind}
               selectedSupplier={selectedSupplier}
               setSelectedSupplier={setSelectedSupplier}
+            />
+          )}
+
+          {tab === "users" && user?.isAdmin && (
+            <UsersTab
+              users={allUsers}
+              total={usersTotal}
+              loading={usersLoading}
             />
           )}
 
@@ -513,6 +578,97 @@ function InfoRow({
     <div>
       <span className="text-sm text-muted block">{label}</span>
       <span className="text-sm font-medium">{value}</span>
+    </div>
+  );
+}
+
+function UsersTab({
+  users,
+  total,
+  loading,
+}: {
+  users: UserListItem[];
+  total: number;
+  loading: boolean;
+}) {
+  return (
+    <div>
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold mb-1">All Users</h2>
+        <p className="text-muted text-sm">
+          {total} registered user{total !== 1 ? "s" : ""} on the platform.
+        </p>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-12 text-muted fade-in">
+          Loading users...
+        </div>
+      ) : users.length === 0 ? (
+        <div className="text-center py-12 fade-in">
+          <p className="text-muted text-lg">No users found</p>
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-border bg-surface shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-left text-muted">
+                  <th className="px-4 py-3 font-medium">Display Name</th>
+                  <th className="px-4 py-3 font-medium">Email</th>
+                  <th className="px-4 py-3 font-medium">Roles</th>
+                  <th className="px-4 py-3 font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((u) => (
+                  <tr
+                    key={u.uuid}
+                    className="border-b border-border last:border-b-0 hover:bg-background/50 transition-colors"
+                  >
+                    <td className="px-4 py-3 font-medium">
+                      <div className="flex items-center gap-2">
+                        {u.displayName}
+                        {u.isAdmin && (
+                          <span className="text-xs bg-nus-orange/10 text-nus-orange px-1.5 py-0.5 rounded-full font-medium">
+                            Admin
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-muted">{u.email}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-1">
+                        {u.roles.length > 0 ? (
+                          u.roles.map((role) => (
+                            <span
+                              key={role}
+                              className="text-xs bg-nus-blue/10 text-nus-blue px-2 py-0.5 rounded-full capitalize"
+                            >
+                              {role}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-xs text-muted">None</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      {u.isLocked ? (
+                        <span className="text-xs text-danger font-medium">Locked</span>
+                      ) : u.isArchived ? (
+                        <span className="text-xs text-muted font-medium">Archived</span>
+                      ) : (
+                        <span className="text-xs text-success font-medium">Active</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
