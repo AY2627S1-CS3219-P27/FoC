@@ -192,10 +192,10 @@ Rules the database **can't** express are checked in the service, inside the same
 
 | Metadata | Stored as | Queried by |
 |---|---|---|
-| **Name** | `name` as typed, plus `name_key`: trimmed, spaces collapsed, lower-cased and Unicode-normalised (F1.5) | Case-insensitive partial match on `name_key` (F5.4.1). The same key drives duplicate detection. |
+| **Name** | `name` as typed, plus `name_key`: trimmed, spaces collapsed, lower-cased and Unicode-normalised | Case-insensitive partial match on `name_key` |
 | **Type** | `kind` (Store / Facility / Landmark, one per supplier) **and** categories (Food, Coffee…, one or more, via `supplier_categories`) | `?kind=` and `?categoryId=`, each accepting several values |
-| **Location** | building (reference) + floor + a short "how to find it" description + map coordinates | `?buildingId=`. "Near me" coordinate search isn't in the FRs |
-| **Display name** | Not stored; derived as `"<Name> @ <Building short name>"`, e.g. `Cool Spot @ COM3` (F1.4) | Default sort key (F5.3) |
+| **Location** | building (reference) + floor + a short "how to find it" description + map coordinates | `?buildingId=` |
+| **Display name** | Not stored; derived as `"<Name> @ <Building short name>"`, e.g. `Cool Spot @ COM3` | Default sort key |
 
 ### Seed data (✅ step 4: `src/seed/`)
 
@@ -233,7 +233,7 @@ Built so far ✅: `GET /health`; `GET`/`POST /categories` (step 2); `GET /suppli
 | By kind | `GET /suppliers?kind=Store` (repeatable) | F5.4.4 |
 | By status | `GET /suppliers?status=Active` (default: both) | F5.4.5, F5.7 |
 | Combined | `GET /suppliers?categoryId={food}&buildingId={com3}&status=Active`: filters are ANDed | F5.5 |
-| Sort | Default: display name A→Z, then id. Or `?sort=name\|building\|createdAt\|updatedAt&order=asc\|desc`, always ending with id as the tie-breaker | F5.3, F5.3.1 |
+| Sort | Default: display name A→Z, then id, or `?sort=name\|building\|createdAt\|updatedAt&order=asc\|desc`, always ending with id as the tie-breaker | F5.3, F5.3.1 |
 | Pages | `?offset=0&limit=25` (max 1000) | F5.2, N3.1 |
 
 Repeatable filters are passed by repeating the parameter, e.g. `?categoryId=a&categoryId=b`. Sorting uses the database's English collation (case- and punctuation-aware dictionary order).
