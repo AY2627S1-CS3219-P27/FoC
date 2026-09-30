@@ -67,6 +67,7 @@ export default function HomePage() {
 
   const [editingProfile, setEditingProfile] = useState(false);
   const [newDisplayName, setNewDisplayName] = useState("");
+  const [newProfilePictureUrl, setNewProfilePictureUrl] = useState("");
   const [profileMsg, setProfileMsg] = useState("");
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
   const [roleMsg, setRoleMsg] = useState("");
@@ -130,18 +131,35 @@ export default function HomePage() {
   async function handleProfileUpdate(e: React.FormEvent) {
     e.preventDefault();
     setProfileMsg("");
+    const trimmedUrl = newProfilePictureUrl.trim();
     const res = await fetch("/api/users/me", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ displayName: newDisplayName }),
+      body: JSON.stringify({
+        displayName: newDisplayName,
+        profilePictureUrl: trimmedUrl === "" ? null : trimmedUrl,
+      }),
     });
     if (res.ok) {
       const updated = await res.json();
       setUser((prev) => (prev ? { ...prev, ...updated } : prev));
       setEditingProfile(false);
-      setProfileMsg("Profile updated. You may need to log in again.");
+      setProfileMsg(
+        updated.displayName !== user?.displayName
+          ? "Profile updated. You may need to log in again."
+          : "Profile updated.",
+      );
     } else {
-      setProfileMsg("Failed to update profile.");
+      let message = "Failed to update profile.";
+      try {
+        const errBody = await res.json();
+        if (errBody && typeof errBody.message === "string") {
+          message = errBody.message;
+        }
+      } catch {
+        /* ignore non-JSON error bodies */
+      }
+      setProfileMsg(message);
     }
   }
 
@@ -241,6 +259,7 @@ export default function HomePage() {
             </nav>
           </div>
           <div className="flex items-center gap-3">
+            {user && <Avatar url={user.profilePictureUrl} size={28} ring />}
             <span className="text-sm text-white/80 hidden sm:inline">
               {user?.displayName}
             </span>
@@ -316,6 +335,8 @@ export default function HomePage() {
               setEditingProfile={setEditingProfile}
               newDisplayName={newDisplayName}
               setNewDisplayName={setNewDisplayName}
+              newProfilePictureUrl={newProfilePictureUrl}
+              setNewProfilePictureUrl={setNewProfilePictureUrl}
               profileMsg={profileMsg}
               handleProfileUpdate={handleProfileUpdate}
               selectedRoles={selectedRoles}
@@ -673,12 +694,67 @@ function UsersTab({
   );
 }
 
+function Avatar({
+  url,
+  size = 64,
+  ring = false,
+}: {
+  url: string | null;
+  size?: number;
+  ring?: boolean;
+}) {
+  const [broken, setBroken] = useState(false);
+  const showImage = !!url && !broken;
+
+  let picture: React.ReactNode;
+  if (showImage) {
+    // eslint-disable-next-line @next/next/no-img-element -- remote URLs; next/image would need remotePatterns config
+    picture = (
+      <img
+        src={url ?? ""}
+        alt="Profile picture"
+        width={size}
+        height={size}
+        className="h-full w-full object-cover"
+        onError={() => setBroken(true)}
+      />
+    );
+  } else {
+    picture = (
+      <svg
+        width={size * 0.52}
+        height={size * 0.52}
+        viewBox="0 0 24 24"
+        fill="currentColor"
+        aria-hidden="true"
+      >
+        <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+      </svg>
+    );
+  }
+
+  return (
+    <span
+      className="inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface text-muted"
+      style={{
+        width: size,
+        height: size,
+        boxShadow: ring ? "0 0 0 2px rgba(255,255,255,0.35)" : undefined,
+      }}
+    >
+      {picture}
+    </span>
+  );
+}
+
 function ProfileTab({
   user,
   editingProfile,
   setEditingProfile,
   newDisplayName,
   setNewDisplayName,
+  newProfilePictureUrl,
+  setNewProfilePictureUrl,
   profileMsg,
   handleProfileUpdate,
   selectedRoles,
@@ -691,6 +767,8 @@ function ProfileTab({
   setEditingProfile: (v: boolean) => void;
   newDisplayName: string;
   setNewDisplayName: (v: string) => void;
+  newProfilePictureUrl: string;
+  setNewProfilePictureUrl: (v: string) => void;
   profileMsg: string;
   handleProfileUpdate: (e: React.FormEvent) => void;
   selectedRoles: string[];
@@ -706,6 +784,9 @@ function ProfileTab({
       <div className="rounded-2xl border border-border bg-surface p-6 mb-6 shadow-sm">
         <h3 className="text-lg font-semibold mb-4">Profile</h3>
         <div className="space-y-3">
+          <div className="pb-1">
+            <Avatar url={user.profilePictureUrl} size={72} />
+          </div>
           <InfoRow label="Email" value={user.email} />
           <InfoRow label="User ID" value={user.uuid} />
 
@@ -722,6 +803,22 @@ function ProfileTab({
                   maxLength={255}
                   className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm transition-shadow"
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1.5">
+                  Profile picture URL
+                </label>
+                <input
+                  type="url"
+                  value={newProfilePictureUrl}
+                  onChange={(e) => setNewProfilePictureUrl(e.target.value)}
+                  placeholder="https://example.com/me.jpg"
+                  maxLength={2083}
+                  className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm transition-shadow"
+                />
+                <p className="text-xs text-muted mt-1">
+                  Leave blank to remove your profile picture.
+                </p>
               </div>
               <div className="flex gap-2">
                 <button
@@ -745,6 +842,7 @@ function ProfileTab({
               <button
                 onClick={() => {
                   setNewDisplayName(user.displayName);
+                  setNewProfilePictureUrl(user.profilePictureUrl ?? "");
                   setEditingProfile(true);
                 }}
                 className="btn-press text-sm text-nus-blue hover:underline"
