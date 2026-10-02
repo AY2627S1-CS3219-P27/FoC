@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "resolvePackageJsonExports": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "types": ["vitest/globals", "node"]
+  },
+  "include": [
+    "app.ts",
+    "app.spec.ts",
+    "handlers/**/*.ts",
+    "utils/**/*.ts",
+    "vitest.config.ts"
+  ]
+}

@@ -8,7 +8,8 @@
   "main": "app.js",
   "scripts": {
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "lint": "oxlint --type-aware app.ts app.spec.ts handlers/ utils/"
   },
   "dependencies": {
     "amqplib": "^2.0.1",
@@ -19,6 +20,8 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.2",
+    "oxlint": "^1.58.0",
+    "oxlint-tsgolint": "^7.0.2001",
     "vitest": "^5.0.1"
   }
 }
