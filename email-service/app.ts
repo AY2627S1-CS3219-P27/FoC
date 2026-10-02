@@ -20,7 +20,7 @@ const emailListeners: Listener[] = [
   ResetPasswordEmailListener,
 ];
 
-(async () => {
+void (async () => {
   const conn = await amqplib.connect(brokerUrl);
 
   conn.on('error', (err) => {
@@ -41,7 +41,7 @@ const emailListeners: Listener[] = [
   await assertTopology(ch1);
 
   for (const { queueKey, handler } of emailListeners) {
-    ch1.consume(queueKey, async (msg) => {
+    await ch1.consume(queueKey, async (msg) => {
       if (msg === null) {
         logger.info('Consumer cancelled by server');
         return;
