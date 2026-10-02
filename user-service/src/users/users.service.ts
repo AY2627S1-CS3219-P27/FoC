@@ -192,12 +192,12 @@ export class UsersService {
    * updated public profile.
    */
   async updateProfile(
-    id: number,
+    uuid: string,
     fields: { displayName?: string; profilePictureUrl?: string | null },
   ): Promise<PublicUserInfo> {
     let user: User;
     try {
-      user = await this.userRepository.findOneByOrFail({ id });
+      user = await this.userRepository.findOneByOrFail({ uuid });
     } catch (error) {
       if (error instanceof EntityNotFoundError) {
         throw new UnauthorizedException();
