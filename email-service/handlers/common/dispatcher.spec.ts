@@ -20,7 +20,7 @@ function fakeChannel() {
     ack: vi.fn(),
     nack: vi.fn(),
     publish: vi.fn(() => true),
-  } as unknown as Channel;
+  };
 }
 
 /** Minimal `ConsumeMessage` stand-in carrying content, headers and routing key. */
@@ -46,7 +46,7 @@ describe('dispatchOutcome', () => {
   });
 
   it('acks an acked outcome', async () => {
-    await dispatchOutcome(ch, msg, 1, { action: 'acked' });
+    await dispatchOutcome(ch as unknown as Channel, msg, 1, { action: 'acked' });
 
     expect(ch.ack).toHaveBeenCalledWith(msg);
     expect(ch.nack).not.toHaveBeenCalled();
@@ -54,7 +54,7 @@ describe('dispatchOutcome', () => {
   });
 
   it('drops a dropped outcome without requeue', async () => {
-    await dispatchOutcome(ch, msg, 1, { action: 'dropped' });
+    await dispatchOutcome(ch as unknown as Channel, msg, 1, { action: 'dropped' });
 
     expect(ch.nack).toHaveBeenCalledWith(msg, false, false);
     expect(ch.ack).not.toHaveBeenCalled();
@@ -62,7 +62,7 @@ describe('dispatchOutcome', () => {
   });
 
   it('republishes a retry to foc.retry with the next attempt and delay', async () => {
-    await dispatchOutcome(ch, msg, 1, {
+    await dispatchOutcome(ch as unknown as Channel, msg, 1, {
       action: 'retry',
       delayMs: 60_000,
       nextAttempt: 2,
@@ -88,7 +88,7 @@ describe('dispatchOutcome', () => {
 
   it('preserves the attempt header when the retried copy already had one', async () => {
     const attempted = fakeMessage({ [ATTEMPT_HEADER]: 2 });
-    await dispatchOutcome(ch, attempted, 2, {
+    await dispatchOutcome(ch as unknown as Channel, attempted, 2, {
       action: 'retry',
       delayMs: 120_000,
       nextAttempt: 3,
@@ -108,7 +108,7 @@ describe('dispatchOutcome', () => {
   });
 
   it('dead-letters after the final attempt', async () => {
-    await dispatchOutcome(ch, msg, 5, { action: 'dead-letter' });
+    await dispatchOutcome(ch as unknown as Channel, msg, 5, { action: 'dead-letter' });
 
     expect(ch.publish).toHaveBeenCalledWith(
       DLQ_EXCHANGE,
@@ -125,7 +125,7 @@ describe('dispatchOutcome', () => {
       throw new Error('channel closed');
     });
 
-    await dispatchOutcome(ch, msg, 1, {
+    await dispatchOutcome(ch as unknown as Channel, msg, 1, {
       action: 'retry',
       delayMs: 60_000,
       nextAttempt: 2,
@@ -142,7 +142,7 @@ describe('dispatchOutcome', () => {
   it('requeues the original when the retry publish is not buffered', async () => {
     ch.publish.mockReturnValue(false);
 
-    await dispatchOutcome(ch, msg, 2, {
+    await dispatchOutcome(ch as unknown as Channel, msg, 2, {
       action: 'retry',
       delayMs: 120_000,
       nextAttempt: 3,
@@ -155,7 +155,7 @@ describe('dispatchOutcome', () => {
   it('requeues the original when the dead-letter publish is not buffered', async () => {
     ch.publish.mockReturnValue(false);
 
-    await dispatchOutcome(ch, msg, 5, { action: 'dead-letter' });
+    await dispatchOutcome(ch as unknown as Channel, msg, 5, { action: 'dead-letter' });
 
     expect(ch.nack).toHaveBeenCalledWith(msg, false, true);
     expect(ch.ack).not.toHaveBeenCalled();
