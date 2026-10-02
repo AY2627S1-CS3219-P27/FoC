@@ -1,0 +1,56 @@
+name: PR Tests
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+
+concurrency:
+  group: pr-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: ${{ matrix.module }} lint + test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - module: user-service
+            lint: npm run lint
+            test: npm test
+          - module: supplier-service
+            lint: npm run lint
+            test: npm test
+          - module: order-service
+            lint: npm run lint
+            test: npm test
+          - module: credit-service
+            lint: npm run lint
+            test: npm test
+          - module: email-service
+            lint: echo "no lint script"
+            test: npm test
+          - module: frontend
+            lint: npm run lint
+            test: npm run build
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install deps
+        working-directory: ${{ matrix.module }}
+        run: npm ci
+      - name: Lint
+        working-directory: ${{ matrix.module }}
+        run: ${{ matrix.lint }}
+      - name: Test / build
+        working-directory: ${{ matrix.module }}
+        run: ${{ matrix.test }}
