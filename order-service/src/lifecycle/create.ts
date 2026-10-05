@@ -40,7 +40,15 @@ export function createErrand(db: Db, i: CreateRequestInputs): Promise<CreateResu
         type: 'ErrandCreated',
         fromStatus: null,
         toStatus: 'Pending-Supplier',
-        payload: {},
+        payload: {
+          requesterId: i.requesterId,
+          supplierId: i.supplierId,
+          deliveryLocation: i.deliveryLocation,
+          rewardCredits: i.rewardCredits,
+          pickupLocation: i.pickupLocation ?? null,
+          description: i.description ?? null,
+          expiresAt: i.expiresAt ?? null, 
+        },
         actorId: i.requesterId,
       });
       return { ok: true, errandId: row.id };

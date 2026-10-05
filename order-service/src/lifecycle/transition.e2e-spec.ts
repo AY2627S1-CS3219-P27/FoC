@@ -406,4 +406,89 @@ describe('transition', () => {
       cancellationReason: 'ERRAND_EXPIRED',
     });
   });
+
+  describe('event payload', () => {
+    const lastPayload = async (id: string) => {
+      const all = await events(id);
+      return all[all.length - 1].payload;
+    };
+
+    it('records the column an edge sets, without the caller repeating it', async () => {
+      const id = await seed('Open');
+      await transition(t.db, {
+        errandId: id,
+        expected: 'Open',
+        to: 'Accepted',
+        set: { courierId: courier },
+      });
+      expect(await lastPayload(id)).toEqual({ courierId: courier });
+    });
+
+    it('records a cleared column as null', async () => {
+      const id = await seed('Accepted');
+      await transition(t.db, { errandId: id, expected: 'Accepted', to: 'Open' });
+      expect(await lastPayload(id)).toEqual({ courierId: null });
+    });
+
+    it('records a timestamp as an ISO string', async () => {
+      const id = await seed('Accepted');
+      const pickedUpAt = new Date('2030-01-01T00:00:00.000Z');
+      await transition(t.db, {
+        errandId: id,
+        expected: 'Accepted',
+        to: 'Picked Up',
+        set: { pickedUpAt },
+      });
+      expect(await lastPayload(id)).toEqual({
+        pickedUpAt: '2030-01-01T00:00:00.000Z',
+      });
+    });
+
+    it('records the cancellation reason', async () => {
+      const id = await seed('Open');
+      await transition(t.db, {
+        errandId: id,
+        expected: 'Open',
+        to: 'Cancelled',
+        set: { cancellationReason: 'ERRAND_EXPIRED' },
+      });
+      expect(await lastPayload(id)).toEqual({
+        cancellationReason: 'ERRAND_EXPIRED',
+      });
+    });
+
+    it('keeps the caller payload alongside the edge columns', async () => {
+      const id = await seed('Open');
+      await transition(t.db, {
+        errandId: id,
+        expected: 'Open',
+        to: 'Accepted',
+        payload: { note: 'hi' },
+        set: { courierId: courier },
+      });
+      expect(await lastPayload(id)).toEqual({ note: 'hi', courierId: courier });
+    });
+
+    it('lets the edge column win over a clashing caller payload key', async () => {
+      const id = await seed('Open');
+      await transition(t.db, {
+        errandId: id,
+        expected: 'Open',
+        to: 'Accepted',
+        payload: { courierId: randomUUID() },
+        set: { courierId: courier },
+      });
+      expect(await lastPayload(id)).toEqual({ courierId: courier });
+    });
+
+    it('writes an empty payload for an edge with no columns', async () => {
+      const id = await seed('Pending-Supplier');
+      await transition(t.db, {
+        errandId: id,
+        expected: 'Pending-Supplier',
+        to: 'Pending-Credit',
+      });
+      expect(await lastPayload(id)).toEqual({});
+    });
+  });
 });
