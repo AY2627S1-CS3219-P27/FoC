@@ -6,7 +6,7 @@ import type { EnvironmentVariables } from '../config/environment.js';
 import { CreditAccount, CreditAllocation } from '../database/entities/index.js';
 
 export interface AccountAllocationOutcome {
-  userId: number;
+  userId: string;
   allocationId: string;
   creditAmountAllocated: number;
   allocatedAt: Date;
@@ -14,7 +14,7 @@ export interface AccountAllocationOutcome {
 }
 
 export class AccountAllocationInvariantError extends Error {
-  constructor(userId: number) {
+  constructor(userId: string) {
     super(`Credit account ${userId} exists without an allocation`);
     this.name = 'AccountAllocationInvariantError';
   }
@@ -67,7 +67,7 @@ export class AccountAllocationService {
 
   async allocate(
     manager: EntityManager,
-    userId: number,
+    userId: string,
   ): Promise<AccountAllocationOutcome> {
     if (!manager.queryRunner?.isTransactionActive) {
       throw new AccountAllocationTransactionRequiredError();

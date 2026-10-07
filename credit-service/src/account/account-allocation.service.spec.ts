@@ -65,23 +65,23 @@ describe('AccountAllocationService', () => {
 
     const result = await createService().allocate(
       manager,
-      7,
+      '6af06251-1bdf-4808-833a-3e04f4746096',
     );
 
     expect(builder.values).toHaveBeenCalledWith({
-      userId: 7,
+      userId: '6af06251-1bdf-4808-833a-3e04f4746096',
       creditBalance: 100,
       reservedBalance: 0,
     });
     expect(repository.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        userId: 7,
+        userId: '6af06251-1bdf-4808-833a-3e04f4746096',
         amount: 100,
         id: expect.any(String),
       }),
     );
     expect(result).toMatchObject({
-      userId: 7,
+      userId: '6af06251-1bdf-4808-833a-3e04f4746096',
       creditAmountAllocated: 100,
       created: true,
     });
@@ -95,7 +95,7 @@ describe('AccountAllocationService', () => {
 
     const result = await createService(250).allocate(
       manager,
-      8,
+      '467a1137-1433-4d42-93ba-09dd9cb670db',
     );
 
     expect(builder.values).toHaveBeenCalledWith(
@@ -118,7 +118,7 @@ describe('AccountAllocationService', () => {
     } as unknown as EntityManager;
 
     await expect(
-      createService().allocate(manager, 9),
+      createService().allocate(manager, 'de3113b3-91f5-4d12-b345-aa4f8c29c343'),
     ).rejects.toBeInstanceOf(AccountAllocationTransactionRequiredError);
     expect(manager.getRepository).not.toHaveBeenCalled();
   });
@@ -127,7 +127,7 @@ describe('AccountAllocationService', () => {
     const createdAt = new Date('2026-02-03T04:05:06.000Z');
     const existing = {
       id: '71bdd9f6-8c75-47cc-af84-80a044488f86',
-      userId: 10,
+      userId: '20a2c102-f431-414f-bffd-5cb86a2e308a',
       amount: 100,
       createdAt,
     } as CreditAllocation;
@@ -153,7 +153,7 @@ describe('AccountAllocationService', () => {
     });
 
     await expect(
-      createService().allocate(manager, 11),
+      createService().allocate(manager, '80188bbf-b083-4d9e-ae11-a01903395320'),
     ).rejects.toBeInstanceOf(AccountAllocationInvariantError);
   });
 });

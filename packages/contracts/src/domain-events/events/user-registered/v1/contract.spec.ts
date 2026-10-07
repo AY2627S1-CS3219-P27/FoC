@@ -11,7 +11,7 @@ const validEvent = {
   timestamp: '2026-09-22T08:30:00.000Z',
   publisher: 'user-service',
   payload: {
-    userId: 7,
+    userId: 'db3f2ca7-1f10-4fd3-965d-a721d26ba80b',
     email: 'student@u.nus.edu',
     displayName: 'Student One',
   },
@@ -61,7 +61,8 @@ describe('UserRegistered v1 contract', () => {
   });
 
   it.each([
-    ['user ID', { ...validEvent.payload, userId: 'not-an-integer' }],
+    ['user ID', { ...validEvent.payload, userId: 'not-a-uuid' }],
+    ['numeric user ID', { ...validEvent.payload, userId: 7 }],
     ['email', { ...validEvent.payload, email: 'not-an-email' }],
     ['display name', { ...validEvent.payload, displayName: '' }],
   ])('rejects an invalid %s', (_, payload) => {
@@ -71,16 +72,4 @@ describe('UserRegistered v1 contract', () => {
       validator.validate(USER_REGISTERED_V1_ROUTING_KEY, input),
     ).toMatchObject({ valid: false, code: 'INVALID_PAYLOAD' });
   });
-
-  it.each([0, -1, 1.5, 2_147_483_648])(
-    'rejects invalid user ID %s',
-    (userId) => {
-      const input = copy();
-      input.payload.userId = userId;
-
-      expect(
-        validator.validate(USER_REGISTERED_V1_ROUTING_KEY, input),
-      ).toMatchObject({ valid: false, code: 'INVALID_PAYLOAD' });
-    },
-  );
 });

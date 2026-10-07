@@ -109,7 +109,7 @@ Both endpoints accept a User Service access token from the `access_token`
 cookie or `Authorization: Bearer <token>`. When both are present, the shared
 `@foc/auth` extractor uses the cookie. Credit Service verifies RS256 signatures
 with the mounted public key, requires issuer `user-service`, and validates the
-complete shared claim contract: positive numeric `sub`, `email`, `displayName`,
+complete shared claim contract: UUID `sub`, `email`, `displayName`,
 boolean `isAdmin`, participant `roles`, `iat`, and `exp`. The roles array may be
 empty because these routes authorize by authenticated subject, not role.
 
@@ -128,7 +128,7 @@ curl http://localhost:3003/v1/credits/balance \
 
 ```json
 {
-  "userId": 7,
+  "userId": "11111111-1111-4111-8111-111111111111",
   "creditBalance": 100,
   "reservedBalance": 0
 }
@@ -146,12 +146,12 @@ The request's `userId` must equal the verified token's `sub` claim:
 curl --request POST http://localhost:3003/v1/credits/sufficiency \
   --header "Authorization: Bearer $ACCESS_TOKEN" \
   --header "Content-Type: application/json" \
-  --data '{"userId":7,"amount":50}'
+  --data '{"userId":"11111111-1111-4111-8111-111111111111","amount":50}'
 ```
 
 ```json
 {
-  "userId": 7,
+  "userId": "11111111-1111-4111-8111-111111111111",
   "amount": 50,
   "sufficient": true
 }
@@ -432,7 +432,7 @@ erDiagram
     CREDIT_ALLOCATIONS ||--o{ INBOX_EVENTS : "establishes outcome for"
 
     CREDIT_ACCOUNTS {
-        integer user_id PK
+        uuid user_id PK
         bigint credit_balance
         bigint reserved_balance
         timestamptz created_at
@@ -442,7 +442,7 @@ erDiagram
 
     CREDIT_ALLOCATIONS {
         uuid id PK
-        integer user_id FK, UK
+        uuid user_id FK, UK
         bigint amount
         timestamptz created_at
     }
@@ -536,8 +536,8 @@ process after changing the package. Docker Compose watches package sources and
 restarts the development container automatically; manifest changes rebuild the
 image.
 
-Contracts reject unknown envelope and payload properties. User IDs are positive
-PostgreSQL integers matching User Service; event and allocation IDs are UUIDs.
+Contracts reject unknown envelope and payload properties. User IDs are UUIDs
+matching User Service; event and allocation IDs are also UUIDs.
 Timestamps must be RFC 3339 date-times ending in uppercase `Z`, and validation
 errors expose sanitized violations without payload values.
 
@@ -568,9 +568,9 @@ TypeORM uses [data-source.ts](./src/database/data-source.ts) for CLI commands.
 The CLI reads `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_DATABASE`, and
 `DB_PASSWORD_FILE` from the environment or service-local `.env` file.
 
-The initial migration now uses User Service's integer user IDs. A database
-created from the earlier UUID-based migration cannot be upgraded in place
-because those synthetic UUIDs have no mapping to User Service accounts. Before
+The initial migration uses User Service's UUID user IDs. A database created
+from the temporary integer-based migration cannot be upgraded in place because
+those integers have no trustworthy mapping to User Service accounts. Before
 running this version, explicitly back up any data that must be retained and
 recreate only the Credit database or its `credit-db-data` volume. The service
 does not delete or reset databases automatically.

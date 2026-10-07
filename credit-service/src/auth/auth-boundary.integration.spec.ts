@@ -12,6 +12,7 @@ import { AuthKeyModule } from './auth-key.module.js';
 import { AuthKeyService } from './auth-key.service.js';
 
 describe('shared authentication boundary', () => {
+  const userId = '11111111-1111-4111-8111-111111111111';
   const { privateKey, publicKey } = generateKeyPairSync('rsa', {
     modulusLength: 2048,
     publicKeyEncoding: { type: 'spki', format: 'pem' },
@@ -46,7 +47,7 @@ describe('shared authentication boundary', () => {
     expect(module.get(JwtAuthGuard)).toBeInstanceOf(JwtAuthGuard);
 
     const token = await signer.signAsync({
-      sub: 7,
+      sub: userId,
       email: 'eve@example.com',
       displayName: 'Eve',
       isAdmin: false,
@@ -55,7 +56,7 @@ describe('shared authentication boundary', () => {
     await expect(
       module.get(AccessTokenVerifier).verify(token),
     ).resolves.toEqual({
-      sub: 7,
+      sub: userId,
       email: 'eve@example.com',
       displayName: 'Eve',
       isAdmin: false,

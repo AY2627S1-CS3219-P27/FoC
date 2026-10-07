@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 import { AccountAllocationService } from '../src/account/account-allocation.service.js';
@@ -51,7 +52,7 @@ describe('AccountAllocationService persistence', () => {
   });
 
   it('creates one account and allocation with database-generated time', async () => {
-    const userId = 1;
+    const userId = randomUUID();
 
     const result = await transactionRunner.run((manager) =>
       allocationService(100).allocate(manager, userId),
@@ -77,7 +78,7 @@ describe('AccountAllocationService persistence', () => {
   });
 
   it('returns the original allocation for sequential duplicates', async () => {
-    const userId = 1;
+    const userId = randomUUID();
     const service = allocationService(100);
 
     const first = await transactionRunner.run((manager) =>
@@ -97,7 +98,7 @@ describe('AccountAllocationService persistence', () => {
   });
 
   it('converges concurrent attempts on one allocation', async () => {
-    const userId = 1;
+    const userId = randomUUID();
     const service = allocationService(100);
 
     const results = await Promise.all([
@@ -118,7 +119,7 @@ describe('AccountAllocationService persistence', () => {
   });
 
   it('keeps the original allocation when configuration changes', async () => {
-    const userId = 1;
+    const userId = randomUUID();
     const original = await transactionRunner.run((manager) =>
       allocationService(100).allocate(manager, userId),
     );
@@ -134,7 +135,7 @@ describe('AccountAllocationService persistence', () => {
   });
 
   it('rolls back the account and allocation after a caller failure', async () => {
-    const userId = 1;
+    const userId = randomUUID();
     const injectedFailure = new Error('injected failure');
 
     await expect(
@@ -153,7 +154,7 @@ describe('AccountAllocationService persistence', () => {
   });
 
   it('keeps allocation records immutable', async () => {
-    const userId = 1;
+    const userId = randomUUID();
     const allocation = await transactionRunner.run((manager) =>
       allocationService(100).allocate(manager, userId),
     );

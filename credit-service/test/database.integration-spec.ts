@@ -50,6 +50,20 @@ describe('credit persistence migration', () => {
       ]),
     );
 
+    const userIdColumns = await dataSource.query<
+      { table_name: string; data_type: string }[]
+    >(`
+      SELECT table_name, data_type FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name IN ('credit_accounts', 'credit_allocations')
+        AND column_name = 'user_id'
+      ORDER BY table_name
+    `);
+    expect(userIdColumns).toEqual([
+      { table_name: 'credit_accounts', data_type: 'uuid' },
+      { table_name: 'credit_allocations', data_type: 'uuid' },
+    ]);
+
     const constraints = await dataSource.query<{ conname: string }[]>(`
       SELECT conname FROM pg_constraint
       WHERE conname LIKE 'CHK_credit_%'
@@ -61,7 +75,6 @@ describe('credit persistence migration', () => {
       expect.arrayContaining([
         'CHK_credit_accounts_credit_balance',
         'CHK_credit_accounts_reserved_balance',
-        'CHK_credit_accounts_user_id',
         'CHK_credit_allocations_amount',
         'CHK_outbox_events_attempt_count',
         'FK_credit_allocations_user',
@@ -97,28 +110,21 @@ describe('credit persistence migration', () => {
   });
 
   it('enforces account, allocation, inbox, and outbox constraints', async () => {
-    const userId = 1;
+    const userId = randomUUID();
     const allocationId = randomUUID();
 
     await expect(
       dataSource.query(
         `INSERT INTO credit_accounts (user_id, credit_balance, reserved_balance)
-         VALUES (0, 100, 0)`,
-      ),
-    ).rejects.toMatchObject({ code: '23514' });
-
-    await expect(
-      dataSource.query(
-        `INSERT INTO credit_accounts (user_id, credit_balance, reserved_balance)
          VALUES ($1, -1, 0)`,
-        [2],
+        [randomUUID()],
       ),
     ).rejects.toMatchObject({ code: '23514' });
     await expect(
       dataSource.query(
         `INSERT INTO credit_accounts (user_id, credit_balance, reserved_balance)
          VALUES ($1, 0, -1)`,
-        [3],
+        [randomUUID()],
       ),
     ).rejects.toMatchObject({ code: '23514' });
 
@@ -188,7 +194,7 @@ describe('credit persistence migration', () => {
   });
 
   it('round-trips safe BIGINT and JSONB values through repositories', async () => {
-    const userId = 1;
+    const userId = randomUUID();
     const allocationId = randomUUID();
     const inboxEventId = randomUUID();
     const outboxEventId = randomUUID();

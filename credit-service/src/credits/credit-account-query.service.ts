@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { CreditAccount } from '../database/entities/credit-account.entity.js';
 
 export interface CreditBalanceSnapshot {
-  userId: number;
+  userId: string;
   creditBalance: number;
   reservedBalance: number;
 }
@@ -16,7 +16,7 @@ export class CreditAccountQueryService {
     private readonly accounts: Repository<CreditAccount>,
   ) {}
 
-  async getBalance(userId: number): Promise<CreditBalanceSnapshot> {
+  async getBalance(userId: string): Promise<CreditBalanceSnapshot> {
     const account = await this.accounts.findOneBy({ userId });
     if (!account) {
       throw new NotFoundException({

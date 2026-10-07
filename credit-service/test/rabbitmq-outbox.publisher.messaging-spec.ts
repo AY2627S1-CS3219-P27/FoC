@@ -58,7 +58,7 @@ describe('RabbitMqOutboxPublisher messaging integration', () => {
       timestamp: new Date().toISOString(),
       publisher: 'credit-service',
       payload: {
-        userId: 7,
+        userId: randomUUID(),
         creditAmountAllocated: 100,
         creditAllocationId: randomUUID(),
       },

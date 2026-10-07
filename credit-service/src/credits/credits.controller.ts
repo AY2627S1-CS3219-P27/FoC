@@ -40,6 +40,8 @@ import {
 type ResponseModel =
   typeof CreditBalanceResponseDto | typeof CreditSufficiencyResponseDto;
 
+const EXAMPLE_USER_ID = '11111111-1111-4111-8111-111111111111';
+
 function successResponse(
   model: ResponseModel,
   description: string,
@@ -98,7 +100,7 @@ export class CreditsController {
     successResponse(
       CreditBalanceResponseDto,
       'The current balance for the authenticated user.',
-      { userId: 7, creditBalance: 100, reservedBalance: 0 },
+      { userId: EXAMPLE_USER_ID, creditBalance: 100, reservedBalance: 0 },
     ),
   )
   @ApiNotFoundResponse(
@@ -125,11 +127,11 @@ export class CreditsController {
     examples: {
       sufficient: {
         summary: 'Available credit covers the amount',
-        value: { userId: 7, amount: 50 },
+        value: { userId: EXAMPLE_USER_ID, amount: 50 },
       },
       insufficient: {
         summary: 'Requested amount exceeds available credit',
-        value: { userId: 7, amount: 150 },
+        value: { userId: EXAMPLE_USER_ID, amount: 150 },
       },
     },
   })
@@ -137,7 +139,7 @@ export class CreditsController {
     successResponse(
       CreditSufficiencyResponseDto,
       'Point-in-time sufficiency advice for the authenticated user.',
-      { userId: 7, amount: 50, sufficient: true },
+      { userId: EXAMPLE_USER_ID, amount: 50, sufficient: true },
     ),
   )
   @ApiBadRequestResponse(

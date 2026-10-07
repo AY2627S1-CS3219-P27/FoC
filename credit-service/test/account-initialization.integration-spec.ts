@@ -24,7 +24,6 @@ import {
 import { SerializableTransactionRunner } from '../src/database/serializable-transaction.runner.js';
 
 const OUTGOING_ROUTING_KEY = CREDIT_ACCOUNT_INITIALISED_V1_ROUTING_KEY;
-let nextUserId = 1;
 
 function incomingEvent(
   overrides: Partial<UserRegisteredEvent> = {},
@@ -35,7 +34,7 @@ function incomingEvent(
     timestamp: new Date().toISOString(),
     publisher: 'user-service',
     payload: {
-      userId: nextUserId++,
+      userId: randomUUID(),
       email: 'alex@example.edu',
       displayName: 'Alex',
     },

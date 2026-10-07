@@ -28,12 +28,12 @@ credits held for a future transaction.
 
 ### Tables and constraints
 
-User identity follows User Service's positive PostgreSQL integer primary key.
-Event IDs and allocation IDs remain UUIDs.
+User identity follows User Service's UUID primary key. Event IDs and
+allocation IDs are also UUIDs.
 
 `credit_accounts` contains:
 
-- `user_id INTEGER PRIMARY KEY CHECK (user_id > 0)`
+- `user_id UUID PRIMARY KEY`
 - `credit_balance BIGINT NOT NULL CHECK (credit_balance >= 0)`
 - `reserved_balance BIGINT NOT NULL DEFAULT 0 CHECK (reserved_balance >= 0)`
 - `created_at TIMESTAMPTZ NOT NULL`
@@ -43,7 +43,7 @@ Event IDs and allocation IDs remain UUIDs.
 `credit_allocations` contains:
 
 - `id UUID PRIMARY KEY`
-- `user_id INTEGER NOT NULL` referencing `credit_accounts(user_id)` with deletion
+- `user_id UUID NOT NULL` referencing `credit_accounts(user_id)` with deletion
   restricted
 - `amount BIGINT NOT NULL CHECK (amount > 0)`
 - `created_at TIMESTAMPTZ NOT NULL`

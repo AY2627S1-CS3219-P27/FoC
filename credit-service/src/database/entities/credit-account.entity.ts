@@ -14,12 +14,11 @@ import { bigintTransformer } from '../bigint.transformer.js';
  * `creditBalance` is spendable; `reservedBalance` is held for future work.
  */
 @Entity({ name: 'credit_accounts' })
-@Check('CHK_credit_accounts_user_id', 'user_id > 0')
 @Check('CHK_credit_accounts_credit_balance', 'credit_balance >= 0')
 @Check('CHK_credit_accounts_reserved_balance', 'reserved_balance >= 0')
 export class CreditAccount {
-  @PrimaryColumn({ name: 'user_id', type: 'integer' })
-  userId: number;
+  @PrimaryColumn({ name: 'user_id', type: 'uuid' })
+  userId: string;
 
   @Column({
     name: 'credit_balance',

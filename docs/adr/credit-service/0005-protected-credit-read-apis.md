@@ -32,7 +32,7 @@ verified token's `sub` claim and returns exactly:
 
 ```json
 {
-  "userId": 7,
+  "userId": "11111111-1111-4111-8111-111111111111",
   "creditBalance": 100,
   "reservedBalance": 0
 }
@@ -45,18 +45,18 @@ verified token's `sub` claim and returns exactly:
 
 ```json
 {
-  "userId": 7,
+  "userId": "11111111-1111-4111-8111-111111111111",
   "amount": 50
 }
 ```
 
 `amount` must be a positive integer within JavaScript's safe-integer range.
-`userId` must be a positive 32-bit PostgreSQL integer and equal the verified
+`userId` must be a UUID and equal the verified
 token's `sub` claim. The response contains exactly:
 
 ```json
 {
-  "userId": 7,
+  "userId": "11111111-1111-4111-8111-111111111111",
   "amount": 50,
   "sufficient": true
 }
@@ -95,7 +95,7 @@ Only the `RS256` algorithm and fixed `user-service` issuer are accepted. A
 valid principal requires:
 
 - an unexpired token;
-- `sub` containing a positive PostgreSQL-integer user ID;
+- `sub` containing a UUID user ID;
 - the required email, display-name, and boolean `isAdmin` identity claims; and
 - a `roles` array containing only the canonical participant roles `requester`
   and `courier`; the array may be empty.
@@ -190,9 +190,9 @@ Service can make an authoritative concurrency-safe decision.
 - Responses can become stale immediately and must not be cached as reservation
   authority.
 - The existing `credit_accounts` primary key supports both lookups. Separately,
-  aligning that key with User Service's integer identity amends the
-  pre-production initial migration and requires an explicit Credit database
-  reset for installations created from the earlier UUID schema.
+  aligning that key with User Service's UUID identity amends the pre-production
+  initial migration and requires an explicit Credit database reset for
+  installations created from the temporary integer schema.
 - Formal certification of the p95 50 ms read target remains scheduled for the
   later performance-testing sprint.
 

@@ -1,12 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsInt, Max, Min } from 'class-validator';
+import { IsInt, IsUUID, Max, Min } from 'class-validator';
 
-const MAX_POSTGRES_INTEGER = 2_147_483_647;
+const EXAMPLE_USER_ID = '11111111-1111-4111-8111-111111111111';
 
 export class CreditBalanceResponseDto {
-  @ApiProperty({ example: 7, minimum: 1, maximum: MAX_POSTGRES_INTEGER })
-  userId: number;
+  @ApiProperty({ example: EXAMPLE_USER_ID, format: 'uuid' })
+  userId: string;
 
   @ApiProperty({ example: 100, minimum: 0 })
   creditBalance: number;
@@ -16,12 +16,9 @@ export class CreditBalanceResponseDto {
 }
 
 export class CreditSufficiencyRequestDto {
-  @ApiProperty({ example: 7, minimum: 1, maximum: MAX_POSTGRES_INTEGER })
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(MAX_POSTGRES_INTEGER)
-  userId: number;
+  @ApiProperty({ example: EXAMPLE_USER_ID, format: 'uuid' })
+  @IsUUID()
+  userId: string;
 
   @ApiProperty({ example: 50, minimum: 1, maximum: Number.MAX_SAFE_INTEGER })
   @Type(() => Number)
@@ -32,8 +29,8 @@ export class CreditSufficiencyRequestDto {
 }
 
 export class CreditSufficiencyResponseDto {
-  @ApiProperty({ example: 7, minimum: 1, maximum: MAX_POSTGRES_INTEGER })
-  userId: number;
+  @ApiProperty({ example: EXAMPLE_USER_ID, format: 'uuid' })
+  userId: string;
 
   @ApiProperty({ example: 50, minimum: 1, maximum: Number.MAX_SAFE_INTEGER })
   amount: number;

@@ -4,7 +4,7 @@ import schema from './schema.json' with { type: 'json' };
 export const USER_REGISTERED_V1_ROUTING_KEY = 'user.registered.v1';
 
 export interface UserRegisteredPayload {
-  userId: number;
+  userId: string;
   email: string;
   displayName: string;
 }

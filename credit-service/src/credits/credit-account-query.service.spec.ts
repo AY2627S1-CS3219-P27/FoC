@@ -4,6 +4,7 @@ import { CreditAccount } from '../database/entities/credit-account.entity.js';
 import { CreditAccountQueryService } from './credit-account-query.service.js';
 
 describe('CreditAccountQueryService', () => {
+  const userId = '11111111-1111-4111-8111-111111111111';
   const findOneBy = vi.fn();
   const service = new CreditAccountQueryService({
     findOneBy,
@@ -15,21 +16,21 @@ describe('CreditAccountQueryService', () => {
 
   it('returns a detached balance snapshot from an unlocked primary-key lookup', async () => {
     const account = {
-      userId: 7,
+      userId,
       creditBalance: 100,
       reservedBalance: 20,
       version: 3,
     } as CreditAccount;
     findOneBy.mockResolvedValue(account);
 
-    await expect(service.getBalance(7)).resolves.toEqual({
-      userId: 7,
+    await expect(service.getBalance(userId)).resolves.toEqual({
+      userId,
       creditBalance: 100,
       reservedBalance: 20,
     });
-    expect(findOneBy).toHaveBeenCalledExactlyOnceWith({ userId: 7 });
+    expect(findOneBy).toHaveBeenCalledExactlyOnceWith({ userId });
     expect(account).toEqual({
-      userId: 7,
+      userId,
       creditBalance: 100,
       reservedBalance: 20,
       version: 3,
@@ -39,7 +40,7 @@ describe('CreditAccountQueryService', () => {
   it('centralizes the missing-account response', async () => {
     findOneBy.mockResolvedValue(null);
 
-    await expect(service.getBalance(7)).rejects.toMatchObject({
+    await expect(service.getBalance(userId)).rejects.toMatchObject({
       status: 404,
       response: {
         code: 'CREDIT_ACCOUNT_NOT_FOUND',

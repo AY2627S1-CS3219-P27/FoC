@@ -13,6 +13,8 @@ import { CreditAccountQueryService } from './credit-account-query.service.js';
 import { CreditsController } from './credits.controller.js';
 
 describe('CreditsController', () => {
+  const userId = '11111111-1111-4111-8111-111111111111';
+  const otherUserId = '22222222-2222-4222-8222-222222222222';
   const { privateKey, publicKey } = generateKeyPairSync('rsa', {
     modulusLength: 2048,
     publicKeyEncoding: { type: 'spki', format: 'pem' },
@@ -29,7 +31,7 @@ describe('CreditsController', () => {
   const getBalance = vi.fn();
   let app: INestApplication;
 
-  const accessToken = (sub = 7, roles: Role[] = [Role.Requester]) =>
+  const accessToken = (sub = userId, roles: Role[] = [Role.Requester]) =>
     signer.signAsync({
       sub,
       email: 'eve@example.com',
@@ -41,7 +43,7 @@ describe('CreditsController', () => {
   beforeEach(async () => {
     getBalance.mockReset();
     getBalance.mockResolvedValue({
-      userId: 7,
+      userId,
       creditBalance: 100,
       reservedBalance: 20,
     });
@@ -73,16 +75,16 @@ describe('CreditsController', () => {
       .get('/v1/credits/balance')
       .set('Authorization', `Bearer ${token}`)
       .expect(200, {
-        userId: 7,
+        userId,
         creditBalance: 100,
         reservedBalance: 20,
       });
 
-    expect(getBalance).toHaveBeenCalledExactlyOnceWith(7);
+    expect(getBalance).toHaveBeenCalledExactlyOnceWith(userId);
   });
 
   it('accepts a role-less user through the shared access-token cookie', async () => {
-    const token = await accessToken(7, []);
+    const token = await accessToken(userId, []);
 
     await request(app.getHttpServer())
       .get('/v1/credits/balance')
@@ -130,17 +132,17 @@ describe('CreditsController', () => {
     await request(app.getHttpServer())
       .post('/v1/credits/sufficiency')
       .set('Authorization', `Bearer ${await accessToken()}`)
-      .send({ userId: 7, amount })
-      .expect(200, { userId: 7, amount, sufficient });
+      .send({ userId, amount })
+      .expect(200, { userId, amount, sufficient });
 
-    expect(getBalance).toHaveBeenCalledExactlyOnceWith(7);
+    expect(getBalance).toHaveBeenCalledExactlyOnceWith(userId);
   });
 
   it('rejects a request for another user before querying an account', async () => {
     await request(app.getHttpServer())
       .post('/v1/credits/sufficiency')
       .set('Authorization', `Bearer ${await accessToken()}`)
-      .send({ userId: 8, amount: 50 })
+      .send({ userId: otherUserId, amount: 50 })
       .expect(403, {
         code: 'SUBJECT_MISMATCH',
         message: 'Requested user does not match authenticated user',
@@ -149,11 +151,29 @@ describe('CreditsController', () => {
     expect(getBalance).not.toHaveBeenCalled();
   });
 
+  it('rejects a malformed user UUID before querying an account', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/v1/credits/sufficiency')
+      .set('Authorization', `Bearer ${await accessToken()}`)
+      .send({ userId: 'not-a-uuid', amount: 50 })
+      .expect(400);
+
+    expect(response.body).toMatchObject({
+      code: 'VALIDATION_ERROR',
+      message: 'Request validation failed',
+      reasons: expect.arrayContaining([
+        expect.objectContaining({ field: 'userId' }),
+      ]),
+    });
+    expect(JSON.stringify(response.body)).not.toContain('not-a-uuid');
+    expect(getBalance).not.toHaveBeenCalled();
+  });
+
   it('returns sanitized validation reasons and rejects unknown fields', async () => {
     const response = await request(app.getHttpServer())
       .post('/v1/credits/sufficiency')
       .set('Authorization', `Bearer ${await accessToken()}`)
-      .send({ userId: 7, amount: 0, token: 'do-not-echo' })
+      .send({ userId, amount: 0, token: 'do-not-echo' })
       .expect(400);
 
     expect(response.body).toMatchObject({
@@ -210,14 +230,14 @@ describe('CreditsController', () => {
       response.body.paths['/v1/credits/balance'].get.responses['200'].content[
         'application/json'
       ].example,
-    ).toEqual({ userId: 7, creditBalance: 100, reservedBalance: 0 });
+    ).toEqual({ userId, creditBalance: 100, reservedBalance: 0 });
     expect(
       response.body.paths['/v1/credits/sufficiency'].post.requestBody.content[
         'application/json'
       ].examples,
     ).toMatchObject({
-      sufficient: { value: { userId: 7, amount: 50 } },
-      insufficient: { value: { userId: 7, amount: 150 } },
+      sufficient: { value: { userId, amount: 50 } },
+      insufficient: { value: { userId, amount: 150 } },
     });
     expect(response.body.tags).toContainEqual(
       expect.objectContaining({ name: 'credits' }),
