@@ -19,7 +19,7 @@ export const ACCESS_TOKEN_COOKIE = 'access_token';
  * of the token's shape. Unknown claims are rejected outright.
  */
 const accessTokenPayloadSchema = Joi.object<AccessTokenPayload>({
-  sub: Joi.number().integer().min(1).max(2_147_483_647).required(),
+  sub: Joi.string().uuid().required(),
   email: Joi.string().email().required(),
   displayName: Joi.string().min(1).required(),
   isAdmin: Joi.boolean().required(),

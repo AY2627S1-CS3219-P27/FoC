@@ -8,8 +8,9 @@ import { Role } from '../user-roles/role.js';
 describe('validateAccessTokenPayload', () => {
   // A payload exactly as the JWT library would hand a verifier: the identity
   // claims issued at login plus the signer-emitted timestamp claims.
+  // A canonical lowercase v4 UUID matching node:crypto randomUUID.
   const validPayload: AccessTokenPayload = {
-    sub: 7,
+    sub: '11111111-1111-4111-8111-111111111111',
     email: 'eve@example.com',
     displayName: 'Eve',
     isAdmin: false,
@@ -59,13 +60,12 @@ describe('validateAccessTokenPayload', () => {
     expect(validateAccessTokenPayload(withoutRoles).valid).toBe(false);
   });
 
-  it('rejects a non-integer sub', () => {
+  it('rejects a non-uuid sub', () => {
     expect(
-      validateAccessTokenPayload({ ...validPayload, sub: 'not-a-number' })
-        .valid,
+      validateAccessTokenPayload({ ...validPayload, sub: 'not-a-uuid' }).valid,
     ).toBe(false);
     expect(
-      validateAccessTokenPayload({ ...validPayload, sub: 7.5 }).valid,
+      validateAccessTokenPayload({ ...validPayload, sub: 7 }).valid,
     ).toBe(false);
   });
 
@@ -163,7 +163,10 @@ describe('validateAccessTokenPayload', () => {
   });
 
   it('reports violations with schema metadata but never claim values', () => {
-    const result = validateAccessTokenPayload({ ...validPayload, sub: 'oops' });
+    const result = validateAccessTokenPayload({
+      ...validPayload,
+      sub: 'oops',
+    });
     if (result.valid) {
       throw new Error('expected validation to fail');
     }
@@ -171,7 +174,7 @@ describe('validateAccessTokenPayload', () => {
     expect(result.violations).toContainEqual(
       expect.objectContaining({
         instancePath: '/sub',
-        keyword: 'number.base',
+        keyword: 'string.guid',
       }),
     );
     expect(JSON.stringify(result.violations)).not.toContain('oops');

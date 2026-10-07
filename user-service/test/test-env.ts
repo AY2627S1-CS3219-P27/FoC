@@ -23,4 +23,6 @@ export function seedTestEnvironment(): void {
   process.env.RABBITMQ_PASSWORD_FILE = '/run/secrets/rabbitmq_password';
   process.env.JWT_PRIVATE_KEY_FILE = '/run/secrets/jwt_private_key';
   process.env.JWT_PUBLIC_KEY_FILE = '/run/secrets/jwt_public_key';
+  process.env.FRONTEND_BASE_URL = 'http://localhost:5173';
+  process.env.FRONTEND_PASSWORD_RESET_PATH = '/reset-password';
 }

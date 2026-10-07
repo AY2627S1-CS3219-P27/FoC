@@ -34,6 +34,8 @@ services:
       - LOG_LEVEL=${LOG_LEVEL}
       - JWT_PUBLIC_KEY_FILE=${JWT_PUBLIC_KEY_FILE}
       - JWT_PRIVATE_KEY_FILE=${JWT_PRIVATE_KEY_FILE}
+      - FRONTEND_BASE_URL=${FRONTEND_BASE_URL}
+      - FRONTEND_PASSWORD_RESET_PATH=${FRONTEND_PASSWORD_RESET_PATH}
     secrets:
       - db_password
       - server_secret

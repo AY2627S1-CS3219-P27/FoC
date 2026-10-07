@@ -7,6 +7,7 @@ import {
 import { REDIS } from '../redis/redis.provider.js';
 import { SecretService } from '../secret/secret.service.js';
 import { EMAIL_SERVICE } from '../broker/broker.module.js';
+import { UsersService } from '../users/users.service.js';
 import { hmacValue } from '../common/hash/hash.js';
 
 vi.mock('../common/hash/hash.js', () => ({
@@ -23,6 +24,7 @@ describe('OtpService', () => {
     get: ReturnType<typeof vi.fn>;
     hgetall: ReturnType<typeof vi.fn>;
   };
+  let usersService: { existsByEmail: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
     redis = {
@@ -33,6 +35,10 @@ describe('OtpService', () => {
 
     emailClient = { emit: vi.fn() };
 
+    // Default to "not registered" so the happy path keeps issuing OTPs;
+    // the already-registered tests flip this to true.
+    usersService = { existsByEmail: vi.fn(async () => false) };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         OtpService,
@@ -42,6 +48,7 @@ describe('OtpService', () => {
           useValue: { getServerSecret: () => 'test-secret' },
         },
         { provide: EMAIL_SERVICE, useValue: emailClient },
+        { provide: UsersService, useValue: usersService },
       ],
     }).compile();
 
@@ -140,6 +147,31 @@ describe('OtpService', () => {
       ).resolves.toBeUndefined();
       expect(redis.eval).toHaveBeenCalledTimes(1);
     });
+
+    it('issues no OTP for an email tied to an existing account', async () => {
+      usersService.existsByEmail.mockResolvedValue(true);
+
+      await expect(
+        service.createOtpRequest('eve@example.com'),
+      ).resolves.toBeUndefined();
+
+      // Silently: no Redis record, no broker emit — the caller cannot tell
+      // the account exists from any observable side effect.
+      expect(usersService.existsByEmail).toHaveBeenCalledWith('eve@example.com');
+      expect(redis.eval).not.toHaveBeenCalled();
+      expect(emailClient.emit).not.toHaveBeenCalled();
+    });
+
+    it('checks the user store before producing an OTP record', async () => {
+      redis.eval.mockResolvedValue(1);
+
+      await service.createOtpRequest('eve@example.com');
+
+      // The OTP is issued only when the email is not tied to an existing
+      // account, so the store is consulted on every request.
+      expect(usersService.existsByEmail).toHaveBeenCalledTimes(1);
+      expect(redis.eval).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('validateOtpAndIssueToken', () => {
@@ -198,7 +230,7 @@ describe('OtpService', () => {
       });
     });
 
-    it('returns null when any F1.4 condition fails', async () => {
+    it('returns null when validation fails for any reason', async () => {
       redis.eval.mockResolvedValue(0);
 
       await expect(

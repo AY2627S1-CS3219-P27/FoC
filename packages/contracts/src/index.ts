@@ -32,3 +32,10 @@ export {
   userRegisteredV1Contract,
 } from './domain-events/events/user-registered/v1/contract.js';
 export type { UserRegisteredPayload } from './domain-events/events/user-registered/v1/contract.js';
+
+export type { PaginationMeta, Paginated } from './pagination/pagination.js';
+export {
+  DEFAULT_PAGE_LIMIT,
+  DEFAULT_PAGE_OFFSET,
+  MAX_PAGE_LIMIT,
+} from './pagination/pagination.js';
