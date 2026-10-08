@@ -9,11 +9,13 @@ the movement immutably, and publishes an authoritative outcome. A command that
 cannot be applied must publish a business rejection without changing balances
 or appending a ledger transaction.
 
-RabbitMQ provides at-least-once delivery. Commands for the same errand or the
-same requester can therefore be duplicated or processed concurrently. Credit
-Service must prevent double reservation, lost adjustments, and overdrafts while
-retaining the existing inbox, serializable transaction, transactional outbox,
-confirmed publication, retry, and dead-letter guarantees.
+RabbitMQ provides at-least-once delivery, but its bounded transport retry must
+not be the durable scheduler for valid financial work. Commands for the same
+errand or requester can be duplicated or processed concurrently, and transient
+execution failures can outlive one broker delivery. Credit Service must persist
+accepted reservation work before acknowledgement, execute it through
+recoverable leases, and still prevent double reservation, lost adjustments,
+and overdrafts.
 
 The requirements call the adjustment success event
 `CreditReservationAdjustedSuccess`, while the Sprint 1 roadmap resolves the
@@ -71,7 +73,7 @@ and do not produce business-rejection events.
 - `requester_user_id`, referencing `credit_accounts.user_id` with deletion
   restricted;
 - a positive `reserved_amount`;
-- a status constrained to `ACTIVE`, `TRANSFERRED`, or `RELEASED`;
+- a status constrained to `ACTIVE`, `CONSUMED`, or `RELEASED`;
 - a reference to the latest successful credit transaction; and
 - creation and update timestamps.
 
@@ -107,45 +109,67 @@ A database trigger rejects updates and deletions of credit transactions. An
 initial allocation is not a credit transaction: ADR 0003 remains authoritative,
 and initial allocations stay in `credit_allocations`.
 
+`credit_operations` separates durable processing state from financial
+reservation state. It stores one semantic `RESERVE`, `TRANSFER`, or `RELEASE`
+operation per errand and type, with `PENDING`, `SUCCEEDED`, or `REJECTED`
+status; requester and optional courier context; amount and canonical request
+hash; retry scheduling and lease metadata; sanitized failure information; and
+optional completion transaction and outcome-event references. Only `RESERVE`
+is created and processed in this feature. Operation participants are not
+foreign-keyed to accounts because a valid request for an unknown account must
+remain durable and later produce `MISSING_BALANCE`.
+
 The existing inbox is generalized so an event can reference its durable
-allocation, transaction, and/or outbox outcome. The allocation reference
-becomes nullable; nullable transaction and outbox references are added; and a
-check requires every processed inbox row to reference at least one durable
-outcome. Reservation successes reference their established transaction and
-outbox event. Business rejections reference only their outbox event. Existing
-account-initialization rows continue to reference their allocation.
+allocation, credit operation, transaction, and/or outbox outcome. A check
+requires every processed inbox row to reference at least one such outcome.
+Accepted reservation ingress references its operation. Completed successes
+also reference their transaction and outcome event, while business rejections
+reference their outcome event. Existing account-initialization rows continue
+to reference their allocation.
 
-### Transaction boundary and lock order
+`PENDING` is processing state and does not imply that funds have moved. A
+`credit_reservations` row is created only when the worker successfully reserves
+funds. `REJECTED` is a permanent domain result; technical failures leave the
+operation `PENDING`.
 
-Contract validation completes before opening a database transaction. Every
-valid command then runs through the existing retryable PostgreSQL
-`SERIALIZABLE` transaction runner.
+### Durable ingress, execution boundary, and lock order
 
-Locks are acquired in this order:
+Contract validation completes before opening a database transaction. Valid
+reservation ingress uses the existing retryable PostgreSQL `SERIALIZABLE`
+runner to persist the inbox row and its semantic operation before RabbitMQ
+acknowledgement. It locks the incoming event ID, verifies the inbox payload
+hash, then locks the errand before inspecting or creating its operation.
+Equivalent commands link to the established operation; conflicting semantic
+content records `RESERVATION_CONFLICT` without replacing that operation.
 
-1. transaction-scoped advisory lock derived from the incoming event ID;
-2. inspect the inbox and verify the canonical payload hash;
-3. transaction-scoped advisory lock derived from the errand ID;
-4. lock the reservation row when one exists; and
-5. lock the requester account row with `FOR UPDATE` when balance state is
-   required.
+A polling worker claims due pending operations with `FOR UPDATE SKIP LOCKED`, a
+unique claimant ID, and an expiring lease. The claim commits before execution.
+Execution then acquires locks in this order:
 
-All reservation and later lifecycle operations must preserve the errand,
-reservation, then account ordering. The account row serializes commands for
-different errands owned by the same requester, while the errand lock also
-protects the no-row-yet reservation case.
+1. the claimed operation row;
+2. transaction-scoped advisory lock derived from the errand ID;
+3. the requester account row with `FOR UPDATE`, when it exists; and
+4. the reservation row with `FOR UPDATE`, when it exists.
 
-Within the same transaction, Credit Service records the inbox outcome, applies
-all balance and reservation changes, appends any ledger transaction, and adds
-the success or rejection event to the outbox. The RabbitMQ delivery is
-acknowledged only after commit. Serialization failures and deadlocks use the
-existing bounded database retry policy and then flow into the broker's
-transient retry policy.
+The account row serializes operations for different errands owned by one
+requester, while the errand lock protects the no-row-yet reservation case. The
+financial transaction atomically applies balances, reservation state, the
+ledger entry, terminal operation state, linked inbox outcomes, and the outbox
+event.
+
+If execution fails before commit, the worker leaves the operation `PENDING`,
+records sanitized attempt metadata when the database is available, clears or
+allows expiry of the lease, and schedules capped exponential backoff. Attempts
+have no terminal limit. Operations older than the configured threshold produce
+an operational warning but remain retryable. If publication fails after the
+financial commit, the operation remains terminal and the existing outbox relay
+owns publication recovery.
 
 ### Reservation behavior
 
-For a new errand, Credit Service locks the requester account and applies these
-rules:
+Ingress for a new errand creates a due `PENDING/RESERVE` operation without
+reading or changing balances. The worker later locks current financial state
+and applies these rules:
 
 - no account produces `MISSING_BALANCE`;
 - spendable credit below the requested amount produces
@@ -192,16 +216,17 @@ or reservation state and never create a credit transaction.
 ### Idempotency and durable outcomes
 
 A repeated event ID with the same event type and canonical payload hash is
-acknowledged without applying state or publishing another outcome. The
-original outbox row remains responsible for eventual delivery. Reusing an
-event ID with different content is a permanent failure and is dead-lettered.
+acknowledged without applying state or publishing another outcome. While an
+operation is pending, a distinct equivalent event links another inbox row to
+the same operation. When the worker completes, all linked inbox rows receive
+the canonical completion references. Reusing an event ID with different
+content is a permanent failure and is dead-lettered.
 
-A different event ID carrying an equivalent command is processed as a new
-request for an outcome. An already-established reservation or a no-op
-adjustment publishes a new success event that references the established
-transaction ID, without creating another ledger entry. Every newly created
-outbox event has its own stable event ID, which remains unchanged across relay
-retries.
+A different event ID received after terminal operation completion publishes a
+fresh outcome referencing the established result, without creating another
+operation, reservation movement, or ledger entry. Every newly created outbox
+event has its own stable event ID, which remains unchanged across relay retries.
+No-op adjustment replay retains the same established-transaction behavior.
 
 ### Balance reconciliation and invariant failures
 
@@ -212,8 +237,8 @@ negative account balances and non-positive reservation or transaction amounts;
 integration and reconciliation tests verify the cross-row aggregate invariant.
 
 An observed mismatch is an internal integrity failure. Credit Service rolls
-back and reports an operational failure for retry and eventual DLQ handling; it
-does not silently repair data or publish a business rejection.
+back and leaves the operation pending for worker retry and alerting; it does not
+silently repair data or publish a business rejection.
 
 ### RabbitMQ topology ownership
 
@@ -229,11 +254,14 @@ the corresponding producers. Credit Service passively checks the shared
 exchange and idempotently reasserts its main queues and bindings at startup and
 after recovery.
 
-Each main queue owns five retry queues and a `<queue>.dlq`. Retry, retry-return,
-and dead-letter exchanges remain shared Credit Service infrastructure created
-at runtime, as established by ADR 0004. The existing manual acknowledgement,
-persistent publication, publisher confirmation, per-stream isolation,
-transactional outbox, and graceful shutdown rules remain unchanged.
+Each main queue owns five retry queues and a `<queue>.dlq`. These bounded
+transport retries protect validation and durable ingress only. Once valid
+reservation ingress commits, the message is acknowledged and continuing
+execution retry belongs to the operation worker. Retry, retry-return, and
+dead-letter exchanges remain shared Credit Service infrastructure created at
+runtime, as established by ADR 0004. Persistent publication, publisher
+confirmation, per-stream isolation, transactional outbox, and graceful
+shutdown rules remain unchanged.
 
 Order Service implementation is outside this decision. The shared contracts,
 durable destinations, and fixtures allow its producers and outcome consumers
@@ -241,11 +269,12 @@ to be integrated later.
 
 ## Rationale
 
-Serializing on both the errand and account addresses two distinct races: two
-deliveries can try to establish the same reservation before a row exists, and
-different errands can compete for one requester's available credits. Keeping
-all state and outcome writes in one serializable transaction ensures that an
-observer cannot see a partial movement or an outcome for a rolled-back change.
+Durable ingress prevents broker retry exhaustion or a process restart from
+discarding valid financial work. Expiring claims recover work after worker
+death without permitting a stale claimant to finalize a reclaimed operation.
+Serializing execution on both the errand and account addresses the remaining
+races: two workers can encounter the same errand before a reservation exists,
+and different errands can compete for one requester's available credits.
 
 Recording only effective movements keeps the immutable ledger factual. Inbox
 and outbox rows retain evidence of replays and business rejections without
@@ -267,6 +296,10 @@ DLQs for reservation and adjustment streams.
 
 - Concurrent reservations cannot overdraw an account or create two
   reservations for one errand.
+- RabbitMQ delivery ends after durable ingress; financial execution continues
+  independently until a permanent business result exists.
+- `PENDING` operations survive process failure, expired claims are recoverable,
+  and technical failures never become business rejections.
 - Successful effective movements create exactly one immutable transaction;
   duplicate event IDs, semantic replays, no-op adjustments, and business
   rejections create none.
@@ -274,8 +307,9 @@ DLQs for reservation and adjustment streams.
   the established credit transaction ID.
 - The stored reservation is authoritative, so stale adjustment commands are
   rejected even when their requested target equals the current amount.
-- Business rejection events are reliable transactional outcomes; malformed or
-  operationally exhausted messages remain DLQ concerns.
+- Business rejection events are reliable transactional outcomes; malformed
+  contracts and conflicting event-ID reuse remain DLQ concerns, while accepted
+  operations continue worker retries without a terminal attempt limit.
 - The protected balance and sufficiency HTTP endpoints remain read-only and
   advisory.
 - Transfer, release, completion/cancellation handling, and transaction-history
