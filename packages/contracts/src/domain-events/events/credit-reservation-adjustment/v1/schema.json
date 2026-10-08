@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://foc.local/schemas/credit-reservation-adjustment.v1.schema.json",
+  "title": "CreditReservationAdjustmentV1",
+  "allOf": [
+    { "$ref": "https://foc.local/schemas/event-envelope.v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": { "const": "CreditReservationAdjustment" },
+        "publisher": { "const": "order-service" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["errandId", "oldAmount", "newAmount"],
+          "properties": {
+            "errandId": { "type": "string", "format": "uuid" },
+            "oldAmount": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "newAmount": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          }
+        }
+      }
+    }
+  ]
+}
