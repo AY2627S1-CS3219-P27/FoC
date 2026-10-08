@@ -44,6 +44,30 @@ describe('environmentSchema', () => {
     expect(environment.RABBITMQ_CREDIT_ACCOUNT_INITIALISED_ROUTING_KEY).toBe(
       'credit.account-initialised.v1',
     );
+    expect(environment.RABBITMQ_CREDIT_RESERVATION_QUEUE).toBe(
+      'credit-service.credit-reservation.v1',
+    );
+    expect(environment.RABBITMQ_CREDIT_RESERVATION_ROUTING_KEY).toBe(
+      'credit.reservation.v1',
+    );
+    expect(environment.RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_QUEUE).toBe(
+      'credit-service.credit-reservation-adjustment.v1',
+    );
+    expect(environment.RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_ROUTING_KEY).toBe(
+      'credit.reservation-adjustment.v1',
+    );
+    expect(environment.RABBITMQ_CREDIT_RESERVATION_SUCCESS_ROUTING_KEY).toBe(
+      'credit.reservation-success.v1',
+    );
+    expect(environment.RABBITMQ_CREDIT_RESERVATION_REJECTED_ROUTING_KEY).toBe(
+      'credit.reservation-rejected.v1',
+    );
+    expect(
+      environment.RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_SUCCESS_ROUTING_KEY,
+    ).toBe('credit.reservation-adjustment-success.v1');
+    expect(
+      environment.RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_REJECTED_ROUTING_KEY,
+    ).toBe('credit.reservation-adjustment-rejected.v1');
     expect(environment.RABBITMQ_RETRY_EXCHANGE).toBe('foc.credit.retry');
     expect(environment.RABBITMQ_RETRY_RETURN_EXCHANGE).toBe('foc.credit.back');
     expect(environment.RABBITMQ_DEAD_LETTER_EXCHANGE).toBe('foc.credit.dlx');
@@ -93,6 +117,26 @@ describe('environmentSchema', () => {
     ).toBe('credit-service.user-registered.v1.test.1234');
   });
 
+  it.each([
+    [
+      'RABBITMQ_CREDIT_RESERVATION_QUEUE',
+      'credit-service.credit-reservation.v1',
+    ],
+    [
+      'RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_QUEUE',
+      'credit-service.credit-reservation-adjustment.v1',
+    ],
+  ])('restricts %s to its canonical production name', (name, canonical) => {
+    expect(() =>
+      validate({ NODE_ENV: 'production', [name]: `${canonical}.alternate` }),
+    ).toThrow();
+    expect(
+      validate({ NODE_ENV: 'test', [name]: `${canonical}.test.1234` })[
+        name as keyof EnvironmentVariables
+      ],
+    ).toBe(`${canonical}.test.1234`);
+  });
+
   it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])(
     'rejects invalid initial balance %s',
     (initialBalance) => {
@@ -118,6 +162,27 @@ describe('environmentSchema', () => {
     [
       'RABBITMQ_CREDIT_ACCOUNT_INITIALISED_ROUTING_KEY',
       'credit.account-created.v1',
+    ],
+    ['RABBITMQ_CREDIT_RESERVATION_ROUTING_KEY', 'credit.reserve.v1'],
+    [
+      'RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_ROUTING_KEY',
+      'credit.adjustment.v1',
+    ],
+    [
+      'RABBITMQ_CREDIT_RESERVATION_SUCCESS_ROUTING_KEY',
+      'credit.reserve-success.v1',
+    ],
+    [
+      'RABBITMQ_CREDIT_RESERVATION_REJECTED_ROUTING_KEY',
+      'credit.reserve-rejected.v1',
+    ],
+    [
+      'RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_SUCCESS_ROUTING_KEY',
+      'credit.adjusted-success.v1',
+    ],
+    [
+      'RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_REJECTED_ROUTING_KEY',
+      'credit.adjusted-rejected.v1',
     ],
   ])('rejects noncanonical %s', (name, value) => {
     expect(() => validate({ [name]: value })).toThrow();

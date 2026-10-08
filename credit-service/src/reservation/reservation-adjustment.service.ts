@@ -1,4 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
+import {
+  CREDIT_RESERVATION_ADJUSTMENT_REJECTED_V1_ROUTING_KEY,
+  CREDIT_RESERVATION_ADJUSTMENT_SUCCESS_V1_ROUTING_KEY,
+} from '@foc/contracts';
 import { Injectable } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
 import {
@@ -11,9 +15,9 @@ import {
 import { SerializableTransactionRunner } from '../database/serializable-transaction.runner.js';
 
 export const CREDIT_RESERVATION_ADJUSTMENT_SUCCESS_ROUTING_KEY =
-  'credit.reservation-adjustment-success.v1';
+  CREDIT_RESERVATION_ADJUSTMENT_SUCCESS_V1_ROUTING_KEY;
 export const CREDIT_RESERVATION_ADJUSTMENT_REJECTED_ROUTING_KEY =
-  'credit.reservation-adjustment-rejected.v1';
+  CREDIT_RESERVATION_ADJUSTMENT_REJECTED_V1_ROUTING_KEY;
 
 export type CreditReservationAdjustmentRejectionReason =
   'RESERVATION_NOT_FOUND' | 'STALE_RESERVATION_AMOUNT' | 'INSUFFICIENT_CREDITS';

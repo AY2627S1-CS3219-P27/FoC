@@ -369,7 +369,9 @@ describe.sequential('account messaging recovery', () => {
     await adminConnection?.close().catch(() => undefined);
 
     if (dataSource?.isInitialized) {
-      await dataSource.undoLastMigration({ transaction: 'all' });
+      for (let index = 0; index < dataSource.migrations.length; index += 1) {
+        await dataSource.undoLastMigration({ transaction: 'all' });
+      }
       const tables = (await dataSource.query(
         `
           SELECT table_name
