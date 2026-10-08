@@ -7,6 +7,7 @@ import { AuthKeyService } from './auth/auth-key.service.js';
 import { environmentSchema } from './config/environment.js';
 import { CreditsModule } from './credits/credits.module.js';
 import { OutboxModule } from './outbox/outbox.module.js';
+import { ReservationModule } from './reservation/reservation.module.js';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { OutboxModule } from './outbox/outbox.module.js';
     }),
     AccountInitializationModule,
     CreditsModule,
+    ReservationModule,
     OutboxModule,
   ],
 })
