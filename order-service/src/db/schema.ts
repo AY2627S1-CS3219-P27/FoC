@@ -33,7 +33,7 @@ export const errands = pgTable(
     deliveryLocation: text('delivery_location').notNull(),
     rewardCredits: integer('reward_credits').notNull(),
 
-    // Decided (D2): set on Pending-Credit -> Open as that time + the requester's
+    // Decided (D2): set on Reserving-Credit -> Open as that time + the requester's
     // duration (F1.7.3). Not implemented yet: today the requester supplies it
     // at creation.
     expiresAt: ts('expires_at'),
