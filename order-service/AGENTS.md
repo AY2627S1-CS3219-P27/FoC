@@ -21,6 +21,6 @@ Run from `order-service/`:
 
 - Only the Lifecycle module (`src/lifecycle/`) writes errand state. Every write, from a request, a notice reply or a sweep, goes through the one transition function (conditional `UPDATE … WHERE status = expected` + `INSERT errand_events` in one transaction).
 - Allowed transitions live in `src/lifecycle/status.ts` (`ALLOWED`); change them there and in `ARCHITECTURE.md` §2 together.
-- Sub-states (`Pending-Supplier`, `Pending-Credit`) are shown as `Pending` at the API. Planned in-flight credit statuses (ADR 0006) are likewise internal and shown as the status around them.
+- Sub-states (`Pending-Supplier`, `Reserving-Credit`) are shown as `Pending` at the API. The other in-flight credit statuses (`Transferring-Credit`, `Adjusting-Credit`, ADR 0006) are likewise internal and shown as the status around them. A `from`/`to` pair with several exits (`Adjusting-Credit` → `Open`) is picked by `TransitionInput.type`.
 - New env vars: add to `src/config/environment.schema.ts`, `compose.yml` and `.env.example` (this folder).
 - DB password is a Docker secret (`secrets/order_db_password.secret`, copy from the `.example`); never commit it.

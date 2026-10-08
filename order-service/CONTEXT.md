@@ -10,9 +10,9 @@ Owns every errand from creation to a terminal state: validates it, gets its supp
 
 `Pending` · `Open` · `Accepted` · `Picked Up` · `Delivered` · `Completed` · `Cancelled` · `Incomplete`
 
-`Pending` is internally `Pending-Supplier` (supplier not yet confirmed) then `Pending-Credit` (reservation outstanding). Callers only ever see `Pending`.
+`Pending` is internally `Pending-Supplier` (supplier not yet confirmed) then `Reserving-Credit` (reservation outstanding). Callers only ever see `Pending`.
 
-Planned ([ADR 0006](../docs/adr/order-service/0006-in-flight-credit-statuses.md)): further internal in-flight statuses while credit-service confirms a step (transfer on completion, adjustment on edit), each shown as the status around it. Cancelling does not wait on credit.
+In-flight credit statuses ([ADR 0006](../docs/adr/order-service/0006-in-flight-credit-statuses.md)): `Reserving-Credit` (the `Pending` sub-state above), `Transferring-Credit` (shown as `Completed`) and `Adjusting-Credit` (shown as `Open`) are internal while credit-service confirms a step. Cancelling does not wait on credit.
 
 Terminal: `Completed`, `Cancelled`, `Incomplete`. There is no `Expired` state: an `Open` errand whose deadline passes is `Cancelled` with reason `ERRAND_EXPIRED`. `Incomplete` is reached only from `Delivered` when the requester rejects the delivery. The full transition list is in [`ARCHITECTURE.md`](./ARCHITECTURE.md) §2.
 

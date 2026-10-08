@@ -2,11 +2,11 @@
 
 ## Decision
 
-Decided 2026-10-08. Status names below are working names; the final choice is
-still open (see Naming).
+Decided 2026-10-08. Implemented 2026-10-08 with the recommended names
+(`Reserving-Credit`, `Transferring-Credit`, `Adjusting-Credit`; see Naming).
 
 A transition whose outcome depends on credit-service goes through an internal
-in-flight status, the way `Pending-Credit` already does for the reservation.
+in-flight status, the way the reservation status (formerly `Pending-Credit`) already does.
 The credit reply is just another `transition()`. On success the errand moves
 forward; on an **explicit rejection** it reverts and the user is notified that
 a credit-related step failed. The read side collapses each in-flight status
@@ -14,7 +14,7 @@ into a visible one, so users never see a "pending" state appear.
 
 | Credit activity | In-flight status | Success | Explicit rejection | Shown as |
 | --- | --- | --- | --- | --- |
-| Reserve | `Reserving-Credit` (today's `Pending-Credit`) | `Open` | `Cancelled`, with the credit reason (nothing earlier to revert to) | `Pending` |
+| Reserve | `Reserving-Credit` (renamed from `Pending-Credit`) | `Open` | `Cancelled`, with the credit reason (nothing earlier to revert to) | `Pending` |
 | Transfer (`Delivered` → `Completed`) | `Transferring-Credit` | `Completed` | back to `Delivered`, then an admin | `Completed` |
 | Adjust (edit an `Open` errand, F2) | `Adjusting-Credit` | `Open` with the new `rewardCredits` | `Open`, amount unchanged | `Open` |
 
@@ -48,7 +48,10 @@ held until dispute handling is designed.
 `Transferring-Credit`, `Transferring-Credit` → `Completed` and
 `Transferring-Credit` → `Delivered`. Adjust adds `Open` → `Adjusting-Credit`
 and two exits back to `Open` (success, rejected). `ALLOWED`, `EDGES`,
-`status.spec.ts` and `ARCHITECTURE.md` §2 change together when this is built.
+`status.spec.ts` and `ARCHITECTURE.md` §2 changed together (migration `0003`).
+Event types: `ErrandConfirmed` (`Delivered` → `Transferring-Credit`),
+`ErrandCompleted` (→ `Completed`), `CreditTransferFailed` (revert),
+`AdjustmentRequested`, `CreditAdjusted`, `CreditAdjustmentFailed`.
 
 ## Rationale
 
@@ -81,13 +84,13 @@ success, and would duplicate the log.
 
 ## Naming
 
-`Pending-Supplier` and `Pending-Credit` collapse to `Pending` on the read
-side, so `Pending-*` names for the new statuses would be mistaken for that
-family. Recommended: `Reserving-Credit`, `Transferring-Credit`,
-`Adjusting-Credit`. Alternatives: `Pending-Reservation/Transfer/Adjustment`
-(needs a read-side special case) or `Awaiting-*`. Renaming `Pending-Credit` is
-an `ALTER TYPE errand_status RENAME VALUE` migration; adding the new values is
-`ADD VALUE`, which cannot be used in the transaction that adds it.
+`Pending-Supplier` and the old `Pending-Credit` collapse to `Pending` on the
+read side, so `Pending-*` names for the new statuses would be mistaken for that
+family. Chosen: `Reserving-Credit`, `Transferring-Credit`, `Adjusting-Credit`.
+Rejected: `Pending-Reservation/Transfer/Adjustment` (needs a read-side special
+case) and `Awaiting-*`. Migration `0003` renames the enum value
+(`RENAME VALUE`, existing event rows follow) and adds the new values
+(`ADD VALUE`, which cannot be used in the transaction that adds it).
 
 ## Consequences
 
@@ -96,8 +99,10 @@ an `ALTER TYPE errand_status RENAME VALUE` migration; adding the new values is
 - While `Transferring-Credit` or `Adjusting-Credit`, other transitions on the
   errand are refused (they expect another status). The reply timeout and
   retry cap bound this.
-- `EDGES` is keyed `[from][to]`; the two `Adjusting-Credit` → `Open` exits need
-  a discriminator, and `rewardCredits` must become a settable column.
+- `EDGES` is keyed `[from][to]`; a pair with several exits holds an array and
+  the caller picks one with `TransitionInput.type` (`findEdge`). Only
+  `Adjusting-Credit` → `Open` has two. `rewardCredits` is a settable column
+  (`CreditAdjusted` sets it).
 - Delivering "a credit step failed" to the user is a new notice through the
   outbox to a notification consumer that does not exist yet; its queue must be
   bound before it is published.

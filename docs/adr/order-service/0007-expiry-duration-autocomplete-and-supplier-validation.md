@@ -6,10 +6,10 @@ Decided 2026-09-28 / 2026-09-29. Not yet implemented.
 
 - **Expiry (F1.7).** The requester supplies a **duration** (15 minutes to 168
   hours, default 60 minutes), not an absolute time. `expiresAt` is the time of
-  the `Pending-Credit` → `Open` transition plus that duration (F1.7.3). Time
+  the `Reserving-Credit` → `Open` transition plus that duration (F1.7.3). Time
   spent in `Pending` does not count. The duration is stored at creation
   (`expiry_duration`, and in the `ErrandCreated` payload); the
-  `Pending-Credit` → `Open` edge sets `expiresAt`. `expiresAt` is null until
+  `Reserving-Credit` → `Open` edge sets `expiresAt`. `expiresAt` is null until
   `Open`.
 - **Auto-complete.** A `Delivered` errand the requester has not confirmed
   completes automatically 24 hours after `delivered_at`. (An earlier 7-day
@@ -18,7 +18,7 @@ Decided 2026-09-28 / 2026-09-29. Not yet implemented.
   notice; the reserved credits stay held. Left open for the dispute feature.
 - **Supplier validation (F1.4.5).** On supplier validation the errand records
   `supplier_id` and `supplier_validated_at`, set by the `Pending-Supplier` →
-  `Pending-Credit` edge and written into the event payload.
+  `Reserving-Credit` edge and written into the event payload.
 
 ## Rationale
 

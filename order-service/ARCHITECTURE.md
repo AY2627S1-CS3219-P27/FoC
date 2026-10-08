@@ -48,68 +48,59 @@ flowchart LR
 
 Only the Lifecycle module writes. Every write, from a request, a notice reply or a sweep, goes through the same transition function.
 
-## 2. State model (final, F9.4)
+## 2. State model (F9.4, ADR 0006)
 
-Final state transitions (F9.4). Terminal states: Completed, Cancelled, Incomplete. There is no Expired state.
-1) Pending Supplier -> Pending-Credit (supplier validation  confirmed)	
-2) Pending Supplier -> Cancelled (supplier validation failed)	
-3) Pending Credit -> Open (credit reservation confirmed)	
-4) Pending Credit -> Cancelled (credit reservation failed)	
-5) Open -> Accepted  (courier accepts the errand)	
-6) Open -> Cancelled (see F, requester cancels before acceptance)	
-7) Open -> Cancelled with reason ERRAND_EXPIRED (see F, expiry time reached)	
-8) Accepted -> Picked Up (see F, courier marks picked up)	
-9) Accepted -> Open (see F, courier cancels after accepting, before pickup)	
-10) Accepted -> Cancelled (see F requester cancels after acceptance, before pickup, if permitted)	
-11) Picked Up -> Delivered (see F, courier marks delivered)	
-12) Picked Up -> Cancelled	
-13) Delivered -> Completed (requester confirms delivery, or auto-complete after 24h)	
-14) Delivered -> Incomplete (requestor marks delivery as incomplete)
+18 edges over 11 statuses. Terminal states: Completed, Cancelled, Incomplete. There is no Expired state. `Pending-Supplier`, `Reserving-Credit`, `Transferring-Credit` and `Adjusting-Credit` are internal; the read side shows `Pending-Supplier` / `Reserving-Credit` as `Pending`, `Transferring-Credit` as `Completed` and `Adjusting-Credit` as `Open`.
+1) Pending-Supplier -> Reserving-Credit (supplier validation confirmed)
+2) Pending-Supplier -> Cancelled (supplier validation failed)
+3) Reserving-Credit -> Open (credit reservation confirmed)
+4) Reserving-Credit -> Cancelled (credit reservation failed or timed out)
+5) Open -> Accepted (courier accepts the errand)
+6) Open -> Cancelled (requester cancels before acceptance, or ERRAND_EXPIRED when the expiry time is reached)
+7) Open -> Adjusting-Credit (requester edits the reward, F2)
+8) Adjusting-Credit -> Open, `CreditAdjusted` (adjustment confirmed, new `rewardCredits`)
+9) Adjusting-Credit -> Open, `CreditAdjustmentFailed` (adjustment rejected, amount unchanged)
+10) Accepted -> Picked Up (courier marks picked up)
+11) Accepted -> Open (courier cancels after accepting, before pickup)
+12) Accepted -> Cancelled (requester cancels after acceptance, before pickup, if permitted)
+13) Picked Up -> Delivered (courier marks delivered)
+14) Picked Up -> Cancelled (PICKUP_TIME_EXCEEDED or requester cancel)
+15) Delivered -> Transferring-Credit (requester confirms delivery, or auto-complete after 24h)
+16) Transferring-Credit -> Completed (`CreditTransferSucceeded`)
+17) Transferring-Credit -> Delivered (`CreditTransferRejected`; goes to an admin, the auto-complete sweep skips it)
+18) Delivered -> Incomplete (requester marks delivery as incomplete)
 
+18 edges over 17 distinct status pairs: the two `Adjusting-Credit` -> `Open` exits (items 8 and 9) share a pair, so a caller picks between them with `TransitionInput.type`.
+
+Cancelling (requester cancel, expiry, `PICKUP_TIME_EXCEEDED`, `Accepted` cancel) is a direct edge to `Cancelled`; the release notice to credit is fire-and-forget. A reply timeout never reverts: re-send, then leave the errand in its in-flight status and alert an admin.
 
 ```mermaid
 stateDiagram-v2
   [*] --> PendingSupplier: create
   state Pending {
-    PendingSupplier --> PendingCredit: supplier validation confirmed
-    PendingCredit
+    PendingSupplier --> ReservingCredit: supplier validation confirmed
+    ReservingCredit
   }
   PendingSupplier --> Cancelled: supplier validation failed (SUPPLIER_UNAVAILABLE / VALIDATION_TIMEOUT)
-  PendingCredit --> Open: credit reservation confirmed
-  PendingCredit --> Cancelled: reservation failed / timed out
+  ReservingCredit --> Open: credit reservation confirmed
+  ReservingCredit --> Cancelled: reservation failed / timed out
   Open --> Accepted: courier accepts
   Open --> Cancelled: requester cancels
   Open --> Cancelled: expiry deadline reached (ERRAND_EXPIRED)
+  Open --> AdjustingCredit: requester edits reward
+  AdjustingCredit --> Open: adjusted / rejected
   Accepted --> PickedUp: courier marks picked up
   Accepted --> Open: courier cancels
   Accepted --> Cancelled: requester cancels, if permitted
   PickedUp --> Delivered: courier marks delivered
   PickedUp --> Cancelled: PICKUP_TIME_EXCEEDED
-  Delivered --> Completed: requester confirms / auto after 24h
+  Delivered --> TransferringCredit: requester confirms / auto after 24h
+  TransferringCredit --> Completed: CreditTransferSucceeded
+  TransferringCredit --> Delivered: CreditTransferRejected (admin)
   Delivered --> Incomplete: requester marks incomplete
   Completed --> [*]
   Cancelled --> [*]
   Incomplete --> [*]
-```
-
-### Planned: credit in-flight statuses (ADR 0006)
-
-Decided but not yet in `status.ts` / `edges.ts`. The model above is what the code implements today; when this lands, §2 and the diagram change together with `ALLOWED`, `EDGES` and `status.spec.ts` (13 edges become 18). Status names are working names.
-
-- `Pending-Credit` becomes `Reserving-Credit` (still shown as `Pending`).
-- `Delivered -> Completed` becomes `Delivered -> Transferring-Credit -> Completed`. On an explicit `CreditTransferRejected` it returns to `Delivered` and goes to an admin; the auto-complete sweep skips it. Shown as `Completed`.
-- Edit of an `Open` errand goes `Open -> Adjusting-Credit -> Open` (new amount on success, unchanged on rejection). Shown as `Open`.
-- Cancelling (requester cancel, expiry, `PICKUP_TIME_EXCEEDED`, `Accepted` cancel) stays a direct edge to `Cancelled`; the release notice is fire-and-forget.
-- A reply timeout never reverts: re-send, then leave in the in-flight status and alert an admin.
-
-```mermaid
-stateDiagram-v2
-  Delivered --> TransferringCredit: confirm / auto after 24h
-  TransferringCredit --> Completed: CreditTransferSucceeded
-  TransferringCredit --> Delivered: CreditTransferRejected (admin)
-  Open --> AdjustingCredit: edit
-  AdjustingCredit --> Open: adjusted / rejected
-  PendingCredit --> Open: reserved (renamed ReservingCredit)
 ```
 
 ## 3. The write path (all transitions)
@@ -163,7 +154,7 @@ sequenceDiagram
   Note over O: stored as Pending-Supplier, expiry duration kept (ADR 0007)
   O-)S: supplier validation request
   S--)O: success (Active) / failure
-  O->>O: Pending-Supplier to Pending-Credit
+  O->>O: Pending-Supplier to Reserving-Credit
   O-)K: CreditReservation (once)
   K--)O: CreditReservationSuccess / Rejected
   O->>O: to Open (expiresAt = now + duration, ADR 0007) or Cancelled
