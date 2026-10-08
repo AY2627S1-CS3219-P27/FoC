@@ -12,14 +12,17 @@ Owns every errand from creation to a terminal state: validates it, gets its supp
 
 `Pending` is internally `Pending-Supplier` (supplier not yet confirmed) then `Pending-Credit` (reservation outstanding). Callers only ever see `Pending`.
 
+Planned ([ADR 0006](../docs/adr/order-service/0006-in-flight-credit-statuses.md)): further internal in-flight statuses while credit-service confirms a step (transfer on completion, adjustment on edit), each shown as the status around it. Cancelling does not wait on credit.
+
 Terminal: `Completed`, `Cancelled`, `Incomplete`. There is no `Expired` state: an `Open` errand whose deadline passes is `Cancelled` with reason `ERRAND_EXPIRED`. `Incomplete` is reached only from `Delivered` when the requester rejects the delivery. The full transition list is in [`ARCHITECTURE.md`](./ARCHITECTURE.md) §2.
 
 ## Terms specific to this service
 
 - **Transition**: an accepted change of an errand's state. Each one appends exactly one errand event and updates the projection in the same transaction.
 - **Sweep**: a scheduled job that finds errands whose deadline has passed or that are stuck, and transitions them. Runs on one instance at a time.
-- **Hold window**: how long an errand may stay in `Pending-Supplier` before it is cancelled.
-- **Expiry deadline** (`expiresAt`): the absolute time an `Open` errand lapses. Set by the requester in the create request and stored at creation; the service never derives or shifts it (it does not restart when the errand becomes `Open`). It only takes effect while `Open`; time spent in `Pending` counts against it.
+- **Hold window**: how long an errand may stay in `Pending-Supplier` (or an in-flight credit status) before it is cancelled or escalated.
+- **In-flight status**: an internal status held while credit-service confirms a step. A reply moves the errand on; an explicit rejection reverts it. A timeout never reverts it.
+- **Expiry deadline** (`expiresAt`): the time an `Open` errand lapses. The requester supplies a duration (15 minutes to 168 hours, default 60 minutes); `expiresAt` is the moment the errand becomes `Open` plus that duration, so time in `Pending` does not count ([ADR 0007](../docs/adr/order-service/0007-expiry-duration-autocomplete-and-supplier-validation.md); not yet implemented, the code still takes an absolute time at creation).
 - **Single-assignment**: at most one courier is ever assigned to an errand; a concurrent second accept loses.
 - **Cancellation reason**: a tag recorded on cancellation, e.g. `SUPPLIER_UNAVAILABLE`, `SUPPLIER_VALIDATION_TIMEOUT`, `ERRAND_EXPIRED`, `PICKUP_TIME_EXCEEDED`.
 - **Role block**: a lock on a user's new requester or courier activity, set while Order Service confirms they have no ongoing errands (used for role change and archival).

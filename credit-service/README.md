@@ -25,7 +25,7 @@ RabbitMQ. Event payloads are validated with versioned JSON Schemas and AJV.
 
 This produces at-least-once delivery. A message may be published again after an
 uncertain failure, so event consumers must be idempotent. See the
-[Credit Service ADRs](../docs/adr/credit-service/README.md) for the persistence,
+[Credit Service ADRs](../docs/adr/credit-service/) for the persistence,
 containerization, and messaging decisions and the complete topology diagram.
 
 ## Prerequisites

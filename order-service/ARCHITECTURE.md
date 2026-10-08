@@ -1,6 +1,6 @@
 # order-service architecture
 
-Diagrams are Mermaid (render on GitHub / VS Code). Decisions behind them: ADRs [0001](../docs/adr/order-service/0001-hand-rolled-event-sourcing-on-postgres.md)–[0005](../docs/adr/order-service/0005-errand-event-record-shape.md). Terms: [`CONTEXT.md`](./CONTEXT.md).
+Diagrams are Mermaid (render on GitHub / VS Code). Decisions behind them: ADRs [0001](../docs/adr/order-service/0001-hand-rolled-event-sourcing-on-postgres.md)–[0007](../docs/adr/order-service/0007-expiry-duration-autocomplete-and-supplier-validation.md). Terms: [`CONTEXT.md`](./CONTEXT.md).
 
 ## 1. Components
 
@@ -92,6 +92,26 @@ stateDiagram-v2
   Incomplete --> [*]
 ```
 
+### Planned: credit in-flight statuses (ADR 0006)
+
+Decided but not yet in `status.ts` / `edges.ts`. The model above is what the code implements today; when this lands, §2 and the diagram change together with `ALLOWED`, `EDGES` and `status.spec.ts` (13 edges become 18). Status names are working names.
+
+- `Pending-Credit` becomes `Reserving-Credit` (still shown as `Pending`).
+- `Delivered -> Completed` becomes `Delivered -> Transferring-Credit -> Completed`. On an explicit `CreditTransferRejected` it returns to `Delivered` and goes to an admin; the auto-complete sweep skips it. Shown as `Completed`.
+- Edit of an `Open` errand goes `Open -> Adjusting-Credit -> Open` (new amount on success, unchanged on rejection). Shown as `Open`.
+- Cancelling (requester cancel, expiry, `PICKUP_TIME_EXCEEDED`, `Accepted` cancel) stays a direct edge to `Cancelled`; the release notice is fire-and-forget.
+- A reply timeout never reverts: re-send, then leave in the in-flight status and alert an admin.
+
+```mermaid
+stateDiagram-v2
+  Delivered --> TransferringCredit: confirm / auto after 24h
+  TransferringCredit --> Completed: CreditTransferSucceeded
+  TransferringCredit --> Delivered: CreditTransferRejected (admin)
+  Open --> AdjustingCredit: edit
+  AdjustingCredit --> Open: adjusted / rejected
+  PendingCredit --> Open: reserved (renamed ReservingCredit)
+```
+
 ## 3. The write path (all transitions)
 
 ```mermaid
@@ -112,6 +132,8 @@ sequenceDiagram
     L--)C: publish notice after commit, if any
   end
 ```
+
+Publishing after commit can lose a notice if the process dies between commit and publish. The planned fix is to write the notice to an outbox table in the same transaction and relay it to the broker (as credit-service does, credit ADR 0003/0004); not yet recorded in an order-service ADR. See `order-messaging-feature-docs.md` (M3).
 
 Concurrent accepts, late credit replies and sweep ticks all lose safely at the `WHERE status = expected` check. No Redis or RabbitMQ is involved in the race.
 
@@ -138,14 +160,14 @@ sequenceDiagram
   R->>O: POST /errands (Idempotency-Key)
   O->>O: validate (F1.1, expiry time F1.7), not role-blocked
   O-->>R: 201 errand, status Pending
-  Note over O: stored as Pending-Supplier, expiresAt = requester-supplied time
+  Note over O: stored as Pending-Supplier, expiry duration kept (ADR 0007)
   O-)S: supplier validation request
   S--)O: success (Active) / failure
   O->>O: Pending-Supplier to Pending-Credit
   O-)K: CreditReservation (once)
   K--)O: CreditReservationSuccess / Rejected
-  O->>O: to Open (expiresAt unchanged) or Cancelled
+  O->>O: to Open (expiresAt = now + duration, ADR 0007) or Cancelled
 ```
 
-Creation never blocks on the supplier or credit outcome (F1.4.2). If Supplier Service is unreachable the errand stays in `Pending-Supplier` and the retry sweep picks it up.
+The code today still takes an absolute `expiresAt` at creation; the diagram shows the decided behaviour (ADR 0007). Creation never blocks on the supplier or credit outcome (F1.4.2). If Supplier Service is unreachable the errand stays in `Pending-Supplier` and the retry sweep picks it up.
 
