@@ -40,6 +40,10 @@ export interface EnvironmentVariables {
   OUTBOX_RETRY_BASE_DELAY_MS: number;
   OUTBOX_RETRY_MAX_DELAY_MS: number;
   OUTBOX_UNPUBLISHED_WARNING_MS: number;
+  CREDIT_OPERATION_CLAIM_LEASE_MS: number;
+  CREDIT_OPERATION_POLL_INTERVAL_MS: number;
+  CREDIT_OPERATION_MAX_BACKOFF_MS: number;
+  CREDIT_OPERATION_STUCK_AFTER_MS: number;
 }
 
 const retryDelaysSchema = Joi.any()
@@ -122,6 +126,23 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
     .max(Number.MAX_SAFE_INTEGER)
     .default(60_000),
   OUTBOX_UNPUBLISHED_WARNING_MS: Joi.number().integer().min(1).default(60_000),
+  CREDIT_OPERATION_CLAIM_LEASE_MS: Joi.number()
+    .integer()
+    .min(1)
+    .default(30_000),
+  CREDIT_OPERATION_POLL_INTERVAL_MS: Joi.number()
+    .integer()
+    .min(1)
+    .default(1_000),
+  CREDIT_OPERATION_MAX_BACKOFF_MS: Joi.number()
+    .integer()
+    .min(1)
+    .max(Number.MAX_SAFE_INTEGER)
+    .default(60_000),
+  CREDIT_OPERATION_STUCK_AFTER_MS: Joi.number()
+    .integer()
+    .min(1)
+    .default(60_000),
 })
   .custom((environment: EnvironmentVariables, helpers) => {
     const completionMargin =
@@ -135,7 +156,13 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
     ) {
       return helpers.error('any.invalid');
     }
+    if (
+      environment.CREDIT_OPERATION_MAX_BACKOFF_MS <
+      environment.CREDIT_OPERATION_POLL_INTERVAL_MS
+    ) {
+      return helpers.error('any.invalid');
+    }
     return environment;
-  }, 'outbox timing relationships')
+  }, 'worker timing relationships')
   .unknown(true)
   .prefs({ abortEarly: false, convert: true });

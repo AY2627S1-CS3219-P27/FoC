@@ -16,7 +16,7 @@ import { CreditTransaction } from './credit-transaction.entity.js';
 
 export const CREDIT_RESERVATION_STATUSES = [
   'ACTIVE',
-  'TRANSFERRED',
+  'CONSUMED',
   'RELEASED',
 ] as const;
 export type CreditReservationStatus =
@@ -27,7 +27,7 @@ export type CreditReservationStatus =
 @Check('CHK_credit_reservations_reserved_amount', 'reserved_amount > 0')
 @Check(
   'CHK_credit_reservations_status',
-  "status IN ('ACTIVE', 'TRANSFERRED', 'RELEASED')",
+  "status IN ('ACTIVE', 'CONSUMED', 'RELEASED')",
 )
 @Index('UQ_credit_reservations_errand', ['errandId'], { unique: true })
 @Index('IDX_credit_reservations_active_requester', ['requesterUserId'], {

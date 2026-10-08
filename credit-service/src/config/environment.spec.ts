@@ -58,6 +58,10 @@ describe('environmentSchema', () => {
     expect(environment.OUTBOX_RETRY_BASE_DELAY_MS).toBe(1_000);
     expect(environment.OUTBOX_RETRY_MAX_DELAY_MS).toBe(60_000);
     expect(environment.OUTBOX_UNPUBLISHED_WARNING_MS).toBe(60_000);
+    expect(environment.CREDIT_OPERATION_CLAIM_LEASE_MS).toBe(30_000);
+    expect(environment.CREDIT_OPERATION_POLL_INTERVAL_MS).toBe(1_000);
+    expect(environment.CREDIT_OPERATION_MAX_BACKOFF_MS).toBe(60_000);
+    expect(environment.CREDIT_OPERATION_STUCK_AFTER_MS).toBe(60_000);
   });
 
   it('accepts a custom retry-return exchange', () => {
@@ -137,6 +141,10 @@ describe('environmentSchema', () => {
     ['OUTBOX_RETRY_BASE_DELAY_MS', 0],
     ['OUTBOX_RETRY_MAX_DELAY_MS', 0],
     ['OUTBOX_UNPUBLISHED_WARNING_MS', 0],
+    ['CREDIT_OPERATION_CLAIM_LEASE_MS', 0],
+    ['CREDIT_OPERATION_POLL_INTERVAL_MS', 0],
+    ['CREDIT_OPERATION_MAX_BACKOFF_MS', 0],
+    ['CREDIT_OPERATION_STUCK_AFTER_MS', 0],
   ])('rejects non-positive %s', (name, value) => {
     expect(() => validate({ [name]: value })).toThrow();
   });
@@ -181,6 +189,15 @@ describe('environmentSchema', () => {
       validate({
         OUTBOX_RETRY_BASE_DELAY_MS: 5_000,
         OUTBOX_RETRY_MAX_DELAY_MS: 4_999,
+      }),
+    ).toThrow();
+  });
+
+  it('rejects an operation backoff below its polling interval', () => {
+    expect(() =>
+      validate({
+        CREDIT_OPERATION_POLL_INTERVAL_MS: 5_000,
+        CREDIT_OPERATION_MAX_BACKOFF_MS: 4_999,
       }),
     ).toThrow();
   });

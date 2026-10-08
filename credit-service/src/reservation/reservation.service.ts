@@ -2,9 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
 import {
-  CreditAccount,
-  CreditReservation,
-  CreditTransaction,
+  CreditOperation,
   InboxEvent,
   OutboxEvent,
 } from '../database/entities/index.js';
@@ -30,12 +28,17 @@ export interface CreditReservationCommand {
   };
 }
 
-export type CreditReservationOutcome =
+export type CreditReservationIngressOutcome =
   | {
-      status: 'created' | 'existing-reservation';
+      status: 'accepted' | 'semantic-replay-pending';
       eventId: string;
-      reservationId: string;
-      transactionId: string;
+      operationId: string;
+    }
+  | {
+      status: 'semantic-replay-completed';
+      eventId: string;
+      operationId: string;
+      transactionId: string | null;
       outboxEventId: string;
     }
   | {
@@ -47,8 +50,9 @@ export type CreditReservationOutcome =
   | {
       status: 'duplicate-event';
       eventId: string;
+      operationId: string | null;
       transactionId: string | null;
-      outboxEventId: string;
+      outboxEventId: string | null;
     }
   | { status: 'event-id-conflict'; eventId: string };
 
@@ -110,30 +114,17 @@ function assertValidAmount(amount: number): void {
   }
 }
 
-function assertSafeBalances(creditBalance: number, reservedBalance: number) {
-  if (
-    !Number.isSafeInteger(creditBalance) ||
-    creditBalance < 0 ||
-    !Number.isSafeInteger(reservedBalance) ||
-    reservedBalance < 0
-  ) {
-    throw new CreditReservationInvariantError(
-      'Reservation movement would produce an unsupported account balance',
-    );
-  }
-}
-
 /**
- * Applies an already contract-validated CreditReservation command and records
- * its durable business outcome in one SERIALIZABLE transaction.
+ * Persists an already contract-validated CreditReservation command before
+ * transport acknowledgement. Financial execution belongs to the worker.
  */
 @Injectable()
 export class ReservationService {
   constructor(private readonly transactions: SerializableTransactionRunner) {}
 
-  async reserve(
+  async accept(
     command: CreditReservationCommand,
-  ): Promise<CreditReservationOutcome> {
+  ): Promise<CreditReservationIngressOutcome> {
     assertValidAmount(command.payload.amount);
 
     return this.transactions.run(async (manager) => {
@@ -155,15 +146,10 @@ export class ReservationService {
         ) {
           return { status: 'event-id-conflict', eventId: command.eventId };
         }
-        if (!establishedEvent.outcomeOutboxEventId) {
-          throw new CreditReservationInvariantError(
-            'Reservation inbox outcome has no outbox event',
-          );
-        }
-
         return {
           status: 'duplicate-event',
           eventId: command.eventId,
+          operationId: establishedEvent.outcomeOperationId,
           transactionId: establishedEvent.outcomeTransactionId,
           outboxEventId: establishedEvent.outcomeOutboxEventId,
         };
@@ -174,34 +160,50 @@ export class ReservationService {
         [command.payload.errandId],
       );
 
-      const reservations = manager.getRepository(CreditReservation);
-      const establishedReservation = await reservations.findOne({
-        where: { errandId: command.payload.errandId },
+      const operations = manager.getRepository(CreditOperation);
+      const establishedOperation = await operations.findOne({
+        where: {
+          errandId: command.payload.errandId,
+          operationType: 'RESERVE',
+        },
         lock: { mode: 'pessimistic_write' },
       });
 
-      if (establishedReservation) {
-        if (
-          establishedReservation.status === 'ACTIVE' &&
-          establishedReservation.requesterUserId ===
-            command.payload.requesterUserId &&
-          establishedReservation.reservedAmount === command.payload.amount
-        ) {
-          const outboxEventId = await this.recordSuccess(
-            manager,
-            command,
-            establishedReservation.latestTransactionId,
-            payloadHash,
-          );
-          return {
-            status: 'existing-reservation',
-            eventId: command.eventId,
-            reservationId: establishedReservation.id,
-            transactionId: establishedReservation.latestTransactionId,
-            outboxEventId,
-          };
-        }
+      if (!establishedOperation) {
+        const operation = await operations.save(
+          operations.create({
+            id: randomUUID(),
+            errandId: command.payload.errandId,
+            operationType: 'RESERVE',
+            status: 'PENDING',
+            requesterUserId: command.payload.requesterUserId,
+            courierUserId: null,
+            amount: command.payload.amount,
+            requestPayloadHash: payloadHash,
+            attemptCount: 0,
+            nextAttemptAt: new Date(),
+            claimedBy: null,
+            claimedUntil: null,
+            lastError: null,
+            rejectionReason: null,
+            completionTransactionId: null,
+            outcomeOutboxEventId: null,
+          }),
+        );
+        await this.recordInbox(manager, command, payloadHash, operation.id);
+        return {
+          status: 'accepted',
+          eventId: command.eventId,
+          operationId: operation.id,
+        };
+      }
 
+      if (
+        establishedOperation.requestPayloadHash !== payloadHash ||
+        establishedOperation.requesterUserId !==
+          command.payload.requesterUserId ||
+        establishedOperation.amount !== command.payload.amount
+      ) {
         return this.reject(
           manager,
           command,
@@ -210,70 +212,63 @@ export class ReservationService {
         );
       }
 
-      const accounts = manager.getRepository(CreditAccount);
-      const account = await accounts.findOne({
-        where: { userId: command.payload.requesterUserId },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!account) {
-        return this.reject(manager, command, payloadHash, 'MISSING_BALANCE');
-      }
-      if (account.creditBalance < command.payload.amount) {
-        return this.reject(
+      if (establishedOperation.status === 'PENDING') {
+        await this.recordInbox(
           manager,
           command,
           payloadHash,
-          'INSUFFICIENT_CREDITS',
+          establishedOperation.id,
         );
+        return {
+          status: 'semantic-replay-pending',
+          eventId: command.eventId,
+          operationId: establishedOperation.id,
+        };
       }
 
-      const nextCreditBalance = account.creditBalance - command.payload.amount;
-      const nextReservedBalance =
-        account.reservedBalance + command.payload.amount;
-      assertSafeBalances(nextCreditBalance, nextReservedBalance);
-      account.creditBalance = nextCreditBalance;
-      account.reservedBalance = nextReservedBalance;
-      await accounts.save(account);
+      if (establishedOperation.status === 'SUCCEEDED') {
+        if (!establishedOperation.completionTransactionId) {
+          throw new CreditReservationInvariantError(
+            'Successful reservation operation has no transaction',
+          );
+        }
+        const outboxEventId = await this.recordSuccess(
+          manager,
+          command,
+          establishedOperation.completionTransactionId,
+          payloadHash,
+          new Date(),
+          establishedOperation.id,
+        );
+        return {
+          status: 'semantic-replay-completed',
+          eventId: command.eventId,
+          operationId: establishedOperation.id,
+          transactionId: establishedOperation.completionTransactionId,
+          outboxEventId,
+        };
+      }
 
-      const transactionId = randomUUID();
-      const creditTransactions = manager.getRepository(CreditTransaction);
-      const transaction = await creditTransactions.save(
-        creditTransactions.create({
-          id: transactionId,
-          type: 'RESERVATION',
-          amount: command.payload.amount,
-          originBalanceType: 'CREDIT_BALANCE',
-          destinationBalanceType: 'RESERVED_BALANCE',
-          originUserId: command.payload.requesterUserId,
-          destinationUserId: command.payload.requesterUserId,
-          errandId: command.payload.errandId,
-        }),
-      );
-
-      const reservation = await reservations.save(
-        reservations.create({
-          id: randomUUID(),
-          errandId: command.payload.errandId,
-          requesterUserId: command.payload.requesterUserId,
-          reservedAmount: command.payload.amount,
-          status: 'ACTIVE',
-          latestTransactionId: transaction.id,
-        }),
-      );
-      const outboxEventId = await this.recordSuccess(
+      const reason =
+        establishedOperation.rejectionReason as CreditReservationRejectionReason;
+      if (!reason) {
+        throw new CreditReservationInvariantError(
+          'Rejected reservation operation has no rejection reason',
+        );
+      }
+      const replay = await this.reject(
         manager,
         command,
-        transaction.id,
         payloadHash,
-        transaction.createdAt,
+        reason,
+        establishedOperation.id,
       );
-
       return {
-        status: 'created',
+        status: 'semantic-replay-completed',
         eventId: command.eventId,
-        reservationId: reservation.id,
-        transactionId: transaction.id,
-        outboxEventId,
+        operationId: establishedOperation.id,
+        transactionId: null,
+        outboxEventId: replay.outboxEventId,
       };
     });
   }
@@ -283,7 +278,8 @@ export class ReservationService {
     command: CreditReservationCommand,
     payloadHash: string,
     reason: CreditReservationRejectionReason,
-  ): Promise<CreditReservationOutcome> {
+    operationId: string | null = null,
+  ): Promise<Extract<CreditReservationIngressOutcome, { status: 'rejected' }>> {
     const outboxEventId = randomUUID();
     const event: CreditReservationRejectedEvent = {
       eventId: outboxEventId,
@@ -303,6 +299,7 @@ export class ReservationService {
       payloadHash,
       event,
       CREDIT_RESERVATION_REJECTED_ROUTING_KEY,
+      operationId,
       null,
     );
 
@@ -320,6 +317,7 @@ export class ReservationService {
     transactionId: string,
     payloadHash: string,
     occurredAt = new Date(),
+    operationId: string | null = null,
   ): Promise<string> {
     const outboxEventId = randomUUID();
     const event: CreditReservationSuccessEvent = {
@@ -340,6 +338,7 @@ export class ReservationService {
       payloadHash,
       event,
       CREDIT_RESERVATION_SUCCESS_ROUTING_KEY,
+      operationId,
       transactionId,
     );
     return outboxEventId;
@@ -351,6 +350,7 @@ export class ReservationService {
     payloadHash: string,
     event: CreditReservationOutcomeEvent,
     routingKey: string,
+    operationId: string | null,
     transactionId: string | null,
   ): Promise<void> {
     const outbox = manager.getRepository(OutboxEvent);
@@ -368,6 +368,24 @@ export class ReservationService {
       }),
     );
 
+    await this.recordInbox(
+      manager,
+      command,
+      payloadHash,
+      operationId,
+      transactionId,
+      event.eventId,
+    );
+  }
+
+  private async recordInbox(
+    manager: EntityManager,
+    command: CreditReservationCommand,
+    payloadHash: string,
+    operationId: string | null,
+    transactionId: string | null = null,
+    outboxEventId: string | null = null,
+  ): Promise<void> {
     const inbox = manager.getRepository(InboxEvent);
     await inbox.save(
       inbox.create({
@@ -376,8 +394,9 @@ export class ReservationService {
         payloadHash,
         processedAt: new Date(),
         outcomeAllocationId: null,
+        outcomeOperationId: operationId,
         outcomeTransactionId: transactionId,
-        outcomeOutboxEventId: event.eventId,
+        outcomeOutboxEventId: outboxEventId,
       }),
     );
   }

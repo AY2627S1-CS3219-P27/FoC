@@ -4,6 +4,7 @@ import type { DataSourceOptions } from 'typeorm';
 import {
   CreditAccount,
   CreditAllocation,
+  CreditOperation,
   CreditReservation,
   CreditTransaction,
   InboxEvent,
@@ -23,6 +24,7 @@ export interface DatabaseEnvironment {
 export const databaseEntities = [
   CreditAccount,
   CreditAllocation,
+  CreditOperation,
   CreditTransaction,
   CreditReservation,
   InboxEvent,

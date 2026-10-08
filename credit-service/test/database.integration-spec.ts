@@ -4,6 +4,7 @@ import { createDatabaseOptions } from '../src/database/database-options.js';
 import {
   CreditAccount,
   CreditAllocation,
+  CreditOperation,
   CreditReservation,
   CreditTransaction,
   InboxEvent,
@@ -47,6 +48,7 @@ describe('credit persistence migration', () => {
       expect.arrayContaining([
         'credit_accounts',
         'credit_allocations',
+        'credit_operations',
         'credit_reservations',
         'credit_transactions',
         'inbox_events',
@@ -81,6 +83,13 @@ describe('credit persistence migration', () => {
         'CHK_credit_accounts_credit_balance',
         'CHK_credit_accounts_reserved_balance',
         'CHK_credit_allocations_amount',
+        'CHK_credit_operations_amount',
+        'CHK_credit_operations_attempt_count',
+        'CHK_credit_operations_type',
+        'CHK_credit_operations_status',
+        'CHK_credit_operations_participants',
+        'CHK_credit_operations_claim',
+        'CHK_credit_operations_outcome',
         'CHK_credit_reservations_reserved_amount',
         'CHK_credit_reservations_status',
         'CHK_credit_transactions_amount',
@@ -93,11 +102,14 @@ describe('credit persistence migration', () => {
         'CHK_inbox_events_has_outcome',
         'CHK_outbox_events_attempt_count',
         'FK_credit_allocations_user',
+        'FK_credit_operations_completion_transaction',
+        'FK_credit_operations_outcome_outbox',
         'FK_credit_reservations_requester',
         'FK_credit_reservations_latest_transaction',
         'FK_credit_transactions_origin_user',
         'FK_credit_transactions_destination_user',
         'FK_inbox_events_outcome',
+        'FK_inbox_events_outcome_operation',
         'FK_inbox_events_outcome_transaction',
         'FK_inbox_events_outcome_outbox',
       ]),
@@ -109,6 +121,11 @@ describe('credit persistence migration', () => {
     expect(indexes.map(({ indexname }) => indexname)).toEqual(
       expect.arrayContaining([
         'UQ_credit_allocations_user',
+        'UQ_credit_operations_errand_type',
+        'UQ_credit_operations_completion_transaction',
+        'UQ_credit_operations_outcome_outbox',
+        'IDX_credit_operations_pending_due',
+        'IDX_credit_operations_pending_claim_expiry',
         'UQ_credit_reservations_errand',
         'UQ_credit_reservations_latest_transaction',
         'IDX_credit_reservations_active_requester',
@@ -339,6 +356,66 @@ describe('credit persistence migration', () => {
     ).rejects.toMatchObject({ code: '23505' });
   });
 
+  it('enforces operation state, participant, claim, and outcome constraints', async () => {
+    const operations = dataSource.getRepository(CreditOperation);
+    const pending = operations.create({
+      id: randomUUID(),
+      errandId: randomUUID(),
+      operationType: 'RESERVE',
+      status: 'PENDING',
+      requesterUserId: randomUUID(),
+      courierUserId: null,
+      amount: 10,
+      requestPayloadHash: 'a'.repeat(64),
+      attemptCount: 0,
+      nextAttemptAt: new Date(),
+      claimedBy: null,
+      claimedUntil: null,
+      lastError: null,
+      rejectionReason: null,
+      completionTransactionId: null,
+      outcomeOutboxEventId: null,
+    });
+    await operations.save(pending);
+
+    await expect(
+      dataSource.query(
+        `INSERT INTO credit_operations
+         (id, errand_id, operation_type, status, requester_user_id, amount,
+          request_payload_hash, attempt_count, next_attempt_at, claimed_by)
+         VALUES ($1, $2, 'RESERVE', 'PENDING', $3, 10, $4, 0, now(), 'worker')`,
+        [randomUUID(), randomUUID(), randomUUID(), 'b'.repeat(64)],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      dataSource.query(
+        `INSERT INTO credit_operations
+         (id, errand_id, operation_type, status, requester_user_id,
+          courier_user_id, amount, request_payload_hash, next_attempt_at)
+         VALUES ($1, $2, 'RESERVE', 'PENDING', $3, $4, 10, $5, now())`,
+        [
+          randomUUID(),
+          randomUUID(),
+          randomUUID(),
+          randomUUID(),
+          'c'.repeat(64),
+        ],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      dataSource.query(
+        `INSERT INTO credit_operations
+         (id, errand_id, operation_type, status, requester_user_id, amount,
+          request_payload_hash, next_attempt_at)
+         VALUES ($1, $2, 'RESERVE', 'SUCCEEDED', $3, 10, $4, now())`,
+        [randomUUID(), randomUUID(), randomUUID(), 'd'.repeat(64)],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      operations.save(operations.create({ ...pending, id: randomUUID() })),
+    ).rejects.toMatchObject({ code: '23505' });
+  });
+
   it('rejects updates and deletes from immutable allocations', async () => {
     const [{ id }] = await dataSource.query<{ id: string }[]>(
       'SELECT id FROM credit_allocations LIMIT 1',
@@ -542,9 +619,39 @@ describe('credit persistence migration', () => {
     ).resolves.toMatchObject({ envelope });
   });
 
+  it('creates reservations with the CONSUMED terminal status', async () => {
+    const userId = randomUUID();
+    const errandId = randomUUID();
+    const transactionId = randomUUID();
+    await dataSource.query(
+      `INSERT INTO credit_accounts (user_id, credit_balance, reserved_balance)
+       VALUES ($1, 75, 25)`,
+      [userId],
+    );
+    await dataSource.query(
+      `INSERT INTO credit_transactions
+       (id, type, amount, origin_balance_type, destination_balance_type,
+        origin_user_id, destination_user_id, errand_id)
+       VALUES ($1, 'RESERVATION', 25, 'CREDIT_BALANCE', 'RESERVED_BALANCE', $2, $2, $3)`,
+      [transactionId, userId, errandId],
+    );
+    await dataSource.query(
+      `INSERT INTO credit_reservations
+       (id, errand_id, requester_user_id, reserved_amount, status, latest_transaction_id)
+       VALUES ($1, $2, $3, 25, 'CONSUMED', $4)`,
+      [randomUUID(), errandId, userId, transactionId],
+    );
+
+    const [reservation] = await dataSource.query<Array<{ status: string }>>(
+      'SELECT status FROM credit_reservations WHERE errand_id = $1',
+      [errandId],
+    );
+    expect(reservation.status).toBe('CONSUMED');
+  });
+
   it('reverts the schema cleanly', async () => {
     await dataSource.query(
-      'TRUNCATE TABLE inbox_events, credit_reservations, credit_transactions, outbox_events, credit_allocations, credit_accounts',
+      'TRUNCATE TABLE inbox_events, credit_operations, credit_reservations, credit_transactions, outbox_events, credit_allocations, credit_accounts',
     );
     await dataSource.undoLastMigration({ transaction: 'all' });
     await dataSource.undoLastMigration({ transaction: 'all' });
@@ -556,6 +663,7 @@ describe('credit persistence migration', () => {
         AND table_name IN (
           'credit_accounts',
           'credit_allocations',
+          'credit_operations',
           'credit_reservations',
           'credit_transactions',
           'inbox_events',

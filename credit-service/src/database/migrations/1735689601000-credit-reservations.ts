@@ -1,6 +1,6 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 
-/** Adds reservation state, its immutable movement ledger, and generic inbox outcomes. */
+/** Adds reservation operations, financial state, the movement ledger, and inbox outcomes. */
 export class CreditReservations1735689601000 implements MigrationInterface {
   name = 'CreditReservations1735689601000';
 
@@ -96,7 +96,7 @@ export class CreditReservations1735689601000 implements MigrationInterface {
         CONSTRAINT "CHK_credit_reservations_reserved_amount"
           CHECK ("reserved_amount" > 0),
         CONSTRAINT "CHK_credit_reservations_status"
-          CHECK ("status" IN ('ACTIVE', 'TRANSFERRED', 'RELEASED')),
+          CHECK ("status" IN ('ACTIVE', 'CONSUMED', 'RELEASED')),
         CONSTRAINT "FK_credit_reservations_requester" FOREIGN KEY ("requester_user_id")
           REFERENCES "credit_accounts"("user_id") ON DELETE RESTRICT ON UPDATE NO ACTION,
         CONSTRAINT "FK_credit_reservations_latest_transaction" FOREIGN KEY ("latest_transaction_id")
@@ -121,10 +121,110 @@ export class CreditReservations1735689601000 implements MigrationInterface {
     `);
 
     await queryRunner.query(`
+      CREATE TABLE "credit_operations" (
+        "id" uuid NOT NULL,
+        "errand_id" uuid NOT NULL,
+        "operation_type" text NOT NULL,
+        "status" text NOT NULL,
+        "requester_user_id" uuid NOT NULL,
+        "courier_user_id" uuid,
+        "amount" bigint NOT NULL,
+        "request_payload_hash" char(64) NOT NULL,
+        "attempt_count" integer NOT NULL DEFAULT 0,
+        "next_attempt_at" timestamptz NOT NULL DEFAULT now(),
+        "claimed_by" text,
+        "claimed_until" timestamptz,
+        "last_error" text,
+        "rejection_reason" text,
+        "completion_transaction_id" uuid,
+        "outcome_outbox_event_id" uuid,
+        "created_at" timestamptz NOT NULL DEFAULT now(),
+        "updated_at" timestamptz NOT NULL DEFAULT now(),
+        CONSTRAINT "PK_credit_operations" PRIMARY KEY ("id"),
+        CONSTRAINT "CHK_credit_operations_type"
+          CHECK ("operation_type" IN ('RESERVE', 'TRANSFER', 'RELEASE')),
+        CONSTRAINT "CHK_credit_operations_status"
+          CHECK ("status" IN ('PENDING', 'SUCCEEDED', 'REJECTED')),
+        CONSTRAINT "CHK_credit_operations_amount" CHECK ("amount" > 0),
+        CONSTRAINT "CHK_credit_operations_attempt_count" CHECK ("attempt_count" >= 0),
+        CONSTRAINT "CHK_credit_operations_participants" CHECK (
+          (
+            "operation_type" = 'TRANSFER'
+            AND "courier_user_id" IS NOT NULL
+            AND "courier_user_id" <> "requester_user_id"
+          )
+          OR (
+            "operation_type" <> 'TRANSFER'
+            AND "courier_user_id" IS NULL
+          )
+        ),
+        CONSTRAINT "CHK_credit_operations_claim" CHECK (
+          (("claimed_by" IS NULL) = ("claimed_until" IS NULL))
+          AND ("claimed_by" IS NULL OR "status" = 'PENDING')
+        ),
+        CONSTRAINT "CHK_credit_operations_outcome" CHECK (
+          (
+            "status" = 'PENDING'
+            AND "rejection_reason" IS NULL
+            AND "completion_transaction_id" IS NULL
+            AND "outcome_outbox_event_id" IS NULL
+          )
+          OR (
+            "status" = 'SUCCEEDED'
+            AND "rejection_reason" IS NULL
+            AND "completion_transaction_id" IS NOT NULL
+            AND "outcome_outbox_event_id" IS NOT NULL
+          )
+          OR (
+            "status" = 'REJECTED'
+            AND "rejection_reason" IS NOT NULL
+            AND "completion_transaction_id" IS NULL
+            AND "outcome_outbox_event_id" IS NOT NULL
+          )
+        ),
+        CONSTRAINT "FK_credit_operations_completion_transaction"
+          FOREIGN KEY ("completion_transaction_id")
+          REFERENCES "credit_transactions"("id") ON DELETE RESTRICT ON UPDATE NO ACTION,
+        CONSTRAINT "FK_credit_operations_outcome_outbox"
+          FOREIGN KEY ("outcome_outbox_event_id")
+          REFERENCES "outbox_events"("event_id") ON DELETE RESTRICT ON UPDATE NO ACTION
+      )
+    `);
+
+    await queryRunner.query(`
+      CREATE UNIQUE INDEX "UQ_credit_operations_errand_type"
+      ON "credit_operations" ("errand_id", "operation_type")
+    `);
+    await queryRunner.query(`
+      CREATE INDEX "IDX_credit_operations_pending_due"
+      ON "credit_operations" ("next_attempt_at", "created_at", "id")
+      WHERE "status" = 'PENDING'
+    `);
+    await queryRunner.query(`
+      CREATE INDEX "IDX_credit_operations_pending_claim_expiry"
+      ON "credit_operations" ("claimed_until", "id")
+      WHERE "status" = 'PENDING' AND "claimed_until" IS NOT NULL
+    `);
+    await queryRunner.query(`
+      CREATE UNIQUE INDEX "UQ_credit_operations_completion_transaction"
+      ON "credit_operations" ("completion_transaction_id")
+      WHERE "completion_transaction_id" IS NOT NULL
+    `);
+    await queryRunner.query(`
+      CREATE UNIQUE INDEX "UQ_credit_operations_outcome_outbox"
+      ON "credit_operations" ("outcome_outbox_event_id")
+      WHERE "outcome_outbox_event_id" IS NOT NULL
+    `);
+
+    await queryRunner.query(`
       ALTER TABLE "inbox_events"
       ALTER COLUMN "outcome_allocation_id" DROP NOT NULL,
+      ADD COLUMN "outcome_operation_id" uuid,
       ADD COLUMN "outcome_transaction_id" uuid,
       ADD COLUMN "outcome_outbox_event_id" uuid,
+      ADD CONSTRAINT "FK_inbox_events_outcome_operation"
+        FOREIGN KEY ("outcome_operation_id") REFERENCES "credit_operations"("id")
+        ON DELETE RESTRICT ON UPDATE NO ACTION,
       ADD CONSTRAINT "FK_inbox_events_outcome_transaction"
         FOREIGN KEY ("outcome_transaction_id") REFERENCES "credit_transactions"("id")
         ON DELETE RESTRICT ON UPDATE NO ACTION,
@@ -133,6 +233,7 @@ export class CreditReservations1735689601000 implements MigrationInterface {
         ON DELETE RESTRICT ON UPDATE NO ACTION,
       ADD CONSTRAINT "CHK_inbox_events_has_outcome" CHECK (
         "outcome_allocation_id" IS NOT NULL
+        OR "outcome_operation_id" IS NOT NULL
         OR "outcome_transaction_id" IS NOT NULL
         OR "outcome_outbox_event_id" IS NOT NULL
       )
@@ -143,12 +244,15 @@ export class CreditReservations1735689601000 implements MigrationInterface {
     await queryRunner.query(`
       ALTER TABLE "inbox_events"
       DROP CONSTRAINT "CHK_inbox_events_has_outcome",
+      DROP CONSTRAINT "FK_inbox_events_outcome_operation",
       DROP CONSTRAINT "FK_inbox_events_outcome_outbox",
       DROP CONSTRAINT "FK_inbox_events_outcome_transaction",
       DROP COLUMN "outcome_outbox_event_id",
       DROP COLUMN "outcome_transaction_id",
+      DROP COLUMN "outcome_operation_id",
       ALTER COLUMN "outcome_allocation_id" SET NOT NULL
     `);
+    await queryRunner.query('DROP TABLE "credit_operations"');
     await queryRunner.query('DROP TABLE "credit_reservations"');
     await queryRunner.query(
       'DROP TRIGGER "TRG_credit_transactions_immutable" ON "credit_transactions"',

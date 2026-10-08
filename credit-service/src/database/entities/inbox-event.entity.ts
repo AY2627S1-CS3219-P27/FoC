@@ -8,6 +8,7 @@ import {
   PrimaryColumn,
 } from 'typeorm';
 import { CreditAllocation } from './credit-allocation.entity.js';
+import { CreditOperation } from './credit-operation.entity.js';
 import { CreditTransaction } from './credit-transaction.entity.js';
 import { OutboxEvent } from './outbox-event.entity.js';
 
@@ -15,7 +16,7 @@ import { OutboxEvent } from './outbox-event.entity.js';
 @Entity({ name: 'inbox_events' })
 @Check(
   'CHK_inbox_events_has_outcome',
-  'outcome_allocation_id IS NOT NULL OR outcome_transaction_id IS NOT NULL OR outcome_outbox_event_id IS NOT NULL',
+  'outcome_allocation_id IS NOT NULL OR outcome_operation_id IS NOT NULL OR outcome_transaction_id IS NOT NULL OR outcome_outbox_event_id IS NOT NULL',
 )
 export class InboxEvent {
   @PrimaryColumn({ name: 'event_id', type: 'uuid' })
@@ -42,6 +43,16 @@ export class InboxEvent {
     foreignKeyConstraintName: 'FK_inbox_events_outcome',
   })
   outcomeAllocation: CreditAllocation | null;
+
+  @Column({ name: 'outcome_operation_id', type: 'uuid', nullable: true })
+  outcomeOperationId: string | null;
+
+  @ManyToOne(() => CreditOperation, { nullable: true, onDelete: 'RESTRICT' })
+  @JoinColumn({
+    name: 'outcome_operation_id',
+    foreignKeyConstraintName: 'FK_inbox_events_outcome_operation',
+  })
+  outcomeOperation: CreditOperation | null;
 
   @Column({ name: 'outcome_transaction_id', type: 'uuid', nullable: true })
   outcomeTransactionId: string | null;
