@@ -52,8 +52,13 @@ async function step(
 describe('rebuildProjection', () => {
   it('equals the live row after a full lifecycle', async () => {
     const id = await create();
-    await step(id, 'Pending-Supplier', 'Pending-Credit');
-    await step(id, 'Pending-Credit', 'Open');
+    await step(id, 'Pending-Supplier', 'Reserving-Credit');
+    await step(id, 'Reserving-Credit', 'Open');
+    await step(id, 'Open', 'Adjusting-Credit', { payload: { newAmount: 9 } });
+    await step(id, 'Adjusting-Credit', 'Open', {
+      type: 'CreditAdjusted',
+      set: { rewardCredits: 9 },
+    });
     await step(id, 'Open', 'Accepted', { set: { courierId: courier } });
     await step(id, 'Accepted', 'Open'); // courier withdraws
     await step(id, 'Open', 'Accepted', { set: { courierId: courier } });
@@ -63,7 +68,10 @@ describe('rebuildProjection', () => {
     await step(id, 'Picked Up', 'Delivered', {
       set: { deliveredAt: new Date('2030-01-01T02:00:00.000Z') },
     });
-    await step(id, 'Delivered', 'Completed');
+    await step(id, 'Delivered', 'Transferring-Credit');
+    await step(id, 'Transferring-Credit', 'Delivered'); // credit rejected
+    await step(id, 'Delivered', 'Transferring-Credit');
+    await step(id, 'Transferring-Credit', 'Completed');
 
     expect(await rebuildProjection(t.db, id)).toEqual(await liveRow(id));
   });

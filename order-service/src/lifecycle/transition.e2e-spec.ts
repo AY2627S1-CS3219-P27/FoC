@@ -326,10 +326,10 @@ describe('transition', () => {
         to: 'Open',
       });
 
-      // Latest event is Accepted -> Open; Pending-Credit -> Open is another edge.
+      // Latest event is Accepted -> Open; Reserving-Credit -> Open is another edge.
       const res = await transition(t.db, {
         errandId: id,
-        expected: 'Pending-Credit',
+        expected: 'Reserving-Credit',
         to: 'Open',
       });
 
@@ -486,7 +486,7 @@ describe('transition', () => {
       await transition(t.db, {
         errandId: id,
         expected: 'Pending-Supplier',
-        to: 'Pending-Credit',
+        to: 'Reserving-Credit',
       });
       expect(await lastPayload(id)).toEqual({});
     });

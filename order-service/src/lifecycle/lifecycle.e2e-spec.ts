@@ -29,7 +29,7 @@ it('creates and transitions through the injected service', async () => {
     await svc.transition({
       errandId: created.errandId,
       expected: 'Pending-Supplier',
-      to: 'Pending-Credit',
+      to: 'Reserving-Credit',
     }),
   ).toMatchObject({ ok: true, sequenceNumber: 2 });
 });
