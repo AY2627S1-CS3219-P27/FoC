@@ -103,6 +103,9 @@ async function apply(
   actor: string | null,
 ): Promise<TransitionResult> {
   const cleared = Object.fromEntries(edge.clears.map((c) => [c, null]));
+  // The event records every column this edge changed, so the log can rebuild
+  // the projection. Edge columns come last: they win over a caller payload key.
+  const changed = { ...i.payload, ...i.set, ...cleared };
   const [row] = await tx
     .update(errands)
     .set({
@@ -122,7 +125,7 @@ async function apply(
       type: edge.type,
       fromStatus: i.expected,
       toStatus: i.to,
-      payload: i.payload ?? {},
+      payload: changed,
       actorId: actor,
     });
     return { ok: true, sequenceNumber: row.seq };
