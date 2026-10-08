@@ -1,7 +1,7 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { errandEvents, errands, idempotencyKeys } from '../db/schema.js';
-import { EDGES, type Col, type Edge } from './edges.js';
+import { EDGES, findEdge, type Col, type Edge } from './edges.js';
 import type { Status } from './status.js';
 
 export type Db = NodePgDatabase<any>;
@@ -10,6 +10,8 @@ export interface TransitionInput {
   errandId: string;
   expected: Status;
   to: Status;
+  // Event type; only for a pair with several exits (Adjusting-Credit -> Open).
+  type?: string;
   actorId?: string | null; // null = system actor (sweeps)
   payload?: Record<string, unknown>;
   idempotencyKey?: string;
@@ -33,7 +35,11 @@ export function transition(
   db: Db,
   i: TransitionInput,
 ): Promise<TransitionResult> {
-  const edge = EDGES[i.expected]?.[i.to];
+  const edge = findEdge(i.expected, i.to, i.type);
+  // A pair with several exits needs a known `type`; that is a caller bug, not an illegal edge.
+  if (!edge && Array.isArray(EDGES[i.expected]?.[i.to])) {
+    return Promise.resolve({ ok: false, reason: 'INVALID_FIELDS' });
+  }
   // `set` must carry exactly the columns this edge owns. Checked before the
   // transaction: a caller bug is not an outcome worth storing under a key.
   if (edge) {
@@ -49,7 +55,7 @@ export function transition(
   }
 
   const actor = i.actorId ?? null; // undefined and null are the same system actor
-  const fingerprint = `${i.expected}|${i.to}|${actor ?? ''}`;
+  const fingerprint = `${i.expected}|${i.to}|${actor ?? ''}${i.type ? `|${i.type}` : ''}`;
 
   return db.transaction(async (tx): Promise<TransitionResult> => {
     // Claim the key. A concurrent claimant blocks here until we commit.
@@ -150,6 +156,7 @@ async function apply(
     last &&
     last.fromStatus === i.expected &&
     last.toStatus === i.to &&
+    last.type === edge.type &&
     last.actorId === actor
   ) {
     return { ok: true, sequenceNumber: last.sequenceNumber, replayed: true };
