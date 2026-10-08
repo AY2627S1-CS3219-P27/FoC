@@ -15,14 +15,20 @@ import { AccountInitializationService } from '../src/account-initialization/acco
 import {
   AccountEventContractValidator,
   CREDIT_ACCOUNT_INITIALISED_V1_ROUTING_KEY,
+  CREDIT_RESERVATION_REJECTED_V1_ROUTING_KEY,
+  CREDIT_RESERVATION_SUCCESS_V1_ROUTING_KEY,
   type ContractValidationResult,
   type CreditAccountInitialisedEvent,
+  type CreditReservationEvent,
+  type CreditReservationRejectedEvent,
+  type CreditReservationSuccessEvent,
   type UserRegisteredEvent,
 } from '@foc/contracts';
 import { createDatabaseOptions } from '../src/database/database-options.js';
 import { RABBITMQ_CONNECTION_URL } from '../src/messaging/rabbitmq-connection-url.provider.js';
 import { OutboxRelay } from '../src/outbox/outbox.relay.js';
 import { AuthKeyService } from '../src/auth/auth-key.service.js';
+import { CreditOperationWorker } from '../src/reservation/credit-operation.worker.js';
 
 const execFileAsync = promisify(execFile);
 const dockerServices = ['credit-db-recovery', 'credit-rabbitmq-recovery'];
@@ -30,18 +36,40 @@ const suffix = randomUUID().replaceAll('-', '');
 const topology = {
   domainExchange: `foc.events.recovery.${suffix}`,
   incomingQueue: `credit-service.user-registered.recovery.${suffix}`,
+  reservationQueue: `credit-service.credit-reservation.recovery.${suffix}`,
+  adjustmentQueue: `credit-service.credit-reservation-adjustment.recovery.${suffix}`,
   retryExchange: `foc.credit.retry.recovery.${suffix}`,
   retryReturnExchange: `foc.credit.back.recovery.${suffix}`,
   deadLetterExchange: `foc.credit.dlx.recovery.${suffix}`,
   observationQueue: `credit-service.account-initialised.observation.${suffix}`,
+  reservationObservationQueue: `credit-service.reservation.observation.${suffix}`,
 };
 const incomingRoutingKey = 'user.registered.v1';
 const outgoingRoutingKey = 'credit.account-initialised.v1';
+const reservationRoutingKey = 'credit.reservation.v1';
+const adjustmentRoutingKey = 'credit.reservation-adjustment.v1';
 const { publicKey: testJwtPublicKey } = generateKeyPairSync('rsa', {
   modulusLength: 2048,
   publicKeyEncoding: { type: 'spki', format: 'pem' },
   privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
 });
+
+interface ReservationState {
+  id: string;
+  status: 'PENDING' | 'SUCCEEDED' | 'REJECTED';
+  attemptCount: number;
+  claimedBy: string | null;
+  transactionId: string | null;
+  outboxEventId: string | null;
+  outboxPublished: boolean | null;
+  outboxEnvelope: CreditReservationSuccessEvent | null;
+  creditBalance: number;
+  reservedBalance: number;
+  reservationStatus: 'ACTIVE' | null;
+  reservedAmount: number | null;
+  transactionCount: number;
+  inboxCount: number;
+}
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -87,7 +115,22 @@ function registration(
   };
 }
 
-describe.sequential('account messaging recovery', () => {
+function reservation(
+  requesterUserId: string,
+  amount = 25,
+  errandId: string = randomUUID(),
+  eventId: string = randomUUID(),
+): CreditReservationEvent {
+  return {
+    eventId,
+    eventType: 'CreditReservation',
+    timestamp: new Date().toISOString(),
+    publisher: 'order-service',
+    payload: { errandId, requesterUserId, amount },
+  };
+}
+
+describe.sequential('credit messaging recovery', () => {
   const rabbitMqUrl = process.env.RABBITMQ_URL!;
   const managementUrl = process.env.RABBITMQ_MANAGEMENT_URL!;
   const rabbitUsername = process.env.RABBITMQ_USERNAME ?? 'credit_service';
@@ -129,18 +172,40 @@ describe.sequential('account messaging recovery', () => {
       topology.domainExchange,
       outgoingRoutingKey,
     );
+    await adminChannel.assertQueue(topology.reservationObservationQueue, {
+      durable: true,
+    });
+    for (const routingKey of [
+      CREDIT_RESERVATION_SUCCESS_V1_ROUTING_KEY,
+      CREDIT_RESERVATION_REJECTED_V1_ROUTING_KEY,
+    ]) {
+      await adminChannel.bindQueue(
+        topology.reservationObservationQueue,
+        topology.domainExchange,
+        routingKey,
+      );
+    }
   }
 
   async function startApplication(
-    disableRelay = false,
+    options: {
+      disableRelay?: boolean;
+      disableOperationWorker?: boolean;
+    } = {},
   ): Promise<INestApplication> {
     let builder = Test.createTestingModule({ imports: [appModule] })
       .overrideProvider(RABBITMQ_CONNECTION_URL)
       .useValue(rabbitMqUrl)
       .overrideProvider(AuthKeyService)
       .useValue({ getJwtPublicKey: () => testJwtPublicKey });
-    if (disableRelay) {
+    if (options.disableRelay) {
       builder = builder.overrideProvider(OutboxRelay).useValue({
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+      });
+    }
+    if (options.disableOperationWorker) {
+      builder = builder.overrideProvider(CreditOperationWorker).useValue({
         start: vi.fn().mockResolvedValue(undefined),
         close: vi.fn().mockResolvedValue(undefined),
       });
@@ -168,6 +233,12 @@ describe.sequential('account messaging recovery', () => {
 
   async function publishEvent(event: UserRegisteredEvent): Promise<void> {
     await publish(Buffer.from(JSON.stringify(event)));
+  }
+
+  async function publishReservation(
+    event: CreditReservationEvent,
+  ): Promise<void> {
+    await publish(Buffer.from(JSON.stringify(event)), reservationRoutingKey);
   }
 
   async function takeMessage(
@@ -207,6 +278,30 @@ describe.sequential('account messaging recovery', () => {
 
     throw new Error(
       `No CreditAccountInitialised event was observed for user ${userId}`,
+    );
+  }
+
+  async function takeReservationOutcome(
+    errandId: string,
+    timeoutMilliseconds = 15_000,
+  ): Promise<{
+    message: GetMessage;
+    envelope: CreditReservationSuccessEvent | CreditReservationRejectedEvent;
+  }> {
+    const deadline = Date.now() + timeoutMilliseconds;
+    while (Date.now() < deadline) {
+      const message = await takeMessage(
+        topology.reservationObservationQueue,
+        Math.max(1, deadline - Date.now()),
+      );
+      const envelope = JSON.parse(message.content.toString('utf8')) as
+        CreditReservationSuccessEvent | CreditReservationRejectedEvent;
+      if (envelope.payload.errandId === errandId) {
+        return { message, envelope };
+      }
+    }
+    throw new Error(
+      `No reservation outcome was observed for errand ${errandId}`,
     );
   }
 
@@ -255,11 +350,66 @@ describe.sequential('account messaging recovery', () => {
     );
   }
 
-  async function queueMetrics(): Promise<{
+  async function createFundedAccount(userId: string): Promise<void> {
+    const outcome = await app
+      .get(AccountInitializationService)
+      .process(registration(userId));
+    expect(['created', 'existing-account']).toContain(outcome.status);
+    await waitFor(async () =>
+      (await userCounts(userId)).accounts === 1 ? true : undefined,
+    );
+  }
+
+  async function reservationState(
+    errandId: string,
+  ): Promise<ReservationState | null> {
+    const [row] = (await dataSource.query(
+      `
+        SELECT operation.id,
+               operation.status,
+               operation.attempt_count AS "attemptCount",
+               operation.claimed_by AS "claimedBy",
+               operation.completion_transaction_id AS "transactionId",
+               operation.outcome_outbox_event_id AS "outboxEventId",
+               CASE
+                 WHEN outbox.event_id IS NULL THEN NULL
+                 ELSE outbox.published_at IS NOT NULL
+               END AS "outboxPublished",
+               outbox.envelope AS "outboxEnvelope",
+               account.credit_balance::int AS "creditBalance",
+               account.reserved_balance::int AS "reservedBalance",
+               reservation.status AS "reservationStatus",
+               reservation.reserved_amount::int AS "reservedAmount",
+               (
+                 SELECT COUNT(*)::int
+                 FROM credit_transactions movement
+                 WHERE movement.errand_id = operation.errand_id
+               ) AS "transactionCount",
+               (
+                 SELECT COUNT(*)::int
+                 FROM inbox_events inbox
+                 WHERE inbox.outcome_operation_id = operation.id
+               ) AS "inboxCount"
+        FROM credit_operations operation
+        JOIN credit_accounts account
+          ON account.user_id = operation.requester_user_id
+        LEFT JOIN credit_reservations reservation
+          ON reservation.errand_id = operation.errand_id
+        LEFT JOIN outbox_events outbox
+          ON outbox.event_id = operation.outcome_outbox_event_id
+        WHERE operation.errand_id = $1
+          AND operation.operation_type = 'RESERVE'
+      `,
+      [errandId],
+    )) as ReservationState[];
+    return row ?? null;
+  }
+
+  async function queueMetrics(queue = topology.incomingQueue): Promise<{
     messages_unacknowledged: number;
   }> {
     const response = await fetch(
-      `${managementUrl}/api/queues/%2F/${encodeURIComponent(topology.incomingQueue)}`,
+      `${managementUrl}/api/queues/%2F/${encodeURIComponent(queue)}`,
       {
         headers: {
           Authorization: `Basic ${Buffer.from(`${rabbitUsername}:${rabbitPassword}`).toString('base64')}`,
@@ -289,6 +439,14 @@ describe.sequential('account messaging recovery', () => {
       RABBITMQ_USER_REGISTERED_QUEUE: topology.incomingQueue,
       RABBITMQ_USER_REGISTERED_ROUTING_KEY: incomingRoutingKey,
       RABBITMQ_CREDIT_ACCOUNT_INITIALISED_ROUTING_KEY: outgoingRoutingKey,
+      RABBITMQ_CREDIT_RESERVATION_QUEUE: topology.reservationQueue,
+      RABBITMQ_CREDIT_RESERVATION_ROUTING_KEY: reservationRoutingKey,
+      RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_QUEUE: topology.adjustmentQueue,
+      RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_ROUTING_KEY: adjustmentRoutingKey,
+      RABBITMQ_CREDIT_RESERVATION_SUCCESS_ROUTING_KEY:
+        CREDIT_RESERVATION_SUCCESS_V1_ROUTING_KEY,
+      RABBITMQ_CREDIT_RESERVATION_REJECTED_ROUTING_KEY:
+        CREDIT_RESERVATION_REJECTED_V1_ROUTING_KEY,
       RABBITMQ_RETRY_EXCHANGE: topology.retryExchange,
       RABBITMQ_RETRY_RETURN_EXCHANGE: topology.retryReturnExchange,
       RABBITMQ_DEAD_LETTER_EXCHANGE: topology.deadLetterExchange,
@@ -299,6 +457,10 @@ describe.sequential('account messaging recovery', () => {
       OUTBOX_CONFIRM_TIMEOUT_MS: '5000',
       OUTBOX_CLAIM_LEASE_MS: '10000',
       OUTBOX_UNPUBLISHED_WARNING_MS: '60000',
+      CREDIT_OPERATION_CLAIM_LEASE_MS: '1000',
+      CREDIT_OPERATION_POLL_INTERVAL_MS: '100',
+      CREDIT_OPERATION_MAX_BACKOFF_MS: '1000',
+      CREDIT_OPERATION_STUCK_AFTER_MS: '60000',
       INITIAL_CREDIT_BALANCE: '100',
       JWT_PUBLIC_KEY_FILE: '/run/secrets/jwt_public_key_credit_service',
     });
@@ -324,7 +486,10 @@ describe.sequential('account messaging recovery', () => {
     // Keep scenarios independent even when a prior assertion failed after an
     // event was confirmed but before that event was consumed by the test.
     await adminChannel.purgeQueue(topology.observationQueue);
+    await adminChannel.purgeQueue(topology.reservationObservationQueue);
     await adminChannel.purgeQueue(`${topology.incomingQueue}.dlq`);
+    await adminChannel.purgeQueue(`${topology.reservationQueue}.dlq`);
+    await adminChannel.purgeQueue(`${topology.adjustmentQueue}.dlq`);
   });
 
   afterAll(async () => {
@@ -341,15 +506,20 @@ describe.sequential('account messaging recovery', () => {
         .deleteQueue(topology.observationQueue)
         .catch(() => undefined);
       await adminChannel
-        .deleteQueue(topology.incomingQueue)
+        .deleteQueue(topology.reservationObservationQueue)
         .catch(() => undefined);
-      await adminChannel
-        .deleteQueue(`${topology.incomingQueue}.dlq`)
-        .catch(() => undefined);
-      for (let index = 1; index <= 5; index += 1) {
-        await adminChannel
-          .deleteQueue(`${topology.incomingQueue}.retry.${index}`)
-          .catch(() => undefined);
+      for (const queue of [
+        topology.incomingQueue,
+        topology.reservationQueue,
+        topology.adjustmentQueue,
+      ]) {
+        await adminChannel.deleteQueue(queue).catch(() => undefined);
+        await adminChannel.deleteQueue(`${queue}.dlq`).catch(() => undefined);
+        for (let index = 1; index <= 5; index += 1) {
+          await adminChannel
+            .deleteQueue(`${queue}.retry.${index}`)
+            .catch(() => undefined);
+        }
       }
       await adminChannel
         .deleteExchange(topology.retryExchange)
@@ -369,6 +539,21 @@ describe.sequential('account messaging recovery', () => {
     await adminConnection?.close().catch(() => undefined);
 
     if (dataSource?.isInitialized) {
+      // Migration reversal verifies schema teardown, not preservation of test
+      // scenario rows. Reservation inbox rows deliberately have no allocation
+      // outcome, while the earlier schema restores that legacy column to
+      // NOT NULL, so clear all scenario data before walking migrations down.
+      await dataSource.query(`
+        TRUNCATE TABLE
+          inbox_events,
+          credit_operations,
+          credit_reservations,
+          credit_transactions,
+          outbox_events,
+          credit_allocations,
+          credit_accounts
+        CASCADE
+      `);
       for (let index = 0; index < dataSource.migrations.length; index += 1) {
         await dataSource.undoLastMigration({ transaction: 'all' });
       }
@@ -527,9 +712,13 @@ describe.sequential('account messaging recovery', () => {
     const initialization = app.get(AccountInitializationService);
     const original = initialization.process.bind(initialization);
     let reportCommitted!: () => void;
+    let reportCompleted!: () => void;
     let release!: () => void;
     const committed = new Promise<void>((resolve) => {
       reportCommitted = resolve;
+    });
+    const completed = new Promise<void>((resolve) => {
+      reportCompleted = resolve;
     });
     const gate = new Promise<void>((resolve) => {
       release = resolve;
@@ -540,6 +729,7 @@ describe.sequential('account messaging recovery', () => {
         const outcome = await original(incoming);
         reportCommitted();
         await gate;
+        reportCompleted();
         return outcome;
       });
 
@@ -556,13 +746,7 @@ describe.sequential('account messaging recovery', () => {
         outbox: 1,
       });
       release();
-      await waitFor(
-        async () =>
-          (await queueMetrics()).messages_unacknowledged === 0
-            ? true
-            : undefined,
-        30_000,
-      );
+      await completed;
       await takeOutgoingForUser(event.payload.userId);
     } finally {
       release();
@@ -572,7 +756,7 @@ describe.sequential('account messaging recovery', () => {
 
   it('publishes a committed pending event after an application restart', async () => {
     await app.close();
-    app = await startApplication(true);
+    app = await startApplication({ disableRelay: true });
     const event = registration();
     await publishEvent(event);
     await waitForUserCounts(event.payload.userId, {
@@ -608,6 +792,166 @@ describe.sequential('account messaging recovery', () => {
       )) as Array<{ published: boolean }>;
       return row.published ? true : undefined;
     });
+  });
+
+  it('recovers durable reservation ingress and preserves duplicate and semantic replay idempotency', async () => {
+    await app.close();
+    app = await startApplication({ disableOperationWorker: true });
+    const userId = randomUUID();
+    await createFundedAccount(userId);
+    const event = reservation(userId);
+
+    await publishReservation(event);
+    const pending = await waitFor(async () => {
+      const state = await reservationState(event.payload.errandId);
+      return state?.status === 'PENDING' ? state : undefined;
+    });
+    expect(pending).toMatchObject({
+      attemptCount: 0,
+      claimedBy: null,
+      transactionCount: 0,
+      inboxCount: 1,
+      creditBalance: 100,
+      reservedBalance: 0,
+      reservationStatus: null,
+    });
+    await waitFor(async () =>
+      (await queueMetrics(topology.reservationQueue))
+        .messages_unacknowledged === 0
+        ? true
+        : undefined,
+    );
+
+    await app.close();
+    app = await startApplication();
+    const first = await takeReservationOutcome(event.payload.errandId);
+    expect(first.envelope).toMatchObject({
+      eventType: 'CreditReservationSuccess',
+      payload: {
+        errandId: event.payload.errandId,
+        requesterUserId: userId,
+        reservedAmount: event.payload.amount,
+      },
+    });
+    const succeeded = await waitFor(async () => {
+      const state = await reservationState(event.payload.errandId);
+      return state?.status === 'SUCCEEDED' ? state : undefined;
+    });
+    expect(succeeded).toMatchObject({
+      creditBalance: 75,
+      reservedBalance: 25,
+      reservationStatus: 'ACTIVE',
+      reservedAmount: 25,
+      transactionCount: 1,
+      inboxCount: 1,
+    });
+
+    await publishReservation(event);
+    await delay(250);
+    expect(await reservationState(event.payload.errandId)).toMatchObject({
+      transactionId: succeeded.transactionId,
+      transactionCount: 1,
+      inboxCount: 1,
+    });
+
+    const replay = reservation(
+      userId,
+      event.payload.amount,
+      event.payload.errandId,
+    );
+    await publishReservation(replay);
+    const replayed = await takeReservationOutcome(event.payload.errandId);
+    expect(replayed.envelope).toMatchObject({
+      eventType: 'CreditReservationSuccess',
+      payload: { creditTransactionId: succeeded.transactionId },
+    });
+    await waitFor(async () =>
+      (await reservationState(event.payload.errandId))?.inboxCount === 2
+        ? true
+        : undefined,
+    );
+    expect(await reservationState(event.payload.errandId)).toMatchObject({
+      transactionId: succeeded.transactionId,
+      transactionCount: 1,
+      inboxCount: 2,
+    });
+  });
+
+  it('recovers an expired reservation claim after a process restart', async () => {
+    await app.close();
+    app = await startApplication({ disableOperationWorker: true });
+    const userId = randomUUID();
+    await createFundedAccount(userId);
+    const event = reservation(userId, 30);
+    await publishReservation(event);
+    const pending = await waitFor(async () => {
+      const state = await reservationState(event.payload.errandId);
+      return state?.status === 'PENDING' ? state : undefined;
+    });
+    await dataSource.query(
+      `
+        UPDATE credit_operations
+        SET claimed_by = 'crashed-worker',
+            claimed_until = clock_timestamp() + INTERVAL '250 milliseconds',
+            attempt_count = 1
+        WHERE id = $1
+      `,
+      [pending.id],
+    );
+
+    await app.close();
+    app = await startApplication();
+    const outcome = await takeReservationOutcome(
+      event.payload.errandId,
+      20_000,
+    );
+    expect(outcome.envelope.eventType).toBe('CreditReservationSuccess');
+    const recovered = await waitFor(async () => {
+      const state = await reservationState(event.payload.errandId);
+      return state?.status === 'SUCCEEDED' ? state : undefined;
+    });
+    expect(recovered).toMatchObject({
+      attemptCount: 2,
+      claimedBy: null,
+      creditBalance: 70,
+      reservedBalance: 30,
+      transactionCount: 1,
+    });
+  });
+
+  it('publishes the exact committed reservation outcome after an application restart', async () => {
+    await app.close();
+    app = await startApplication({ disableRelay: true });
+    const userId = randomUUID();
+    await createFundedAccount(userId);
+    const event = reservation(userId, 40);
+    await publishReservation(event);
+    const committed = await waitFor(async () => {
+      const state = await reservationState(event.payload.errandId);
+      return state?.status === 'SUCCEEDED' && state.outboxEnvelope
+        ? state
+        : undefined;
+    });
+    expect(committed).toMatchObject({
+      outboxPublished: false,
+      creditBalance: 60,
+      reservedBalance: 40,
+      transactionCount: 1,
+    });
+
+    await app.close();
+    app = await startApplication();
+    const published = await takeReservationOutcome(event.payload.errandId);
+    expect(published.envelope).toEqual(committed.outboxEnvelope);
+    expect(published.envelope.eventId).toBe(committed.outboxEventId);
+    expect(published.message.fields.routingKey).toBe(
+      CREDIT_RESERVATION_SUCCESS_V1_ROUTING_KEY,
+    );
+    await waitFor(async () =>
+      (await reservationState(event.payload.errandId))?.outboxPublished
+        ? true
+        : undefined,
+    );
   });
 
   it('recovers the relay, database path, and consumer after infrastructure restarts', async () => {
@@ -682,5 +1026,19 @@ describe.sequential('account messaging recovery', () => {
     expect(afterRecoveryPublication.envelope.payload.userId).toBe(
       afterRecovery.payload.userId,
     );
+
+    const reservationAfterRecovery = reservation(afterRecovery.payload.userId);
+    await publishReservation(reservationAfterRecovery);
+    const reservationPublication = await takeReservationOutcome(
+      reservationAfterRecovery.payload.errandId,
+      30_000,
+    );
+    expect(reservationPublication.envelope).toMatchObject({
+      eventType: 'CreditReservationSuccess',
+      payload: {
+        errandId: reservationAfterRecovery.payload.errandId,
+        requesterUserId: afterRecovery.payload.userId,
+      },
+    });
   });
 });
