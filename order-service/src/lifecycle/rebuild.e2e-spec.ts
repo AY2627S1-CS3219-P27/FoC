@@ -5,7 +5,7 @@ import { errands } from '../db/schema.js';
 import { createErrand } from './create.js';
 import { rebuildProjection } from './rebuild.js';
 import type { Status } from './status.js';
-import { transition, type TransitionInput } from './transition.js';
+import { SYSTEM, transition, user, type TransitionInput } from './transition.js';
 
 let t: Awaited<ReturnType<typeof createTestDb>>;
 beforeAll(async () => {
@@ -14,6 +14,7 @@ beforeAll(async () => {
 afterAll(() => t.close());
 
 const courier = randomUUID();
+const requester = randomUUID();
 
 // The live row minus what events cannot supply (see RebuiltErrand).
 async function liveRow(id: string) {
@@ -27,7 +28,7 @@ async function liveRow(id: string) {
 
 async function create(over = {}) {
   const res = await createErrand(t.db, {
-    requesterId: randomUUID(),
+    requesterId: requester,
     supplierId: randomUUID(),
     deliveryLocation: 'COM2',
     rewardCredits: 5,
@@ -45,7 +46,7 @@ async function step(
   to: Status,
   extra: Partial<TransitionInput> = {},
 ) {
-  const res = await transition(t.db, { errandId, expected, to, ...extra });
+  const res = await transition(t.db, { errandId, expected, to, actor: SYSTEM, ...extra });
   if (!res.ok) throw new Error(`${expected} -> ${to}: ${res.reason}`);
 }
 
@@ -54,18 +55,20 @@ describe('rebuildProjection', () => {
     const id = await create();
     await step(id, 'Pending-Supplier', 'Reserving-Credit');
     await step(id, 'Reserving-Credit', 'Open');
-    await step(id, 'Open', 'Adjusting-Credit', { payload: { newAmount: 9 } });
+    await step(id, 'Open', 'Adjusting-Credit', { actor: user(requester), payload: { newAmount: 9 } });
     await step(id, 'Adjusting-Credit', 'Open', {
       type: 'CreditAdjusted',
       set: { rewardCredits: 9 },
     });
-    await step(id, 'Open', 'Accepted', { set: { courierId: courier } });
-    await step(id, 'Accepted', 'Open'); // courier withdraws
-    await step(id, 'Open', 'Accepted', { set: { courierId: courier } });
+    await step(id, 'Open', 'Accepted', { actor: user(courier), set: { courierId: courier } });
+    await step(id, 'Accepted', 'Open', { actor: user(courier) }); // courier withdraws
+    await step(id, 'Open', 'Accepted', { actor: user(courier), set: { courierId: courier } });
     await step(id, 'Accepted', 'Picked Up', {
+      actor: user(courier),
       set: { pickedUpAt: new Date('2030-01-01T01:00:00.000Z') },
     });
     await step(id, 'Picked Up', 'Delivered', {
+      actor: user(courier),
       set: { deliveredAt: new Date('2030-01-01T02:00:00.000Z') },
     });
     await step(id, 'Delivered', 'Transferring-Credit');

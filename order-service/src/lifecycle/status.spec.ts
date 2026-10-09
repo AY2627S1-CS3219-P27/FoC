@@ -33,4 +33,12 @@ describe('EDGES', () => {
     expect(findEdge('Adjusting-Credit', 'Open', 'CreditAdjusted')?.sets).toEqual(['rewardCredits']);
     expect(findEdge('Adjusting-Credit', 'Open', 'CreditAdjustmentFailed')?.sets).toEqual([]);
   });
+
+  it('gives every edge an actor rule and every cancel edge a reason subset', () => {
+    const edges = Object.values(EDGES).flatMap((m) => Object.values(m!)).flat();
+    for (const e of edges) {
+      expect(e.who.length).toBeGreaterThan(0);
+      expect(!!e.reasons).toBe(e.sets.includes('cancellationReason'));
+    }
+  });
 });
