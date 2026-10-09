@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { and, desc, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import {
@@ -8,6 +9,7 @@ import {
 } from '../db/schema.js';
 import {
   EDGES,
+  USER_REASONS,
   findEdge,
   type Col,
   type Edge,
@@ -87,18 +89,42 @@ function validate(
   ) {
     return INVALID;
   }
-  // The courier is the actor who accepts, never a name passed in by the caller.
+  // The courier is the actor who accepts, never a name passed in by the caller
+  // (so the system, whose actor is null, can never accept).
   if (
     edge.sets.includes('courierId') &&
-    actor &&
     i.set?.courierId?.toLowerCase() !== actor
   ) {
     return INVALID;
   }
   const reason = i.set?.cancellationReason;
   if (edge.reasons && !edge.reasons.some((r) => r === reason)) return INVALID;
+  // A reason belongs to one kind of actor: users give USER_REASONS, the system the rest.
+  if (edge.reasons && (actor !== null) !== USER_REASONS.some((r) => r === reason)) {
+    return INVALID;
+  }
   return undefined;
 }
+
+// Columns the server stamps per request; a retry carries a new value, so they
+// stay out of the fingerprint.
+const STAMPED: string[] = ['pickedUpAt', 'deliveredAt'];
+
+// Key-ordered JSON, so the same content always hashes the same.
+const canon = (v: unknown) =>
+  JSON.stringify(v, (_, x) =>
+    x && typeof x === 'object' && !Array.isArray(x)
+      ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1)))
+      : x,
+  );
+
+const fingerprintOf = (i: TransitionInput, actor: string | null) => {
+  const set = Object.entries(i.set ?? {}).filter(([k]) => !STAMPED.includes(k));
+  const body = createHash('sha256')
+    .update(canon([Object.fromEntries(set), i.payload ?? null]))
+    .digest('hex');
+  return `${i.expected}|${i.to}|${actor ?? ''}|${i.type ?? ''}|${body}`;
+};
 
 const keyRow = (i: TransitionInput) =>
   and(
@@ -130,12 +156,18 @@ async function claimKey(
 }
 
 // Same transaction as the transition, so key, status and event commit together.
+// COURIER_BUSY is transient (the courier may free up), so its key is released
+// and a retry runs afresh; every other outcome is stored for replay.
 async function storeOutcome(
   tx: Db,
   i: TransitionInput,
   result: TransitionResult,
 ) {
   if (!i.idempotencyKey) return;
+  if (!result.ok && result.reason === 'COURIER_BUSY') {
+    await tx.delete(idempotencyKeys).where(keyRow(i));
+    return;
+  }
   await tx.update(idempotencyKeys).set({ outcome: result }).where(keyRow(i));
 }
 
@@ -148,7 +180,7 @@ export function transition(
   const refused = validate(i, edge, actor);
   if (refused) return Promise.resolve(refused);
 
-  const fingerprint = `${i.expected}|${i.to}|${actor ?? ''}${i.type ? `|${i.type}` : ''}`;
+  const fingerprint = fingerprintOf(i, actor as string | null);
 
   return db.transaction(async (tx): Promise<TransitionResult> => {
     const replay = await claimKey(tx, i, fingerprint);

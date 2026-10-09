@@ -550,8 +550,10 @@ describe('transition', () => {
         expected: 'Open',
         to: 'Accepted',
         set: { courierId: courier },
+        idempotencyKey: 'sys-accept',
       });
-      expect(res).toEqual({ ok: false, reason: 'FORBIDDEN' });
+      // Caught before the transaction, so nothing is stored under the key.
+      expect(res).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
     });
 
     it('accepts an uppercase user id and stores it lowercased', async () => {
@@ -628,7 +630,8 @@ describe('transition', () => {
           actor,
           set: { cancellationReason },
         });
-      expect(await cancel(user(requester), 'REQUESTER_CANCELLED')).toEqual({ ok: false, reason: 'FORBIDDEN' });
+      // No reason is both allowed on this edge and a user reason.
+      expect(await cancel(user(requester), 'REQUESTER_CANCELLED')).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
       expect(await cancel(SYSTEM, 'PICKUP_TIME_EXCEEDED')).toMatchObject({ ok: true });
     });
 
@@ -655,8 +658,10 @@ describe('transition', () => {
       expect(await accept(b)).toEqual({ ok: false, reason: 'COURIER_BUSY' });
       expect((await projection(b)).status).toBe('Open');
       expect(await events(b)).toHaveLength(0);
-      // Stored under the key, and the transaction survived the violation.
+      // The transaction survived the violation; the key was released, not stored.
       expect(await accept(b)).toEqual({ ok: false, reason: 'COURIER_BUSY' });
+      await transition(t.db, { errandId: a, expected: 'Accepted', to: 'Open', actor: user(courier) });
+      expect(await accept(b)).toMatchObject({ ok: true });
     });
 
     it('lets one of two concurrent accepts by the same courier win', async () => {
@@ -709,6 +714,28 @@ describe('transition', () => {
         ).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
       }
       expect((await projection(id)).status).toBe('Open');
+    });
+
+    it('ties reasons to the kind of actor', async () => {
+      const id = await seed('Open');
+      const cancel = (actor: Actor, cancellationReason: string) =>
+        transition(t.db, { actor, errandId: id, expected: 'Open', to: 'Cancelled', set: { cancellationReason } });
+      expect(await cancel(user(requester), 'ERRAND_EXPIRED')).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
+      expect(await cancel(SYSTEM, 'REQUESTER_CANCELLED')).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
+    });
+  });
+
+  describe('idempotency fingerprint', () => {
+    it('refuses a reused key carrying different content', async () => {
+      const id = await seed('Reserving-Credit');
+      const cancel = (cancellationReason: string) =>
+        transition(t.db, {
+          actor: SYSTEM, errandId: id, expected: 'Reserving-Credit', to: 'Cancelled',
+          set: { cancellationReason }, idempotencyKey: 'k',
+        });
+      expect(await cancel('INSUFFICIENT_CREDITS')).toMatchObject({ ok: true });
+      expect(await cancel('INSUFFICIENT_CREDITS')).toMatchObject({ ok: true, replayed: true });
+      expect(await cancel('MISSING_BALANCE')).toEqual({ ok: false, reason: 'IDEMPOTENCY_KEY_REUSED' });
     });
   });
 });
