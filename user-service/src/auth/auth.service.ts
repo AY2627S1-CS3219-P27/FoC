@@ -19,7 +19,7 @@ import type { AccessTokenPayload } from '@foc/contracts';
 export const REGISTER_USER_SCRIPT = getRegisterUserScript();
 
 export interface RegisteredUser {
-  id: number;
+  uuid: string;
   email: string;
   displayName: string;
 }
@@ -99,7 +99,7 @@ export class AuthService {
     // by the signer (see AuthModule's signOptions); the identity claims below
     // feed the rest of the verified payload.
     const payload: Omit<AccessTokenPayload, 'iss' | 'iat' | 'exp'> = {
-      sub: user.id,
+      sub: user.uuid,
       displayName: user.displayName,
       email: user.email,
       isAdmin: user.isAdmin,

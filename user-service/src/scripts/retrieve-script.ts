@@ -22,3 +22,11 @@ export const getValidateOtpScript = () => {
 export const getRegisterUserScript = () => {
   return loadScript('register-user.lua');
 };
+
+export const getCreateResetTokenScript = () => {
+  return loadScript('create-reset-token.lua');
+};
+
+export const getResetPasswordScript = () => {
+  return loadScript('reset-password.lua');
+};

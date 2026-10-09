@@ -2,7 +2,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ACCESS_TOKEN_ISSUER, Role } from '@foc/contracts';
 
 export interface SignTokenOverrides {
-  sub?: number;
+  sub?: string;
   email?: string;
   displayName?: string;
   isAdmin?: boolean;
@@ -30,7 +30,7 @@ export function signAccessToken(
     },
   });
   return jwtService.signAsync({
-    sub: overrides.sub ?? 7,
+    sub: overrides.sub ?? '11111111-1111-4111-8111-111111111111',
     email: overrides.email ?? 'eve@example.com',
     displayName: overrides.displayName ?? 'Eve',
     isAdmin: overrides.isAdmin ?? false,

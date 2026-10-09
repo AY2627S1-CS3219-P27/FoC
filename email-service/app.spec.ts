@@ -1,322 +1,341 @@
-import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MockInstance } from 'vitest';
+import type { ConsumeMessage } from 'amqplib';
 
-const { readFileSyncMock } = vi.hoisted(() => ({ readFileSyncMock: vi.fn() }));
-const sendMailMock = vi.fn();
-const fakeRedis = {
-  set: vi.fn(),
-  del: vi.fn(),
-  on: vi.fn(),
-  connect: vi.fn().mockResolvedValue(undefined),
-};
+/**
+ * The broker wiring lives in a top-level IIFE inside `app.ts`, so it runs the
+ * moment the module is imported and cannot be invoked directly. These mocks
+ * capture the `consume` callbacks the IIFE registers, letting us drive the
+ * dispatch logic (ack/nack/republish) exactly as RabbitMQ would.
+ *
+ * Everything under `utils/` is mocked here so importing `app.ts` needs no
+ * environment, SMTP, Redis or broker: the per-module specs cover those in
+ * isolation.
+ */
+const mocks = vi.hoisted(() => {
+  const readFileSync = vi.fn();
+  const sendMail = vi.fn();
+  const connect = vi.fn();
+  const createChannel = vi.fn();
+  const connectionOn = vi.fn();
+  const channelOn = vi.fn();
+  const assertExchange = vi.fn();
+  const assertQueue = vi.fn();
+  const bindQueue = vi.fn();
+  const consume = vi.fn();
+  const ack = vi.fn();
+  const nack = vi.fn();
+  const publish = vi.fn();
+  const redisSet = vi.fn();
+  const redisDel = vi.fn();
+  const redisOn = vi.fn();
+  const redisConnect = vi.fn();
+
+  const redis = {
+    set: redisSet,
+    del: redisDel,
+    on: redisOn,
+    connect: redisConnect,
+  };
+
+  const channel = {
+    on: channelOn,
+    assertExchange,
+    assertQueue,
+    bindQueue,
+    consume,
+    ack,
+    nack,
+    publish,
+  };
+  const connection = { on: connectionOn, createChannel };
+
+  return {
+    readFileSync,
+    sendMail,
+    connect,
+    createChannel,
+    connectionOn,
+    channelOn,
+    assertExchange,
+    assertQueue,
+    bindQueue,
+    consume,
+    ack,
+    nack,
+    publish,
+    channel,
+    connection,
+    redis,
+    redisSet,
+    redisDel,
+    redisOn,
+    redisConnect,
+  };
+});
 
 vi.mock('node:fs', async (importOriginal) => ({
   ...(await importOriginal<typeof import('node:fs')>()),
-  readFileSync: readFileSyncMock,
+  readFileSync: mocks.readFileSync,
 }));
 
-// The app wires the broker at import time (top-level IIFE); stub amqplib so
-// importing it in tests does not open a real connection.
 vi.mock('amqplib', () => ({
-  default: {
-    connect: vi.fn().mockResolvedValue({
-      on: vi.fn(),
-      createChannel: vi.fn().mockResolvedValue({
-        on: vi.fn(),
-        assertExchange: vi.fn().mockResolvedValue(undefined),
-        assertQueue: vi.fn().mockResolvedValue(undefined),
-        bindQueue: vi.fn().mockResolvedValue(undefined),
-        consume: vi.fn(),
-        ack: vi.fn(),
-        nack: vi.fn(),
-        publish: vi.fn(),
-      }),
-    }),
-  },
+  default: { connect: mocks.connect },
 }));
 
 vi.mock('nodemailer', () => ({
-  default: {
-    createTransport: () => ({ sendMail: sendMailMock }),
-  },
-  createTransport: () => ({ sendMail: sendMailMock }),
+  default: { createTransport: () => ({ sendMail: mocks.sendMail }) },
+  createTransport: () => ({ sendMail: mocks.sendMail }),
 }));
 
 vi.mock('redis', () => ({
-  // `createClient(...)` must be callable; the mock returns the shared fake.
-  createClient: vi.fn().mockReturnValue(fakeRedis),
+  createClient: vi.fn().mockImplementation(function () {
+    return mocks.redis;
+  }),
 }));
 
-let processOtpEmailMessage: typeof import('./app.ts').processOtpEmailMessage;
-let attemptOf: typeof import('./app.ts').attemptOf;
-let RETRY_EXCHANGE: string;
-let DLQ_EXCHANGE: string;
-let BACK_EXCHANGE: string;
-let OTP_QUEUE: string;
-let DLQ_QUEUE: string;
-let OTP_EMAIL_ROUTING_KEY: string;
-let RETRY_STEPS: readonly { queue: string; delayMs: number }[];
-let MAX_OTP_EMAIL_ATTEMPTS: number;
+vi.mock('./utils/envs.ts', () => ({
+  envs: {
+    SMTP_HOST: 'localhost',
+    SMTP_PORT: 2525,
+    SMTP_SECURE: false,
+    SMTP_USER: 'test',
+    SMTP_PASS_FILE: '/run/secrets/smtp_password',
+    SMTP_FROM_EMAIL: 'test@foc.com',
+    LOG_LEVEL: 'silent',
+    RABBITMQ_USER: 'email-service',
+    RABBITMQ_HOST: 'rabbitmq',
+    RABBITMQ_PORT: 5672,
+    RABBITMQ_VHOST: '/foc',
+    RABBITMQ_PASSWORD_FILE: '/run/secrets/rabbitmq_password',
+    REDIS_HOST: 'redis',
+    REDIS_PORT: 6379,
+    REDIS_USERNAME: 'default',
+    REDIS_DB_INDEX: 0,
+  },
+}));
 
-const UUID_A = '3f2a8c1e-6b4d-4f9a-8e2b-1a2b3c4d5e6f';
-const UUID_B = '7d1f9e0a-2c5b-4d8e-a9f0-4b5c6d7e8f90';
-const DEDUP_KEY_A = `email:seen:${UUID_A}`;
+vi.mock('./utils/logger.ts', () => ({
+  logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
+}));
+
+import { logger } from './utils/logger.ts';
+
+type Handler = (msg: ConsumeMessage | null) => Promise<void>;
+type UnknownFn = (...args: unknown[]) => void;
+
+let otpHandler: Handler;
+let resetHandler: Handler;
+let loggerInfo: MockInstance;
+let loggerError: MockInstance;
+
+/** Startup-side calls, snapshotted before `clearMocks` can wipe them. */
+let wiring: {
+  brokerUrl: unknown;
+  connectCalls: unknown[][];
+  createChannelCount: number;
+  assertExchangeCalls: unknown[][];
+  assertQueueCalls: unknown[][];
+  bindQueueCalls: unknown[][];
+  consumeCalls: unknown[][];
+  connectionEvents: string[];
+  channelEvents: string[];
+  connectionHandlers: UnknownFn[];
+  channelHandlers: UnknownFn[];
+};
+
+const UUID = '3f2a8c1e-6b4d-4f9a-8e2b-1a2b3c4d5e6f';
 
 /** Build a broker-enveloped OTP email message (`{ data: {...} }`). */
-function otpMessageBody(overrides: Record<string, unknown> = {}): Buffer {
+function otpMessageBody(): Buffer {
   return Buffer.from(
     JSON.stringify({
       data: {
-        messageId: UUID_A,
+        messageId: UUID,
         recipient: 'student@example.com',
         otp: 'abc123',
         subject: 'Your OTP is here',
         expiry: 10,
-        ...overrides,
       },
     }),
   );
 }
 
+/** Minimal `ConsumeMessage` stand-in carrying content and routing key. */
+function fakeMessage(content: Buffer): ConsumeMessage {
+  return {
+    content,
+    properties: { headers: {} },
+    fields: { routingKey: 'otp.email' },
+  } as unknown as ConsumeMessage;
+}
+
 beforeAll(async () => {
-  process.env.SMTP_HOST = 'localhost';
-  process.env.SMTP_PORT = '2525';
-  process.env.SMTP_SECURE = 'false';
-  process.env.SMTP_USER = 'test';
-  process.env.SMTP_PASS_FILE = '/run/secrets/smtp_password';
-  process.env.SMTP_FROM_EMAIL = 'test@foc.com';
-  process.env.LOG_LEVEL = 'error';
-  process.env.RABBITMQ_USER = 'email-service';
-  process.env.RABBITMQ_HOST = 'rabbitmq';
-  process.env.RABBITMQ_PORT = '5672';
-  process.env.RABBITMQ_VHOST = '/foc';
-  process.env.RABBITMQ_PASSWORD_FILE = '/run/secrets/rabbitmq_password';
-  process.env.REDIS_HOST = 'redis';
-  process.env.REDIS_PORT = '6379';
-  process.env.REDIS_USERNAME = 'default';
-  process.env.REDIS_DB_INDEX = '0';
-  readFileSyncMock.mockReturnValue('test-password\n');
-
-  ({ processOtpEmailMessage, attemptOf } = await import('./app.ts'));
-  ({
-    RETRY_EXCHANGE,
-    DLQ_EXCHANGE,
-    BACK_EXCHANGE,
-    OTP_QUEUE,
-    DLQ_QUEUE,
-    OTP_EMAIL_ROUTING_KEY,
-    RETRY_STEPS,
-    MAX_OTP_EMAIL_ATTEMPTS,
-  } = await import('./app.ts'));
-  (await import('./logger.ts')).logger.level = 'silent';
-
-  // Pin the secret-file contract at load time: both passwords must come from
-  // their env-configured files, read with a trailing-newline trim.
-  expect(readFileSyncMock).toHaveBeenCalledWith(
-    '/run/secrets/smtp_password',
-    'utf8',
+  // Distinct secrets per file so the broker-URL assertion pins the rabbitmq one
+  // and the special characters exercise URL encoding.
+  mocks.readFileSync.mockImplementation((path: string) =>
+    path.includes('rabbitmq') ? 'p@ss/word\n' : 'smtp-pass\n',
   );
-  expect(readFileSyncMock).toHaveBeenCalledWith(
+  mocks.connect.mockResolvedValue(mocks.connection);
+  mocks.createChannel.mockResolvedValue(mocks.channel);
+  mocks.assertExchange.mockResolvedValue(undefined);
+  mocks.assertQueue.mockResolvedValue(undefined);
+  mocks.bindQueue.mockResolvedValue(undefined);
+  mocks.redisConnect.mockResolvedValue(undefined);
+
+  await import('./app.ts');
+  loggerInfo = vi.mocked(logger.info);
+  loggerError = vi.mocked(logger.error);
+
+  // The IIFE awaits connect/createChannel/assertTopology before consuming;
+  // give those microtasks time to settle, then capture the handlers and
+  // snapshot the wiring calls before `clearMocks` wipes them.
+  await vi.waitFor(() => expect(mocks.consume).toHaveBeenCalledTimes(2));
+  otpHandler = mocks.consume.mock.calls.find(
+    (call) => call[0] === 'otp_emails',
+  )?.[1] as Handler;
+  resetHandler = mocks.consume.mock.calls.find(
+    (call) => call[0] === 'password_reset_emails',
+  )?.[1] as Handler;
+  wiring = {
+    brokerUrl: mocks.connect.mock.calls[0]?.[0],
+    connectCalls: mocks.connect.mock.calls.splice(0),
+    createChannelCount: mocks.createChannel.mock.calls.length,
+    assertExchangeCalls: mocks.assertExchange.mock.calls.splice(0),
+    assertQueueCalls: mocks.assertQueue.mock.calls.splice(0),
+    bindQueueCalls: mocks.bindQueue.mock.calls.splice(0),
+    consumeCalls: mocks.consume.mock.calls.splice(0),
+    connectionEvents: mocks.connectionOn.mock.calls.map((c) => c[0] as string),
+    channelEvents: mocks.channelOn.mock.calls.map((c) => c[0] as string),
+    connectionHandlers: mocks.connectionOn.mock.calls.map(
+      (c) => c[1] as UnknownFn,
+    ),
+    channelHandlers: mocks.channelOn.mock.calls.map((c) => c[1] as UnknownFn),
+  };
+
+  // Pin the rabbitmq secret-file contract at load time, while the call history
+  // is still visible: the pass must come from the env-configured file, read
+  // with a trailing-newline trim so the broker URL never carries the newline.
+  expect(mocks.readFileSync).toHaveBeenCalledWith(
     '/run/secrets/rabbitmq_password',
     'utf8',
   );
 });
 
 beforeEach(() => {
-  fakeRedis.set.mockReset();
-  fakeRedis.del.mockReset();
-  // Default: the store is up and the id was not seen before (SET NX -> 'OK').
-  fakeRedis.set.mockResolvedValue('OK');
-  fakeRedis.del.mockResolvedValue(1);
-  sendMailMock.mockReset();
-  sendMailMock.mockResolvedValue({ messageId: 'test-id' });
+  mocks.redisSet.mockReset();
+  mocks.redisDel.mockReset();
+  // Default: the dedup store is up and the id was not seen before.
+  mocks.redisSet.mockResolvedValue('OK');
+  mocks.redisDel.mockResolvedValue(1);
+  mocks.ack.mockReset();
+  mocks.nack.mockReset();
+  mocks.publish.mockReset();
+  // Default: publish succeeds (returns true), so the boolean check passes.
+  mocks.publish.mockReturnValue(true);
+  mocks.sendMail.mockReset();
+  mocks.sendMail.mockResolvedValue({ messageId: 'test-id' });
+  loggerInfo.mockClear();
 });
 
-describe('processOtpEmailMessage', () => {
-  it('sends exactly one OTP email with html and text', async () => {
-    const outcome = await processOtpEmailMessage(otpMessageBody());
+describe('startup IIFE', () => {
+  it('connects to the broker with URL-encoded credentials from the trimmed secret file', () => {
+    expect(wiring.connectCalls).toHaveLength(1);
+    expect(wiring.brokerUrl).toBe(
+      'amqp://email-service:p%40ss%2Fword@rabbitmq:5672/%2Ffoc',
+    );
+  });
 
-    expect(outcome).toEqual({ action: 'acked' });
-    expect(sendMailMock).toHaveBeenCalledTimes(1);
-    expect(fakeRedis.set).toHaveBeenCalledWith(DEDUP_KEY_A, '1', {
+  it('creates one channel and registers error/handler-error listeners on it and the connection', () => {
+    expect(wiring.createChannelCount).toBe(1);
+    expect(wiring.connectionEvents).toEqual(['error', 'handler-error']);
+    expect(wiring.channelEvents).toEqual(['error', 'handler-error']);
+    expect(wiring.connectionHandlers).toHaveLength(2);
+    expect(wiring.channelHandlers).toHaveLength(2);
+  });
+
+  it('asserts the broker topology before consuming', () => {
+    expect(wiring.assertExchangeCalls.length).toBeGreaterThan(0);
+    expect(wiring.assertQueueCalls.length).toBeGreaterThan(0);
+    expect(wiring.bindQueueCalls.length).toBeGreaterThan(0);
+  });
+
+  it('registers one consumer per email listener', () => {
+    expect(wiring.consumeCalls).toHaveLength(2);
+    expect(wiring.consumeCalls.map((call) => call[0])).toEqual([
+      'otp_emails',
+      'password_reset_emails',
+    ]);
+  });
+
+  it('logs connection and channel handler errors instead of crashing', () => {
+    for (const fn of wiring.connectionHandlers) {
+      fn(new Error('connection boom'), 'error');
+    }
+    for (const fn of wiring.channelHandlers) {
+      fn(new Error('channel boom'), 'error');
+    }
+
+    expect(loggerError).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe('consume handler dispatch wiring', () => {
+  it('acks a successfully delivered OTP email end-to-end through the listener', async () => {
+    const msg = fakeMessage(otpMessageBody());
+
+    await otpHandler(msg);
+
+    expect(mocks.ack).toHaveBeenCalledWith(msg);
+    expect(mocks.nack).not.toHaveBeenCalled();
+    expect(mocks.publish).not.toHaveBeenCalled();
+    expect(mocks.sendMail).toHaveBeenCalledTimes(1);
+    expect(mocks.redisSet).toHaveBeenCalledWith(`email:seen:${UUID}`, '1', {
       EX: 900,
       NX: true,
     });
-
-    const mail = sendMailMock.mock.calls[0][0];
-    expect(mail.from).toBe('test@foc.com');
-    expect(mail.to).toBe('student@example.com');
-    expect(mail.subject).toBe('Your OTP is here');
-    expect(mail.text).toContain('abc123');
-    expect(mail.html).toContain('abc123');
   });
 
-  it('acks a crash-redelivered message without resending it', async () => {
-    // First delivery marks the id; the redelivery sees it as already present.
-    fakeRedis.set.mockResolvedValueOnce('OK').mockResolvedValueOnce(null);
-    const body = otpMessageBody();
+  it('logs a server-cancelled consumer without touching the broker', async () => {
+    await otpHandler(null);
 
-    expect(await processOtpEmailMessage(body, 1)).toEqual({
-      action: 'acked',
-    });
-    expect(await processOtpEmailMessage(body, 2)).toEqual({
-      action: 'acked',
-    });
-    expect(sendMailMock).toHaveBeenCalledTimes(1);
+    expect(loggerInfo).toHaveBeenCalledWith('Consumer cancelled by server');
+    expect(mocks.ack).not.toHaveBeenCalled();
+    expect(mocks.nack).not.toHaveBeenCalled();
+    expect(mocks.publish).not.toHaveBeenCalled();
   });
 
-  it('sends again for a distinct messageId', async () => {
-    await processOtpEmailMessage(
-      otpMessageBody({ messageId: UUID_A, otp: 'aaa111' }),
-    );
-    await processOtpEmailMessage(
-      otpMessageBody({ messageId: UUID_B, otp: 'bbb222' }),
+  it('wires the password-reset queue to its own consumer', async () => {
+    const msg = fakeMessage(
+      Buffer.from(
+        JSON.stringify({
+          data: {
+            messageId: UUID,
+            recipient: 'student@example.com',
+            resetLink: 'https://foc.example/reset-password?token=abc',
+            subject: 'Reset your password',
+            expiry: 10,
+          },
+        }),
+      ),
     );
 
-    expect(sendMailMock).toHaveBeenCalledTimes(2);
-  });
+    await resetHandler(msg);
 
-  it('sends anyway when the dedup store is unavailable (fail-open)', async () => {
-    fakeRedis.set.mockRejectedValue(new Error('redis down'));
-
-    const outcome = await processOtpEmailMessage(otpMessageBody());
-
-    expect(outcome).toEqual({ action: 'acked' });
-    expect(sendMailMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('drops a message with an invalid messageId', async () => {
-    const outcome = await processOtpEmailMessage(
-      otpMessageBody({ messageId: 'not-a-uuid' }),
+    expect(mocks.ack).toHaveBeenCalledWith(msg);
+    expect(mocks.nack).not.toHaveBeenCalled();
+    expect(mocks.sendMail).toHaveBeenCalledTimes(1);
+    expect(mocks.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'student@example.com',
+        subject: 'Reset your password',
+        text: expect.stringContaining(
+          'https://foc.example/reset-password?token=abc',
+        ),
+        html: expect.stringContaining(
+          'https://foc.example/reset-password?token=abc',
+        ),
+      }),
     );
-
-    expect(outcome).toEqual({ action: 'dropped' });
-    expect(sendMailMock).not.toHaveBeenCalled();
-  });
-
-  it('drops a malformed JSON payload', async () => {
-    const outcome = await processOtpEmailMessage(Buffer.from('not json'));
-
-    expect(outcome).toEqual({ action: 'dropped' });
-    expect(sendMailMock).not.toHaveBeenCalled();
-  });
-
-  it('drops a message with a code outside the OTP charset', async () => {
-    const outcome = await processOtpEmailMessage(
-      otpMessageBody({ otp: '!!!!!!' }),
-    );
-
-    expect(outcome).toEqual({ action: 'dropped' });
-    expect(sendMailMock).not.toHaveBeenCalled();
-  });
-
-  it('requests a retry with the first backoff delay on send failure', async () => {
-    sendMailMock.mockRejectedValueOnce(new Error('smtp down'));
-
-    const outcome = await processOtpEmailMessage(otpMessageBody(), 1);
-
-    expect(outcome).toEqual({
-      action: 'retry',
-      delayMs: 60_000,
-      nextAttempt: 2,
-    });
-  });
-
-  it('steps the backoff delay per attempt', async () => {
-    sendMailMock.mockRejectedValue(new Error('smtp down'));
-
-    expect(await processOtpEmailMessage(otpMessageBody(), 2)).toEqual({
-      action: 'retry',
-      delayMs: 120_000,
-      nextAttempt: 3,
-    });
-    expect(await processOtpEmailMessage(otpMessageBody(), 4)).toEqual({
-      action: 'retry',
-      delayMs: 480_000,
-      nextAttempt: 5,
-    });
-  });
-
-  it('dead-letters after the final attempt', async () => {
-    sendMailMock.mockRejectedValueOnce(new Error('smtp down'));
-
-    const outcome = await processOtpEmailMessage(otpMessageBody(), 5);
-
-    expect(outcome).toEqual({ action: 'dead-letter' });
-  });
-
-  it('clears the dedup mark on failure so the retried copy is not skipped', async () => {
-    sendMailMock
-      .mockRejectedValueOnce(new Error('smtp down'))
-      .mockResolvedValueOnce({ messageId: 'test-id' });
-    const body = otpMessageBody();
-
-    expect(await processOtpEmailMessage(body, 1)).toEqual({
-      action: 'retry',
-      delayMs: 60_000,
-      nextAttempt: 2,
-    });
-    expect(fakeRedis.del).toHaveBeenCalledWith(DEDUP_KEY_A);
-    // The retried copy (same messageId) is treated as a fresh delivery.
-    expect(await processOtpEmailMessage(body, 2)).toEqual({
-      action: 'acked',
-    });
-    expect(sendMailMock).toHaveBeenCalledTimes(2);
-  });
-
-  it('still retries when clearing the dedup mark fails (fail-open)', async () => {
-    sendMailMock.mockRejectedValueOnce(new Error('smtp down'));
-    fakeRedis.del.mockRejectedValue(new Error('redis down'));
-
-    const outcome = await processOtpEmailMessage(otpMessageBody(), 3);
-
-    expect(outcome).toEqual({
-      action: 'retry',
-      delayMs: 240_000,
-      nextAttempt: 4,
-    });
-  });
-});
-
-describe('attemptOf', () => {
-  it.each([
-    [undefined, 1],
-    [0, 1],
-    [-3, 1],
-    ['abc', 1],
-    [2, 2],
-    ['3', 3],
-    ['99', 5],
-  ])('maps %s to %s', (raw, expected) => {
-    expect(attemptOf(raw)).toBe(expected);
-  });
-});
-
-describe('retry topology', () => {
-  it('pins the resource names asserted at startup and seeded in definitions.json', () => {
-    // app.ts asserts these with args matching rabbitmq/definitions.json; a
-    // rename here or in the seed would otherwise break the retry loop
-    // silently.
-    expect(RETRY_EXCHANGE).toBe('foc.retry');
-    expect(DLQ_EXCHANGE).toBe('foc.dlq');
-    expect(BACK_EXCHANGE).toBe('foc.back');
-    expect(OTP_QUEUE).toBe('otp_emails');
-    expect(DLQ_QUEUE).toBe('otp_emails.dlq');
-    expect(OTP_EMAIL_ROUTING_KEY).toBe('otp.email');
-  });
-
-  it('derives one generic parking-lot queue per backoff hop', () => {
-    // Each step holds its queue name and delay together, so the retry queue
-    // name and the foc-delay/x-message-ttl value can't drift out of sync.
-    // The queues are keyed by delay, not by message type, so future email
-    // types reuse them (only a foc.back binding is added per type).
-    expect(RETRY_STEPS).toEqual([
-      { queue: 'email_retry_60s', delayMs: 60_000 },
-      { queue: 'email_retry_120s', delayMs: 120_000 },
-      { queue: 'email_retry_240s', delayMs: 240_000 },
-      { queue: 'email_retry_480s', delayMs: 480_000 },
-    ]);
-    // One delivery per step plus the final attempt that dead-letters.
-    expect(MAX_OTP_EMAIL_ATTEMPTS).toBe(RETRY_STEPS.length + 1);
-    expect(MAX_OTP_EMAIL_ATTEMPTS).toBe(5);
   });
 });

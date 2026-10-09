@@ -1,10 +1,16 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { EntityNotFoundError, QueryFailedError, Repository } from 'typeorm';
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import {
+  ArrayContains,
+  EntityNotFoundError,
+  FindOptionsWhere,
+  QueryFailedError,
+  Repository,
+} from 'typeorm';
 import { hashValue } from '../common/hash/hash.js';
 import { User } from './user.entity.js';
-import { Role } from '@foc/contracts';
+import { MAX_PAGE_LIMIT, Role } from '@foc/contracts';
 
 /** The PostgreSQL driver error code for a unique-constraint violation. */
 const UNIQUE_VIOLATION_CODE = '23505';
@@ -25,11 +31,45 @@ export interface ProvisionUserParams {
 }
 
 export interface PublicUserInfo {
-  id: number;
+  uuid: string;
   email: string;
   displayName: string;
+  profilePictureUrl: string | null;
   roles: Role[];
   isAdmin: boolean;
+}
+
+/**
+ * Filters and pagination for listing users.
+ **/
+export interface ListUsersQuery {
+  role?: Role;
+  isAdmin?: boolean;
+  isLocked?: boolean;
+  isArchived?: boolean;
+  /** Zero-based offset into the full result set */
+  offset: number;
+  /** Maximum rows to return */
+  limit: number;
+}
+
+export interface UserListResult {
+  users: User[];
+  /** Count of records matching the filters across all pages (N3.1.3). */
+  total: number;
+  /** The offset actually applied, after clamping. */
+  offset: number;
+  /** The limit actually applied, after clamping. */
+  limit: number;
+}
+
+async function generatePasswordHash(password: string) {
+  const passwordSalt = randomBytes(16).toString('hex');
+  const passwordHash = await hashValue(password, passwordSalt);
+  return {
+    passwordSalt,
+    passwordHash,
+  };
 }
 
 @Injectable()
@@ -45,16 +85,14 @@ export class UsersService {
     isAdmin = false,
     isLocked = false,
   }: ProvisionUserParams): Promise<PublicUserInfo> {
-    // Fresh per-account salt, stored next to the hash so the credentials can
-    // be re-verified later without derivable state.
-    const passwordSalt = randomBytes(16).toString('hex');
-    const passwordHash = await hashValue(password, passwordSalt);
+    const { passwordSalt, passwordHash } = await generatePasswordHash(password);
 
     try {
       const user = await this.userRepository.save(
         this.userRepository.create({
           email,
           displayName,
+          uuid: randomUUID(),
           passwordHash,
           passwordSalt,
           isArchived: false,
@@ -120,8 +158,8 @@ export class UsersService {
    * The authenticated user's persisted account state, or null when the
    * account no longer exists (e.g. pruned after the token was issued).
    */
-  async getUserById(id: number): Promise<PublicUserInfo | null> {
-    const user = await this.userRepository.findOneBy({ id });
+  async getUserByUuid(uuid: string): Promise<PublicUserInfo | null> {
+    const user = await this.userRepository.findOneBy({ uuid });
     return user === null ? null : this.getPublicUserInfo(user);
   }
 
@@ -130,10 +168,10 @@ export class UsersService {
    * out-of-order input is normalised to a set; the two participant roles are
    * the only possible values, so escalation to admin is impossible here.
    */
-  async updateRoles(id: number, roles: Role[]): Promise<PublicUserInfo> {
+  async updateRoles(uuid: string, roles: Role[]): Promise<PublicUserInfo> {
     let user: User;
     try {
-      user = await this.userRepository.findOneByOrFail({ id });
+      user = await this.userRepository.findOneByOrFail({ uuid });
     } catch (error) {
       if (error instanceof EntityNotFoundError) {
         throw new UnauthorizedException();
@@ -148,11 +186,77 @@ export class UsersService {
   }
 
   /**
+   * Updates the authenticated user's particulars. Only the fields
+   * present in the request are written; an explicit `null`
+   * profilePictureUrl clears/keeps the picture respectively. Returns the
+   * updated public profile.
+   */
+  async updateProfile(
+    uuid: string,
+    fields: { displayName?: string; profilePictureUrl?: string | null },
+  ): Promise<PublicUserInfo> {
+    let user: User;
+    try {
+      user = await this.userRepository.findOneByOrFail({ uuid });
+    } catch (error) {
+      if (error instanceof EntityNotFoundError) {
+        throw new UnauthorizedException();
+      }
+      throw error;
+    }
+
+    if (fields.displayName !== undefined) {
+      user.displayName = fields.displayName;
+    }
+    if (fields.profilePictureUrl !== undefined) {
+      user.profilePictureUrl = fields.profilePictureUrl;
+    }
+
+    const saved = await this.userRepository.save(user);
+    return this.getPublicUserInfo(saved);
+  }
+
+  /**
    * Whether any account — archived or locked included — is tied to the given
    * email.
    */
   async existsByEmail(email: string): Promise<boolean> {
     return this.userRepository.exists({ where: { email } });
+  }
+
+  /**
+   * Finds an **un-archived** user by email
+   */
+  async findActiveUserByEmail(email: string): Promise<PublicUserInfo | null> {
+    const user = await this.userRepository.findOneBy({
+      email,
+      isArchived: false,
+    });
+    return user === null ? null : this.getPublicUserInfo(user);
+  }
+
+  /**
+   * Re-hashes and stores a new password with a fresh per-account salt, using
+   * the same mechanism as provisioning.
+   *
+   * Additionally clears lock on the associated user
+   */
+  async updatePassword(uuid: string, password: string): Promise<void> {
+    let user: User;
+    try {
+      user = await this.userRepository.findOneByOrFail({ uuid });
+    } catch (error) {
+      if (error instanceof EntityNotFoundError) {
+        throw new UnauthorizedException();
+      }
+      throw error;
+    }
+
+    const { passwordSalt, passwordHash } = await generatePasswordHash(password);
+    user.passwordHash = passwordHash;
+    user.passwordSalt = passwordSalt;
+    user.isLocked = false;
+    await this.userRepository.save(user);
   }
 
   /**
@@ -166,13 +270,48 @@ export class UsersService {
   }
 
   /**
+   * Lists users matching the authorised filters, one page at a time.
+   */
+  async listUsers({
+    role,
+    isAdmin,
+    isLocked,
+    isArchived,
+    offset,
+    limit,
+  }: ListUsersQuery): Promise<UserListResult> {
+    // Ensure offset is an integer value
+    const safeOffset = Math.max(0, Math.trunc(offset));
+    const safeLimit = Math.min(MAX_PAGE_LIMIT, Math.max(1, Math.trunc(limit)));
+
+    const where: FindOptionsWhere<User> = {};
+    if (role !== undefined) {
+      // Postgres enum-array containment: rows whose roles include `role`.
+      where.roles = ArrayContains([role]);
+    }
+    if (isAdmin !== undefined) where.isAdmin = isAdmin;
+    if (isLocked !== undefined) where.isLocked = isLocked;
+    if (isArchived !== undefined) where.isArchived = isArchived;
+
+    const [users, total] = await this.userRepository.findAndCount({
+      where,
+      skip: safeOffset,
+      take: safeLimit,
+      order: { uuid: 'ASC' },
+    });
+
+    return { users, total, offset: safeOffset, limit: safeLimit };
+  }
+
+  /**
    * Info of a user safe to be received by end-users.
    */
   private getPublicUserInfo(user: User): PublicUserInfo {
     return {
-      id: user.id,
+      uuid: user.uuid,
       email: user.email,
       displayName: user.displayName,
+      profilePictureUrl: user.profilePictureUrl ?? null,
       roles: user.roles ?? [],
       isAdmin: user.isAdmin,
     };

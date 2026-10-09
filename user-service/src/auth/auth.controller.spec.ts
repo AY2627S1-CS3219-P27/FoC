@@ -90,7 +90,7 @@ describe('AuthController', () => {
 
   it('returns the provisioned user from the service', async () => {
     authService.registerWithToken.mockResolvedValue({
-      id: 7,
+      uuid: '11111111-1111-4111-8111-111111111111',
       email: 'eve@example.com',
       displayName: 'Eve',
     });
@@ -103,7 +103,7 @@ describe('AuthController', () => {
     await expect(
       controller.register(request as never, registerDto as never),
     ).resolves.toEqual({
-      id: 7,
+      uuid: '11111111-1111-4111-8111-111111111111',
       email: 'eve@example.com',
       displayName: 'Eve',
     });
