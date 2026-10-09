@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  check,
   index,
   uniqueIndex,
   integer,
@@ -11,7 +12,8 @@ import {
   unique,
   uuid,
 } from 'drizzle-orm/pg-core';
-import { statusEnum } from '../lifecycle/status.js';
+import { CANCELLATION_REASONS } from '../lifecycle/edges.js';
+import { ACTIVE_STATUSES, statusEnum } from '../lifecycle/status.js';
 
 export { statusEnum };
 
@@ -57,7 +59,19 @@ export const errands = pgTable(
     // One active errand per courier (L5, F5.6); keep in step with the accept edge.
     uniqueIndex(COURIER_LOCK_INDEX)
       .on(t.courierId)
-      .where(sql`${t.status} IN ('Accepted', 'Picked Up')`),
+      .where(
+        sql`${t.status} IN (${sql.join(
+          ACTIVE_STATUSES.map((s) => sql.raw(`'${s}'`)),
+          sql`, `,
+        )})`,
+      ),
+    check(
+      'errands_cancellation_reason_valid',
+      sql`${t.cancellationReason} IN (${sql.join(
+        CANCELLATION_REASONS.map((r) => sql.raw(`'${r}'`)),
+        sql`, `,
+      )})`,
+    ),
     index().on(t.requesterId, t.status),
   ],
 );
@@ -88,7 +102,7 @@ export const idempotencyKeys = pgTable(
   {
     errandId: uuid('errand_id').notNull(),
     key: text('key').notNull(),
-    fingerprint: text('fingerprint').notNull(), // expected|to|actor
+    fingerprint: text('fingerprint').notNull(), // expected|to|actor|type|hash(set, payload)
     outcome: jsonb('outcome'), // set before the claiming transaction commits
     createdAt: ts('created_at').notNull().defaultNow(),
   },

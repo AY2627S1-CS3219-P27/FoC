@@ -1,5 +1,5 @@
 import { EDGES, findEdge } from './edges.js';
-import { ALLOWED, STATUSES, canTransition } from './status.js';
+import { ACTIVE_STATUSES, ALLOWED, STATUSES, canTransition } from './status.js';
 
 describe('status transitions', () => {
   for (const from of STATUSES) {
@@ -15,6 +15,11 @@ describe('status transitions', () => {
   it('has exactly 17 distinct status pairs', () => {
     expect(Object.values(ALLOWED).flat()).toHaveLength(17);
   });
+});
+
+// The courier-lock index (schema.ts) is built from this; a change must be deliberate.
+it('treats Accepted and Picked Up as the active statuses', () => {
+  expect(ACTIVE_STATUSES).toEqual(['Accepted', 'Picked Up']);
 });
 
 describe('EDGES', () => {

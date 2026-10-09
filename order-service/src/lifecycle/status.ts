@@ -33,5 +33,9 @@ export const ALLOWED: Record<Status, Status[]> = {
   'Incomplete': [],
 };
 
+// A courier holds at most one errand in these statuses (L5); the partial
+// unique index in schema.ts is built from this.
+export const ACTIVE_STATUSES: Status[] = ['Accepted', 'Picked Up'];
+
 export const canTransition = (from: Status, to: Status): boolean =>
   ALLOWED[from].includes(to);
