@@ -15,6 +15,7 @@ import { OutboxEvent } from './outbox-event.entity.js';
 
 export const CREDIT_OPERATION_TYPES = [
   'RESERVE',
+  'ADJUST',
   'TRANSFER',
   'RELEASE',
 ] as const;
@@ -33,7 +34,7 @@ export type CreditOperationStatus = (typeof CREDIT_OPERATION_STATUSES)[number];
 @Check('CHK_credit_operations_attempt_count', 'attempt_count >= 0')
 @Check(
   'CHK_credit_operations_type',
-  "operation_type IN ('RESERVE', 'TRANSFER', 'RELEASE')",
+  "operation_type IN ('RESERVE', 'ADJUST', 'TRANSFER', 'RELEASE')",
 )
 @Check(
   'CHK_credit_operations_status',
@@ -44,6 +45,14 @@ export type CreditOperationStatus = (typeof CREDIT_OPERATION_STATUSES)[number];
   "(operation_type = 'TRANSFER' AND courier_user_id IS NOT NULL AND courier_user_id <> requester_user_id) OR (operation_type <> 'TRANSFER' AND courier_user_id IS NULL)",
 )
 @Check(
+  'CHK_credit_operations_requester',
+  "operation_type = 'ADJUST' OR requester_user_id IS NOT NULL",
+)
+@Check(
+  'CHK_credit_operations_adjustment_command',
+  "(operation_type = 'ADJUST' AND command_event_id IS NOT NULL AND expected_amount IS NOT NULL AND expected_amount > 0) OR (operation_type <> 'ADJUST' AND command_event_id IS NULL AND expected_amount IS NULL)",
+)
+@Check(
   'CHK_credit_operations_claim',
   "((claimed_by IS NULL) = (claimed_until IS NULL)) AND (claimed_by IS NULL OR status = 'PENDING')",
 )
@@ -51,8 +60,17 @@ export type CreditOperationStatus = (typeof CREDIT_OPERATION_STATUSES)[number];
   'CHK_credit_operations_outcome',
   "(status = 'PENDING' AND rejection_reason IS NULL AND completion_transaction_id IS NULL AND outcome_outbox_event_id IS NULL) OR (status = 'SUCCEEDED' AND rejection_reason IS NULL AND completion_transaction_id IS NOT NULL AND outcome_outbox_event_id IS NOT NULL) OR (status = 'REJECTED' AND rejection_reason IS NOT NULL AND completion_transaction_id IS NULL AND outcome_outbox_event_id IS NOT NULL)",
 )
-@Index('UQ_credit_operations_errand_type', ['errandId', 'operationType'], {
+@Index(
+  'UQ_credit_operations_lifecycle_errand_type',
+  ['errandId', 'operationType'],
+  {
+    unique: true,
+    where: "operation_type IN ('RESERVE', 'TRANSFER', 'RELEASE')",
+  },
+)
+@Index('UQ_credit_operations_adjustment_event', ['commandEventId'], {
   unique: true,
+  where: "operation_type = 'ADJUST'",
 })
 @Index(
   'IDX_credit_operations_pending_due',
@@ -62,11 +80,9 @@ export type CreditOperationStatus = (typeof CREDIT_OPERATION_STATUSES)[number];
 @Index('IDX_credit_operations_pending_claim_expiry', ['claimedUntil', 'id'], {
   where: "status = 'PENDING' AND claimed_until IS NOT NULL",
 })
-@Index(
-  'UQ_credit_operations_completion_transaction',
-  ['completionTransactionId'],
-  { unique: true, where: 'completion_transaction_id IS NOT NULL' },
-)
+@Index('IDX_credit_operations_completion_transaction', [
+  'completionTransactionId',
+])
 @Index('UQ_credit_operations_outcome_outbox', ['outcomeOutboxEventId'], {
   unique: true,
   where: 'outcome_outbox_event_id IS NOT NULL',
@@ -84,14 +100,25 @@ export class CreditOperation {
   @Column({ type: 'text' })
   status: CreditOperationStatus;
 
-  @Column({ name: 'requester_user_id', type: 'uuid' })
-  requesterUserId: string;
+  @Column({ name: 'requester_user_id', type: 'uuid', nullable: true })
+  requesterUserId: string | null;
 
   @Column({ name: 'courier_user_id', type: 'uuid', nullable: true })
   courierUserId: string | null;
 
   @Column({ type: 'bigint', transformer: bigintTransformer })
   amount: number;
+
+  @Column({
+    name: 'expected_amount',
+    type: 'bigint',
+    nullable: true,
+    transformer: bigintTransformer,
+  })
+  expectedAmount: number | null;
+
+  @Column({ name: 'command_event_id', type: 'uuid', nullable: true })
+  commandEventId: string | null;
 
   @Column({ name: 'request_payload_hash', type: 'char', length: 64 })
   requestPayloadHash: string;

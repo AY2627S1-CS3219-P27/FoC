@@ -30,9 +30,9 @@ describe('CreditReservationAdjustmentMessageHandler', () => {
   const contracts = new AccountEventContractValidator();
 
   it('dead-letters invalid contracts before adjustment execution', async () => {
-    const adjust = vi.fn();
+    const accept = vi.fn();
     const handler = new CreditReservationAdjustmentMessageHandler(contracts, {
-      adjust,
+      accept,
     } as unknown as ReservationAdjustmentService);
     const invalid = { ...event(), payload: { token: 'secret' } };
 
@@ -43,28 +43,27 @@ describe('CreditReservationAdjustmentMessageHandler', () => {
       category: 'INVALID_PAYLOAD',
     });
     expect(JSON.stringify(result)).not.toContain('secret');
-    expect(adjust).not.toHaveBeenCalled();
+    expect(accept).not.toHaveBeenCalled();
   });
 
-  it('acknowledges success and business rejection after commit', async () => {
+  it('acknowledges new and duplicate durable ingress after commit', async () => {
     const incoming = event();
-    const adjust = vi
+    const accept = vi
       .fn()
       .mockResolvedValueOnce({
-        status: 'adjusted',
+        status: 'accepted',
         eventId: incoming.eventId,
-        reservationId: randomUUID(),
-        transactionId: randomUUID(),
-        outboxEventId: randomUUID(),
+        operationId: randomUUID(),
       })
       .mockResolvedValueOnce({
-        status: 'rejected',
+        status: 'duplicate-event',
         eventId: incoming.eventId,
-        reason: 'INSUFFICIENT_CREDITS',
-        outboxEventId: randomUUID(),
+        operationId: randomUUID(),
+        transactionId: null,
+        outboxEventId: null,
       });
     const handler = new CreditReservationAdjustmentMessageHandler(contracts, {
-      adjust,
+      accept,
     } as unknown as ReservationAdjustmentService);
 
     await expect(handler.handle(message(incoming))).resolves.toEqual({
@@ -78,7 +77,7 @@ describe('CreditReservationAdjustmentMessageHandler', () => {
   it('dead-letters conflicting reuse of an event ID', async () => {
     const incoming = event();
     const handler = new CreditReservationAdjustmentMessageHandler(contracts, {
-      adjust: vi.fn().mockResolvedValue({
+      accept: vi.fn().mockResolvedValue({
         status: 'event-id-conflict',
         eventId: incoming.eventId,
       }),
@@ -95,7 +94,7 @@ describe('CreditReservationAdjustmentMessageHandler', () => {
   it('propagates execution failures for transport retry', async () => {
     const failure = new Error('database unavailable');
     const handler = new CreditReservationAdjustmentMessageHandler(contracts, {
-      adjust: vi.fn().mockRejectedValue(failure),
+      accept: vi.fn().mockRejectedValue(failure),
     } as unknown as ReservationAdjustmentService);
 
     await expect(handler.handle(message(event()))).rejects.toBe(failure);

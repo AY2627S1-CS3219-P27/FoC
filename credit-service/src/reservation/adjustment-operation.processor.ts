@@ -1,4 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import {
+  CREDIT_RESERVATION_ADJUSTMENT_REJECTED_V1_ROUTING_KEY,
+  CREDIT_RESERVATION_ADJUSTMENT_SUCCESS_V1_ROUTING_KEY,
+} from '@foc/contracts';
 import { Injectable } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
 import {
@@ -10,14 +14,9 @@ import {
   OutboxEvent,
 } from '../database/entities/index.js';
 import { SerializableTransactionRunner } from '../database/serializable-transaction.runner.js';
-import {
-  CREDIT_RESERVATION_REJECTED_ROUTING_KEY,
-  CREDIT_RESERVATION_SUCCESS_ROUTING_KEY,
-  CreditReservationInvariantError,
-  type CreditReservationRejectionReason,
-} from './reservation.service.js';
+import type { CreditReservationAdjustmentRejectionReason } from './reservation-adjustment.service.js';
 
-export type ReservationProcessingOutcome =
+export type AdjustmentProcessingOutcome =
   | {
       status: 'succeeded';
       operationId: string;
@@ -27,10 +26,17 @@ export type ReservationProcessingOutcome =
   | {
       status: 'rejected';
       operationId: string;
-      reason: CreditReservationRejectionReason;
+      reason: CreditReservationAdjustmentRejectionReason;
       outboxEventId: string;
     }
   | { status: 'claim-lost'; operationId: string };
+
+export class CreditReservationAdjustmentInvariantError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CreditReservationAdjustmentInvariantError';
+  }
+}
 
 function assertSafeBalances(creditBalance: number, reservedBalance: number) {
   if (
@@ -39,21 +45,21 @@ function assertSafeBalances(creditBalance: number, reservedBalance: number) {
     !Number.isSafeInteger(reservedBalance) ||
     reservedBalance < 0
   ) {
-    throw new CreditReservationInvariantError(
-      'Reservation movement would produce an unsupported account balance',
+    throw new CreditReservationAdjustmentInvariantError(
+      'Reservation adjustment would produce an unsupported account balance',
     );
   }
 }
 
-/** Executes a leased RESERVE operation within one serializable transaction. */
+/** Executes one leased ADJUST operation within one serializable transaction. */
 @Injectable()
-export class ReservationOperationProcessor {
+export class AdjustmentOperationProcessor {
   constructor(private readonly transactions: SerializableTransactionRunner) {}
 
   async processClaimed(
     operationId: string,
     workerId: string,
-  ): Promise<ReservationProcessingOutcome> {
+  ): Promise<AdjustmentProcessingOutcome> {
     return this.transactions.run(async (manager) => {
       const operations = manager.getRepository(CreditOperation);
       const operation = await operations.findOne({
@@ -62,7 +68,7 @@ export class ReservationOperationProcessor {
       });
       if (
         !operation ||
-        operation.operationType !== 'RESERVE' ||
+        operation.operationType !== 'ADJUST' ||
         operation.status !== 'PENDING' ||
         operation.claimedBy !== workerId ||
         !operation.claimedUntil ||
@@ -70,51 +76,74 @@ export class ReservationOperationProcessor {
       ) {
         return { status: 'claim-lost', operationId };
       }
-      if (!operation.requesterUserId) {
-        throw new CreditReservationInvariantError(
-          'Reservation operation has no requester',
+      if (operation.expectedAmount === null || !operation.commandEventId) {
+        throw new CreditReservationAdjustmentInvariantError(
+          'Adjustment operation has incomplete command state',
         );
       }
-      const requesterUserId = operation.requesterUserId;
 
       await manager.query(
         'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
         [operation.errandId],
       );
 
+      const reservations = manager.getRepository(CreditReservation);
+      const discoveredReservation = await reservations.findOneBy({
+        errandId: operation.errandId,
+      });
+      if (!discoveredReservation || discoveredReservation.status !== 'ACTIVE') {
+        return this.completeRejection(
+          manager,
+          operation,
+          'RESERVATION_NOT_FOUND',
+        );
+      }
+
       const accounts = manager.getRepository(CreditAccount);
       const account = await accounts.findOne({
-        where: { userId: requesterUserId },
+        where: { userId: discoveredReservation.requesterUserId },
         lock: { mode: 'pessimistic_write' },
       });
-      const reservations = manager.getRepository(CreditReservation);
+      if (!account) {
+        throw new CreditReservationAdjustmentInvariantError(
+          'Active reservation has no requester credit account',
+        );
+      }
       const reservation = await reservations.findOne({
         where: { errandId: operation.errandId },
         lock: { mode: 'pessimistic_write' },
       });
-
-      if (reservation) {
-        if (
-          reservation.status === 'ACTIVE' &&
-          reservation.requesterUserId === requesterUserId &&
-          reservation.reservedAmount === operation.amount
-        ) {
-          return this.completeSuccess(
-            manager,
-            operation,
-            reservation.latestTransactionId,
-          );
-        }
+      if (!reservation || reservation.status !== 'ACTIVE') {
         return this.completeRejection(
           manager,
           operation,
-          'RESERVATION_CONFLICT',
+          'RESERVATION_NOT_FOUND',
         );
       }
-      if (!account) {
-        return this.completeRejection(manager, operation, 'MISSING_BALANCE');
+      if (reservation.requesterUserId !== account.userId) {
+        throw new CreditReservationAdjustmentInvariantError(
+          'Reservation requester changed during adjustment execution',
+        );
       }
-      if (account.creditBalance < operation.amount) {
+      operation.requesterUserId = reservation.requesterUserId;
+
+      if (reservation.reservedAmount !== operation.expectedAmount) {
+        return this.completeRejection(
+          manager,
+          operation,
+          'STALE_RESERVATION_AMOUNT',
+        );
+      }
+      if (operation.amount === operation.expectedAmount) {
+        return this.completeSuccess(
+          manager,
+          operation,
+          reservation.latestTransactionId,
+        );
+      }
+
+      const difference = operation.amount - operation.expectedAmount;
+      if (difference > 0 && account.creditBalance < difference) {
         return this.completeRejection(
           manager,
           operation,
@@ -122,8 +151,8 @@ export class ReservationOperationProcessor {
         );
       }
 
-      const nextCreditBalance = account.creditBalance - operation.amount;
-      const nextReservedBalance = account.reservedBalance + operation.amount;
+      const nextCreditBalance = account.creditBalance - difference;
+      const nextReservedBalance = account.reservedBalance + difference;
       assertSafeBalances(nextCreditBalance, nextReservedBalance);
       account.creditBalance = nextCreditBalance;
       account.reservedBalance = nextReservedBalance;
@@ -133,26 +162,21 @@ export class ReservationOperationProcessor {
       const transaction = await transactions.save(
         transactions.create({
           id: randomUUID(),
-          type: 'RESERVATION',
-          amount: operation.amount,
-          originBalanceType: 'CREDIT_BALANCE',
-          destinationBalanceType: 'RESERVED_BALANCE',
-          originUserId: requesterUserId,
-          destinationUserId: requesterUserId,
-          errandId: operation.errandId,
-        }),
-      );
-      await reservations.save(
-        reservations.create({
-          id: randomUUID(),
-          errandId: operation.errandId,
-          requesterUserId,
-          reservedAmount: operation.amount,
-          status: 'ACTIVE',
-          latestTransactionId: transaction.id,
+          type: 'RESERVATION_ADJUSTMENT',
+          amount: Math.abs(difference),
+          originBalanceType:
+            difference > 0 ? 'CREDIT_BALANCE' : 'RESERVED_BALANCE',
+          destinationBalanceType:
+            difference > 0 ? 'RESERVED_BALANCE' : 'CREDIT_BALANCE',
+          originUserId: reservation.requesterUserId,
+          destinationUserId: reservation.requesterUserId,
+          errandId: reservation.errandId,
         }),
       );
 
+      reservation.reservedAmount = operation.amount;
+      reservation.latestTransactionId = transaction.id;
+      await reservations.save(reservation);
       return this.completeSuccess(
         manager,
         operation,
@@ -167,22 +191,21 @@ export class ReservationOperationProcessor {
     operation: CreditOperation,
     transactionId: string,
     occurredAt = new Date(),
-  ): Promise<ReservationProcessingOutcome> {
+  ): Promise<AdjustmentProcessingOutcome> {
     const outboxEventId = randomUUID();
     await this.saveOutbox(
       manager,
       outboxEventId,
-      'CreditReservationSuccess',
-      CREDIT_RESERVATION_SUCCESS_ROUTING_KEY,
+      'CreditReservationAdjustmentSuccess',
+      CREDIT_RESERVATION_ADJUSTMENT_SUCCESS_V1_ROUTING_KEY,
       {
         eventId: outboxEventId,
-        eventType: 'CreditReservationSuccess',
+        eventType: 'CreditReservationAdjustmentSuccess',
         timestamp: occurredAt.toISOString(),
         publisher: 'credit-service',
         payload: {
           errandId: operation.errandId,
-          requesterUserId: operation.requesterUserId!,
-          reservedAmount: operation.amount,
+          newReservedAmount: operation.amount,
           creditTransactionId: transactionId,
         },
       },
@@ -203,7 +226,6 @@ export class ReservationOperationProcessor {
         outcomeOutboxEventId: outboxEventId,
       },
     );
-
     return {
       status: 'succeeded',
       operationId: operation.id,
@@ -215,22 +237,21 @@ export class ReservationOperationProcessor {
   private async completeRejection(
     manager: EntityManager,
     operation: CreditOperation,
-    reason: CreditReservationRejectionReason,
-  ): Promise<ReservationProcessingOutcome> {
+    reason: CreditReservationAdjustmentRejectionReason,
+  ): Promise<AdjustmentProcessingOutcome> {
     const outboxEventId = randomUUID();
     await this.saveOutbox(
       manager,
       outboxEventId,
-      'CreditReservationRejected',
-      CREDIT_RESERVATION_REJECTED_ROUTING_KEY,
+      'CreditReservationAdjustmentRejected',
+      CREDIT_RESERVATION_ADJUSTMENT_REJECTED_V1_ROUTING_KEY,
       {
         eventId: outboxEventId,
-        eventType: 'CreditReservationRejected',
+        eventType: 'CreditReservationAdjustmentRejected',
         timestamp: new Date().toISOString(),
         publisher: 'credit-service',
         payload: {
           errandId: operation.errandId,
-          requesterUserId: operation.requesterUserId!,
           requestedAmount: operation.amount,
           rejectionReason: reason,
         },
@@ -243,6 +264,7 @@ export class ReservationOperationProcessor {
     operation.outcomeOutboxEventId = outboxEventId;
     operation.claimedBy = null;
     operation.claimedUntil = null;
+    operation.lastError = null;
     await manager.getRepository(CreditOperation).save(operation);
     await manager
       .getRepository(InboxEvent)
@@ -250,7 +272,6 @@ export class ReservationOperationProcessor {
         { outcomeOperationId: operation.id },
         { outcomeTransactionId: null, outcomeOutboxEventId: outboxEventId },
       );
-
     return {
       status: 'rejected',
       operationId: operation.id,

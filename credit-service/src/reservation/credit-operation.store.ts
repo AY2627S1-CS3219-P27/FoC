@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import type { CreditOperationType } from '../database/entities/index.js';
 
 export interface ClaimedCreditOperation {
   id: string;
+  operationType: CreditOperationType;
   createdAt: Date;
   attemptCount: number;
   lastError: string | null;
@@ -25,7 +27,7 @@ export class CreditOperationStore {
         WITH candidates AS (
           SELECT id
           FROM credit_operations
-          WHERE operation_type = 'RESERVE'
+          WHERE operation_type IN ('RESERVE', 'ADJUST')
             AND status = 'PENDING'
             AND next_attempt_at <= clock_timestamp()
             AND (claimed_until IS NULL OR claimed_until <= clock_timestamp())
@@ -41,6 +43,7 @@ export class CreditOperationStore {
         FROM candidates
         WHERE operation.id = candidates.id
         RETURNING operation.id,
+                  operation.operation_type AS "operationType",
                   operation.created_at AS "createdAt",
                   operation.attempt_count AS "attemptCount",
                   operation.last_error AS "lastError"

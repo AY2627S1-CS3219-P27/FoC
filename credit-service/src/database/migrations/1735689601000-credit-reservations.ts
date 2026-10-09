@@ -126,9 +126,11 @@ export class CreditReservations1735689601000 implements MigrationInterface {
         "errand_id" uuid NOT NULL,
         "operation_type" text NOT NULL,
         "status" text NOT NULL,
-        "requester_user_id" uuid NOT NULL,
+        "requester_user_id" uuid,
         "courier_user_id" uuid,
         "amount" bigint NOT NULL,
+        "expected_amount" bigint,
+        "command_event_id" uuid,
         "request_payload_hash" char(64) NOT NULL,
         "attempt_count" integer NOT NULL DEFAULT 0,
         "next_attempt_at" timestamptz NOT NULL DEFAULT now(),
@@ -142,7 +144,7 @@ export class CreditReservations1735689601000 implements MigrationInterface {
         "updated_at" timestamptz NOT NULL DEFAULT now(),
         CONSTRAINT "PK_credit_operations" PRIMARY KEY ("id"),
         CONSTRAINT "CHK_credit_operations_type"
-          CHECK ("operation_type" IN ('RESERVE', 'TRANSFER', 'RELEASE')),
+          CHECK ("operation_type" IN ('RESERVE', 'ADJUST', 'TRANSFER', 'RELEASE')),
         CONSTRAINT "CHK_credit_operations_status"
           CHECK ("status" IN ('PENDING', 'SUCCEEDED', 'REJECTED')),
         CONSTRAINT "CHK_credit_operations_amount" CHECK ("amount" > 0),
@@ -156,6 +158,22 @@ export class CreditReservations1735689601000 implements MigrationInterface {
           OR (
             "operation_type" <> 'TRANSFER'
             AND "courier_user_id" IS NULL
+          )
+        ),
+        CONSTRAINT "CHK_credit_operations_requester" CHECK (
+          "operation_type" = 'ADJUST' OR "requester_user_id" IS NOT NULL
+        ),
+        CONSTRAINT "CHK_credit_operations_adjustment_command" CHECK (
+          (
+            "operation_type" = 'ADJUST'
+            AND "command_event_id" IS NOT NULL
+            AND "expected_amount" IS NOT NULL
+            AND "expected_amount" > 0
+          )
+          OR (
+            "operation_type" <> 'ADJUST'
+            AND "command_event_id" IS NULL
+            AND "expected_amount" IS NULL
           )
         ),
         CONSTRAINT "CHK_credit_operations_claim" CHECK (
@@ -192,8 +210,14 @@ export class CreditReservations1735689601000 implements MigrationInterface {
     `);
 
     await queryRunner.query(`
-      CREATE UNIQUE INDEX "UQ_credit_operations_errand_type"
+      CREATE UNIQUE INDEX "UQ_credit_operations_lifecycle_errand_type"
       ON "credit_operations" ("errand_id", "operation_type")
+      WHERE "operation_type" IN ('RESERVE', 'TRANSFER', 'RELEASE')
+    `);
+    await queryRunner.query(`
+      CREATE UNIQUE INDEX "UQ_credit_operations_adjustment_event"
+      ON "credit_operations" ("command_event_id")
+      WHERE "operation_type" = 'ADJUST'
     `);
     await queryRunner.query(`
       CREATE INDEX "IDX_credit_operations_pending_due"
@@ -206,9 +230,8 @@ export class CreditReservations1735689601000 implements MigrationInterface {
       WHERE "status" = 'PENDING' AND "claimed_until" IS NOT NULL
     `);
     await queryRunner.query(`
-      CREATE UNIQUE INDEX "UQ_credit_operations_completion_transaction"
+      CREATE INDEX "IDX_credit_operations_completion_transaction"
       ON "credit_operations" ("completion_transaction_id")
-      WHERE "completion_transaction_id" IS NOT NULL
     `);
     await queryRunner.query(`
       CREATE UNIQUE INDEX "UQ_credit_operations_outcome_outbox"

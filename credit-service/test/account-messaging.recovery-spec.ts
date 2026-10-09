@@ -15,10 +15,15 @@ import { AccountInitializationService } from '../src/account-initialization/acco
 import {
   AccountEventContractValidator,
   CREDIT_ACCOUNT_INITIALISED_V1_ROUTING_KEY,
+  CREDIT_RESERVATION_ADJUSTMENT_REJECTED_V1_ROUTING_KEY,
+  CREDIT_RESERVATION_ADJUSTMENT_SUCCESS_V1_ROUTING_KEY,
   CREDIT_RESERVATION_REJECTED_V1_ROUTING_KEY,
   CREDIT_RESERVATION_SUCCESS_V1_ROUTING_KEY,
   type ContractValidationResult,
   type CreditAccountInitialisedEvent,
+  type CreditReservationAdjustmentEvent,
+  type CreditReservationAdjustmentRejectedEvent,
+  type CreditReservationAdjustmentSuccessEvent,
   type CreditReservationEvent,
   type CreditReservationRejectedEvent,
   type CreditReservationSuccessEvent,
@@ -130,6 +135,21 @@ function reservation(
   };
 }
 
+function adjustment(
+  errandId: string,
+  oldAmount: number,
+  newAmount: number,
+  eventId: string = randomUUID(),
+): CreditReservationAdjustmentEvent {
+  return {
+    eventId,
+    eventType: 'CreditReservationAdjustment',
+    timestamp: new Date().toISOString(),
+    publisher: 'order-service',
+    payload: { errandId, oldAmount, newAmount },
+  };
+}
+
 describe.sequential('credit messaging recovery', () => {
   const rabbitMqUrl = process.env.RABBITMQ_URL!;
   const managementUrl = process.env.RABBITMQ_MANAGEMENT_URL!;
@@ -178,6 +198,8 @@ describe.sequential('credit messaging recovery', () => {
     for (const routingKey of [
       CREDIT_RESERVATION_SUCCESS_V1_ROUTING_KEY,
       CREDIT_RESERVATION_REJECTED_V1_ROUTING_KEY,
+      CREDIT_RESERVATION_ADJUSTMENT_SUCCESS_V1_ROUTING_KEY,
+      CREDIT_RESERVATION_ADJUSTMENT_REJECTED_V1_ROUTING_KEY,
     ]) {
       await adminChannel.bindQueue(
         topology.reservationObservationQueue,
@@ -241,6 +263,12 @@ describe.sequential('credit messaging recovery', () => {
     await publish(Buffer.from(JSON.stringify(event)), reservationRoutingKey);
   }
 
+  async function publishAdjustment(
+    event: CreditReservationAdjustmentEvent,
+  ): Promise<void> {
+    await publish(Buffer.from(JSON.stringify(event)), adjustmentRoutingKey);
+  }
+
   async function takeMessage(
     queue: string,
     timeoutMilliseconds = 15_000,
@@ -302,6 +330,36 @@ describe.sequential('credit messaging recovery', () => {
     }
     throw new Error(
       `No reservation outcome was observed for errand ${errandId}`,
+    );
+  }
+
+  async function takeAdjustmentOutcome(
+    errandId: string,
+    timeoutMilliseconds = 15_000,
+  ): Promise<{
+    message: GetMessage;
+    envelope:
+      | CreditReservationAdjustmentSuccessEvent
+      | CreditReservationAdjustmentRejectedEvent;
+  }> {
+    const deadline = Date.now() + timeoutMilliseconds;
+    while (Date.now() < deadline) {
+      const message = await takeMessage(
+        topology.reservationObservationQueue,
+        Math.max(1, deadline - Date.now()),
+      );
+      const envelope = JSON.parse(message.content.toString('utf8')) as
+        | CreditReservationAdjustmentSuccessEvent
+        | CreditReservationAdjustmentRejectedEvent;
+      if (
+        envelope.payload.errandId === errandId &&
+        envelope.eventType.startsWith('CreditReservationAdjustment')
+      ) {
+        return { message, envelope };
+      }
+    }
+    throw new Error(
+      `No reservation adjustment outcome was observed for errand ${errandId}`,
     );
   }
 
@@ -875,6 +933,84 @@ describe.sequential('credit messaging recovery', () => {
       transactionCount: 1,
       inboxCount: 2,
     });
+  });
+
+  it('recovers durable adjustment ingress after an application restart', async () => {
+    const userId = randomUUID();
+    await createFundedAccount(userId);
+    const reserve = reservation(userId, 25);
+    await publishReservation(reserve);
+    await takeReservationOutcome(reserve.payload.errandId);
+    await waitFor(async () =>
+      (await reservationState(reserve.payload.errandId))?.status === 'SUCCEEDED'
+        ? true
+        : undefined,
+    );
+
+    await app.close();
+    app = await startApplication({ disableOperationWorker: true });
+    const adjust = adjustment(reserve.payload.errandId, 25, 40);
+    await publishAdjustment(adjust);
+    const pending = await waitFor(async () => {
+      const [row] = (await dataSource.query(
+        `SELECT status,
+                attempt_count AS "attemptCount",
+                claimed_by AS "claimedBy",
+                completion_transaction_id AS "transactionId"
+         FROM credit_operations
+         WHERE command_event_id = $1`,
+        [adjust.eventId],
+      )) as Array<{
+        status: string;
+        attemptCount: number;
+        claimedBy: string | null;
+        transactionId: string | null;
+      }>;
+      return row?.status === 'PENDING' ? row : undefined;
+    });
+    expect(pending).toMatchObject({
+      attemptCount: 0,
+      claimedBy: null,
+      transactionId: null,
+    });
+    const [before] = (await dataSource.query(
+      `SELECT credit_balance::int AS "creditBalance",
+              reserved_balance::int AS "reservedBalance"
+       FROM credit_accounts WHERE user_id = $1`,
+      [userId],
+    )) as Array<{ creditBalance: number; reservedBalance: number }>;
+    expect(before).toEqual({ creditBalance: 75, reservedBalance: 25 });
+    await waitFor(async () =>
+      (await queueMetrics(topology.adjustmentQueue)).messages_unacknowledged ===
+      0
+        ? true
+        : undefined,
+    );
+
+    await app.close();
+    app = await startApplication();
+    const outcome = await takeAdjustmentOutcome(reserve.payload.errandId);
+    expect(outcome.envelope).toMatchObject({
+      eventType: 'CreditReservationAdjustmentSuccess',
+      payload: {
+        errandId: reserve.payload.errandId,
+        newReservedAmount: 40,
+      },
+    });
+    await waitFor(async () => {
+      const [row] = (await dataSource.query(
+        `SELECT status FROM credit_operations WHERE command_event_id = $1`,
+        [adjust.eventId],
+      )) as Array<{ status: string }>;
+      return row?.status === 'SUCCEEDED' ? true : undefined;
+    });
+    const [after] = (await dataSource.query(
+      `SELECT credit_balance::int AS "creditBalance",
+              reserved_balance::int AS "reservedBalance"
+       FROM credit_accounts WHERE user_id = $1`,
+      [userId],
+    )) as Array<{ creditBalance: number; reservedBalance: number }>;
+    expect(after).toEqual({ creditBalance: 60, reservedBalance: 40 });
   });
 
   it('recovers an expired reservation claim after a process restart', async () => {

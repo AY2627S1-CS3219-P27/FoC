@@ -24,7 +24,7 @@ function contractFailureReason(
   return `${code}: ${details || 'contract validation failed'}`;
 }
 
-/** Executes the synchronous adjustment transaction before acknowledgement. */
+/** Persists durable adjustment ingress before acknowledgement. */
 @Injectable()
 export class CreditReservationAdjustmentMessageHandler implements RabbitMqMessageHandler {
   constructor(
@@ -46,7 +46,7 @@ export class CreditReservationAdjustmentMessageHandler implements RabbitMqMessag
       };
     }
 
-    const result = await this.adjustments.adjust(validation.value);
+    const result = await this.adjustments.accept(validation.value);
     if (result.status === 'event-id-conflict') {
       return {
         outcome: 'dead-letter',

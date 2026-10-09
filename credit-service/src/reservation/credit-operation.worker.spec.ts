@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { Logger } from '@nestjs/common';
 import type { EnvironmentVariables } from '../config/environment.js';
+import type { AdjustmentOperationProcessor } from './adjustment-operation.processor.js';
 import {
   CreditOperationWorker,
   creditOperationRetryDelay,
@@ -37,6 +38,7 @@ describe('CreditOperationWorker', () => {
   it('claims and processes up to ten operations', async () => {
     const operation = {
       id: '96ea8eb4-6c4a-40c8-a2a5-d673fba42033',
+      operationType: 'RESERVE' as const,
       createdAt: new Date(),
       attemptCount: 1,
       lastError: null,
@@ -50,6 +52,7 @@ describe('CreditOperationWorker', () => {
       configuration(),
       store as unknown as CreditOperationStore,
       processor as unknown as ReservationOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as AdjustmentOperationProcessor,
     );
 
     await worker.runOnce();
@@ -65,6 +68,7 @@ describe('CreditOperationWorker', () => {
   it('records sanitized retry metadata after a transient processing failure', async () => {
     const operation = {
       id: '96ea8eb4-6c4a-40c8-a2a5-d673fba42033',
+      operationType: 'ADJUST' as const,
       createdAt: new Date(),
       attemptCount: 3,
       lastError: null,
@@ -80,6 +84,7 @@ describe('CreditOperationWorker', () => {
       configuration(),
       store as unknown as CreditOperationStore,
       processor as unknown as ReservationOperationProcessor,
+      processor as unknown as AdjustmentOperationProcessor,
     );
 
     await worker.runOnce();
@@ -96,6 +101,7 @@ describe('CreditOperationWorker', () => {
     const warning = vi.spyOn(Logger.prototype, 'warn').mockImplementation();
     const operation = {
       id: '96ea8eb4-6c4a-40c8-a2a5-d673fba42033',
+      operationType: 'RESERVE' as const,
       createdAt: new Date(Date.now() - 60_001),
       attemptCount: 8,
       lastError: 'earlier failure',
@@ -108,6 +114,7 @@ describe('CreditOperationWorker', () => {
         markFailed: vi.fn(),
       } as unknown as CreditOperationStore,
       processor as unknown as ReservationOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as AdjustmentOperationProcessor,
     );
 
     await worker.runOnce();
@@ -134,6 +141,7 @@ describe('CreditOperationWorker', () => {
       configuration(),
       store as unknown as CreditOperationStore,
       { processClaimed: vi.fn() } as unknown as ReservationOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as AdjustmentOperationProcessor,
     );
 
     const first = worker.runOnce();

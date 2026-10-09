@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { EnvironmentVariables } from '../config/environment.js';
+import { AdjustmentOperationProcessor } from './adjustment-operation.processor.js';
 import {
   CreditOperationStore,
   type ClaimedCreditOperation,
@@ -58,7 +59,8 @@ export class CreditOperationWorker {
   constructor(
     config: ConfigService<EnvironmentVariables, true>,
     private readonly store: CreditOperationStore,
-    private readonly processor: ReservationOperationProcessor,
+    private readonly reservationProcessor: ReservationOperationProcessor,
+    private readonly adjustmentProcessor: AdjustmentOperationProcessor,
   ) {
     this.pollIntervalMilliseconds = config.getOrThrow(
       'CREDIT_OPERATION_POLL_INTERVAL_MS',
@@ -128,7 +130,19 @@ export class CreditOperationWorker {
   private async processOne(operation: ClaimedCreditOperation): Promise<void> {
     this.warnIfStuck(operation);
     try {
-      await this.processor.processClaimed(operation.id, this.workerId);
+      if (operation.operationType === 'RESERVE') {
+        await this.reservationProcessor.processClaimed(
+          operation.id,
+          this.workerId,
+        );
+      } else if (operation.operationType === 'ADJUST') {
+        await this.adjustmentProcessor.processClaimed(
+          operation.id,
+          this.workerId,
+        );
+      } else {
+        throw new Error('Unsupported credit operation type');
+      }
     } catch (error) {
       const failure = safeFailure(error);
       const retryDelay = creditOperationRetryDelay(

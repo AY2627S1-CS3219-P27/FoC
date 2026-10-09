@@ -88,6 +88,8 @@ describe('credit persistence migration', () => {
         'CHK_credit_operations_type',
         'CHK_credit_operations_status',
         'CHK_credit_operations_participants',
+        'CHK_credit_operations_requester',
+        'CHK_credit_operations_adjustment_command',
         'CHK_credit_operations_claim',
         'CHK_credit_operations_outcome',
         'CHK_credit_reservations_reserved_amount',
@@ -121,8 +123,9 @@ describe('credit persistence migration', () => {
     expect(indexes.map(({ indexname }) => indexname)).toEqual(
       expect.arrayContaining([
         'UQ_credit_allocations_user',
-        'UQ_credit_operations_errand_type',
-        'UQ_credit_operations_completion_transaction',
+        'UQ_credit_operations_lifecycle_errand_type',
+        'UQ_credit_operations_adjustment_event',
+        'IDX_credit_operations_completion_transaction',
         'UQ_credit_operations_outcome_outbox',
         'IDX_credit_operations_pending_due',
         'IDX_credit_operations_pending_claim_expiry',
@@ -366,6 +369,8 @@ describe('credit persistence migration', () => {
       requesterUserId: randomUUID(),
       courierUserId: null,
       amount: 10,
+      expectedAmount: null,
+      commandEventId: null,
       requestPayloadHash: 'a'.repeat(64),
       attemptCount: 0,
       nextAttemptAt: new Date(),
@@ -414,6 +419,44 @@ describe('credit persistence migration', () => {
     await expect(
       operations.save(operations.create({ ...pending, id: randomUUID() })),
     ).rejects.toMatchObject({ code: '23505' });
+
+    const adjustmentEventId = randomUUID();
+    const adjustment = operations.create({
+      ...pending,
+      id: randomUUID(),
+      errandId: pending.errandId,
+      operationType: 'ADJUST',
+      requesterUserId: null,
+      amount: 20,
+      expectedAmount: 10,
+      commandEventId: adjustmentEventId,
+    });
+    await operations.save(adjustment);
+    await operations.save(
+      operations.create({
+        ...adjustment,
+        id: randomUUID(),
+        commandEventId: randomUUID(),
+      }),
+    );
+    await expect(
+      operations.save(
+        operations.create({
+          ...adjustment,
+          id: randomUUID(),
+          commandEventId: adjustmentEventId,
+        }),
+      ),
+    ).rejects.toMatchObject({ code: '23505' });
+    await expect(
+      dataSource.query(
+        `INSERT INTO credit_operations
+         (id, errand_id, operation_type, status, amount, request_payload_hash,
+          command_event_id, next_attempt_at)
+         VALUES ($1, $2, 'ADJUST', 'PENDING', 20, $3, $4, now())`,
+        [randomUUID(), randomUUID(), 'e'.repeat(64), randomUUID()],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
   });
 
   it('rejects updates and deletes from immutable allocations', async () => {

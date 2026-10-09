@@ -1,23 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
-import {
-  CREDIT_RESERVATION_ADJUSTMENT_REJECTED_V1_ROUTING_KEY,
-  CREDIT_RESERVATION_ADJUSTMENT_SUCCESS_V1_ROUTING_KEY,
-} from '@foc/contracts';
 import { Injectable } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
-import {
-  CreditAccount,
-  CreditReservation,
-  CreditTransaction,
-  InboxEvent,
-  OutboxEvent,
-} from '../database/entities/index.js';
+import { CreditOperation, InboxEvent } from '../database/entities/index.js';
 import { SerializableTransactionRunner } from '../database/serializable-transaction.runner.js';
-
-export const CREDIT_RESERVATION_ADJUSTMENT_SUCCESS_ROUTING_KEY =
-  CREDIT_RESERVATION_ADJUSTMENT_SUCCESS_V1_ROUTING_KEY;
-export const CREDIT_RESERVATION_ADJUSTMENT_REJECTED_ROUTING_KEY =
-  CREDIT_RESERVATION_ADJUSTMENT_REJECTED_V1_ROUTING_KEY;
 
 export type CreditReservationAdjustmentRejectionReason =
   'RESERVATION_NOT_FOUND' | 'STALE_RESERVATION_AMOUNT' | 'INSUFFICIENT_CREDITS';
@@ -34,62 +19,20 @@ export interface CreditReservationAdjustmentCommand {
   };
 }
 
-export type CreditReservationAdjustmentOutcome =
+export type CreditReservationAdjustmentIngressOutcome =
   | {
-      status: 'adjusted' | 'no-op';
+      status: 'accepted';
       eventId: string;
-      reservationId: string;
-      transactionId: string;
-      outboxEventId: string;
-    }
-  | {
-      status: 'rejected';
-      eventId: string;
-      reason: CreditReservationAdjustmentRejectionReason;
-      outboxEventId: string;
+      operationId: string;
     }
   | {
       status: 'duplicate-event';
       eventId: string;
+      operationId: string;
       transactionId: string | null;
-      outboxEventId: string;
+      outboxEventId: string | null;
     }
   | { status: 'event-id-conflict'; eventId: string };
-
-interface CreditReservationAdjustmentSuccessEvent {
-  eventId: string;
-  eventType: 'CreditReservationAdjustmentSuccess';
-  timestamp: string;
-  publisher: 'credit-service';
-  payload: {
-    errandId: string;
-    newReservedAmount: number;
-    creditTransactionId: string;
-  };
-}
-
-interface CreditReservationAdjustmentRejectedEvent {
-  eventId: string;
-  eventType: 'CreditReservationAdjustmentRejected';
-  timestamp: string;
-  publisher: 'credit-service';
-  payload: {
-    errandId: string;
-    requestedAmount: number;
-    rejectionReason: CreditReservationAdjustmentRejectionReason;
-  };
-}
-
-type CreditReservationAdjustmentOutcomeEvent =
-  | CreditReservationAdjustmentSuccessEvent
-  | CreditReservationAdjustmentRejectedEvent;
-
-export class CreditReservationAdjustmentInvariantError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'CreditReservationAdjustmentInvariantError';
-  }
-}
 
 export function hashCreditReservationAdjustmentPayload(
   payload: CreditReservationAdjustmentCommand['payload'],
@@ -111,27 +54,14 @@ function assertValidAmount(label: string, amount: number): void {
   }
 }
 
-function assertSafeBalances(creditBalance: number, reservedBalance: number) {
-  if (
-    !Number.isSafeInteger(creditBalance) ||
-    creditBalance < 0 ||
-    !Number.isSafeInteger(reservedBalance) ||
-    reservedBalance < 0
-  ) {
-    throw new CreditReservationAdjustmentInvariantError(
-      'Reservation adjustment would produce an unsupported account balance',
-    );
-  }
-}
-
-/** Applies one event-ID-deduplicated adjustment in a serializable transaction. */
+/** Persists an adjustment command before transport acknowledgement. */
 @Injectable()
 export class ReservationAdjustmentService {
   constructor(private readonly transactions: SerializableTransactionRunner) {}
 
-  async adjust(
+  async accept(
     command: CreditReservationAdjustmentCommand,
-  ): Promise<CreditReservationAdjustmentOutcome> {
+  ): Promise<CreditReservationAdjustmentIngressOutcome> {
     assertValidAmount('Previous reservation amount', command.payload.oldAmount);
     assertValidAmount('New reservation amount', command.payload.newAmount);
 
@@ -155,215 +85,56 @@ export class ReservationAdjustmentService {
         ) {
           return { status: 'event-id-conflict', eventId: command.eventId };
         }
-        if (!establishedEvent.outcomeOutboxEventId) {
-          throw new CreditReservationAdjustmentInvariantError(
-            'Adjustment inbox outcome has no outbox event',
-          );
+        if (!establishedEvent.outcomeOperationId) {
+          throw new Error('Adjustment inbox outcome has no operation');
         }
         return {
           status: 'duplicate-event',
           eventId: command.eventId,
+          operationId: establishedEvent.outcomeOperationId,
           transactionId: establishedEvent.outcomeTransactionId,
           outboxEventId: establishedEvent.outcomeOutboxEventId,
         };
       }
 
-      await manager.query(
-        'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
-        [command.payload.errandId],
-      );
-
-      const reservations = manager.getRepository(CreditReservation);
-      const reservation = await reservations.findOne({
-        where: { errandId: command.payload.errandId },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!reservation || reservation.status !== 'ACTIVE') {
-        return this.reject(
-          manager,
-          command,
-          payloadHash,
-          'RESERVATION_NOT_FOUND',
-        );
-      }
-      if (reservation.reservedAmount !== command.payload.oldAmount) {
-        return this.reject(
-          manager,
-          command,
-          payloadHash,
-          'STALE_RESERVATION_AMOUNT',
-        );
-      }
-      if (command.payload.newAmount === command.payload.oldAmount) {
-        const outboxEventId = await this.recordSuccess(
-          manager,
-          command,
-          payloadHash,
-          reservation.latestTransactionId,
-        );
-        return {
-          status: 'no-op',
-          eventId: command.eventId,
-          reservationId: reservation.id,
-          transactionId: reservation.latestTransactionId,
-          outboxEventId,
-        };
-      }
-
-      const accounts = manager.getRepository(CreditAccount);
-      const account = await accounts.findOne({
-        where: { userId: reservation.requesterUserId },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!account) {
-        throw new CreditReservationAdjustmentInvariantError(
-          'Active reservation has no requester credit account',
-        );
-      }
-
-      const difference = command.payload.newAmount - command.payload.oldAmount;
-      if (difference > 0 && account.creditBalance < difference) {
-        return this.reject(
-          manager,
-          command,
-          payloadHash,
-          'INSUFFICIENT_CREDITS',
-        );
-      }
-
-      const nextCreditBalance = account.creditBalance - difference;
-      const nextReservedBalance = account.reservedBalance + difference;
-      assertSafeBalances(nextCreditBalance, nextReservedBalance);
-      account.creditBalance = nextCreditBalance;
-      account.reservedBalance = nextReservedBalance;
-      await accounts.save(account);
-
-      const movements = manager.getRepository(CreditTransaction);
-      const transaction = await movements.save(
-        movements.create({
+      const operations = manager.getRepository(CreditOperation);
+      const operation = await operations.save(
+        operations.create({
           id: randomUUID(),
-          type: 'RESERVATION_ADJUSTMENT',
-          amount: Math.abs(difference),
-          originBalanceType:
-            difference > 0 ? 'CREDIT_BALANCE' : 'RESERVED_BALANCE',
-          destinationBalanceType:
-            difference > 0 ? 'RESERVED_BALANCE' : 'CREDIT_BALANCE',
-          originUserId: reservation.requesterUserId,
-          destinationUserId: reservation.requesterUserId,
-          errandId: reservation.errandId,
+          errandId: command.payload.errandId,
+          operationType: 'ADJUST',
+          status: 'PENDING',
+          requesterUserId: null,
+          courierUserId: null,
+          amount: command.payload.newAmount,
+          expectedAmount: command.payload.oldAmount,
+          commandEventId: command.eventId,
+          requestPayloadHash: payloadHash,
+          attemptCount: 0,
+          nextAttemptAt: new Date(),
+          claimedBy: null,
+          claimedUntil: null,
+          lastError: null,
+          rejectionReason: null,
+          completionTransactionId: null,
+          outcomeOutboxEventId: null,
         }),
       );
-
-      reservation.reservedAmount = command.payload.newAmount;
-      reservation.latestTransactionId = transaction.id;
-      await reservations.save(reservation);
-
-      const outboxEventId = await this.recordSuccess(
-        manager,
-        command,
-        payloadHash,
-        transaction.id,
-        transaction.createdAt,
-      );
+      await this.recordInbox(manager, command, payloadHash, operation.id);
       return {
-        status: 'adjusted',
+        status: 'accepted',
         eventId: command.eventId,
-        reservationId: reservation.id,
-        transactionId: transaction.id,
-        outboxEventId,
+        operationId: operation.id,
       };
     });
   }
 
-  private async reject(
+  private async recordInbox(
     manager: EntityManager,
     command: CreditReservationAdjustmentCommand,
     payloadHash: string,
-    reason: CreditReservationAdjustmentRejectionReason,
-  ): Promise<
-    Extract<CreditReservationAdjustmentOutcome, { status: 'rejected' }>
-  > {
-    const outboxEventId = randomUUID();
-    const event: CreditReservationAdjustmentRejectedEvent = {
-      eventId: outboxEventId,
-      eventType: 'CreditReservationAdjustmentRejected',
-      timestamp: new Date().toISOString(),
-      publisher: 'credit-service',
-      payload: {
-        errandId: command.payload.errandId,
-        requestedAmount: command.payload.newAmount,
-        rejectionReason: reason,
-      },
-    };
-    await this.recordOutcome(
-      manager,
-      command,
-      payloadHash,
-      event,
-      CREDIT_RESERVATION_ADJUSTMENT_REJECTED_ROUTING_KEY,
-      null,
-    );
-    return {
-      status: 'rejected',
-      eventId: command.eventId,
-      reason,
-      outboxEventId,
-    };
-  }
-
-  private async recordSuccess(
-    manager: EntityManager,
-    command: CreditReservationAdjustmentCommand,
-    payloadHash: string,
-    transactionId: string,
-    occurredAt = new Date(),
-  ): Promise<string> {
-    const outboxEventId = randomUUID();
-    const event: CreditReservationAdjustmentSuccessEvent = {
-      eventId: outboxEventId,
-      eventType: 'CreditReservationAdjustmentSuccess',
-      timestamp: occurredAt.toISOString(),
-      publisher: 'credit-service',
-      payload: {
-        errandId: command.payload.errandId,
-        newReservedAmount: command.payload.newAmount,
-        creditTransactionId: transactionId,
-      },
-    };
-    await this.recordOutcome(
-      manager,
-      command,
-      payloadHash,
-      event,
-      CREDIT_RESERVATION_ADJUSTMENT_SUCCESS_ROUTING_KEY,
-      transactionId,
-    );
-    return outboxEventId;
-  }
-
-  private async recordOutcome(
-    manager: EntityManager,
-    command: CreditReservationAdjustmentCommand,
-    payloadHash: string,
-    event: CreditReservationAdjustmentOutcomeEvent,
-    routingKey: string,
-    transactionId: string | null,
+    operationId: string,
   ): Promise<void> {
-    const outbox = manager.getRepository(OutboxEvent);
-    await outbox.save(
-      outbox.create({
-        eventId: event.eventId,
-        eventType: event.eventType,
-        routingKey,
-        envelope: { ...event },
-        publishedAt: null,
-        attemptCount: 0,
-        lastError: null,
-        claimedBy: null,
-        claimedUntil: null,
-      }),
-    );
-
     const inbox = manager.getRepository(InboxEvent);
     await inbox.save(
       inbox.create({
@@ -372,9 +143,9 @@ export class ReservationAdjustmentService {
         payloadHash,
         processedAt: new Date(),
         outcomeAllocationId: null,
-        outcomeOperationId: null,
-        outcomeTransactionId: transactionId,
-        outcomeOutboxEventId: event.eventId,
+        outcomeOperationId: operationId,
+        outcomeTransactionId: null,
+        outcomeOutboxEventId: null,
       }),
     );
   }

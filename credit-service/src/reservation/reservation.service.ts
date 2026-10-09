@@ -183,6 +183,8 @@ export class ReservationService {
             requesterUserId: command.payload.requesterUserId,
             courierUserId: null,
             amount: command.payload.amount,
+            expectedAmount: null,
+            commandEventId: null,
             requestPayloadHash: payloadHash,
             attemptCount: 0,
             nextAttemptAt: new Date(),
