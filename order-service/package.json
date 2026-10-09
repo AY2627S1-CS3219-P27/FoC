@@ -30,6 +30,7 @@
     "pretest:debug": "npm run contracts:build",
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
     "pretest:e2e": "npm run contracts:build",
+    "test:messaging": "vitest run --config ./vitest.config.messaging.ts",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts"
