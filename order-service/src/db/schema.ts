@@ -108,3 +108,29 @@ export const idempotencyKeys = pgTable(
   },
   (t) => [primaryKey({ columns: [t.errandId, t.key] })],
 );
+
+// Transactional outbox (credit ADR 0004): notices are inserted in the same
+// transaction as the state change and published to the broker by the relay.
+export const outboxEvents = pgTable(
+  'outbox_events',
+  {
+    eventId: uuid('event_id').primaryKey(),
+    eventType: text('event_type').notNull(),
+    routingKey: text('routing_key').notNull(),
+    envelope: jsonb('envelope').$type<Record<string, unknown>>().notNull(),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    nextAttemptAt: ts('next_attempt_at').notNull().defaultNow(),
+    publishedAt: ts('published_at'),
+    attemptCount: integer('attempt_count').notNull().default(0),
+    lastError: text('last_error'),
+    claimedBy: text('claimed_by'),
+    claimedUntil: ts('claimed_until'),
+  },
+  (t) => [
+    check('outbox_events_attempt_count_check', sql`${t.attemptCount} >= 0`),
+    //publisher only cares about the evemts that have not been published
+    index('outbox_events_unpublished_idx')
+      .on(t.nextAttemptAt, t.createdAt, t.eventId)
+      .where(sql`${t.publishedAt} IS NULL`),  
+  ],
+);
