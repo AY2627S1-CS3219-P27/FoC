@@ -50,6 +50,20 @@ describe('credit persistence migration', () => {
       ]),
     );
 
+    const userIdColumns = await dataSource.query<
+      { table_name: string; data_type: string }[]
+    >(`
+      SELECT table_name, data_type FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name IN ('credit_accounts', 'credit_allocations')
+        AND column_name = 'user_id'
+      ORDER BY table_name
+    `);
+    expect(userIdColumns).toEqual([
+      { table_name: 'credit_accounts', data_type: 'uuid' },
+      { table_name: 'credit_allocations', data_type: 'uuid' },
+    ]);
+
     const constraints = await dataSource.query<{ conname: string }[]>(`
       SELECT conname FROM pg_constraint
       WHERE conname LIKE 'CHK_credit_%'
