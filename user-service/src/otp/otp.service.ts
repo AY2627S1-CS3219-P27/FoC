@@ -14,6 +14,7 @@ import {
   otpRecordKey,
   registrationTokenRecordKey,
 } from '../common/hash/token-keys.js';
+import { UsersService } from '../users/users.service.js';
 
 export const CREATE_OTP_SCRIPT = getCreateOtpScript();
 export const VALIDATE_OTP_SCRIPT = getValidateOtpScript();
@@ -30,6 +31,7 @@ export class OtpService {
     @Inject(REDIS) private redis: RedisClientType,
     @Inject(EMAIL_SERVICE) private emailClient: ClientProxy,
     private secretService: SecretService,
+    private usersService: UsersService,
   ) {}
 
   private readonly OtpLength = 6;
@@ -41,6 +43,11 @@ export class OtpService {
   private readonly RegistrationTokenExpiry = 600; // record TTL (seconds)
 
   async createOtpRequest(email: string) {
+    // An email already tied to an existing account is silently rejected.
+    if (await this.usersService.existsByEmail(email)) {
+      return;
+    }
+
     const otp = this.generateOtp();
 
     const recordKey = otpRecordKey(
@@ -135,7 +142,7 @@ export class OtpService {
   }
 
   /**
-   * Generates a cryptographically random registration token (F2.2.2).
+   * Generates a cryptographically random registration token.
    */
   private generateRegistrationToken() {
     const bytes = randomBytes(this.RegistrationTokenBytes);

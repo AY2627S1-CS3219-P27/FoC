@@ -12,3 +12,4 @@ env
 **/docs
 **/*.secret
 **/*.log
+**/*.tsbuildinfo
