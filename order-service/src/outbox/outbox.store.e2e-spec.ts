@@ -51,6 +51,7 @@ describe('OutboxStore', () => {
     const first = await store.claim('a', 10, 60_000);
     expect(first.map((c) => c.eventId)).toEqual([e.eventId]);
     expect(first[0]).toMatchObject({ attemptCount: 1, envelope: e.envelope });
+    expect(first[0]?.createdAt).toBeInstanceOf(Date);
     expect(await store.claim('b', 10, 60_000)).toEqual([]);
 
     await t.db.execute(

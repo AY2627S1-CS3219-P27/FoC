@@ -53,7 +53,8 @@ export class OutboxStore {
                 event.attempt_count AS "attemptCount",
                 event.last_error AS "lastError"
     `);
-    return rows;
+    // Raw SQL returns timestamps as strings; the relay needs a Date.
+    return rows.map((r) => ({ ...r, createdAt: new Date(r.createdAt) }));
   }
 
   async markPublished(eventId: string, workerId: string): Promise<boolean> {
