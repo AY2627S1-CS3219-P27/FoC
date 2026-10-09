@@ -87,7 +87,7 @@ reservation amount as authoritative. An increase moves the positive difference
 from available to reserved; a decrease moves it back. An effective change
 appends one immutable `RESERVATION_ADJUSTMENT` transaction and updates the
 reservation's amount and latest transaction reference. An equal target amount
-replays success without another movement.
+publishes success without another movement.
 
 Adjustment business rejection reasons are:
 
@@ -105,10 +105,21 @@ conflicting reuse of one event ID. Technical failures enter bounded broker
 retry only until durable ingress; a persisted reservation operation is then
 retried independently by the worker.
 
+Adjustment commands are idempotent by event ID. Redelivery with the same event
+ID and payload returns the stored outcome without another outbox event or
+movement; reuse of that ID with different content is dead-lettered. A different
+event ID is a fresh command evaluated against current state, even if its payload
+matches an earlier adjustment. Repeating a successful effective transition
+will normally be rejected as `STALE_RESERVATION_AMOUNT`, while an earlier
+business rejection can be retried under a new event ID and may succeed after
+state changes. A fresh no-op command publishes a fresh success outcome but does
+not create a ledger entry.
+
 All inbound delivery and outbound publication is at least once. Duplicate
 event IDs never reapply state. A distinct equivalent reservation command links
 to the established semantic operation and replays its outcome without another
-balance movement or ledger entry. Consumers of Credit outcomes must also
+balance movement or ledger entry. This semantic replay does not apply to
+adjustments with distinct event IDs. Consumers of Credit outcomes must also
 deduplicate by event ID.
 
 For every account, the sum of `reserved_amount` across its `ACTIVE`

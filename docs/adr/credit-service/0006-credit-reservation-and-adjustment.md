@@ -213,20 +213,35 @@ For an effective adjustment:
 Business rejections commit inbox and outbox evidence but never modify account
 or reservation state and never create a credit transaction.
 
+Adjustment commands are identified by event ID. Redelivery of the same event ID
+and canonical payload returns its stored outcome without another outbox event or
+movement. Reusing that event ID with different content is a permanent transport
+failure. A different event ID is always a fresh command evaluated against the
+current locked reservation and account state, even when its payload matches an
+earlier command. Consequently, repeating a successful effective transition
+normally produces `STALE_RESERVATION_AMOUNT`, while repeating an earlier
+business rejection may succeed if the relevant state has since changed. A
+fresh no-op command publishes its own success outcome with the reservation's
+latest transaction ID but creates no ledger movement.
+
 ### Idempotency and durable outcomes
 
 A repeated event ID with the same event type and canonical payload hash is
-acknowledged without applying state or publishing another outcome. While an
-operation is pending, a distinct equivalent event links another inbox row to
-the same operation. When the worker completes, all linked inbox rows receive
-the canonical completion references. Reusing an event ID with different
-content is a permanent failure and is dead-lettered.
+acknowledged without applying state or publishing another outcome. Reusing an
+event ID with different content is a permanent failure and is dead-lettered.
+
+Reservation operations additionally have semantic identity. While one is
+pending, a distinct equivalent reservation event links another inbox row to the
+same operation. When the worker completes, all linked inbox rows receive the
+canonical completion references.
 
 A different event ID received after terminal operation completion publishes a
 fresh outcome referencing the established result, without creating another
 operation, reservation movement, or ledger entry. Every newly created outbox
 event has its own stable event ID, which remains unchanged across relay retries.
-No-op adjustment replay retains the same established-transaction behavior.
+This cross-event semantic replay applies only to reservation lifecycle
+operations. A distinct adjustment event ID is a new command and receives a
+freshly evaluated outcome.
 
 ### Balance reconciliation and invariant failures
 
@@ -301,12 +316,14 @@ DLQs for reservation and adjustment streams.
 - `PENDING` operations survive process failure, expired claims are recoverable,
   and technical failures never become business rejections.
 - Successful effective movements create exactly one immutable transaction;
-  duplicate event IDs, semantic replays, no-op adjustments, and business
-  rejections create none.
-- A distinct replay event produces a distinct outgoing event ID while retaining
-  the established credit transaction ID.
+  duplicate event IDs, reservation semantic replays, no-op adjustments, and
+  business rejections create none.
+- A distinct reservation replay event produces a distinct outgoing event ID
+  while retaining the established credit transaction ID.
 - The stored reservation is authoritative, so stale adjustment commands are
   rejected even when their requested target equals the current amount.
+- Distinct adjustment event IDs represent fresh intent; business rejections are
+  reevaluated rather than permanently cached by payload.
 - Business rejection events are reliable transactional outcomes; malformed
   contracts and conflicting event-ID reuse remain DLQ concerns, while accepted
   operations continue worker retries without a terminal attempt limit.
