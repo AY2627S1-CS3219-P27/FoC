@@ -61,6 +61,11 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  order-service:
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
   credit-service:
     depends_on:
       rabbitmq:
