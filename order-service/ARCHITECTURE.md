@@ -1,6 +1,6 @@
 # order-service architecture
 
-Diagrams are Mermaid (render on GitHub / VS Code). Decisions behind them: ADRs [0001](../docs/adr/order-service/0001-hand-rolled-event-sourcing-on-postgres.md)–[0007](../docs/adr/order-service/0007-expiry-duration-autocomplete-and-supplier-validation.md). Terms: [`CONTEXT.md`](./CONTEXT.md).
+Diagrams are Mermaid (render on GitHub / VS Code). Decisions behind them: ADRs [0001](../docs/adr/order-service/0001-hand-rolled-event-sourcing-on-postgres.md)–[0007](../docs/adr/order-service/0007-expiry-duration-autocomplete-and-supplier-validation.md), [0008](../docs/adr/order-service/0008-transactional-outbox-and-broker-access.md). Terms: [`CONTEXT.md`](./CONTEXT.md).
 
 ## 1. Components
 
@@ -16,13 +16,14 @@ flowchart LR
     Life[Lifecycle module<br/>state machine + transition function]
     Read[Read side<br/>list / filter / sort, sub-state to Pending]
     Consumers[Notice consumers<br/>supplier + credit replies]
-    Pub[Notice publisher]
+    Outbox[Outbox relay + publisher<br/>built; nothing enqueues yet]
     Sweeps[Sweeps<br/>expiry, supplier retry, auto-complete]
   end
 
   subgraph PG[PostgreSQL]
     Errands[errands<br/>projection, last_sequence_number]
     Events[errand_events<br/>append-only log]
+    OutboxT[outbox_events<br/>unpublished notices]
     Locks[advisory locks]
   end
 
@@ -38,8 +39,9 @@ flowchart LR
   Life --> Events
   Sweeps --> Locks
   Sweeps --> Life
-  Life --> Pub
-  Pub --> MQ
+  Life -.->|"planned: same transaction"| OutboxT
+  OutboxT --> Outbox
+  Outbox -->|"publish with confirms"| MQ
   MQ --> Consumers
   Consumers --> Life
   MQ <--> Supplier
@@ -137,11 +139,11 @@ sequenceDiagram
     L->>DB: INSERT errand_events (seq, type, from, to, actor, payload JSONB, key)
     L->>DB: COMMIT
     L-->>C: success
-    L--)C: publish notice after commit, if any
+    Note over L,DB: planned: INSERT outbox_events in the same transaction (not wired yet)
   end
 ```
 
-Publishing after commit can lose a notice if the process dies between commit and publish. The planned fix is to write the notice to an outbox table in the same transaction and relay it to the broker (as credit-service does, credit ADR 0003/0004); not yet recorded in an order-service ADR. See `order-messaging-feature-docs.md` (M3).
+Publishing after commit would lose a notice if the process dies between commit and publish, so notices go through a transactional outbox ([ADR 0008](../docs/adr/order-service/0008-transactional-outbox-and-broker-access.md)): the notice is inserted into `outbox_events` in the same transaction as the event, and a relay (`src/outbox/`) publishes it to `foc.events` with confirms. The table, the `enqueueOutbox(tx, event)` helper, the relay and the publisher exist and are tested; `transition()` and `createErrand()` do not call the helper yet because the event contracts are not agreed (`order-messaging-feature-docs.md` L1/M4). Delivery is at least once, so consumers dedupe on `eventId`.
 
 Concurrent accepts, late credit replies and sweep ticks all lose safely at the `WHERE status = expected` check. No Redis or RabbitMQ is involved in the race.
 

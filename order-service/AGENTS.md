@@ -6,7 +6,7 @@ Read `CONTEXT.md` (terms), `ARCHITECTURE.md` (state model, write path) and `orde
 
 ## Stack
 
-NestJS 12 (ESM, `.js` import suffixes), PostgreSQL 18, Drizzle ORM (`drizzle-kit` migrations in `drizzle/`), Joi env validation, Vitest, oxlint. Hand-rolled event sourcing (ADR 0001); RabbitMQ for cross-service notices (ADR 0002).
+NestJS 12 (ESM, `.js` import suffixes), PostgreSQL 18, Drizzle ORM (`drizzle-kit` migrations in `drizzle/`), Joi env validation, Vitest, oxlint. Hand-rolled event sourcing (ADR 0001); RabbitMQ for cross-service notices (ADR 0002) through a transactional outbox (ADR 0008).
 
 ## Commands
 
@@ -25,5 +25,7 @@ Run from `order-service/`:
 - Cancellation reasons are tied to the actor: `REQUESTER_CANCELLED` is user-only, every other reason system-only (`USER_REASONS` in `edges.ts`). The set is also a DB CHECK.
 - Allowed transitions live in `src/lifecycle/status.ts` (`ALLOWED`); change them there and in `ARCHITECTURE.md` §2 together.
 - Sub-states (`Pending-Supplier`, `Reserving-Credit`) are shown as `Pending` at the API. The other in-flight credit statuses (`Transferring-Credit`, `Adjusting-Credit`, ADR 0006) are likewise internal and shown as the status around them. A `from`/`to` pair with several exits (`Adjusting-Credit` → `Open`) is picked by `TransitionInput.type`.
+- Notices for other services go through the outbox (ADR 0008): insert with `enqueueOutbox(tx, event)` (`src/outbox/outbox.store.ts`) inside the same transaction as the state change, never publish to the broker directly. Delivery is at least once. Not yet called from `transition()` / `createErrand()` (event contracts pending), and no events are defined in `packages/contracts` for order yet.
+- Migrations are not applied on startup. A fresh DB needs `npm run db:migrate` (in the container: `docker compose run --rm --no-deps order-service npm run db:migrate`), or the outbox relay crashes the app on its first poll.
 - New env vars: add to `src/config/environment.schema.ts`, `compose.yml` and `../env/order-service.env.example` (shared ones in `../env/shared.env.example`).
 - DB and RabbitMQ passwords are Docker secrets (`secrets/order_db_password.secret`, `secrets/rabbitmq_password.secret`, copy from the `.example`); never commit them. The RabbitMQ one must match the `order-service` hash in `../rabbitmq/definitions.json`.
