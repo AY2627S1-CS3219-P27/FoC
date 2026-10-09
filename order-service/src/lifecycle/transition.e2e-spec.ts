@@ -618,6 +618,20 @@ describe('transition', () => {
       expect(await cancel(user(requester))).toMatchObject({ ok: true });
     });
 
+    it('refuses the requester cancelling once picked up; the system may', async () => {
+      const id = await seed('Picked Up');
+      const cancel = (actor: Actor, cancellationReason: 'REQUESTER_CANCELLED' | 'PICKUP_TIME_EXCEEDED') =>
+        transition(t.db, {
+          errandId: id,
+          expected: 'Picked Up',
+          to: 'Cancelled',
+          actor,
+          set: { cancellationReason },
+        });
+      expect(await cancel(user(requester), 'REQUESTER_CANCELLED')).toEqual({ ok: false, reason: 'FORBIDDEN' });
+      expect(await cancel(SYSTEM, 'PICKUP_TIME_EXCEEDED')).toMatchObject({ ok: true });
+    });
+
     it('reports a stale expectation as STATE_MISMATCH, not FORBIDDEN', async () => {
       const id = await seed('Accepted');
       expect(await accept(id, user(randomUUID()))).toMatchObject({ reason: 'STATE_MISMATCH' });

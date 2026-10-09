@@ -87,7 +87,8 @@ export const EDGES: Partial<
   },
   'Picked Up': {
     Delivered: { type: 'ErrandDelivered', sets: ['deliveredAt'], clears: [], who: ['courier'] },
-    Cancelled: cancel(['requester', 'system'], ['REQUESTER_CANCELLED', 'PICKUP_TIME_EXCEEDED']),
+    // System only (the 24h timer): the requester cannot cancel once picked up.
+    Cancelled: cancel(sys, ['PICKUP_TIME_EXCEEDED']),
   },
   Delivered: {
     // System too: the 24h auto-complete (D3).
