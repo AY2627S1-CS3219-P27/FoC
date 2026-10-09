@@ -52,7 +52,7 @@ export type TransitionResult =
       reason:
         | 'ILLEGAL_TRANSITION'
         | 'INVALID_FIELDS'
-        | 'NOT_FOUND'
+        | 'NOT_FOUND' // errand not found
         | 'IDEMPOTENCY_KEY_REUSED'
         | 'FORBIDDEN' // actor may not take this edge on this errand
         | 'COURIER_BUSY' // courier already holds an active errand
