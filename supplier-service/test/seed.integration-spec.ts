@@ -28,6 +28,8 @@ const CONFIG: Record<string, unknown> = {
 describe('seed import (real PostgreSQL)', () => {
   let dataSource: DataSource;
   let seed: SupplierSeedService;
+  let buildings: BuildingsService;
+  let categories: CategoriesService;
   let warn: ReturnType<typeof vi.spyOn>;
 
   beforeAll(async () => {
@@ -48,14 +50,16 @@ describe('seed import (real PostgreSQL)', () => {
     const config = {
       get: (key: string) => CONFIG[key],
     } as unknown as ConfigService<EnvironmentVariables, true>;
+    buildings = new BuildingsService(
+      dataSource,
+      dataSource.getRepository(Building),
+      dataSource.getRepository(BuildingNameKey),
+    );
+    categories = new CategoriesService(dataSource.getRepository(Category));
     seed = new SupplierSeedService(
       config,
-      new BuildingsService(
-        dataSource,
-        dataSource.getRepository(Building),
-        dataSource.getRepository(BuildingNameKey),
-      ),
-      new CategoriesService(dataSource.getRepository(Category)),
+      buildings,
+      categories,
       new SuppliersService(dataSource, config),
     );
   });
@@ -66,7 +70,7 @@ describe('seed import (real PostgreSQL)', () => {
 
   beforeEach(async () => {
     await dataSource.query(`
-      TRUNCATE supplier_categories, suppliers, categories,
+      TRUNCATE supplier_requests, supplier_categories, suppliers, categories,
                building_name_keys, buildings
     `);
     warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
@@ -154,6 +158,66 @@ describe('seed import (real PostgreSQL)', () => {
     // F12.2.4: photo where present, otherwise none.
     expect((await stored('Cool Spot')).photoUrl).toMatch(/COOL_SPOT\.jpeg$/);
     expect((await stored('Nami')).photoUrl).toBeNull();
+  });
+
+  it('strips a name suffix only when it names the row’s own building (F12.2.6)', async () => {
+    const csv = [
+      'Name,Type,Building,Floor,Location Description,Latitude,Longitude,StartingTime,ClosingTime,ImageURL',
+      'Stall @ Com2,Food,Com 2,1,By the lift,1.2940,103.7738,0900hrs,1800hrs,',
+      'Kiosk @ COM3,Food,Com 2,1,By the stairs,1.2940,103.7738,0900hrs,1800hrs,',
+      'Booth @ Nowhere,Food,Com 2,1,By the door,1.2940,103.7738,0900hrs,1800hrs,',
+    ].join('\r\n');
+
+    await expect(seed.importSeed(Buffer.from(csv))).resolves.toMatchObject({
+      created: 3,
+      rejected: 0,
+    });
+
+    // Own building (Com2 = COM2): suffix removed, display name re-adds it.
+    expect((await stored('Stall')).building?.shortName).toBe('COM2');
+    // Another real building, or no building at all: the name is kept whole.
+    expect((await stored('Kiosk @ COM3')).building?.shortName).toBe('COM2');
+    expect((await stored('Booth @ Nowhere')).building?.shortName).toBe('COM2');
+  });
+
+  it('does not re-create a building an admin retired (review #605)', async () => {
+    await seed.importSeed(SEED_FILE);
+    const frontier = await buildings.resolve('Frontier');
+    await buildings.retire(frontier!.id);
+
+    await expect(seed.importSeed(SEED_FILE)).resolves.toEqual({
+      created: 0,
+      alreadyPresent: 21,
+      rejected: 0,
+    });
+    expect(await dataSource.getRepository(Building).count()).toBe(14);
+    await expect(buildings.resolve('Frontier')).resolves.toBeNull();
+  });
+
+  it('does not re-create a category an admin retired (review #605)', async () => {
+    await seed.importSeed(SEED_FILE);
+    const printing = await categories.findActiveByName('Printing');
+    await categories.retire(printing!.id);
+
+    await expect(seed.importSeed(SEED_FILE)).resolves.toMatchObject({
+      created: 0,
+      alreadyPresent: 21,
+    });
+    expect(await dataSource.getRepository(Category).count()).toBe(4);
+    await expect(categories.findActiveByName('Printing')).resolves.toBeNull();
+  });
+
+  it('creates no category for a row it rejects (review #605)', async () => {
+    const csv = [
+      'Name,Type,Building,Floor,Location Description,Latitude,Longitude,StartingTime,ClosingTime,ImageURL',
+      'Gadget Hub,Gadgets,COM3,Z,By the lift,1.2944,103.7726,0900hrs,1800hrs,',
+    ].join('\r\n');
+
+    await expect(seed.importSeed(Buffer.from(csv))).resolves.toMatchObject({
+      created: 0,
+      rejected: 1,
+    });
+    await expect(categories.findByName('Gadgets')).resolves.toBeNull();
   });
 
   it('skips bad rows, reports each with row, field and reason, and keeps going (F12.4)', async () => {

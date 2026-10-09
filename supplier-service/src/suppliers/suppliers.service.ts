@@ -3,15 +3,16 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { isUUID } from 'class-validator';
-import { DataSource, type EntityManager, In } from 'typeorm';
+import { DataSource, type EntityManager, In, Not } from 'typeorm';
 import {
   ErrorCode,
   type FieldViolation,
 } from '../common/errors/error-response.js';
-import { nameKey } from '../common/normalise/normalise.js';
+import { nameKey, normaliseFloor } from '../common/normalise/normalise.js';
 import type { EnvironmentVariables } from '../config/environment.schema.js';
 import {
   Building,
@@ -21,7 +22,18 @@ import {
   SupplierStatus,
 } from '../database/entities/index.js';
 import { isUniqueViolation } from '../database/postgres-errors.js';
-import { type CampusBox, checkSupplierInput } from './supplier-input.rules.js';
+import type { SupplierInputDto } from './dto/supplier-input.dto.js';
+import {
+  type CampusBox,
+  checkSupplierInput,
+  checkSupplierPatch,
+} from './supplier-input.rules.js';
+
+/** What a supplier already references; F1.8 lets these stay retired. */
+interface CurrentReferences {
+  buildingId: string;
+  categoryIds: string[];
+}
 
 /**
  * Supplier writes. Each runs in one transaction (F14.1): the input is
@@ -45,14 +57,112 @@ export class SuppliersService {
   }
 
   /**
+   * The field-rule problems of a raw submission (F1.2, F1.6, campus box),
+   * without touching the database. Empty when the fields are valid.
+   */
+  async fieldViolations(input: unknown): Promise<FieldViolation[]> {
+    const checked = await checkSupplierInput(input, this.campus);
+    return checked.valid ? [] : checked.violations;
+  }
+
+  /** Whether a supplier with this duplicate key (F1.5) already exists. */
+  exists(name: string, buildingId: string, floor: string): Promise<boolean> {
+    return this.dataSource.getRepository(Supplier).exists({
+      where: {
+        nameKey: nameKey(name),
+        buildingId,
+        floor: normaliseFloor(floor),
+      },
+    });
+  }
+
+  /**
+   * Checks a proposed new supplier against every rule a create applies (field
+   * rules, references, campus box), reporting every problem at once, without
+   * saving anything. Returns the validated, normalised values. Used to file a
+   * creation request (F7.1).
+   */
+  async validateNew(input: unknown): Promise<SupplierInputDto> {
+    const checked = await checkSupplierInput(input, this.campus);
+    return this.dataSource.transaction(async (manager) => {
+      const violations = checked.valid ? [] : [...checked.violations];
+      violations.push(...(await referenceViolations(manager, input)));
+      if (!checked.valid || violations.length > 0) {
+        throw validationFailed(violations);
+      }
+      return checked.value;
+    });
+  }
+
+  /**
+   * Checks a proposed edit against every rule an admin edit applies, without
+   * saving anything (F8.1): unknown supplier (404), stale version (409),
+   * every field and reference problem at once (400), and whether the edited
+   * record would duplicate another supplier (409, F1.5.1). Returns the
+   * validated, normalised changes. Used to file an update request; the
+   * supplier is share-locked so it cannot change until the request is saved.
+   */
+  async validatePatch(
+    id: string,
+    expectedVersion: number,
+    input: unknown,
+    within?: EntityManager,
+  ): Promise<SupplierInputDto> {
+    const checked = await checkSupplierPatch(input, this.campus);
+
+    return this.inTransaction(within, async (manager) => {
+      const supplier = await lockForChange(
+        manager,
+        id,
+        expectedVersion,
+        'pessimistic_read',
+      );
+      const violations = checked.valid ? [] : [...checked.violations];
+      violations.push(
+        ...(await referenceViolations(
+          manager,
+          input,
+          await currentReferences(manager, supplier),
+        )),
+      );
+      if (!checked.valid || violations.length > 0) {
+        throw validationFailed(violations);
+      }
+
+      const dto = checked.value;
+      if (
+        dto.name !== undefined ||
+        dto.buildingId !== undefined ||
+        dto.floor !== undefined
+      ) {
+        const duplicate = await manager.exists(Supplier, {
+          where: {
+            id: Not(id),
+            nameKey:
+              dto.name !== undefined ? nameKey(dto.name) : supplier.nameKey,
+            buildingId: dto.buildingId ?? supplier.buildingId,
+            floor: dto.floor ?? supplier.floor,
+          },
+        });
+        if (duplicate) {
+          throw duplicateSupplier();
+        }
+      }
+      return dto;
+    });
+  }
+
+  /**
    * Creates an Active supplier at version 1 (F7.5, F9.1, F1.3.1). The input
    * is untrusted: the seed import and the admin API both pass raw values.
+   * Given a transaction, it runs inside it (approving a creation request
+   * applies the create and records the approval atomically, F6.8).
    */
-  async create(input: unknown): Promise<Supplier> {
+  async create(input: unknown, within?: EntityManager): Promise<Supplier> {
     const checked = await checkSupplierInput(input, this.campus);
 
-    try {
-      return await this.dataSource.transaction(async (manager) => {
+    return withDuplicateMapped(() =>
+      this.inTransaction(within, async (manager) => {
         const violations = checked.valid ? [] : [...checked.violations];
         violations.push(...(await referenceViolations(manager, input)));
         if (!checked.valid || violations.length > 0) {
@@ -82,30 +192,211 @@ export class SuppliersService {
           })),
         );
         return saved;
-      });
-    } catch (error) {
-      // The unique constraint, not a prior lookup, decides duplicates, so two
-      // concurrent identical submissions cannot both succeed (F1.5.2).
-      if (isUniqueViolation(error, 'UQ_suppliers_name_key_building_floor')) {
+      }),
+    );
+  }
+
+  /**
+   * An admin edit of one or more fields (F8.6, F8.1), based on the version
+   * the admin last saw (F14.3). The row is locked for the whole check, so a
+   * concurrent edit based on the same version is refused with a conflict
+   * instead of silently lost (F14.3.1). Order of checks: unknown supplier
+   * (404), stale version (409), then every field problem at once (400).
+   */
+  async update(
+    id: string,
+    expectedVersion: number,
+    input: unknown,
+    within?: EntityManager,
+  ): Promise<void> {
+    const checked = await checkSupplierPatch(input, this.campus);
+
+    await withDuplicateMapped(() =>
+      this.inTransaction(within, async (manager) => {
+        const supplier = await lockForChange(manager, id, expectedVersion);
+        const violations = checked.valid ? [] : [...checked.violations];
+        violations.push(
+          ...(await referenceViolations(
+            manager,
+            input,
+            await currentReferences(manager, supplier),
+          )),
+        );
+        if (!checked.valid || violations.length > 0) {
+          throw validationFailed(violations);
+        }
+
+        const dto = checked.value;
+        const changes: Partial<Supplier> = {};
+        if (dto.name !== undefined) {
+          changes.name = dto.name;
+          changes.nameKey = nameKey(dto.name);
+        }
+        if (dto.kind !== undefined) changes.kind = dto.kind;
+        if (dto.buildingId !== undefined) changes.buildingId = dto.buildingId;
+        if (dto.floor !== undefined) changes.floor = dto.floor;
+        if (dto.locationDescription !== undefined) {
+          changes.locationDescription = dto.locationDescription;
+        }
+        if (dto.coordinates !== undefined) {
+          changes.latitude = dto.coordinates.latitude;
+          changes.longitude = dto.coordinates.longitude;
+        }
+        if (dto.photoUrl !== undefined) changes.photoUrl = dto.photoUrl;
+
+        if (dto.categoryIds !== undefined) {
+          await manager.delete(SupplierCategory, { supplierId: id });
+          await manager.insert(
+            SupplierCategory,
+            dto.categoryIds.map((categoryId) => ({
+              supplierId: id,
+              categoryId,
+            })),
+          );
+        }
+        // Every committed change bumps the version, even one that only
+        // replaced the categories (F1.3.1). The unique constraint judges
+        // the edited record as a whole (F1.5.1).
+        await bumpVersion(manager, id, changes);
+      }),
+    );
+  }
+
+  /**
+   * Activates or deactivates a supplier (F9.5), based on the version the
+   * admin last saw (F14.3). Only Active <-> Inactive is allowed (F9.2).
+   * Errands already created are untouched: they keep their own snapshot
+   * (F9.6, F15.5).
+   */
+  async changeStatus(
+    id: string,
+    expectedVersion: number,
+    status: SupplierStatus,
+    within?: EntityManager,
+  ): Promise<void> {
+    await this.inTransaction(within, async (manager) => {
+      const supplier = await lockForChange(manager, id, expectedVersion);
+      if (supplier.status === status) {
         throw new ConflictException({
-          code: ErrorCode.DuplicateSupplier,
-          message:
-            'A supplier with the same name already exists on this floor of this building.',
+          code: ErrorCode.InvalidStatusTransition,
+          message: `The supplier is already ${status}.`,
         });
       }
-      throw error;
-    }
+      await bumpVersion(manager, id, { status });
+    });
+  }
+
+  /** Runs the work inside the given transaction, or in a new one. */
+  private inTransaction<T>(
+    within: EntityManager | undefined,
+    work: (manager: EntityManager) => Promise<T>,
+  ): Promise<T> {
+    return within ? work(within) : this.dataSource.transaction(work);
   }
 }
 
 /**
+ * Loads the supplier with a row lock held until the transaction ends, and
+ * checks the version the change is based on (F14.3.1). A change takes the
+ * exclusive lock; a check that only reads takes a shared one.
+ */
+async function lockForChange(
+  manager: EntityManager,
+  id: string,
+  expectedVersion: number,
+  mode: 'pessimistic_write' | 'pessimistic_read' = 'pessimistic_write',
+): Promise<Supplier> {
+  const supplier = await manager.findOne(Supplier, {
+    where: { id },
+    lock: { mode },
+  });
+  if (!supplier) {
+    throw new NotFoundException({
+      code: ErrorCode.SupplierNotFound,
+      message: `Supplier ${id} does not exist.`,
+    });
+  }
+  if (supplier.version !== expectedVersion) {
+    throw new ConflictException({
+      code: ErrorCode.VersionConflict,
+      message:
+        'The supplier has changed since you loaded it. Reload it and try again.',
+      currentVersion: supplier.version,
+    });
+  }
+  return supplier;
+}
+
+/** The building and categories the supplier references now (F1.8). */
+async function currentReferences(
+  manager: EntityManager,
+  supplier: Supplier,
+): Promise<CurrentReferences> {
+  const links = await manager.findBy(SupplierCategory, {
+    supplierId: supplier.id,
+  });
+  return {
+    buildingId: supplier.buildingId,
+    categoryIds: links.map((link) => link.categoryId),
+  };
+}
+
+/** Applies the column changes and increments the version, in one UPDATE. */
+async function bumpVersion(
+  manager: EntityManager,
+  id: string,
+  changes: Partial<Supplier>,
+): Promise<void> {
+  await manager
+    .createQueryBuilder()
+    .update(Supplier)
+    .set({
+      ...changes,
+      version: () => 'version + 1',
+      updatedAt: () => 'now()',
+    })
+    .where('id = :id', { id })
+    .execute();
+}
+
+/**
+ * Turns the duplicate constraint firing into 409 DUPLICATE_SUPPLIER. The
+ * constraint, not a prior lookup, decides duplicates, so two concurrent
+ * identical submissions cannot both succeed (F1.5.2).
+ */
+async function withDuplicateMapped<T>(work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    if (isUniqueViolation(error, 'UQ_suppliers_name_key_building_floor')) {
+      throw duplicateSupplier();
+    }
+    throw error;
+  }
+}
+
+function duplicateSupplier(): ConflictException {
+  return new ConflictException({
+    code: ErrorCode.DuplicateSupplier,
+    message:
+      'A supplier with the same name already exists on this floor of this building.',
+  });
+}
+
+/**
  * Newly supplied building and category ids must exist and must not be
- * retired (F1.2.3, F1.2.4, F1.8). Ids that are not UUIDs are already
- * reported by the field rules, so they are skipped here.
+ * retired (F1.2.3, F1.2.4). Ids the supplier already references may stay
+ * retired (F1.8). Ids that are not UUIDs are already reported by the field
+ * rules, so they are skipped here.
+ *
+ * The rows are read with a shared lock (FOR SHARE) held until the write
+ * commits, so a building or category being retired at the same moment
+ * waits, and cannot be retired between this check and the change.
  */
 async function referenceViolations(
   manager: EntityManager,
   input: unknown,
+  current?: CurrentReferences,
 ): Promise<FieldViolation[]> {
   const raw = (typeof input === 'object' && input !== null ? input : {}) as {
     buildingId?: unknown;
@@ -113,14 +404,21 @@ async function referenceViolations(
   };
   const violations: FieldViolation[] = [];
 
+  // Ids are compared lower-case: PostgreSQL returns UUIDs lower-case.
   if (typeof raw.buildingId === 'string' && isUUID(raw.buildingId)) {
-    const building = await manager.findOneBy(Building, { id: raw.buildingId });
+    const building = await manager.findOne(Building, {
+      where: { id: raw.buildingId.toLowerCase() },
+      lock: { mode: 'pessimistic_read' },
+    });
     if (!building) {
       violations.push({
         field: 'buildingId',
         reason: 'building does not exist',
       });
-    } else if (building.retiredAt !== null) {
+    } else if (
+      building.retiredAt !== null &&
+      building.id !== current?.buildingId
+    ) {
       violations.push({
         field: 'buildingId',
         reason: 'building is retired and cannot be chosen',
@@ -131,13 +429,18 @@ async function referenceViolations(
   if (Array.isArray(raw.categoryIds)) {
     const ids = [
       ...new Set(
-        raw.categoryIds.filter(
-          (id): id is string => typeof id === 'string' && isUUID(id),
-        ),
+        raw.categoryIds
+          .filter((id): id is string => typeof id === 'string' && isUUID(id))
+          .map((id) => id.toLowerCase()),
       ),
     ];
     const found =
-      ids.length > 0 ? await manager.findBy(Category, { id: In(ids) }) : [];
+      ids.length > 0
+        ? await manager.find(Category, {
+            where: { id: In(ids) },
+            lock: { mode: 'pessimistic_read' },
+          })
+        : [];
     for (const id of ids) {
       const category = found.find((candidate) => candidate.id === id);
       if (!category) {
@@ -145,7 +448,10 @@ async function referenceViolations(
           field: 'categoryIds',
           reason: `category ${id} does not exist`,
         });
-      } else if (category.retiredAt !== null) {
+      } else if (
+        category.retiredAt !== null &&
+        !current?.categoryIds.includes(id)
+      ) {
         violations.push({
           field: 'categoryIds',
           reason: `category ${id} is retired and cannot be chosen`,
