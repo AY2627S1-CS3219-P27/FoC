@@ -1,5 +1,7 @@
+import { sql } from 'drizzle-orm';
 import {
   index,
+  uniqueIndex,
   integer,
   jsonb,
   pgTable,
@@ -12,6 +14,8 @@ import {
 import { statusEnum } from '../lifecycle/status.js';
 
 export { statusEnum };
+
+export const COURIER_LOCK_INDEX = 'errands_one_active_per_courier';
 
 const ts = (name: string) => timestamp(name, { withTimezone: true });
 
@@ -50,6 +54,10 @@ export const errands = pgTable(
     index().on(t.status, t.pickedUpAt),
     index().on(t.status, t.deliveredAt),
     index().on(t.courierId, t.status),
+    // One active errand per courier (L5, F5.6); keep in step with the accept edge.
+    uniqueIndex(COURIER_LOCK_INDEX)
+      .on(t.courierId)
+      .where(sql`${t.status} IN ('Accepted', 'Picked Up')`),
     index().on(t.requesterId, t.status),
   ],
 );
@@ -67,7 +75,7 @@ export const errandEvents = pgTable(
     toStatus: statusEnum('to_status').notNull(),
     schemaVersion: integer('schema_version').notNull().default(1),
     payload: jsonb('payload').notNull(), //relavent information regarding each state will be stored here
-    actorId: uuid('actor_id'), // system actor for sweep transitions
+    actorId: uuid('actor_id'), // null = system actor (sweeps, credit and supplier replies)
     occurredAt: ts('occurred_at').notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.errandId, t.sequenceNumber] })],
