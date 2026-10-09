@@ -24,6 +24,8 @@ export const CANCELLATION_REASONS = [
   'REQUESTER_CANCELLED',
 ] as const;
 export type CancellationReason = (typeof CANCELLATION_REASONS)[number];
+// Reasons only a user may give; every other reason is system-only.
+export const USER_REASONS: CancellationReason[] = ['REQUESTER_CANCELLED'];
 
 export interface Edge {
   type: string; // event type
@@ -82,8 +84,9 @@ export const EDGES: Partial<
   Accepted: {
     'Picked Up': { type: 'ErrandPickedUp', sets: ['pickedUpAt'], clears: [], who: ['courier'] },
     Open: { type: 'CourierWithdrew', sets: [], clears: ['courierId'], who: ['courier'] },
-    // "If permitted" (F9.4 item 10): rule unspecified, requester or system for now.
-    Cancelled: cancel(['requester', 'system'], ['REQUESTER_CANCELLED']),
+    // "If permitted" (F9.4 item 10): rule unspecified, requester only for now
+    // (REQUESTER_CANCELLED is a user reason; the courier withdraws instead).
+    Cancelled: cancel(['requester'], ['REQUESTER_CANCELLED']),
   },
   'Picked Up': {
     Delivered: { type: 'ErrandDelivered', sets: ['deliveredAt'], clears: [], who: ['courier'] },
