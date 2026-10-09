@@ -64,13 +64,30 @@ Only the Lifecycle module writes. Every write, from a request, a notice reply or
 11) Accepted -> Open (courier cancels after accepting, before pickup)
 12) Accepted -> Cancelled (requester cancels after acceptance, before pickup, if permitted)
 13) Picked Up -> Delivered (courier marks delivered)
-14) Picked Up -> Cancelled (PICKUP_TIME_EXCEEDED or requester cancel)
+14) Picked Up -> Cancelled (PICKUP_TIME_EXCEEDED, system only; the requester cannot cancel once picked up)
 15) Delivered -> Transferring-Credit (requester confirms delivery, or auto-complete after 24h)
 16) Transferring-Credit -> Completed (`CreditTransferSucceeded`)
 17) Transferring-Credit -> Delivered (`CreditTransferRejected`; goes to an admin, the auto-complete sweep skips it)
 18) Delivered -> Incomplete (requester marks delivery as incomplete)
 
 18 edges over 17 distinct status pairs: the two `Adjusting-Credit` -> `Open` exits (items 8 and 9) share a pair, so a caller picks between them with `TransitionInput.type`.
+
+### Who may take an edge, and guards
+
+Each edge in `edges.ts` lists the actors allowed to take it (`who`); the check is part of the conditional UPDATE, so it is race-safe. The actor is a required tagged value (`{ kind: 'user', id }` or `SYSTEM`); a missing or malformed actor is `INVALID_FIELDS`, never the system. Only reply consumers and sweeps build `SYSTEM`. It is stored as a null `actor_id`.
+
+| Edge(s) | Allowed actors |
+| --- | --- |
+| 1, 2, 3, 4, 8, 9, 16, 17 (supplier and credit replies, timeouts) | system |
+| 5 `Open` -> `Accepted` | any user except the requester; `courierId` must be the actor |
+| 6 `Open` -> `Cancelled` | requester (`REQUESTER_CANCELLED`) or system (`ERRAND_EXPIRED`); a user reason needs a user actor, every other reason the system |
+| 12 `Accepted` -> `Cancelled` | requester (`REQUESTER_CANCELLED`); the courier withdraws via edge 11 instead |
+| 14 `Picked Up` -> `Cancelled` | system only |
+| 7 edit, 18 incomplete | requester |
+| 10, 11, 13 (pick up, withdraw, deliver) | the errand's courier |
+| 15 confirm | requester or system (24h auto-complete) |
+
+Further guards: a courier may hold one active errand (`Accepted` or `Picked Up`), enforced by a partial unique index (`COURIER_BUSY`); item 5 is refused once `expires_at` has passed (`EXPIRED`), a backstop only: it rejects the accept but does not cancel, and the expiry sweep is what moves the errand `Open` → `Cancelled` (`ERRAND_EXPIRED`); a cancel's `cancellationReason` must be in that edge's subset of `CANCELLATION_REASONS` (`INVALID_FIELDS`). A refused actor gets `FORBIDDEN`.
 
 Cancelling (requester cancel, expiry, `PICKUP_TIME_EXCEEDED`, `Accepted` cancel) is a direct edge to `Cancelled`; the release notice to credit is fire-and-forget. A reply timeout never reverts: re-send, then leave the errand in its in-flight status and alert an admin.
 
@@ -112,10 +129,10 @@ sequenceDiagram
   participant DB as PostgreSQL
   C->>L: transition(errandId, expectedStatus, newStatus, actor, payload, idempotencyKey?)
   L->>DB: BEGIN
-  L->>DB: UPDATE errands SET status, last_sequence_number+1<br/>WHERE id AND status = expected RETURNING seq
-  alt 0 rows affected
+  L->>DB: UPDATE errands SET status, last_sequence_number+1<br/>WHERE id AND status = expected AND actor allowed (AND not expired on accept) RETURNING seq
+  alt 0 rows affected (wrong status, actor not allowed, or expired)
     L->>DB: ROLLBACK
-    L-->>C: conflict, current state returned
+    L-->>C: STATE_MISMATCH / FORBIDDEN / EXPIRED
   else 1 row affected
     L->>DB: INSERT errand_events (seq, type, from, to, actor, payload JSONB, key)
     L->>DB: COMMIT
@@ -134,7 +151,7 @@ A successful result carries `replayed: true` when the request was an idempotent 
 
 | Case | Where | Returned |
 |---|---|---|
-| Transition repeated with the same `idempotencyKey` and same fingerprint (`expected\|to\|actor`) | `transition.ts`, key claim | The first outcome stored in `idempotency_keys`, plus `replayed: true` |
+| Transition repeated with the same `idempotencyKey` and same fingerprint (`expected\|to\|actor\|type\|hash(set, payload)`; server-stamped timestamps excluded) | `transition.ts`, key claim | The first outcome stored in `idempotency_keys`, plus `replayed: true` |
 | Transition repeated with no key: the errand's latest event is this same edge by this same actor (F9.10, #349) | `transition.ts`, after a `WHERE status = expected` miss | `{ ok: true, sequenceNumber: <the existing event's>, replayed: true }` |
 | Create repeated with the same requester and `idempotencyKey` | `create.ts` | `{ ok: true, errandId: <the original errand's>, replayed: true }` |
 

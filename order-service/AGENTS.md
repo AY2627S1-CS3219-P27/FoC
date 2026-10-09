@@ -20,6 +20,8 @@ Run from `order-service/`:
 ## Rules
 
 - Only the Lifecycle module (`src/lifecycle/`) writes errand state. Every write, from a request, a notice reply or a sweep, goes through the one transition function (conditional `UPDATE … WHERE status = expected` + `INSERT errand_events` in one transaction).
+- Every `transition()` caller passes the actor explicitly: `user(id)` from an authenticated request, `SYSTEM` from message consumers and sweeps. Never default to `SYSTEM`. Callers must handle the refusals `FORBIDDEN`, `COURIER_BUSY` (not stored under an idempotency key, so retry-able), `EXPIRED` (accept only; the errand stays `Open` for the sweep to cancel) and `IDEMPOTENCY_KEY_REUSED`.
+- Cancellation reasons are tied to the actor: `REQUESTER_CANCELLED` is user-only, every other reason system-only (`USER_REASONS` in `edges.ts`). The set is also a DB CHECK.
 - Allowed transitions live in `src/lifecycle/status.ts` (`ALLOWED`); change them there and in `ARCHITECTURE.md` §2 together.
 - Sub-states (`Pending-Supplier`, `Reserving-Credit`) are shown as `Pending` at the API. The other in-flight credit statuses (`Transferring-Credit`, `Adjusting-Credit`, ADR 0006) are likewise internal and shown as the status around them. A `from`/`to` pair with several exits (`Adjusting-Credit` → `Open`) is picked by `TransitionInput.type`.
 - New env vars: add to `src/config/environment.schema.ts`, `compose.yml` and `.env.example` (this folder).

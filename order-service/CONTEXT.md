@@ -24,6 +24,7 @@ Terminal: `Completed`, `Cancelled`, `Incomplete`. There is no `Expired` state: a
 - **In-flight status**: an internal status held while credit-service confirms a step. A reply moves the errand on; an explicit rejection reverts it. A timeout never reverts it.
 - **Expiry deadline** (`expiresAt`): the time an `Open` errand lapses. The requester supplies a duration (15 minutes to 168 hours, default 60 minutes); `expiresAt` is the moment the errand becomes `Open` plus that duration, so time in `Pending` does not count ([ADR 0007](../docs/adr/order-service/0007-expiry-duration-autocomplete-and-supplier-validation.md); not yet implemented, the code still takes an absolute time at creation).
 - **Single-assignment**: at most one courier is ever assigned to an errand; a concurrent second accept loses.
-- **Cancellation reason**: a tag recorded on cancellation, e.g. `SUPPLIER_UNAVAILABLE`, `SUPPLIER_VALIDATION_TIMEOUT`, `ERRAND_EXPIRED`, `PICKUP_TIME_EXCEEDED`.
+- **Cancellation reason**: a tag recorded on cancellation, one of a closed set (`SUPPLIER_UNAVAILABLE`, `SUPPLIER_VALIDATION_TIMEOUT`, `INSUFFICIENT_CREDITS`, `MISSING_BALANCE`, `CREDIT_TIMEOUT`, `ERRAND_EXPIRED`, `PICKUP_TIME_EXCEEDED`, `REQUESTER_CANCELLED`), each valid only on certain cancel edges.
 - **Role block**: a lock on a user's new requester or courier activity, set while Order Service confirms they have no ongoing errands (used for role change and archival).
-- **System actor**: the acting user recorded on transitions made by a sweep rather than a person.
+- **System actor**: the acting user recorded on transitions made by a sweep rather than a person (also credit and supplier replies); the explicit `SYSTEM` actor in code, stored as a null `actor_id`. Never a default for a missing actor.
+- **Courier lock**: a courier may hold only one Accepted or Picked Up Errand at a time.
