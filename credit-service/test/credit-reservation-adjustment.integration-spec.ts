@@ -370,6 +370,112 @@ describe('ReservationAdjustmentService persistence', () => {
     });
   });
 
+  it('treats an equivalent adjustment with a new event ID as a fresh stale command', async () => {
+    const event = command();
+    const seeded = await seedActiveReservation({
+      errandId: event.payload.errandId,
+    });
+    const adjusted = await service.adjust(event);
+    if (adjusted.status !== 'adjusted') {
+      throw new Error('expected the first adjustment to succeed');
+    }
+
+    const repeated = await service.adjust({
+      ...event,
+      eventId: randomUUID(),
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(repeated).toMatchObject({
+      status: 'rejected',
+      reason: 'STALE_RESERVATION_AMOUNT',
+    });
+    if (repeated.status !== 'rejected') {
+      throw new Error('expected the repeated adjustment to be stale');
+    }
+    expect(await dataSource.getRepository(CreditTransaction).count()).toBe(2);
+    await expect(
+      dataSource
+        .getRepository(CreditAccount)
+        .findOneByOrFail({ userId: seeded.requesterUserId }),
+    ).resolves.toMatchObject({ creditBalance: 70, reservedBalance: 80 });
+    await expect(
+      dataSource
+        .getRepository(CreditReservation)
+        .findOneByOrFail({ id: seeded.reservation.id }),
+    ).resolves.toMatchObject({
+      reservedAmount: 80,
+      latestTransactionId: adjusted.transactionId,
+    });
+    const repeatedInbox = await dataSource
+      .getRepository(InboxEvent)
+      .findOneByOrFail({ eventId: repeated.eventId });
+    expect(repeatedInbox).toMatchObject({
+      outcomeTransactionId: null,
+      outcomeOutboxEventId: repeated.outboxEventId,
+    });
+    await expect(
+      dataSource
+        .getRepository(OutboxEvent)
+        .findOneByOrFail({ eventId: repeated.outboxEventId }),
+    ).resolves.toMatchObject({
+      eventType: 'CreditReservationAdjustmentRejected',
+      envelope: {
+        payload: { rejectionReason: 'STALE_RESERVATION_AMOUNT' },
+      },
+    });
+    expect(await outcomeCounts()).toEqual({
+      operations: 0,
+      inbox: 2,
+      outbox: 2,
+    });
+  });
+
+  it('reevaluates an earlier rejection when a new event ID arrives after state changes', async () => {
+    const event = command();
+    const seeded = await seedActiveReservation({
+      errandId: event.payload.errandId,
+      creditBalance: 20,
+    });
+    await expect(service.adjust(event)).resolves.toMatchObject({
+      status: 'rejected',
+      reason: 'INSUFFICIENT_CREDITS',
+    });
+    await dataSource
+      .getRepository(CreditAccount)
+      .update({ userId: seeded.requesterUserId }, { creditBalance: 100 });
+
+    const retried = await service.adjust({
+      ...event,
+      eventId: randomUUID(),
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(retried.status).toBe('adjusted');
+    if (retried.status !== 'adjusted') {
+      throw new Error('expected the fresh adjustment command to succeed');
+    }
+    expect(await dataSource.getRepository(CreditTransaction).count()).toBe(2);
+    await expect(
+      dataSource
+        .getRepository(CreditAccount)
+        .findOneByOrFail({ userId: seeded.requesterUserId }),
+    ).resolves.toMatchObject({ creditBalance: 70, reservedBalance: 80 });
+    await expect(
+      dataSource
+        .getRepository(CreditReservation)
+        .findOneByOrFail({ id: seeded.reservation.id }),
+    ).resolves.toMatchObject({
+      reservedAmount: 80,
+      latestTransactionId: retried.transactionId,
+    });
+    expect(await outcomeCounts()).toEqual({
+      operations: 0,
+      inbox: 2,
+      outbox: 2,
+    });
+  });
+
   it('reports conflicting reuse of an adjustment event ID without writes', async () => {
     const event = command();
     await seedActiveReservation({ errandId: event.payload.errandId });
@@ -467,14 +573,14 @@ describe('ReservationAdjustmentService persistence', () => {
     });
   });
 
-  it('serializes concurrent adjustments so one stale command is rejected', async () => {
+  it('serializes equivalent adjustments with distinct event IDs without double movement', async () => {
     const errandId = randomUUID();
     await seedActiveReservation({ errandId });
     const first = command({
       payload: { errandId, oldAmount: 50, newAmount: 70 },
     });
     const second = command({
-      payload: { errandId, oldAmount: 50, newAmount: 80 },
+      payload: { errandId, oldAmount: 50, newAmount: 70 },
     });
 
     const outcomes = await Promise.all([
@@ -490,6 +596,15 @@ describe('ReservationAdjustmentService persistence', () => {
       reason: 'STALE_RESERVATION_AMOUNT',
     });
     expect(await dataSource.getRepository(CreditTransaction).count()).toBe(2);
+    const reservation = await dataSource
+      .getRepository(CreditReservation)
+      .findOneByOrFail({ errandId });
+    expect(reservation.reservedAmount).toBe(70);
+    await expect(
+      dataSource
+        .getRepository(CreditAccount)
+        .findOneByOrFail({ userId: reservation.requesterUserId }),
+    ).resolves.toMatchObject({ creditBalance: 80, reservedBalance: 70 });
     expect(await outcomeCounts()).toEqual({
       operations: 0,
       inbox: 2,
