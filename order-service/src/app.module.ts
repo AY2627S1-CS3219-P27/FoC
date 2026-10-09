@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { environmentSchema } from './config/environment.schema.js';
 import { DbModule } from './db/db.module.js';
 import { LifecycleModule } from './lifecycle/lifecycle.module.js';
+import { MessagingModule } from './messaging/messaging.module.js';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { LifecycleModule } from './lifecycle/lifecycle.module.js';
     }),
     DbModule,
     LifecycleModule,
+    MessagingModule,
   ],
 })
 export class AppModule {}
