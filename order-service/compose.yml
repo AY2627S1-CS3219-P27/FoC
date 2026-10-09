@@ -1,7 +1,8 @@
 services:
   order-service:
     build:
-      context: .
+      context: ..
+      dockerfile: order-service/Dockerfile
       target: development
     command: npm run start:dev
     ports:
@@ -33,6 +34,21 @@ services:
             - '*.secret'
         - action: rebuild
           path: package.json
+        - action: rebuild
+          path: package-lock.json
+        - action: sync+restart
+          path: ../packages/contracts/src
+          target: /usr/src/packages/contracts/src
+        - action: sync+restart
+          path: ../packages/contracts/tsconfig.json
+          target: /usr/src/packages/contracts/tsconfig.json
+        - action: sync+restart
+          path: ../packages/contracts/tsconfig.build.json
+          target: /usr/src/packages/contracts/tsconfig.build.json
+        - action: rebuild
+          path: ../packages/contracts/package.json
+        - action: rebuild
+          path: ../packages/contracts/package-lock.json
 
   order-db:
     image: postgres:18-alpine
