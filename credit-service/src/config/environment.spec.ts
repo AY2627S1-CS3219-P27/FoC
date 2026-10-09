@@ -6,6 +6,7 @@ const requiredEnvironment = {
   DB_USERNAME: 'credit_service',
   DB_DATABASE: 'credit_service',
   DB_PASSWORD_FILE: '/run/secrets/credit_db_password',
+  JWT_PUBLIC_KEY_FILE: '/run/secrets/jwt_public_key_credit_service',
   RABBITMQ_USER: 'credit-service',
   RABBITMQ_HOST: 'rabbitmq',
   RABBITMQ_PORT: '5672',
@@ -103,6 +104,7 @@ describe('environmentSchema', () => {
     ['RABBITMQ_PORT', 0],
     ['RABBITMQ_VHOST', ''],
     ['RABBITMQ_PASSWORD_FILE', ''],
+    ['JWT_PUBLIC_KEY_FILE', ''],
   ])('rejects invalid %s', (name, value) => {
     expect(() => validate({ [name]: value })).toThrow();
   });

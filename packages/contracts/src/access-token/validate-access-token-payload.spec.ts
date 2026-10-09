@@ -69,6 +69,14 @@ describe('validateAccessTokenPayload', () => {
     ).toBe(false);
   });
 
+  it('rejects a sub outside the positive PostgreSQL integer range', () => {
+    for (const sub of [0, -1, 2_147_483_648]) {
+      expect(validateAccessTokenPayload({ ...validPayload, sub }).valid).toBe(
+        false,
+      );
+    }
+  });
+
   it('rejects a malformed email', () => {
     expect(
       validateAccessTokenPayload({ ...validPayload, email: 'not-an-email' })
