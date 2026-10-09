@@ -80,14 +80,20 @@ Reservation business rejection reasons are:
 
 ### Reservation adjustment
 
-`CreditReservationAdjustment` remains synchronous within the consumer's
-serializable transaction. Credit locks the active reservation and requester
-account, treats `oldAmount` as a concurrency precondition, and uses its stored
-reservation amount as authoritative. An increase moves the positive difference
-from available to reserved; a decrease moves it back. An effective change
-appends one immutable `RESERVATION_ADJUSTMENT` transaction and updates the
-reservation's amount and latest transaction reference. An equal target amount
-publishes success without another movement.
+`CreditReservationAdjustment` uses the same durable-ingress boundary as
+reservations, but each distinct event ID creates its own repeatable `ADJUST`
+operation. The consumer validates the command, persists a `PENDING` operation
+and inbox row, and acknowledges RabbitMQ after that transaction commits. No
+financial state is read or changed during ingress.
+
+The leased operation worker resolves the active reservation, locks its
+requester account and then revalidates the reservation, treats `oldAmount` as a
+concurrency precondition, and uses the stored reservation amount as
+authoritative. An increase moves the positive difference from available to
+reserved; a decrease moves it back. An effective change appends one immutable
+`RESERVATION_ADJUSTMENT` transaction and updates the reservation's amount and
+latest transaction reference. An equal target amount succeeds without another
+movement and references the latest transaction.
 
 Adjustment business rejection reasons are:
 
@@ -97,23 +103,23 @@ Adjustment business rejection reasons are:
 | `STALE_RESERVATION_AMOUNT` | `oldAmount` does not match Credit's stored amount.    |
 | `INSUFFICIENT_CREDITS`     | An increase exceeds the requester's available credit. |
 
-Business rejections are successfully processed messages: their inbox and
-outbox evidence commits, then the RabbitMQ delivery is acknowledged. A DLQ
-entry instead means Credit could not accept the command contract or transport
-identity, such as malformed JSON, an invalid schema, a routing mismatch, or
-conflicting reuse of one event ID. Technical failures enter bounded broker
-retry only until durable ingress; a persisted reservation operation is then
-retried independently by the worker.
+Business rejections are terminal operation results: operation, inbox, and
+outbox evidence commit atomically with no balance movement. A DLQ entry instead
+means Credit could not accept the command contract or transport identity, such
+as malformed JSON, an invalid schema, a routing mismatch, or conflicting reuse
+of one event ID. Technical failures enter bounded broker retry only until
+durable ingress; persisted reservation and adjustment operations are then
+retried independently by the worker without a terminal attempt limit.
 
 Adjustment commands are idempotent by event ID. Redelivery with the same event
-ID and payload returns the stored outcome without another outbox event or
-movement; reuse of that ID with different content is dead-lettered. A different
-event ID is a fresh command evaluated against current state, even if its payload
-matches an earlier adjustment. Repeating a successful effective transition
-will normally be rejected as `STALE_RESERVATION_AMOUNT`, while an earlier
-business rejection can be retried under a new event ID and may succeed after
-state changes. A fresh no-op command publishes a fresh success outcome but does
-not create a ledger entry.
+ID and payload links to the stored operation without another operation or
+outcome; reuse of that ID with different content is dead-lettered. A different
+event ID is a fresh durable command evaluated against current state, even if
+its payload matches an earlier adjustment. Repeating a successful effective
+transition will normally be rejected as `STALE_RESERVATION_AMOUNT`, while an
+earlier business rejection can be retried under a new event ID and may succeed
+after state changes. A fresh no-op command publishes a fresh success outcome
+but does not create a ledger entry.
 
 All inbound delivery and outbound publication is at least once. Duplicate
 event IDs never reapply state. A distinct equivalent reservation command links
@@ -569,7 +575,7 @@ erDiagram
     CREDIT_ACCOUNTS ||--o{ CREDIT_RESERVATIONS : "owns"
     CREDIT_ACCOUNTS ||--o{ CREDIT_TRANSACTIONS : "participates in"
     CREDIT_OPERATIONS ||--o{ INBOX_EVENTS : "accepted through"
-    CREDIT_OPERATIONS ||--o| CREDIT_TRANSACTIONS : "completes with"
+    CREDIT_OPERATIONS }o--o| CREDIT_TRANSACTIONS : "completes with"
     CREDIT_OPERATIONS ||--o| OUTBOX_EVENTS : "reports through"
     CREDIT_RESERVATIONS }o--|| CREDIT_TRANSACTIONS : "latest movement"
 
@@ -591,12 +597,14 @@ erDiagram
 
     CREDIT_OPERATIONS {
         uuid id PK
-        uuid errand_id UK
+        uuid errand_id
         text operation_type
         text status
-        uuid requester_user_id
+        uuid requester_user_id "nullable for adjustment ingress"
         uuid courier_user_id "nullable"
         bigint amount
+        bigint expected_amount "adjustments only"
+        uuid command_event_id "adjustments only, unique"
         integer attempt_count
         timestamptz next_attempt_at
         text claimed_by "nullable"
@@ -684,14 +692,15 @@ publication payload and tracks claim and publication state independently.
 - Different registration event IDs for one user link to the original
   allocation without creating another account, allocation, or initialization
   event.
-- One `(errand_id, operation_type)` identifies a semantic operation. Equivalent
-  reservation events reuse it; conflicting semantics produce a rejection
-  without replacing it.
-- Reservation ingress commits separately from financial execution. The later
-  balance movement, reservation, ledger row, operation completion, inbox
-  completion links, and outcome outbox row commit atomically.
+- One lifecycle `(errand_id, operation_type)` identifies a semantic reserve,
+  transfer, or release operation. Each adjustment event ID identifies a
+  separate repeatable operation.
+- Reservation and adjustment ingress commit separately from financial
+  execution. The later balance movement, reservation, ledger row, operation
+  completion, inbox completion links, and outcome outbox row commit atomically.
 - Effective adjustments commit their balance movement, ledger row, reservation
-  update, inbox row, and outcome outbox row atomically.
+  update, terminal operation state, inbox completion, and outcome outbox row
+  atomically. Technical failures leave the operation pending for worker retry.
 - The shared `SERIALIZABLE` transaction runner retries PostgreSQL serialization
   failures and deadlocks up to three times.
 - Relay workers claim disjoint outbox batches with expiring PostgreSQL leases.

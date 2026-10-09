@@ -3,7 +3,7 @@
 Credit ledger built with NestJS and TypeScript, PostgreSQL with TypeORM, and
 RabbitMQ. It consumes `UserRegistered`, `CreditReservation`, and
 `CreditReservationAdjustment`; initializes accounts; executes durable leased
-reservation work; applies synchronous adjustments; and relays committed
+reservation and adjustment work; and relays committed
 outcomes through a transactional outbox.
 
 Run npm commands from this directory. Run the normal development stack from the
