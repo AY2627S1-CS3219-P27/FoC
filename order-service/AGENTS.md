@@ -24,5 +24,5 @@ Run from `order-service/`:
 - Cancellation reasons are tied to the actor: `REQUESTER_CANCELLED` is user-only, every other reason system-only (`USER_REASONS` in `edges.ts`). The set is also a DB CHECK.
 - Allowed transitions live in `src/lifecycle/status.ts` (`ALLOWED`); change them there and in `ARCHITECTURE.md` §2 together.
 - Sub-states (`Pending-Supplier`, `Reserving-Credit`) are shown as `Pending` at the API. The other in-flight credit statuses (`Transferring-Credit`, `Adjusting-Credit`, ADR 0006) are likewise internal and shown as the status around them. A `from`/`to` pair with several exits (`Adjusting-Credit` → `Open`) is picked by `TransitionInput.type`.
-- New env vars: add to `src/config/environment.schema.ts`, `compose.yml` and `.env.example` (this folder).
-- DB password is a Docker secret (`secrets/order_db_password.secret`, copy from the `.example`); never commit it.
+- New env vars: add to `src/config/environment.schema.ts`, `compose.yml` and `../env/order-service.env.example` (shared ones in `../env/shared.env.example`).
+- DB and RabbitMQ passwords are Docker secrets (`secrets/order_db_password.secret`, `secrets/rabbitmq_password.secret`, copy from the `.example`); never commit them. The RabbitMQ one must match the `order-service` hash in `../rabbitmq/definitions.json`.
