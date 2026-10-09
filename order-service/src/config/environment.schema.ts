@@ -6,8 +6,8 @@ export const environmentSchema = Joi.object({
     .default('development'),
   PORT: Joi.number().port().default(3000),
   LOG_LEVEL: Joi.string()
-    .valid('fatal', 'error', 'warn', 'log', 'debug', 'verbose')
-    .default('log'),
+    .valid('debug', 'info', 'warn', 'error', 'fatal')
+    .default('info'),
 
   DB_HOST: Joi.string().hostname().required(),
   DB_PORT: Joi.number().port().required(),

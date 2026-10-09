@@ -11,7 +11,7 @@ const MIN_OUTBOX_COMPLETION_MARGIN_MS = 5_000;
 export interface EnvironmentVariables {
   NODE_ENV: 'development' | 'test' | 'production';
   PORT: number;
-  LOG_LEVEL: 'fatal' | 'error' | 'warn' | 'log' | 'debug' | 'verbose';
+  LOG_LEVEL: 'debug' | 'info' | 'warn' | 'error' | 'fatal';
   DB_HOST: string;
   DB_PORT: number;
   DB_USERNAME: string;
@@ -67,8 +67,8 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
     .default('development'),
   PORT: Joi.number().port().default(3000),
   LOG_LEVEL: Joi.string()
-    .valid('fatal', 'error', 'warn', 'log', 'debug', 'verbose')
-    .default('log'),
+    .valid('debug', 'info', 'warn', 'error', 'fatal')
+    .default('info'),
   DB_HOST: Joi.string().hostname().required(),
   DB_PORT: Joi.number().port().required(),
   DB_USERNAME: Joi.string().min(1).required(),

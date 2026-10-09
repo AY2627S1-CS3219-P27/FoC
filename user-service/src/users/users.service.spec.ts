@@ -504,9 +504,9 @@ describe('UsersService', () => {
       userRepository.findOneByOrFail.mockResolvedValue(makeStoredUser());
 
       await expect(
-        service.updateProfile(7, { displayName: 'Eve Newman' }),
+        service.updateProfile(FIXED_UUID, { displayName: 'Eve Newman' }),
       ).resolves.toEqual({
-        id: 7,
+        uuid: FIXED_UUID,
         email: 'eve@example.com',
         displayName: 'Eve Newman',
         profilePictureUrl: 'https://example.com/avatar.png',
@@ -514,10 +514,10 @@ describe('UsersService', () => {
         isAdmin: false,
       });
 
-      expect(userRepository.findOneByOrFail).toHaveBeenCalledWith({ id: 7 });
+      expect(userRepository.findOneByOrFail).toHaveBeenCalledWith({ uuid: FIXED_UUID });
       expect(userRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({
-          id: 7,
+          uuid: FIXED_UUID,
           displayName: 'Eve Newman',
           profilePictureUrl: 'https://example.com/avatar.png',
         }),
@@ -530,7 +530,7 @@ describe('UsersService', () => {
         profilePictureUrl: null,
       });
 
-      await service.updateProfile(7, {
+      await service.updateProfile(FIXED_UUID, {
         profilePictureUrl: 'https://example.com/new.png',
       });
 
@@ -545,7 +545,7 @@ describe('UsersService', () => {
     it('clears the profile picture URL when null is supplied', async () => {
       userRepository.findOneByOrFail.mockResolvedValue(makeStoredUser());
 
-      await service.updateProfile(7, { profilePictureUrl: null });
+      await service.updateProfile(FIXED_UUID, { profilePictureUrl: null });
 
       expect(userRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({ profilePictureUrl: null }),
@@ -555,7 +555,7 @@ describe('UsersService', () => {
     it('persists the unchanged profile for a request with neither field', async () => {
       userRepository.findOneByOrFail.mockResolvedValue(makeStoredUser());
 
-      await expect(service.updateProfile(7, {})).resolves.toMatchObject({
+      await expect(service.updateProfile(FIXED_UUID, {})).resolves.toMatchObject({
         displayName: 'Eve',
         profilePictureUrl: 'https://example.com/avatar.png',
       });
@@ -574,7 +574,7 @@ describe('UsersService', () => {
       );
 
       await expect(
-        service.updateProfile(7, { displayName: 'Eve Newman' }),
+        service.updateProfile(FIXED_UUID, { displayName: 'Eve Newman' }),
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -582,7 +582,7 @@ describe('UsersService', () => {
       userRepository.findOneByOrFail.mockRejectedValue(new Error('db down'));
 
       await expect(
-        service.updateProfile(7, { displayName: 'Eve Newman' }),
+        service.updateProfile(FIXED_UUID, { displayName: 'Eve Newman' }),
       ).rejects.toThrow('db down');
     });
   });
