@@ -14,6 +14,12 @@ export const environmentSchema = Joi.object({
   DB_USERNAME: Joi.string().min(1).required(),
   DB_DATABASE: Joi.string().min(1).required(),
   DB_PASSWORD_FILE: Joi.string().min(1).required(),
+
+  RABBITMQ_USER: Joi.string().min(1).required(),
+  RABBITMQ_HOST: Joi.string().hostname().required(),
+  RABBITMQ_PORT: Joi.number().port().required(),
+  RABBITMQ_VHOST: Joi.string().min(1).required(),
+  RABBITMQ_PASSWORD_FILE: Joi.string().min(1).required(),
 })
   .unknown(true)
   .prefs({ abortEarly: false, convert: true });

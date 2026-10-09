@@ -19,8 +19,14 @@ services:
       - DB_SYNCHRONIZE=${ORDER_SERVICE_DB_SYNCHRONIZE}
       - DB_PASSWORD_FILE=/run/secrets/order_db_password
       - LOG_LEVEL=${LOG_LEVEL}
+      - RABBITMQ_USER=${ORDER_SERVICE_RABBITMQ_USER}
+      - RABBITMQ_HOST=${RABBITMQ_HOST}
+      - RABBITMQ_PORT=${RABBITMQ_PORT}
+      - RABBITMQ_VHOST=${RABBITMQ_VHOST}
+      - RABBITMQ_PASSWORD_FILE=/run/secrets/rabbitmq_password_order_service
     secrets:
       - order_db_password
+      - rabbitmq_password_order_service
     develop:
       watch:
         - action: sync
@@ -79,3 +85,5 @@ volumes:
 secrets:
   order_db_password:
     file: secrets/order_db_password.secret
+  rabbitmq_password_order_service:
+    file: secrets/rabbitmq_password.secret
