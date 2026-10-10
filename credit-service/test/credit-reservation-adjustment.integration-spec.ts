@@ -16,6 +16,7 @@ import {
   type CreditReservationAdjustmentCommand,
   ReservationAdjustmentService,
 } from '../src/reservation/reservation-adjustment.service.js';
+import { claimDueOperationsAndWait } from './support/credit-operation-test.helper.js';
 
 function command(
   overrides: Partial<CreditReservationAdjustmentCommand> = {},
@@ -40,7 +41,13 @@ describe('durable reservation adjustment persistence', () => {
   let processor: AdjustmentOperationProcessor;
   let operationStore: CreditOperationStore;
 
-  async function seedActiveReservation(options: {
+  /**
+   * Persistence fixture for adjustment preconditions. ACTIVE rows keep the
+   * account, reservation, initial movement, and latest-transaction link in
+   * sync. Non-ACTIVE rows are synthetic guard states until transfer and
+   * release execution are implemented.
+   */
+  async function seedReservationState(options: {
     errandId: string;
     creditBalance?: number;
     reservedAmount?: number;
@@ -80,16 +87,28 @@ describe('durable reservation adjustment persistence', () => {
     if (accepted.status !== 'accepted') {
       return accepted;
     }
-    const workerId = randomUUID();
-    await dataSource.getRepository(CreditOperation).update(
-      { id: accepted.operationId },
-      {
-        claimedBy: workerId,
-        claimedUntil: new Date(Date.now() + 30_000),
-        attemptCount: 1,
-      },
-    );
-    return processor.processClaimed(accepted.operationId, workerId);
+    const operation = await claimDueOperationsAndWait({
+      dataSource,
+      operationStore,
+      operationId: accepted.operationId,
+      expectedOperationType: 'ADJUST',
+      processClaimed: (operationId, workerId) =>
+        processor.processClaimed(operationId, workerId),
+    });
+    if (operation.status === 'REJECTED') {
+      return {
+        status: 'rejected' as const,
+        operationId: operation.id,
+        reason: operation.rejectionReason!,
+        outboxEventId: operation.outcomeOutboxEventId!,
+      };
+    }
+    return {
+      status: 'succeeded' as const,
+      operationId: operation.id,
+      transactionId: operation.completionTransactionId!,
+      outboxEventId: operation.outcomeOutboxEventId!,
+    };
   }
 
   async function outcomeCounts() {
@@ -130,15 +149,16 @@ describe('durable reservation adjustment persistence', () => {
       await dataSource.query(
         'TRUNCATE TABLE inbox_events, credit_operations, credit_reservations, credit_transactions, outbox_events, credit_allocations, credit_accounts',
       );
-      await dataSource.undoLastMigration({ transaction: 'all' });
-      await dataSource.undoLastMigration({ transaction: 'all' });
+      for (let index = 0; index < dataSource.migrations.length; index += 1) {
+        await dataSource.undoLastMigration({ transaction: 'all' });
+      }
       await dataSource.destroy();
     }
   });
 
   it('persists pending ingress without changing financial state', async () => {
     const event = command();
-    const seeded = await seedActiveReservation({
+    const seeded = await seedReservationState({
       errandId: event.payload.errandId,
     });
 
@@ -217,7 +237,7 @@ describe('durable reservation adjustment persistence', () => {
       const event = command({
         payload: { errandId: randomUUID(), oldAmount, newAmount },
       });
-      const seeded = await seedActiveReservation({
+      const seeded = await seedReservationState({
         errandId: event.payload.errandId,
       });
 
@@ -275,7 +295,7 @@ describe('durable reservation adjustment persistence', () => {
 
   it('completes fresh no-op commands with one shared ledger reference', async () => {
     const errandId = randomUUID();
-    const seeded = await seedActiveReservation({ errandId });
+    const seeded = await seedReservationState({ errandId });
     const first = command({
       payload: { errandId, oldAmount: 50, newAmount: 50 },
     });
@@ -312,7 +332,7 @@ describe('durable reservation adjustment persistence', () => {
       name: 'inactive reservation',
       reason: 'RESERVATION_NOT_FOUND',
       prepare: async (event: CreditReservationAdjustmentCommand) =>
-        seedActiveReservation({
+        seedReservationState({
           errandId: event.payload.errandId,
           status: 'RELEASED',
         }),
@@ -321,13 +341,13 @@ describe('durable reservation adjustment persistence', () => {
       name: 'stale amount',
       reason: 'STALE_RESERVATION_AMOUNT',
       prepare: async (event: CreditReservationAdjustmentCommand) =>
-        seedActiveReservation({ errandId: event.payload.errandId }),
+        seedReservationState({ errandId: event.payload.errandId }),
     },
     {
       name: 'insufficient credit',
       reason: 'INSUFFICIENT_CREDITS',
       prepare: async (event: CreditReservationAdjustmentCommand) =>
-        seedActiveReservation({
+        seedReservationState({
           errandId: event.payload.errandId,
           creditBalance: 20,
         }),
@@ -379,7 +399,7 @@ describe('durable reservation adjustment persistence', () => {
 
   it('deduplicates the same event and rejects conflicting event-ID reuse', async () => {
     const event = command();
-    await seedActiveReservation({ errandId: event.payload.errandId });
+    await seedReservationState({ errandId: event.payload.errandId });
     const completed = await execute(event);
 
     const duplicate = await ingress.accept(event);
@@ -409,7 +429,7 @@ describe('durable reservation adjustment persistence', () => {
 
   it('treats a new event ID as a fresh command against current state', async () => {
     const event = command();
-    await seedActiveReservation({ errandId: event.payload.errandId });
+    await seedReservationState({ errandId: event.payload.errandId });
     const first = await execute(event);
     const repeated = await execute({
       ...event,
@@ -432,7 +452,7 @@ describe('durable reservation adjustment persistence', () => {
 
   it('reevaluates a prior rejection under a fresh event ID', async () => {
     const event = command();
-    const seeded = await seedActiveReservation({
+    const seeded = await seedReservationState({
       errandId: event.payload.errandId,
       creditBalance: 20,
     });
@@ -482,7 +502,7 @@ describe('durable reservation adjustment persistence', () => {
 
   it('rolls back financial completion while retaining durable ingress', async () => {
     const event = command();
-    const seeded = await seedActiveReservation({
+    const seeded = await seedReservationState({
       errandId: event.payload.errandId,
     });
     await dataSource.query(`
@@ -541,7 +561,7 @@ describe('durable reservation adjustment persistence', () => {
 
   it('serializes concurrent equivalent commands without double movement', async () => {
     const errandId = randomUUID();
-    await seedActiveReservation({ errandId });
+    await seedReservationState({ errandId });
     const first = command({
       payload: { errandId, oldAmount: 50, newAmount: 70 },
     });

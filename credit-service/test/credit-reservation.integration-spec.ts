@@ -18,6 +18,7 @@ import {
   type CreditReservationCommand,
   ReservationService,
 } from '../src/reservation/reservation.service.js';
+import { claimDueOperationsAndWait } from './support/credit-operation-test.helper.js';
 
 function command(
   overrides: Partial<CreditReservationCommand> = {},
@@ -95,33 +96,14 @@ describe('ReservationService persistence', () => {
       };
     }
 
-    const workerId = randomUUID();
-    const [claimed] = await dataSource.query<Array<{ id: string }>>(
-      `UPDATE credit_operations
-       SET claimed_by = $2, claimed_until = clock_timestamp() + INTERVAL '30 seconds',
-           attempt_count = attempt_count + 1
-       WHERE id = $1 AND status = 'PENDING'
-         AND (claimed_until IS NULL OR claimed_until <= clock_timestamp())
-       RETURNING id`,
-      [ingress.operationId, workerId],
-    );
-    if (claimed) {
-      await processor.processClaimed(ingress.operationId, workerId);
-    } else {
-      for (let attempt = 0; attempt < 100; attempt += 1) {
-        const operation = await dataSource
-          .getRepository(CreditOperation)
-          .findOneByOrFail({ id: ingress.operationId });
-        if (operation.status !== 'PENDING') {
-          break;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 5));
-      }
-    }
-
-    const operation = await dataSource
-      .getRepository(CreditOperation)
-      .findOneByOrFail({ id: ingress.operationId });
+    const operation = await claimDueOperationsAndWait({
+      dataSource,
+      operationStore,
+      operationId: ingress.operationId,
+      expectedOperationType: 'RESERVE',
+      processClaimed: (operationId, workerId) =>
+        processor.processClaimed(operationId, workerId),
+    });
     if (operation.status === 'REJECTED') {
       return {
         status: 'rejected' as const,
@@ -295,9 +277,9 @@ describe('ReservationService persistence', () => {
       await dataSource.query(
         'TRUNCATE TABLE inbox_events, credit_operations, credit_reservations, credit_transactions, outbox_events, credit_allocations, credit_accounts',
       );
-      await dataSource.undoLastMigration({ transaction: 'all' });
-      await dataSource.undoLastMigration({ transaction: 'all' });
-      await dataSource.undoLastMigration({ transaction: 'all' });
+      for (let index = 0; index < dataSource.migrations.length; index += 1) {
+        await dataSource.undoLastMigration({ transaction: 'all' });
+      }
       await dataSource.destroy();
     }
   });
