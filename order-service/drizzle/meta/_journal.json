@@ -22,6 +22,34 @@
       "when": 1790345749479,
       "tag": "0002_idempotency_keys_table",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790346749479,
+      "tag": "0003_in_flight_credit_statuses",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791477141940,
+      "tag": "0004_courier_active_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791521154988,
+      "tag": "0005_cancellation_reason_check",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791531919073,
+      "tag": "0006_outbox_events",
+      "breakpoints": true
     }
   ]
 }

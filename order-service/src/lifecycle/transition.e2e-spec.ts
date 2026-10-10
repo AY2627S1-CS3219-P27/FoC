@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { createTestDb } from '../../test/db.js';
 import { errandEvents, errands } from '../db/schema.js';
 import type { Status } from './status.js';
-import { transition } from './transition.js';
+import { SYSTEM, transition, user, type Actor } from './transition.js';
 
 let t: Awaited<ReturnType<typeof createTestDb>>;
 beforeAll(async () => {
@@ -12,7 +12,11 @@ beforeAll(async () => {
 afterAll(() => t.close());
 
 const requester = randomUUID();
-const courier = randomUUID();
+// Fresh per test: the one-active-errand-per-courier index forbids reuse.
+let courier: string;
+beforeEach(() => {
+  courier = randomUUID();
+});
 
 async function seed(status: Status) {
   const id = randomUUID();
@@ -21,6 +25,7 @@ async function seed(status: Status) {
     requesterId: requester,
     status,
     supplierId: randomUUID(),
+    courierId: status === 'Accepted' || status === 'Picked Up' ? courier : undefined,
     deliveryLocation: 'COM2',
     rewardCredits: 5,
   });
@@ -40,7 +45,7 @@ describe('transition', () => {
       errandId: id,
       expected: 'Open',
       to: 'Accepted',
-      actorId: courier,
+      actor: user(courier),
       payload: { courierId: courier },
       set: { courierId: courier },
     });
@@ -67,7 +72,7 @@ describe('transition', () => {
     const id = await seed('Open');
 
     const res = await transition(t.db, {
-      errandId: id,
+      actor: SYSTEM, errandId: id,
       expected: 'Open',
       to: 'Completed',
     });
@@ -81,7 +86,7 @@ describe('transition', () => {
     const id = await seed('Accepted');
 
     const res = await transition(t.db, {
-      errandId: id,
+      actor: user(courier), errandId: id,
       expected: 'Open',
       to: 'Accepted',
       set: { courierId: courier },
@@ -106,7 +111,7 @@ describe('transition', () => {
           errandId: id,
           expected: 'Open',
           to: 'Accepted',
-          actorId: c,
+          actor: user(c),
           set: { courierId: c },
         }),
       ),
@@ -132,6 +137,7 @@ describe('transition', () => {
         errandId: id,
         expected,
         to,
+        actor: user(courier),
         set: to === 'Accepted' ? { courierId: courier } : undefined,
       });
 
@@ -150,6 +156,7 @@ describe('transition', () => {
       errandId: id,
       expected: 'Open' as const,
       to: 'Accepted' as const,
+      actor: user(courier),
       set: { courierId: courier },
       idempotencyKey: 'key-1',
     };
@@ -168,6 +175,7 @@ describe('transition', () => {
       errandId: id,
       expected: 'Open' as const,
       to: 'Accepted' as const,
+      actor: user(courier),
       set: { courierId: courier },
       idempotencyKey: 'key-2',
     };
@@ -188,11 +196,13 @@ describe('transition', () => {
       ...base,
       expected: 'Open',
       to: 'Accepted',
+      actor: user(courier),
       set: { courierId: courier },
     });
 
     const res = await transition(t.db, {
       ...base,
+      actor: user(courier),
       expected: 'Accepted',
       to: 'Open',
     });
@@ -204,17 +214,18 @@ describe('transition', () => {
 
   it('replays a rejected request after the state changed (strict replay)', async () => {
     const id = await seed('Accepted');
+    const loser = randomUUID();
     const req = {
       errandId: id,
       expected: 'Open' as const,
       to: 'Accepted' as const,
-      actorId: randomUUID(),
-      set: { courierId: courier },
+      actor: user(loser),
+      set: { courierId: loser },
       idempotencyKey: 'key-4',
     };
     const first = await transition(t.db, req);
     // The errand goes back to Open, so a fresh attempt would now succeed.
-    await transition(t.db, { errandId: id, expected: 'Accepted', to: 'Open' });
+    await transition(t.db, { errandId: id, expected: 'Accepted', to: 'Open', actor: user(courier) });
 
     const second = await transition(t.db, req);
 
@@ -233,11 +244,12 @@ describe('transition', () => {
       errandId: id,
       expected: 'Open' as const,
       to: 'Accepted' as const,
+      actor: user(courier),
       set: { courierId: courier },
       idempotencyKey: 'key-5',
     };
     const first = await transition(t.db, req);
-    await transition(t.db, { errandId: id, expected: 'Accepted', to: 'Open' });
+    await transition(t.db, { errandId: id, expected: 'Accepted', to: 'Open', actor: user(courier) });
 
     const second = await transition(t.db, req);
 
@@ -249,6 +261,7 @@ describe('transition', () => {
   it('stores an illegal-edge outcome under the key too', async () => {
     const id = await seed('Open');
     const req = {
+      actor: SYSTEM,
       errandId: id,
       expected: 'Open' as const,
       to: 'Completed' as const,
@@ -265,12 +278,12 @@ describe('transition', () => {
   });
 
   describe('keyless repeat', () => {
-    const accept = (id: string, actorId: string) => ({
+    const accept = (id: string, who: string) => ({
       errandId: id,
       expected: 'Open' as const,
       to: 'Accepted' as const,
-      actorId,
-      set: { courierId: actorId },
+      actor: user(who),
+      set: { courierId: who },
     });
 
     it('answers a courier double-tap with ok, replayed', async () => {
@@ -304,6 +317,7 @@ describe('transition', () => {
     it('counts a duplicate sweep tick (null actor) as a repeat', async () => {
       const id = await seed('Open');
       const tick = {
+        actor: SYSTEM,
         errandId: id,
         expected: 'Open' as const,
         to: 'Cancelled' as const,
@@ -311,7 +325,7 @@ describe('transition', () => {
       };
       await transition(t.db, tick);
 
-      expect(await transition(t.db, { ...tick, actorId: null })).toEqual({
+      expect(await transition(t.db, { ...tick, actor: SYSTEM })).toEqual({
         ok: true,
         sequenceNumber: 1,
         replayed: true,
@@ -324,12 +338,13 @@ describe('transition', () => {
         errandId: id,
         expected: 'Accepted',
         to: 'Open',
+        actor: user(courier),
       });
 
-      // Latest event is Accepted -> Open; Pending-Credit -> Open is another edge.
+      // Latest event is Accepted -> Open; Reserving-Credit -> Open is another edge.
       const res = await transition(t.db, {
-        errandId: id,
-        expected: 'Pending-Credit',
+        actor: SYSTEM, errandId: id,
+        expected: 'Reserving-Credit',
         to: 'Open',
       });
 
@@ -343,7 +358,7 @@ describe('transition', () => {
 
   it('reports an unknown errand', async () => {
     const res = await transition(t.db, {
-      errandId: randomUUID(),
+      actor: user(courier), errandId: randomUUID(),
       expected: 'Open',
       to: 'Accepted',
       set: { courierId: courier },
@@ -355,7 +370,7 @@ describe('transition', () => {
   it('rejects Picked Up without pickedUpAt', async () => {
     const id = await seed('Accepted');
     const res = await transition(t.db, {
-      errandId: id,
+      actor: user(courier), errandId: id,
       expected: 'Accepted',
       to: 'Picked Up',
     });
@@ -366,7 +381,7 @@ describe('transition', () => {
   it('rejects a column the edge does not own', async () => {
     const id = await seed('Open');
     const res = await transition(t.db, {
-      errandId: id,
+      actor: user(courier), errandId: id,
       expected: 'Open',
       to: 'Accepted',
       set: { courierId: courier, deliveredAt: new Date() },
@@ -380,15 +395,17 @@ describe('transition', () => {
       errandId: id,
       expected: 'Open',
       to: 'Accepted',
+      actor: user(courier),
       set: { courierId: courier },
     });
-    await transition(t.db, { errandId: id, expected: 'Accepted', to: 'Open' });
+    await transition(t.db, { errandId: id, expected: 'Accepted', to: 'Open', actor: user(courier) });
     expect((await projection(id)).courierId).toBeNull();
   });
 
   it('requires a cancellation reason and records it', async () => {
     const id = await seed('Open');
     const bare = {
+      actor: SYSTEM,
       errandId: id,
       expected: 'Open' as const,
       to: 'Cancelled' as const,
@@ -419,6 +436,7 @@ describe('transition', () => {
         errandId: id,
         expected: 'Open',
         to: 'Accepted',
+        actor: user(courier),
         set: { courierId: courier },
       });
       expect(await lastPayload(id)).toEqual({ courierId: courier });
@@ -426,7 +444,7 @@ describe('transition', () => {
 
     it('records a cleared column as null', async () => {
       const id = await seed('Accepted');
-      await transition(t.db, { errandId: id, expected: 'Accepted', to: 'Open' });
+      await transition(t.db, { errandId: id, expected: 'Accepted', to: 'Open', actor: user(courier) });
       expect(await lastPayload(id)).toEqual({ courierId: null });
     });
 
@@ -437,6 +455,7 @@ describe('transition', () => {
         errandId: id,
         expected: 'Accepted',
         to: 'Picked Up',
+        actor: user(courier),
         set: { pickedUpAt },
       });
       expect(await lastPayload(id)).toEqual({
@@ -447,7 +466,7 @@ describe('transition', () => {
     it('records the cancellation reason', async () => {
       const id = await seed('Open');
       await transition(t.db, {
-        errandId: id,
+        actor: SYSTEM, errandId: id,
         expected: 'Open',
         to: 'Cancelled',
         set: { cancellationReason: 'ERRAND_EXPIRED' },
@@ -463,6 +482,7 @@ describe('transition', () => {
         errandId: id,
         expected: 'Open',
         to: 'Accepted',
+        actor: user(courier),
         payload: { note: 'hi' },
         set: { courierId: courier },
       });
@@ -475,6 +495,7 @@ describe('transition', () => {
         errandId: id,
         expected: 'Open',
         to: 'Accepted',
+        actor: user(courier),
         payload: { courierId: randomUUID() },
         set: { courierId: courier },
       });
@@ -484,11 +505,237 @@ describe('transition', () => {
     it('writes an empty payload for an edge with no columns', async () => {
       const id = await seed('Pending-Supplier');
       await transition(t.db, {
-        errandId: id,
+        actor: SYSTEM, errandId: id,
         expected: 'Pending-Supplier',
-        to: 'Pending-Credit',
+        to: 'Reserving-Credit',
       });
       expect(await lastPayload(id)).toEqual({});
+    });
+  });
+
+  describe('actor rules (L4)', () => {
+    const accept = (id: string, actor: Actor) =>
+      transition(t.db, {
+        errandId: id,
+        expected: 'Open',
+        to: 'Accepted',
+        actor,
+        set: { courierId: actor.kind === 'user' ? actor.id : requester },
+      });
+
+    it('refuses the requester accepting their own errand', async () => {
+      const id = await seed('Open');
+      expect(await accept(id, user(requester))).toEqual({ ok: false, reason: 'FORBIDDEN' });
+      expect((await projection(id)).status).toBe('Open');
+      expect(await events(id)).toHaveLength(0);
+    });
+
+    it('rejects an accept whose courierId is not the actor', async () => {
+      const id = await seed('Open');
+      const res = await transition(t.db, {
+        errandId: id,
+        expected: 'Open',
+        to: 'Accepted',
+        actor: user(randomUUID()),
+        set: { courierId: requester },
+      });
+      expect(res).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
+      expect((await projection(id)).courierId).toBeNull();
+    });
+
+    it('refuses the system on a user-only edge', async () => {
+      const id = await seed('Open');
+      const res = await transition(t.db, {
+        actor: SYSTEM, errandId: id,
+        expected: 'Open',
+        to: 'Accepted',
+        set: { courierId: courier },
+        idempotencyKey: 'sys-accept',
+      });
+      // Caught before the transaction, so nothing is stored under the key.
+      expect(res).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
+    });
+
+    it('accepts an uppercase user id and stores it lowercased', async () => {
+      const id = await seed('Open');
+      const up = courier.toUpperCase();
+      const res = await transition(t.db, { errandId: id, expected: 'Open', to: 'Accepted', actor: user(up), set: { courierId: up } });
+      expect(res).toMatchObject({ ok: true });
+      expect((await projection(id)).courierId).toBe(courier);
+    });
+
+    it('never treats a missing or malformed actor as the system', async () => {
+      const id = await seed('Reserving-Credit');
+      const bad = [undefined, null, {}, { kind: 'user' }, { kind: 'user', id: 'nope' }, { kind: 'user', id: undefined }];
+      for (const actor of bad) {
+        const res = await transition(t.db, {
+          errandId: id,
+          expected: 'Reserving-Credit',
+          to: 'Open',
+          actor: actor as never,
+        });
+        expect(res).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
+      }
+      expect((await projection(id)).status).toBe('Reserving-Credit');
+      expect(await events(id)).toHaveLength(0);
+    });
+
+    it('refuses a user on a system-only edge', async () => {
+      const id = await seed('Reserving-Credit');
+      const res = await transition(t.db, { errandId: id, expected: 'Reserving-Credit', to: 'Open', actor: user(requester) });
+      expect(res).toEqual({ ok: false, reason: 'FORBIDDEN' });
+    });
+
+    it('lets only the assigned courier pick up, withdraw or deliver', async () => {
+      const id = await seed('Accepted');
+      const stranger = randomUUID();
+      const pickedUpAt = new Date();
+      for (const actor of [user(stranger), user(requester), SYSTEM]) {
+        expect(
+          await transition(t.db, {
+            errandId: id,
+            expected: 'Accepted',
+            to: 'Picked Up',
+            actor,
+            set: { pickedUpAt },
+          }),
+        ).toEqual({ ok: false, reason: 'FORBIDDEN' });
+      }
+      expect(
+        await transition(t.db, { errandId: id, expected: 'Accepted', to: 'Open', actor: user(stranger) }),
+      ).toEqual({ ok: false, reason: 'FORBIDDEN' });
+    });
+
+    it('lets the requester cancel but not a courier', async () => {
+      const id = await seed('Open');
+      const cancel = (actor: Actor) =>
+        transition(t.db, {
+          errandId: id,
+          expected: 'Open',
+          to: 'Cancelled',
+          actor,
+          set: { cancellationReason: 'REQUESTER_CANCELLED' },
+        });
+      expect(await cancel(user(courier))).toEqual({ ok: false, reason: 'FORBIDDEN' });
+      expect(await cancel(user(requester))).toMatchObject({ ok: true });
+    });
+
+    it('refuses the requester cancelling once picked up; the system may', async () => {
+      const id = await seed('Picked Up');
+      const cancel = (actor: Actor, cancellationReason: 'REQUESTER_CANCELLED' | 'PICKUP_TIME_EXCEEDED') =>
+        transition(t.db, {
+          errandId: id,
+          expected: 'Picked Up',
+          to: 'Cancelled',
+          actor,
+          set: { cancellationReason },
+        });
+      // No reason is both allowed on this edge and a user reason.
+      expect(await cancel(user(requester), 'REQUESTER_CANCELLED')).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
+      expect(await cancel(SYSTEM, 'PICKUP_TIME_EXCEEDED')).toMatchObject({ ok: true });
+    });
+
+    it('reports a stale expectation as STATE_MISMATCH, not FORBIDDEN', async () => {
+      const id = await seed('Accepted');
+      expect(await accept(id, user(randomUUID()))).toMatchObject({ reason: 'STATE_MISMATCH' });
+    });
+  });
+
+  describe('courier lock (L5)', () => {
+    it('refuses a second active errand and leaves the first untouched', async () => {
+      const a = await seed('Open');
+      const b = await seed('Open');
+      const accept = (id: string) =>
+        transition(t.db, {
+          errandId: id,
+          expected: 'Open',
+          to: 'Accepted',
+          actor: user(courier),
+          set: { courierId: courier },
+          idempotencyKey: 'lock-' + id,
+        });
+      expect(await accept(a)).toMatchObject({ ok: true });
+      expect(await accept(b)).toEqual({ ok: false, reason: 'COURIER_BUSY' });
+      expect((await projection(b)).status).toBe('Open');
+      expect(await events(b)).toHaveLength(0);
+      // The transaction survived the violation; the key was released, not stored.
+      expect(await accept(b)).toEqual({ ok: false, reason: 'COURIER_BUSY' });
+      await transition(t.db, { errandId: a, expected: 'Accepted', to: 'Open', actor: user(courier) });
+      expect(await accept(b)).toMatchObject({ ok: true });
+    });
+
+    it('lets one of two concurrent accepts by the same courier win', async () => {
+      const ids = [await seed('Open'), await seed('Open')];
+      const results = await Promise.all(
+        ids.map((errandId) =>
+          transition(t.db, { errandId, expected: 'Open', to: 'Accepted', actor: user(courier), set: { courierId: courier } }),
+        ),
+      );
+      expect(results.filter((r) => r.ok)).toHaveLength(1);
+      expect(results.filter((r) => !r.ok && r.reason === 'COURIER_BUSY')).toHaveLength(1);
+    });
+
+    it('frees the courier after withdrawing', async () => {
+      const a = await seed('Open');
+      const b = await seed('Open');
+      const base = { expected: 'Open' as const, to: 'Accepted' as const, actor: user(courier), set: { courierId: courier } };
+      await transition(t.db, { ...base, errandId: a });
+      await transition(t.db, { errandId: a, expected: 'Accepted', to: 'Open', actor: user(courier) });
+      expect(await transition(t.db, { ...base, errandId: b })).toMatchObject({ ok: true });
+    });
+  });
+
+  describe('expiry on accept (L6)', () => {
+    const accept = (id: string) =>
+      transition(t.db, { errandId: id, expected: 'Open', to: 'Accepted', actor: user(courier), set: { courierId: courier } });
+    const expireAt = (id: string, at: Date) =>
+      t.db.update(errands).set({ expiresAt: at }).where(eq(errands.id, id));
+
+    it('refuses an errand past its expiry', async () => {
+      const id = await seed('Open');
+      await expireAt(id, new Date(Date.now() - 1000));
+      expect(await accept(id)).toEqual({ ok: false, reason: 'EXPIRED' });
+      expect((await projection(id)).status).toBe('Open');
+    });
+
+    it('accepts before expiry and when there is none', async () => {
+      const id = await seed('Open');
+      await expireAt(id, new Date(Date.now() + 60_000));
+      expect(await accept(id)).toMatchObject({ ok: true });
+    });
+  });
+
+  describe('cancellation reasons (L7)', () => {
+    it('rejects a reason outside the closed set or the edge subset', async () => {
+      const id = await seed('Open');
+      for (const cancellationReason of ['because', 'SUPPLIER_UNAVAILABLE']) {
+        expect(
+          await transition(t.db, { actor: SYSTEM, errandId: id, expected: 'Open', to: 'Cancelled', set: { cancellationReason } }),
+        ).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
+      }
+      expect((await projection(id)).status).toBe('Open');
+    });
+
+    it('ties reasons to the kind of actor', async () => {
+      const id = await seed('Open');
+      const cancel = (actor: Actor, cancellationReason: string) =>
+        transition(t.db, { actor, errandId: id, expected: 'Open', to: 'Cancelled', set: { cancellationReason } });
+      expect(await cancel(user(requester), 'ERRAND_EXPIRED')).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
+      expect(await cancel(SYSTEM, 'REQUESTER_CANCELLED')).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
+    });
+  });
+
+  describe('idempotency fingerprint', () => {
+    it('refuses a reused key carrying different content', async () => {
+      const id = await seed('Reserving-Credit');
+      const cancel = (cancellationReason: string) =>
+        transition(t.db, {
+          actor: SYSTEM, errandId: id, expected: 'Reserving-Credit', to: 'Cancelled',
+          set: { cancellationReason }, idempotencyKey: 'k',
+        });
+      expect(await cancel('INSUFFICIENT_CREDITS')).toMatchObject({ ok: true });
+      expect(await cancel('INSUFFICIENT_CREDITS')).toMatchObject({ ok: true, replayed: true });
+      expect(await cancel('MISSING_BALANCE')).toEqual({ ok: false, reason: 'IDEMPOTENCY_KEY_REUSED' });
     });
   });
 });

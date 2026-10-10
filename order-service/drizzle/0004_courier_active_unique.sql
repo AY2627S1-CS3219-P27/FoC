@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "errands_one_active_per_courier" ON "errands" USING btree ("courier_id") WHERE "errands"."status" IN ('Accepted', 'Picked Up');

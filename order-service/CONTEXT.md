@@ -10,7 +10,9 @@ Owns every errand from creation to a terminal state: validates it, gets its supp
 
 `Pending` · `Open` · `Accepted` · `Picked Up` · `Delivered` · `Completed` · `Cancelled` · `Incomplete`
 
-`Pending` is internally `Pending-Supplier` (supplier not yet confirmed) then `Pending-Credit` (reservation outstanding). Callers only ever see `Pending`.
+`Pending` is internally `Pending-Supplier` (supplier not yet confirmed) then `Reserving-Credit` (reservation outstanding). Callers only ever see `Pending`.
+
+In-flight credit statuses ([ADR 0006](../docs/adr/order-service/0006-in-flight-credit-statuses.md)): `Reserving-Credit` (the `Pending` sub-state above), `Transferring-Credit` (shown as `Completed`) and `Adjusting-Credit` (shown as `Open`) are internal while credit-service confirms a step. Cancelling does not wait on credit.
 
 Terminal: `Completed`, `Cancelled`, `Incomplete`. There is no `Expired` state: an `Open` errand whose deadline passes is `Cancelled` with reason `ERRAND_EXPIRED`. `Incomplete` is reached only from `Delivered` when the requester rejects the delivery. The full transition list is in [`ARCHITECTURE.md`](./ARCHITECTURE.md) §2.
 
@@ -18,9 +20,12 @@ Terminal: `Completed`, `Cancelled`, `Incomplete`. There is no `Expired` state: a
 
 - **Transition**: an accepted change of an errand's state. Each one appends exactly one errand event and updates the projection in the same transaction.
 - **Sweep**: a scheduled job that finds errands whose deadline has passed or that are stuck, and transitions them. Runs on one instance at a time.
-- **Hold window**: how long an errand may stay in `Pending-Supplier` before it is cancelled.
-- **Expiry deadline** (`expiresAt`): the absolute time an `Open` errand lapses. Set by the requester in the create request and stored at creation; the service never derives or shifts it (it does not restart when the errand becomes `Open`). It only takes effect while `Open`; time spent in `Pending` counts against it.
+- **Hold window**: how long an errand may stay in `Pending-Supplier` (or an in-flight credit status) before it is cancelled or escalated.
+- **In-flight status**: an internal status held while credit-service confirms a step. A reply moves the errand on; an explicit rejection reverts it. A timeout never reverts it.
+- **Expiry deadline** (`expiresAt`): the time an `Open` errand lapses. The requester supplies a duration (15 minutes to 168 hours, default 60 minutes); `expiresAt` is the moment the errand becomes `Open` plus that duration, so time in `Pending` does not count ([ADR 0007](../docs/adr/order-service/0007-expiry-duration-autocomplete-and-supplier-validation.md); not yet implemented, the code still takes an absolute time at creation).
 - **Single-assignment**: at most one courier is ever assigned to an errand; a concurrent second accept loses.
-- **Cancellation reason**: a tag recorded on cancellation, e.g. `SUPPLIER_UNAVAILABLE`, `SUPPLIER_VALIDATION_TIMEOUT`, `ERRAND_EXPIRED`, `PICKUP_TIME_EXCEEDED`.
+- **Cancellation reason**: a tag recorded on cancellation, one of a closed set (`SUPPLIER_UNAVAILABLE`, `SUPPLIER_VALIDATION_TIMEOUT`, `INSUFFICIENT_CREDITS`, `MISSING_BALANCE`, `CREDIT_TIMEOUT`, `ERRAND_EXPIRED`, `PICKUP_TIME_EXCEEDED`, `REQUESTER_CANCELLED`), each valid only on certain cancel edges.
 - **Role block**: a lock on a user's new requester or courier activity, set while Order Service confirms they have no ongoing errands (used for role change and archival).
-- **System actor**: the acting user recorded on transitions made by a sweep rather than a person.
+- **System actor**: the acting user recorded on transitions made by a sweep rather than a person (also credit and supplier replies); the explicit `SYSTEM` actor in code, stored as a null `actor_id`. Never a default for a missing actor.
+- **Outbox**: the `outbox_events` table. A notice for another service is inserted there in the same transaction as the state change, and a relay publishes it to the broker afterwards, so a crash cannot lose it. Delivery is at least once ([ADR 0008](../docs/adr/order-service/0008-transactional-outbox-and-broker-access.md)).
+- **Courier lock**: a courier may hold only one Accepted or Picked Up Errand at a time.
