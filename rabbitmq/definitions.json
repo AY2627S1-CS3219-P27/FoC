@@ -105,6 +105,8 @@
     { "arguments": { "x-queue-type": "classic" }, "auto_delete": false, "durable": true, "name": "otp_emails", "type": "classic", "vhost": "/foc" },
     { "arguments": { "x-queue-type": "classic" }, "auto_delete": false, "durable": true, "name": "password_reset_emails", "type": "classic", "vhost": "/foc" },
     { "arguments": {}, "auto_delete": false, "durable": true, "name": "credit-service.user-registered.v1", "type": "classic", "vhost": "/foc" },
+    { "arguments": {}, "auto_delete": false, "durable": true, "name": "credit-service.credit-reservation.v1", "type": "classic", "vhost": "/foc" },
+    { "arguments": {}, "auto_delete": false, "durable": true, "name": "credit-service.credit-reservation-adjustment.v1", "type": "classic", "vhost": "/foc" },
     {
       "arguments": {
         "x-queue-type": "classic",
@@ -160,6 +162,8 @@
     { "arguments": {}, "destination": "otp_emails", "destination_type": "queue", "routing_key": "otp.email", "source": "foc.events", "vhost": "/foc" },
     { "arguments": {}, "destination": "password_reset_emails", "destination_type": "queue", "routing_key": "password-reset.email", "source": "foc.events", "vhost": "/foc" },
     { "arguments": {}, "destination": "credit-service.user-registered.v1", "destination_type": "queue", "routing_key": "user.registered.v1", "source": "foc.events", "vhost": "/foc" },
+    { "arguments": {}, "destination": "credit-service.credit-reservation.v1", "destination_type": "queue", "routing_key": "credit.reservation.v1", "source": "foc.events", "vhost": "/foc" },
+    { "arguments": {}, "destination": "credit-service.credit-reservation-adjustment.v1", "destination_type": "queue", "routing_key": "credit.reservation-adjustment.v1", "source": "foc.events", "vhost": "/foc" },
     { "arguments": { "x-match": "all", "foc-delay": "60000" }, "destination": "email_retry_60s", "destination_type": "queue", "routing_key": "", "source": "foc.retry", "vhost": "/foc" },
     { "arguments": { "x-match": "all", "foc-delay": "120000" }, "destination": "email_retry_120s", "destination_type": "queue", "routing_key": "", "source": "foc.retry", "vhost": "/foc" },
     { "arguments": { "x-match": "all", "foc-delay": "240000" }, "destination": "email_retry_240s", "destination_type": "queue", "routing_key": "", "source": "foc.retry", "vhost": "/foc" },

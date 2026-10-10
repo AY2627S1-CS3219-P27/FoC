@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://foc.local/schemas/credit-reservation-adjustment-rejected.v1.schema.json",
+  "title": "CreditReservationAdjustmentRejectedV1",
+  "allOf": [
+    { "$ref": "https://foc.local/schemas/event-envelope.v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": { "const": "CreditReservationAdjustmentRejected" },
+        "publisher": { "const": "credit-service" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["errandId", "requestedAmount", "rejectionReason"],
+          "properties": {
+            "errandId": { "type": "string", "format": "uuid" },
+            "requestedAmount": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "rejectionReason": {
+              "enum": [
+                "RESERVATION_NOT_FOUND",
+                "STALE_RESERVATION_AMOUNT",
+                "INSUFFICIENT_CREDITS"
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+}

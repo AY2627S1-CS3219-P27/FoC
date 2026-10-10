@@ -17,6 +17,12 @@ export type { EventEnvelope } from './domain-events/event-envelope.types.js';
 export { eventRegistry } from './domain-events/event-registry.js';
 export type {
   CreditAccountInitialisedEvent,
+  CreditReservationAdjustmentEvent,
+  CreditReservationAdjustmentRejectedEvent,
+  CreditReservationAdjustmentSuccessEvent,
+  CreditReservationEvent,
+  CreditReservationRejectedEvent,
+  CreditReservationSuccessEvent,
   EventContractKey,
   EventOf,
   EventType,
@@ -27,6 +33,42 @@ export {
   creditAccountInitialisedV1Contract,
 } from './domain-events/events/credit-account-initialised/v1/contract.js';
 export type { CreditAccountInitialisedPayload } from './domain-events/events/credit-account-initialised/v1/contract.js';
+export {
+  CREDIT_RESERVATION_ADJUSTMENT_REJECTED_V1_ROUTING_KEY,
+  creditReservationAdjustmentRejectedV1Contract,
+} from './domain-events/events/credit-reservation-adjustment-rejected/v1/contract.js';
+export type {
+  CreditReservationAdjustmentRejectedPayload,
+  CreditReservationAdjustmentRejectionReason,
+} from './domain-events/events/credit-reservation-adjustment-rejected/v1/contract.js';
+export {
+  CREDIT_RESERVATION_ADJUSTMENT_SUCCESS_V1_ROUTING_KEY,
+  creditReservationAdjustmentSuccessV1Contract,
+} from './domain-events/events/credit-reservation-adjustment-success/v1/contract.js';
+export type { CreditReservationAdjustmentSuccessPayload } from './domain-events/events/credit-reservation-adjustment-success/v1/contract.js';
+export {
+  CREDIT_RESERVATION_ADJUSTMENT_V1_ROUTING_KEY,
+  creditReservationAdjustmentV1Contract,
+} from './domain-events/events/credit-reservation-adjustment/v1/contract.js';
+export type { CreditReservationAdjustmentPayload } from './domain-events/events/credit-reservation-adjustment/v1/contract.js';
+export {
+  CREDIT_RESERVATION_REJECTED_V1_ROUTING_KEY,
+  creditReservationRejectedV1Contract,
+} from './domain-events/events/credit-reservation-rejected/v1/contract.js';
+export type {
+  CreditReservationRejectedPayload,
+  CreditReservationRejectionReason,
+} from './domain-events/events/credit-reservation-rejected/v1/contract.js';
+export {
+  CREDIT_RESERVATION_SUCCESS_V1_ROUTING_KEY,
+  creditReservationSuccessV1Contract,
+} from './domain-events/events/credit-reservation-success/v1/contract.js';
+export type { CreditReservationSuccessPayload } from './domain-events/events/credit-reservation-success/v1/contract.js';
+export {
+  CREDIT_RESERVATION_V1_ROUTING_KEY,
+  creditReservationV1Contract,
+} from './domain-events/events/credit-reservation/v1/contract.js';
+export type { CreditReservationPayload } from './domain-events/events/credit-reservation/v1/contract.js';
 export {
   USER_REGISTERED_V1_ROUTING_KEY,
   userRegisteredV1Contract,

@@ -9,7 +9,7 @@ describe('RabbitMqOutboxPublisher messaging integration', () => {
   const suffix = randomUUID().replaceAll('-', '');
   const exchange = `foc.events.outbox.test.${suffix}`;
   const queue = `credit-service.outbox.test.${suffix}`;
-  const routingKey = 'credit.account-initialised.v1';
+  const routingKey = 'credit.reservation-success.v1';
   const rabbitMqUrl = process.env.RABBITMQ_URL;
   let connection: ChannelModel;
   let channel: Channel;
@@ -54,19 +54,20 @@ describe('RabbitMqOutboxPublisher messaging integration', () => {
     const eventId = randomUUID();
     const envelope = {
       eventId,
-      eventType: 'CreditAccountInitialised',
+      eventType: 'CreditReservationSuccess',
       timestamp: new Date().toISOString(),
       publisher: 'credit-service',
       payload: {
-        userId: randomUUID(),
-        creditAmountAllocated: 100,
-        creditAllocationId: randomUUID(),
+        errandId: randomUUID(),
+        requesterUserId: randomUUID(),
+        amount: 100,
+        transactionId: randomUUID(),
       },
     };
 
     await publisher.publish({
       eventId,
-      eventType: 'CreditAccountInitialised',
+      eventType: 'CreditReservationSuccess',
       routingKey,
       envelope,
     });
@@ -83,7 +84,7 @@ describe('RabbitMqOutboxPublisher messaging integration', () => {
       deliveryMode: 2,
       contentType: 'application/json',
       messageId: eventId,
-      type: 'CreditAccountInitialised',
+      type: 'CreditReservationSuccess',
       appId: 'credit-service',
     });
   });

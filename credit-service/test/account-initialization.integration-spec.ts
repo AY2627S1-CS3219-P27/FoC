@@ -94,12 +94,14 @@ describe('AccountInitializationService persistence', () => {
 
   beforeEach(async () => {
     await dataSource.query(
-      'TRUNCATE TABLE inbox_events, outbox_events, credit_allocations, credit_accounts',
+      'TRUNCATE TABLE inbox_events, credit_operations, credit_reservations, credit_transactions, outbox_events, credit_allocations, credit_accounts',
     );
   });
 
   afterAll(async () => {
     if (dataSource?.isInitialized) {
+      await dataSource.undoLastMigration({ transaction: 'all' });
+      await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.destroy();
     }
