@@ -17,6 +17,7 @@ export interface EnvironmentVariables {
   DB_USERNAME: string;
   DB_DATABASE: string;
   DB_PASSWORD_FILE: string;
+  JWT_PUBLIC_KEY_FILE: string;
   INITIAL_CREDIT_BALANCE: number;
   RABBITMQ_USER: string;
   RABBITMQ_HOST: string;
@@ -74,6 +75,7 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
   DB_USERNAME: Joi.string().min(1).required(),
   DB_DATABASE: Joi.string().min(1).required(),
   DB_PASSWORD_FILE: Joi.string().min(1).required(),
+  JWT_PUBLIC_KEY_FILE: Joi.string().min(1).required(),
   INITIAL_CREDIT_BALANCE: Joi.number()
     .integer()
     .min(1)
