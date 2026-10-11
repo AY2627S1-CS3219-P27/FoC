@@ -24,7 +24,6 @@ import type {
   Subscription,
 } from './rabbitmq-message.types.js';
 
-const MAX_RETRY_COUNT = 5;
 const MAX_FAILURE_REASON_LENGTH = 512;
 const MAX_AMQP_SHORT_STRING_BYTES = 255;
 
@@ -116,13 +115,16 @@ function safeAmqpShortString(value: unknown): string | undefined {
     : undefined;
 }
 
-function retryCountFrom(message: ConsumeMessage): number | undefined {
+function retryCountFrom(
+  message: ConsumeMessage,
+  maxRetries: number,
+): number | undefined {
   const value = message.properties.headers?.['x-retry-count'];
   if (value === undefined) {
     return 0;
   }
 
-  return Number.isInteger(value) && value >= 0 && value <= MAX_RETRY_COUNT
+  return Number.isInteger(value) && value >= 0 && value <= maxRetries
     ? (value as number)
     : undefined;
 }
@@ -567,7 +569,10 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
     }
 
     const eventId = extractEventId(body, message.properties);
-    const retryCount = retryCountFrom(message);
+    const retryCount = retryCountFrom(
+      message,
+      this.topology.retryDelays.length,
+    );
     if (retryCount === undefined) {
       await this.deadLetterOrRequeue(
         message,
@@ -627,7 +632,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
         `Transient RabbitMQ handler failure for event ${eventId ?? 'unknown'} on attempt ${retryCount + 1}: ${error instanceof Error ? error.name : 'Error'}`,
       );
 
-      if (retryCount < MAX_RETRY_COUNT) {
+      if (retryCount < this.topology.retryDelays.length) {
         await this.retryOrRequeue(
           message,
           consumerChannel,
@@ -646,7 +651,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
         subscription,
         {
           category: 'PROCESSING_RETRIES_EXHAUSTED',
-          reason: 'message processing failed after five retries',
+          reason: `message processing failed after ${this.topology.retryDelays.length} retries`,
           retryCount,
           eventId,
         },
