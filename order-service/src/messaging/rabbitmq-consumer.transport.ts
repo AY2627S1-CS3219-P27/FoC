@@ -440,6 +440,14 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
     generation: number,
   ): Promise<void> {
     const channel = await model.createChannel();
+    // Listen before any await: a broker-closed channel (e.g. PRECONDITION_FAILED
+    // on assertQueue) would otherwise emit an unhandled 'error' and crash.
+    this.registerChannelRecovery(
+      model,
+      channel,
+      `consumer ${subscription.queue}`,
+      generation,
+    );
     try {
       await this.declareSubscriptionTopology(channel, subscription);
       await channel.prefetch(this.topology.prefetch);
@@ -470,13 +478,6 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
           void processing.finally(() => this.inFlight.delete(processing));
         },
         { noAck: false },
-      );
-
-      this.registerChannelRecovery(
-        model,
-        channel,
-        `consumer ${subscription.queue}`,
-        generation,
       );
 
       this.consumers.set(subscription.queue, {
@@ -655,19 +656,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       // A handler returns ack only after its own durable work has completed.
       // An acknowledgement exception must not create a second message: close
       // the channel so RabbitMQ can return the unacknowledged original instead.
-      try {
-        consumerChannel.ack(message);
-      } catch (error) {
-        this.logger.error(
-          `Unable to acknowledge successfully handled delivery from ${subscription.queue}; recycling its consumer channel: ${error instanceof Error ? error.name : 'Error'}`,
-        );
-        try {
-          await consumerChannel.close();
-        } catch {
-          // The acknowledgement commonly fails because the channel is already
-          // closed; its unacknowledged deliveries are returned automatically.
-        }
-      }
+      await this.ackOrRecycle(message, consumerChannel, subscription);
       return;
     }
 
@@ -683,6 +672,28 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
         eventId: result.eventId ?? eventId,
       },
     );
+  }
+
+  // Ack failure must not create a second message: close the channel so
+  // RabbitMQ returns the unacknowledged original instead of requeueing here.
+  private async ackOrRecycle(
+    message: ConsumeMessage,
+    consumerChannel: Channel,
+    subscription: ResolvedSubscription,
+  ): Promise<void> {
+    try {
+      consumerChannel.ack(message);
+    } catch (error) {
+      this.logger.error(
+        `Unable to acknowledge delivery from ${subscription.queue}; recycling its consumer channel: ${error instanceof Error ? error.name : 'Error'}`,
+      );
+      try {
+        await consumerChannel.close();
+      } catch {
+        // The acknowledgement commonly fails because the channel is already
+        // closed; its unacknowledged deliveries are returned automatically.
+      }
+    }
   }
 
   private async retryOrRequeue(
@@ -707,14 +718,15 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
           eventId,
         }),
       );
-      // Remove the original only after the broker has accepted its replacement.
-      consumerChannel.ack(message);
     } catch (error) {
       this.logger.error(
         `Unable to confirm retry publication for event ${eventId ?? 'unknown'}: ${String(error)}`,
       );
       this.requeue(message, consumerChannel);
+      return;
     }
+    // Remove the original only after the broker has accepted its replacement.
+    await this.ackOrRecycle(message, consumerChannel, subscription);
   }
 
   private async deadLetterOrRequeue(
@@ -732,18 +744,19 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
         message.content,
         this.publishOptions(message, failure),
       );
-      // This ordering prevents a permanent failure from disappearing between
-      // its source queue and DLQ.
-      consumerChannel.ack(message);
-      this.logger.warn(
-        `Dead-lettered event ${failure.eventId ?? 'unknown'} from ${subscription.queue}: ${failure.category}`,
-      );
     } catch (error) {
       this.logger.error(
         `Unable to confirm dead-letter publication for event ${failure.eventId ?? 'unknown'}: ${String(error)}`,
       );
       this.requeue(message, consumerChannel);
+      return;
     }
+    // This ordering prevents a permanent failure from disappearing between
+    // its source queue and DLQ.
+    await this.ackOrRecycle(message, consumerChannel, subscription);
+    this.logger.warn(
+      `Dead-lettered event ${failure.eventId ?? 'unknown'} from ${subscription.queue}: ${failure.category}`,
+    );
   }
 
   private publishOptions(
