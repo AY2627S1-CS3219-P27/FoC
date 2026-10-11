@@ -19,7 +19,10 @@ const DAY_MS = 24 * 60 * 60 * 1000; // pickup and auto-complete windows (ADR 000
 const BATCH = 100; // per sweep per tick; the rest wait for the next one
 const logger = new Logger('Sweeps');
 
-// Compared in SQL so the app and database clocks never disagree.
+// Compared in SQL against the database clock. Known gap: picked_up_at and
+// delivered_at are stamped by the app (the caller's `set`), so app/database
+// clock skew shifts the 24h pickup and auto-complete timers by that much.
+// Fix if it matters: stamp them with now() in the transition UPDATE.
 const ago = (ms: number) => sql`now() - (${ms}::bigint * interval '1 millisecond')`;
 
 const ids = async (db: Db, where: SQL | undefined) =>
