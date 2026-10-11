@@ -17,7 +17,7 @@ flowchart LR
     Read[Read side<br/>list / filter / sort, sub-state to Pending]
     Consumers[Notice consumers<br/>supplier + credit replies]
     Outbox[Outbox relay + publisher]
-    Sweeps[Sweeps<br/>expiry, supplier retry, auto-complete]
+    Sweeps[Sweeps<br/>expiry, pickup, auto-complete, credit timeouts]
   end
 
   subgraph PG[PostgreSQL]
@@ -179,5 +179,5 @@ sequenceDiagram
   O->>O: to Open (expiresAt = now + duration, ADR 0007) or Cancelled
 ```
 
-The code today still takes an absolute `expiresAt` at creation; the diagram shows the decided behaviour (ADR 0007). Creation never blocks on the supplier or credit outcome (F1.4.2). If Supplier Service is unreachable the errand stays in `Pending-Supplier` and the retry sweep picks it up.
+`createErrand()` takes `expiryDurationMinutes` (15 to 10080, default 60), kept only in the `ErrandCreated` payload; the `CreditReserved` edge sets `expires_at` and records it in its own payload (ADR 0007). Creation never blocks on the supplier or credit outcome (F1.4.2). If Supplier Service is unreachable the errand stays in `Pending-Supplier`; the supplier retry sweep is not built yet (no supplier contract).
 
