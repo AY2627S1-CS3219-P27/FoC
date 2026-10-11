@@ -16,7 +16,7 @@ flowchart LR
     Life[Lifecycle module<br/>state machine + transition function]
     Read[Read side<br/>list / filter / sort, sub-state to Pending]
     Consumers[Notice consumers<br/>supplier + credit replies]
-    Outbox[Outbox relay + publisher<br/>built; nothing enqueues yet]
+    Outbox[Outbox relay + publisher]
     Sweeps[Sweeps<br/>expiry, supplier retry, auto-complete]
   end
 
@@ -143,7 +143,7 @@ sequenceDiagram
   end
 ```
 
-Publishing after commit would lose a notice if the process dies between commit and publish, so notices go through a transactional outbox ([ADR 0008](../docs/adr/order-service/0008-transactional-outbox-and-broker-access.md)): the notice is inserted into `outbox_events` in the same transaction as the event, and a relay (`src/outbox/`) publishes it to `foc.events` with confirms. The table, the `enqueueOutbox(tx, event)` helper, the relay and the publisher exist and are tested; `transition()` and `createErrand()` do not call the helper yet because the event contracts are not agreed (`order-messaging-feature-docs.md` L1/M4). Delivery is at least once, so consumers dedupe on `eventId`.
+Publishing after commit would lose a notice if the process dies between commit and publish, so notices go through a transactional outbox ([ADR 0008](../docs/adr/order-service/0008-transactional-outbox-and-broker-access.md)): the notice is inserted into `outbox_events` in the same transaction as the event, and a relay (`src/outbox/`) publishes it to `foc.events` with confirms. `transition()` calls `enqueueNotice` (`src/lifecycle/notice.ts`) right after the event insert, using the `notice` builder on the edge it took; the envelope is validated against its `@foc/contracts` schema first, and a failure throws and rolls the whole transition back. A replayed transition returns early and writes nothing. `createErrand()` emits nothing yet (the supplier request has no contract). Delivery is at least once, so consumers dedupe on `eventId`.
 
 Concurrent accepts, late credit replies and sweep ticks all lose safely at the `WHERE status = expected` check. No Redis or RabbitMQ is involved in the race.
 
