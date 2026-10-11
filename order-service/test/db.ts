@@ -25,6 +25,7 @@ export async function createTestDb() {
   await migrate(db, { migrationsFolder: './drizzle' });
   return {
     db,
+    pool,
     async close() {
       await pool.end();
       await admin.query(`DROP DATABASE ${name}`);

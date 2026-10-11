@@ -54,6 +54,11 @@ export const environmentSchema = Joi.object({
   OUTBOX_RETRY_BASE_DELAY_MS: Joi.number().integer().min(1).default(1_000),
   OUTBOX_RETRY_MAX_DELAY_MS: Joi.number().integer().min(1).default(60_000),
   OUTBOX_UNPUBLISHED_WARNING_MS: Joi.number().integer().min(1).default(60_000),
+
+  SWEEP_INTERVAL_MS: Joi.number().integer().min(1).default(60_000),
+  RESERVING_CREDIT_TIMEOUT_MS: Joi.number().integer().min(1).default(300_000),
+  CREDIT_REPLY_TIMEOUT_MS: Joi.number().integer().min(1).default(120_000),
+  CREDIT_RESEND_MAX: Joi.number().integer().min(0).default(3),
 })
   // The lease must outlast the confirm timeout, or a slow publish loses its claim.
   .custom((env, helpers) => {
