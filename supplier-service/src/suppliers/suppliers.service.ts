@@ -5,8 +5,9 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
 import { isUUID } from 'class-validator';
-import { DataSource, type EntityManager, In } from 'typeorm';
+import { DataSource, type EntityManager, In, type Repository } from 'typeorm';
 import {
   ErrorCode,
   type FieldViolation,
@@ -34,6 +35,8 @@ export class SuppliersService {
 
   constructor(
     private readonly dataSource: DataSource,
+    @InjectRepository(Supplier)
+    private readonly suppliers: Repository<Supplier>,
     config: ConfigService<EnvironmentVariables, true>,
   ) {
     this.campus = {
@@ -42,6 +45,46 @@ export class SuppliersService {
       minLongitude: config.get('CAMPUS_MIN_LONGITUDE', { infer: true }),
       maxLongitude: config.get('CAMPUS_MAX_LONGITUDE', { infer: true }),
     };
+  }
+
+  async list(filters?: {
+    status?: SupplierStatus;
+    name?: string;
+    buildingId?: string;
+    kind?: string;
+  }): Promise<Supplier[]> {
+    const qb = this.suppliers
+      .createQueryBuilder('s')
+      .leftJoinAndSelect('s.building', 'b')
+      .leftJoinAndSelect('s.categoryLinks', 'sc')
+      .leftJoinAndSelect('sc.category', 'c');
+
+    if (filters?.status) {
+      qb.andWhere('s.status = :status', { status: filters.status });
+    }
+    if (filters?.name) {
+      qb.andWhere('s.nameKey LIKE :name', {
+        name: `%${nameKey(filters.name)}%`,
+      });
+    }
+    if (filters?.buildingId) {
+      qb.andWhere('s.buildingId = :buildingId', {
+        buildingId: filters.buildingId,
+      });
+    }
+    if (filters?.kind) {
+      qb.andWhere('s.kind = :kind', { kind: filters.kind });
+    }
+
+    qb.orderBy('s.name', 'ASC');
+    return qb.getMany();
+  }
+
+  async findById(id: string): Promise<Supplier | null> {
+    return this.suppliers.findOne({
+      where: { id },
+      relations: { building: true, categoryLinks: { category: true } },
+    });
   }
 
   /**

@@ -570,7 +570,7 @@ describe('UsersService', () => {
 
     it('rejects a user id with no matching account', async () => {
       userRepository.findOneByOrFail.mockRejectedValue(
-        new EntityNotFoundError(User, { id: 7 }),
+        new EntityNotFoundError(User, { uuid: FIXED_UUID }),
       );
 
       await expect(
