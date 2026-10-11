@@ -1,3 +1,4 @@
+import type { NoticeBuilder } from './notice.js';
 import type { Status } from './status.js';
 
 // Projection columns a transition may write; values come from the caller.
@@ -34,20 +35,32 @@ export interface Edge {
   who: Role[]; // allowed actors; enforced in the conditional UPDATE
   reasons?: CancellationReason[]; // allowed cancellationReason values
   unexpiredOnly?: true; // refuse once expires_at has passed (F5.5)
+  notice?: NoticeBuilder; // outbox notice written in the transition's transaction (ADR 0008)
 }
 
-const cancel = (who: Role[], reasons: CancellationReason[]): Edge => ({
+// Release notice for credit; payload is just the errand (agree changes with credit: a change is a v2).
+const release: NoticeBuilder = (c) => ({
+  key: 'order.errand-cancelled.v1',
+  payload: { errandId: c.errandId },
+});
+const cancel = (
+  who: Role[],
+  reasons: CancellationReason[],
+  notice: NoticeBuilder | null = release,
+): Edge => ({
   type: 'ErrandCancelled',
   sets: ['cancellationReason'],
   clears: [],
   who,
   reasons,
+  notice: notice ?? undefined,
 });
-const plain = (type: string, who: Role[]): Edge => ({
+const plain = (type: string, who: Role[], notice?: NoticeBuilder): Edge => ({
   type,
   sets: [],
   clears: [],
   who,
+  notice,
 });
 const sys: Role[] = ['system'];
 
@@ -57,12 +70,25 @@ export const EDGES: Partial<
   Record<Status, Partial<Record<Status, Edge | Edge[]>>>
 > = {
   'Pending-Supplier': {
-    'Reserving-Credit': plain('SupplierValidated', sys),
-    Cancelled: cancel(sys, ['SUPPLIER_UNAVAILABLE', 'SUPPLIER_VALIDATION_TIMEOUT']),
+    'Reserving-Credit': plain('SupplierValidated', sys, (c) => ({
+      key: 'credit.reservation.v1',
+      payload: {
+        errandId: c.errandId,
+        requesterUserId: c.requesterId,
+        amount: c.rewardCredits,
+      },
+    })),
+    // Nothing reserved yet, so nothing to release.
+    Cancelled: cancel(sys, ['SUPPLIER_UNAVAILABLE', 'SUPPLIER_VALIDATION_TIMEOUT'], null),
   },
   'Reserving-Credit': {
     Open: plain('CreditReserved', sys),
-    Cancelled: cancel(sys, ['INSUFFICIENT_CREDITS', 'MISSING_BALANCE', 'CREDIT_TIMEOUT']),
+    // Release only on timeout: a reservation may be in flight (L8). A rejection reply reserved nothing.
+    Cancelled: cancel(
+      sys,
+      ['INSUFFICIENT_CREDITS', 'MISSING_BALANCE', 'CREDIT_TIMEOUT'],
+      (c) => (c.payload.cancellationReason === 'CREDIT_TIMEOUT' ? release(c) : undefined),
+    ),
   },
   Open: {
     Accepted: {
@@ -72,7 +98,15 @@ export const EDGES: Partial<
       who: ['other'],
       unexpiredOnly: true,
     },
-    'Adjusting-Credit': plain('AdjustmentRequested', ['requester']), // new amount rides in the payload
+    // New amount rides in the payload.
+    'Adjusting-Credit': plain('AdjustmentRequested', ['requester'], (c) => ({
+      key: 'credit.reservation-adjustment.v1',
+      payload: {
+        errandId: c.errandId,
+        oldAmount: c.rewardCredits,
+        newAmount: c.payload.newAmount,
+      },
+    })),
     Cancelled: cancel(['requester', 'system'], ['REQUESTER_CANCELLED', 'ERRAND_EXPIRED']),
   },
   'Adjusting-Credit': {
@@ -95,7 +129,15 @@ export const EDGES: Partial<
   },
   Delivered: {
     // System too: the 24h auto-complete (D3).
-    'Transferring-Credit': plain('ErrandConfirmed', ['requester', 'system']),
+    'Transferring-Credit': plain('ErrandConfirmed', ['requester', 'system'], (c) => ({
+      key: 'order.errand-completed.v1',
+      payload: {
+        errandId: c.errandId,
+        requesterUserId: c.requesterId,
+        courierUserId: c.courierId,
+        amount: c.rewardCredits,
+      },
+    })),
     Incomplete: plain('ErrandIncomplete', ['requester']),
   },
   'Transferring-Credit': {

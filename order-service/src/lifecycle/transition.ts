@@ -15,6 +15,7 @@ import {
   type Edge,
   type UserRole,
 } from './edges.js';
+import { enqueueNotice } from './notice.js';
 import type { Status } from './status.js';
 
 export type Db = NodePgDatabase<any>;
@@ -229,6 +230,8 @@ const matchOf = (i: TransitionInput, edge: Edge, actor: string | null) =>
 const clearedOf = (edge: Edge) =>
   Object.fromEntries(edge.clears.map((c) => [c, null]));
 
+type Returned = { requesterId: string; courierId: string | null; rewardCredits: number };
+
 // The status UPDATE. Returns the new sequence number, undefined if no row
 // matched (wrong status, actor, or expired), or COURIER_BUSY.
 async function updateErrand(
@@ -236,7 +239,7 @@ async function updateErrand(
   i: TransitionInput,
   edge: Edge,
   actor: string | null,
-): Promise<{ seq: number } | 'COURIER_BUSY' | undefined> {
+): Promise<{ seq: number; row: Returned } | 'COURIER_BUSY' | undefined> {
   const match = matchOf(i, edge, actor);
   const update = (q: Db) =>
     q
@@ -256,12 +259,21 @@ async function updateErrand(
             )
           : match,
       )
-      .returning({ seq: errands.lastSequenceNumber });
+      .returning({
+        seq: errands.lastSequenceNumber,
+        requesterId: errands.requesterId,
+        courierId: errands.courierId,
+        rewardCredits: errands.rewardCredits,
+      });
 
-  if (!edge.sets.includes('courierId')) return (await update(tx))[0];
+  const first = async (q: Db) => {
+    const [r] = await update(q);
+    return r && { seq: r.seq, row: r };
+  };
+  if (!edge.sets.includes('courierId')) return first(tx);
   // Savepoint: the unique violation must not abort the whole transaction.
   try {
-    return (await tx.transaction((sp) => update(sp)))[0];
+    return await tx.transaction((sp) => first(sp));
   } catch (e) {
     if (isCourierBusy(e)) return 'COURIER_BUSY';
     throw e;
@@ -341,5 +353,13 @@ async function apply(
   if (row === 'COURIER_BUSY') return BUSY;
   if (!row) return explainNoRow(tx, i, edge, actor);
   await appendEvent(tx, i, edge, actor, row.seq);
+  // Same transaction as the event: both commit or neither does (ADR 0008).
+  // Payload includes the stored columns, so the builder sees e.g. cancellationReason.
+  const notice = edge.notice?.({
+    errandId: i.errandId,
+    ...row.row,
+    payload: { ...i.payload, ...i.set },
+  });
+  if (notice) await enqueueNotice(tx, notice);
   return { ok: true, sequenceNumber: row.seq };
 }
