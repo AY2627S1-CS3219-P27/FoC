@@ -24,6 +24,9 @@ import type {
   Subscription,
 } from './rabbitmq-message.types.js';
 
+// Holds an unconfirmed delivery before requeueing so a degraded broker is not
+// hammered by an immediate redelivery loop that re-runs the handler each time.
+const REQUEUE_DELAY_MS = 1_000;
 const MAX_FAILURE_REASON_LENGTH = 512;
 const MAX_AMQP_SHORT_STRING_BYTES = 255;
 
@@ -729,7 +732,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       this.logger.error(
         `Unable to confirm retry publication for event ${eventId ?? 'unknown'}: ${String(error)}`,
       );
-      this.requeue(message, consumerChannel);
+      await this.requeue(message, consumerChannel);
       return;
     }
     // Remove the original only after the broker has accepted its replacement.
@@ -755,7 +758,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       this.logger.error(
         `Unable to confirm dead-letter publication for event ${failure.eventId ?? 'unknown'}: ${String(error)}`,
       );
-      this.requeue(message, consumerChannel);
+      await this.requeue(message, consumerChannel);
       return;
     }
     // This ordering prevents a permanent failure from disappearing between
@@ -889,7 +892,11 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
     }
   }
 
-  private requeue(message: ConsumeMessage, channel: Channel): void {
+  private async requeue(
+    message: ConsumeMessage,
+    channel: Channel,
+  ): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, REQUEUE_DELAY_MS));
     try {
       channel.nack(message, false, true);
     } catch {

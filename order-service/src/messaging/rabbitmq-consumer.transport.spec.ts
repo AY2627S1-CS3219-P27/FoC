@@ -294,6 +294,10 @@ async function deliverOn(
 }
 
 describe('RabbitMqConsumerTransport', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('declares the durable topology and starts a manual-ack consumer', async () => {
     const { connect, model, transport } = createHarness();
 
@@ -547,6 +551,11 @@ describe('RabbitMqConsumerTransport', () => {
       delivery: message(undefined, { headers: { 'x-retry-count': 'one' } }),
       category: 'INVALID_RETRY_METADATA',
     },
+    ...[6, -1, 1.5].map((retryCount) => ({
+      name: `an out-of-range retry count of ${retryCount}`,
+      delivery: message(undefined, { headers: { 'x-retry-count': retryCount } }),
+      category: 'INVALID_RETRY_METADATA',
+    })),
   ])(
     'dead-letters $name without calling the handler',
     async ({ delivery, category }) => {
@@ -749,6 +758,7 @@ describe('RabbitMqConsumerTransport', () => {
   });
 
   it('requeues the original delivery when publication is not confirmed', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
     const handler = {
       handle: vi.fn().mockRejectedValue(new Error('temporary')),
     } satisfies RabbitMqMessageHandler;
@@ -757,7 +767,10 @@ describe('RabbitMqConsumerTransport', () => {
     await transport.subscribe(subscription(handler));
     const delivery = message();
 
-    await deliver(model, delivery);
+    model.consumer.onMessage?.(delivery);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(model.consumer.rejected).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
 
     expect(model.consumer.acknowledged).toHaveLength(0);
     expect(model.consumer.rejected).toEqual([
@@ -880,5 +893,136 @@ describe('RabbitMqConsumerTransport', () => {
     expect(model.publisher.closed).toBe(true);
     expect(model.closed).toBe(true);
     await expect(transport.close()).resolves.toBeUndefined();
+  });
+
+  it('falls back to the AMQP messageId when the body has no event ID', async () => {
+    const handler = {
+      handle: vi.fn().mockResolvedValue({ outcome: 'ack' }),
+    } satisfies RabbitMqMessageHandler;
+    const { model, transport } = createHarness(handler);
+    await transport.subscribe(subscription(handler));
+
+    await deliver(
+      model,
+      message(Buffer.from(JSON.stringify({ eventType: 'UserRegistered' })), {
+        messageId: 'broker-message-id',
+      }),
+    );
+
+    expect(handler.handle).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: 'broker-message-id' }),
+    );
+  });
+
+  it('advances a returned retry to the following retry queue', async () => {
+    const handler = {
+      handle: vi.fn().mockRejectedValue(new Error('temporary')),
+    } satisfies RabbitMqMessageHandler;
+    const { model, transport } = createHarness(handler);
+    await transport.subscribe(subscription(handler));
+    const delivery = message(undefined, {
+      exchange: 'foc.order.back',
+      routingKey: 'order-service.user-registered.v1',
+      headers: { 'x-retry-count': 2 },
+    });
+
+    await deliver(model, delivery);
+
+    expect(model.publisher.published).toHaveLength(1);
+    expect(model.publisher.published[0]).toMatchObject({
+      exchange: 'foc.order.retry',
+      routingKey: 'order-service.user-registered.v1.retry.3',
+      options: { headers: { 'x-retry-count': 3 } },
+    });
+    expect(model.consumer.acknowledged).toEqual([delivery]);
+  });
+
+  it('requeues the original delivery when dead-letter publication is not confirmed', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    const handler = {
+      handle: vi.fn().mockResolvedValue({
+        outcome: 'dead-letter',
+        category: 'INVALID_PAYLOAD',
+        reason: 'bad payload',
+      }),
+    } satisfies RabbitMqMessageHandler;
+    const { model, transport } = createHarness(handler);
+    model.publisher.confirmationError = new Error('broker nack');
+    await transport.subscribe(subscription(handler));
+    const delivery = message();
+
+    model.consumer.onMessage?.(delivery);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(model.consumer.rejected).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(model.consumer.acknowledged).toHaveLength(0);
+    expect(model.consumer.rejected).toEqual([
+      { message: delivery, allUpTo: false, requeue: true },
+    ]);
+  });
+
+  it('waits for the socket to drain before acknowledging a published retry', async () => {
+    const handler = {
+      handle: vi.fn().mockRejectedValue(new Error('temporary')),
+    } satisfies RabbitMqMessageHandler;
+    const { model, transport } = createHarness(handler);
+    model.publisher.writable = false;
+    await transport.subscribe(subscription(handler));
+    const delivery = message();
+
+    model.consumer.onMessage?.(delivery);
+    await vi.waitFor(() => expect(model.publisher.published).toHaveLength(1));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(model.consumer.acknowledged).toHaveLength(0);
+
+    model.publisher.emit('drain');
+    await vi.waitFor(() =>
+      expect(model.consumer.acknowledged).toEqual([delivery]),
+    );
+  });
+
+  it('recycles the connection when the broker cancels a consumer', async () => {
+    const { handler, model, transport } = createHarness();
+    await transport.subscribe(subscription(handler));
+
+    model.consumer.onMessage?.(null);
+
+    await vi.waitFor(() => expect(model.closeCalls).toBe(1));
+  });
+
+  it('ignores channel closures from a superseded connection generation', async () => {
+    const { getRecoverySetup, handler, model, transport } = createHarness();
+    await transport.subscribe(subscription(handler));
+    await (getRecoverySetup() as (model: ChannelModel) => Promise<void>)(
+      new FakeModel() as unknown as ChannelModel,
+    );
+
+    model.consumer.emit('close');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(model.closeCalls).toBe(0);
+  });
+
+  it('drops a subscription whose consumer failed to start so it can be retried', async () => {
+    const { connect, handler, model, transport } = createHarness();
+    const createChannel = model.createChannel.bind(model);
+    vi.spyOn(model, 'createChannel').mockImplementationOnce(async () => {
+      const channel = await createChannel();
+      vi.spyOn(channel, 'consume').mockRejectedValueOnce(
+        new Error('consume failed'),
+      );
+      return channel;
+    });
+
+    await expect(transport.subscribe(subscription(handler))).rejects.toThrow(
+      'consume failed',
+    );
+    expect(model.consumers[0].closed).toBe(true);
+
+    await transport.subscribe(subscription(handler));
+
+    expect(connect).toHaveBeenCalledTimes(2);
+    expect(model.consumers[1].onMessage).toBeDefined();
   });
 });
