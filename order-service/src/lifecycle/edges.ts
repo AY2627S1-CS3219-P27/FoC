@@ -35,6 +35,7 @@ export interface Edge {
   who: Role[]; // allowed actors; enforced in the conditional UPDATE
   reasons?: CancellationReason[]; // allowed cancellationReason values
   unexpiredOnly?: true; // refuse once expires_at has passed (F5.5)
+  setsExpiry?: true; // expires_at = now + the duration in event 1 (ADR 0007)
   notice?: NoticeBuilder; // outbox notice written in the transition's transaction (ADR 0008)
 }
 
@@ -82,7 +83,7 @@ export const EDGES: Partial<
     Cancelled: cancel(sys, ['SUPPLIER_UNAVAILABLE', 'SUPPLIER_VALIDATION_TIMEOUT'], null),
   },
   'Reserving-Credit': {
-    Open: plain('CreditReserved', sys),
+    Open: { ...plain('CreditReserved', sys), setsExpiry: true },
     // Release only on timeout: a reservation may be in flight (a late success is released again). A rejection reply reserved nothing.
     Cancelled: cancel(
       sys,
