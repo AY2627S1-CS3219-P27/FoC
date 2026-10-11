@@ -11,7 +11,7 @@ import pg from 'pg';
 import type { Db } from '../lifecycle/transition.js';
 
 export const DB = Symbol('DB');
-const POOL = Symbol('POOL');
+export const POOL = Symbol('POOL');
 
 @Global()
 @Module({
@@ -37,7 +37,7 @@ const POOL = Symbol('POOL');
       useFactory: (pool: pg.Pool): Db => drizzle(pool),
     },
   ],
-  exports: [DB],
+  exports: [DB, POOL],
 })
 export class DbModule implements OnApplicationShutdown {
   constructor(@Inject(POOL) private readonly pool: pg.Pool) {}
