@@ -24,6 +24,11 @@ into a visible one, so users never see a "pending" state appear.
 no in-flight status and no revert. A `CreditReleaseRejected` reply cannot
 undo anything; order logs it and raises an admin alert.
 
+*Open question:* as built, a `CreditReleaseRejected` reply (`RESERVATION_NOT_FOUND`
+or `ALREADY_TRANSFERRED`) is only logged at error level and acknowledged. There is
+no retry, no re-send of the release and no alert beyond the log line. Whether it
+should be retried, or handled in some other way, needs further discussion.
+
 **A timeout never reverts.** Silence is not proof that credit did nothing. On a
 reply timeout order re-sends the same notice (credit dedups on
 `errandId`/`eventId`), and after a retry cap leaves the errand in its in-flight

@@ -2,7 +2,7 @@
 
 Module M.3: errand lifecycle, state model, expiry. Emits `ErrandCompleted` / `ErrandCancelled`, which credit-service consumes.
 
-Read `CONTEXT.md` (terms), `ARCHITECTURE.md` (state model, write path) and `order-messaging-feature-docs.md` (messaging build order, open decisions) first. ADRs are in `../docs/adr/order-service/`.
+Read `CONTEXT.md` (terms), `ARCHITECTURE.md` (state model, write path) first. ADRs are in `../docs/adr/order-service/`.
 
 ## Stack
 
