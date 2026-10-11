@@ -181,3 +181,11 @@ sequenceDiagram
 
 `createErrand()` takes `expiryDurationMinutes` (15 to 10080, default 60), kept only in the `ErrandCreated` payload; the `CreditReserved` edge sets `expires_at` and records it in its own payload (ADR 0007). Creation never blocks on the supplier or credit outcome (F1.4.2). If Supplier Service is unreachable the errand stays in `Pending-Supplier`; the supplier retry sweep is not built yet (no supplier contract).
 
+
+## Remaining work before rollout
+
+Not needed to merge the lifecycle/sweeps work; needed before it is relied on:
+
+- **Cleanup (item 5):** per-type payload validation (L3, ADR 0005), the health route, the ADR 0002 amendment, the §2 diagram check, and the backlog issue edits.
+- **Verification (item 6):** a real-broker `test:messaging` case (at least that a sweep re-queued event id is re-delivered), a fixture script faking credit's replies, and the rollout-order check (credit's queues must be bound before order publishes; a direct exchange drops unbound messages silently).
+- **Not built:** the `Pending-Supplier` retry and hold-window sweep (no supplier contract); `supplier_validated_at` (ADR 0007).
