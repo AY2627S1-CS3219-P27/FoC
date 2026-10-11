@@ -8,7 +8,7 @@ import pg from 'pg';
 const conn = () => ({
   host: process.env.DB_HOST ?? 'localhost',
   port: Number(process.env.DB_PORT ?? 5436),
-  user: process.env.DB_USERNAME ?? 'orderUser',
+  user: process.env.DB_USERNAME ?? 'order_service',
   password: readFileSync(
     process.env.DB_PASSWORD_FILE ?? './secrets/order_db_password.secret',
     'utf8',
