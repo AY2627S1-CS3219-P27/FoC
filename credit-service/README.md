@@ -2,7 +2,8 @@
 
 Credit Service owns credit accounts and their persistent balance history. It
 currently consumes `UserRegistered`, creates the user's account and immutable
-initial allocation, and eventually publishes `CreditAccountInitialised`.
+initial allocation, eventually publishes `CreditAccountInitialised`, and
+serves protected balance and advisory sufficiency reads.
 
 The service is built with NestJS and TypeScript, PostgreSQL with TypeORM, and
 RabbitMQ. Event payloads are validated with versioned JSON Schemas and AJV.
@@ -58,6 +59,11 @@ Replace both example secrets. Generate the RabbitMQ password hash with
 root broker definitions so it matches the ignored secret. Never commit the
 actual password.
 
+Credit Service also mounts User Service's RS256 public key from
+`user-service/jwt_public_key.secret`. Generate the User Service signing keypair
+before starting either service; only the public key is made available to Credit
+Service through `JWT_PUBLIC_KEY_FILE`.
+
 Install the locked dependencies:
 
 ```powershell
@@ -80,9 +86,9 @@ Applying migrations before starting the application prevents consumers and the
 outbox relay from accessing an empty schema. TypeORM schema synchronization is
 intentionally disabled.
 
-The temporary HTTP root endpoint is available at
-`http://localhost:3003/` by default. Follow the service logs or stop the stack
-with:
+Swagger UI is available at `http://localhost:3003/docs` and the generated
+OpenAPI document at `http://localhost:3003/docs-json` by default. Follow the
+service logs or stop the stack with:
 
 ```powershell
 docker compose logs -f credit-service
@@ -92,8 +98,94 @@ docker compose down
 Credit Service authenticates to `/foc` as `credit-service`. Its password is
 mounted at `/run/secrets/rabbitmq_password_credit_service`; it is never placed
 in the container environment. Docker builds use the repository root as their
-build context so the repository-local `@foc/contracts` dependency can be built
-and packaged into the service image.
+build context so the repository-local `@foc/contracts` and `@foc/auth`
+dependencies can be built and packaged into the service image.
+
+## Protected read APIs
+
+Credit Service exposes two authenticated, self-only endpoints:
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/v1/credits/balance` | Return the authenticated user's available and reserved credit. |
+| `POST` | `/v1/credits/sufficiency` | Advise whether the current available credit covers a positive amount. |
+
+Both endpoints accept a User Service access token from the `access_token`
+cookie or `Authorization: Bearer <token>`. When both are present, the shared
+`@foc/auth` extractor uses the cookie. Credit Service verifies RS256 signatures
+with the mounted public key, requires issuer `user-service`, and validates the
+complete shared claim contract: UUID `sub`, `email`, `displayName`,
+boolean `isAdmin`, participant `roles`, `iat`, and `exp`. The roles array may be
+empty because these routes authorize by authenticated subject, not role.
+
+Credit Service only reads the cookie. User Service is responsible for creating,
+refreshing, and clearing it. Credit Service never receives the private signing
+key and never calls User Service synchronously to authenticate a request.
+
+### Read the current balance
+
+The user ID is taken only from the verified token:
+
+```sh
+curl http://localhost:3003/v1/credits/balance \
+  --header "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+```json
+{
+  "userId": "11111111-1111-4111-8111-111111111111",
+  "creditBalance": 100,
+  "reservedBalance": 0
+}
+```
+
+`creditBalance` is currently available to spend. `reservedBalance` is already
+held for future work. A user without a Credit account receives
+`404 CREDIT_ACCOUNT_NOT_FOUND`.
+
+### Check point-in-time sufficiency
+
+The request's `userId` must equal the verified token's `sub` claim:
+
+```sh
+curl --request POST http://localhost:3003/v1/credits/sufficiency \
+  --header "Authorization: Bearer $ACCESS_TOKEN" \
+  --header "Content-Type: application/json" \
+  --data '{"userId":"11111111-1111-4111-8111-111111111111","amount":50}'
+```
+
+```json
+{
+  "userId": "11111111-1111-4111-8111-111111111111",
+  "amount": 50,
+  "sufficient": true
+}
+```
+
+Equality is sufficient. The query does not lock the account, change either
+balance, increment the account version, reserve credit, or write inbox, outbox,
+allocation, or transaction records.
+
+The result is advisory and can become stale immediately. Order Service must not
+treat it as authorization or as a correctness precondition for a reservation.
+The future reservation handler must re-read and lock the account, then repeat
+the balance check inside its own balance-changing transaction.
+
+### Errors and OpenAPI
+
+Errors use a stable JSON envelope:
+
+| Status | Code | When |
+| --- | --- | --- |
+| `400` | `VALIDATION_ERROR` | The body is malformed, contains unknown fields, or violates field constraints. |
+| `401` | `INVALID_ACCESS_TOKEN` | The access token is missing, malformed, expired, incorrectly signed, or violates the shared claims contract. |
+| `403` | `SUBJECT_MISMATCH` | A sufficiency request names a user other than the authenticated subject. |
+| `404` | `CREDIT_ACCOUNT_NOT_FOUND` | No Credit account exists for the authenticated user. |
+
+Validation errors may include safe `field` and `reason` entries. Rejected
+values, JWTs, signatures, and key material are never echoed. Swagger UI at
+`/docs` and the OpenAPI JSON at `/docs-json` document both cookie and bearer
+inputs as alternatives, along with request, success, and error examples.
 
 ## Testing
 
@@ -102,17 +194,17 @@ that exercise real infrastructure.
 
 | Test type | Command | Infrastructure | What it verifies |
 | --- | --- | --- | --- |
-| Unit | `npm test` | None | Services, contract integration, configuration, transaction retry logic, lifecycle wiring, and RabbitMQ/outbox behavior through fakes |
+| Unit | `npm test` | None | Services, protected HTTP behavior and OpenAPI, contract integration, configuration, transaction retry logic, lifecycle wiring, and RabbitMQ/outbox behavior through fakes |
 | Unit coverage | `npm run test:cov` | None | The same `src/**/*.spec.ts` unit suite with V8 coverage |
 | PostgreSQL integration | `npm run test:integration` | Isolated PostgreSQL on port `5436` | Migrations, constraints, immutable allocations, repositories, account initialization, inbox/outbox atomicity, concurrency, and relay claims |
-| HTTP end-to-end | `npm run test:e2e` | Isolated PostgreSQL on port `5436`; no RabbitMQ | The real NestJS `AppModule` and HTTP endpoint; broker components are replaced with no-op test providers |
+| HTTP end-to-end | `npm run test:e2e` | Isolated PostgreSQL on port `5436`; no RabbitMQ | The real NestJS `AppModule` and generated OpenAPI paths; broker components are replaced with no-op test providers |
 | RabbitMQ messaging integration | `npm run test:messaging` | RabbitMQ on port `5675` | Real queue topology, multiple stream isolation, retries, DLQs, manual acknowledgements, confirmed publication, and shutdown |
 | Shared-broker permissions | `npm run test:rabbitmq-permissions` | Root RabbitMQ on port `5672` | The Credit identity's allowed topology, consumption, and publication operations, plus denial of shared-exchange configuration and Email resources |
 | Messaging recovery | `npm run test:recovery` | Disposable PostgreSQL and RabbitMQ on ports `5437`, `5676`, and `15676` by default | The complete broker-to-database-to-outbox pipeline, idempotency, acknowledgement ordering, application restart, and live infrastructure recovery |
 
-All source-mode commands rebuild `@foc/contracts` before running. Its own
-validator suite runs from `packages/contracts`; integration suites that share
-infrastructure run sequentially.
+All source-mode commands rebuild `@foc/contracts` and `@foc/auth` before
+running. Their own suites run from `packages/contracts` and `packages/auth`;
+integration suites that share infrastructure run sequentially.
 
 ### Unit tests
 
@@ -151,7 +243,8 @@ suite will run next.
 
 ### HTTP end-to-end tests
 
-The HTTP suite boots the real `AppModule` and tests the temporary root endpoint:
+The HTTP suite boots the real `AppModule` and verifies that the generated
+OpenAPI document publishes both protected Credit paths:
 
 ```powershell
 npm run db:test:up
@@ -160,8 +253,10 @@ npm run db:test:down
 ```
 
 It intentionally overrides the RabbitMQ consumer transport and outbox relay.
-This keeps the HTTP smoke test deterministic and broker-independent; use the
-messaging and recovery suites for broker behavior and the complete event flow.
+This keeps the HTTP smoke test deterministic and broker-independent. Protected
+success and error behavior is exercised by the controller-level HTTP suite in
+`src/credits/credits.controller.spec.ts`; use the messaging and recovery suites
+for broker behavior and the complete event flow.
 
 ### RabbitMQ messaging integration tests
 
@@ -446,8 +541,9 @@ process after changing the package. Docker Compose watches package sources and
 restarts the development container automatically; manifest changes rebuild the
 image.
 
-Contracts reject unknown envelope and payload properties. IDs must be UUIDs,
-timestamps must be RFC 3339 date-times ending in uppercase `Z`, and validation
+Contracts reject unknown envelope and payload properties. User IDs are UUIDs
+matching User Service; event and allocation IDs are also UUIDs.
+Timestamps must be RFC 3339 date-times ending in uppercase `Z`, and validation
 errors expose sanitized violations without payload values.
 
 ## Publish a registration fixture
@@ -476,6 +572,13 @@ node scripts/publish-event-fixture.mjs test/fixtures/my-registration.json
 TypeORM uses [data-source.ts](./src/database/data-source.ts) for CLI commands.
 The CLI reads `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_DATABASE`, and
 `DB_PASSWORD_FILE` from the environment or service-local `.env` file.
+
+The initial migration uses User Service's UUID user IDs. A database created
+from the temporary integer-based migration cannot be upgraded in place because
+those integers have no trustworthy mapping to User Service accounts. Before
+running this version, explicitly back up any data that must be retained and
+recreate only the Credit database or its `credit-db-data` volume. The service
+does not delete or reset databases automatically.
 
 ```powershell
 npm run migration:show

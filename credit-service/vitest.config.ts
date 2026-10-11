@@ -16,6 +16,7 @@ export default defineConfig({
       DB_USERNAME: 'credit_service',
       DB_DATABASE: 'credit_service',
       DB_PASSWORD_FILE: '/run/secrets/credit_db_password',
+      JWT_PUBLIC_KEY_FILE: '/run/secrets/jwt_public_key_credit_service',
       RABBITMQ_USER: 'credit-service',
       RABBITMQ_HOST: 'rabbitmq',
       RABBITMQ_PORT: '5672',

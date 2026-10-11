@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { generateKeyPairSync, randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
 import type { INestApplication, Type } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -22,6 +22,7 @@ import {
 import { createDatabaseOptions } from '../src/database/database-options.js';
 import { RABBITMQ_CONNECTION_URL } from '../src/messaging/rabbitmq-connection-url.provider.js';
 import { OutboxRelay } from '../src/outbox/outbox.relay.js';
+import { AuthKeyService } from '../src/auth/auth-key.service.js';
 
 const execFileAsync = promisify(execFile);
 const dockerServices = ['credit-db-recovery', 'credit-rabbitmq-recovery'];
@@ -36,6 +37,11 @@ const topology = {
 };
 const incomingRoutingKey = 'user.registered.v1';
 const outgoingRoutingKey = 'credit.account-initialised.v1';
+const { publicKey: testJwtPublicKey } = generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+});
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -130,7 +136,9 @@ describe.sequential('account messaging recovery', () => {
   ): Promise<INestApplication> {
     let builder = Test.createTestingModule({ imports: [appModule] })
       .overrideProvider(RABBITMQ_CONNECTION_URL)
-      .useValue(rabbitMqUrl);
+      .useValue(rabbitMqUrl)
+      .overrideProvider(AuthKeyService)
+      .useValue({ getJwtPublicKey: () => testJwtPublicKey });
     if (disableRelay) {
       builder = builder.overrideProvider(OutboxRelay).useValue({
         start: vi.fn().mockResolvedValue(undefined),
@@ -292,6 +300,7 @@ describe.sequential('account messaging recovery', () => {
       OUTBOX_CLAIM_LEASE_MS: '10000',
       OUTBOX_UNPUBLISHED_WARNING_MS: '60000',
       INITIAL_CREDIT_BALANCE: '100',
+      JWT_PUBLIC_KEY_FILE: '/run/secrets/jwt_public_key_credit_service',
     });
     appModule = (await import('../src/app.module.js')).AppModule;
 
