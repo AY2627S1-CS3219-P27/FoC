@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import {
   Inject,
@@ -33,6 +34,7 @@ const TRANSPORT_HEADERS = new Set([
   'x-failure-category',
   'x-failure-reason',
   'x-failure-timestamp',
+  'x-publish-id',
 ]);
 
 type TransportFailureCategory =
@@ -838,13 +840,29 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       rejectConfirmation = reject;
     });
 
+    // Confirms succeed even when no queue matched; mandatory makes the broker
+    // return unroutable messages (before the ack) so they fail instead.
+    const publishId = randomUUID();
+    const onReturn = (returned: ConsumeMessage | null) => {
+      if (returned?.properties.headers?.['x-publish-id'] === publishId) {
+        rejectConfirmation(
+          new Error(`Unroutable publish to ${exchange} with key ${routingKey}`),
+        );
+      }
+    };
+    channel.on('return', onReturn);
+
     let writable: boolean;
     try {
       writable = channel.publish(
         exchange,
         routingKey,
         content,
-        options,
+        {
+          ...options,
+          mandatory: true,
+          headers: { ...options.headers, 'x-publish-id': publishId },
+        },
         (error) => {
           if (error) {
             rejectConfirmation(error);
@@ -859,7 +877,11 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
     }
 
     const drained = writable ? Promise.resolve() : once(channel, 'drain');
-    await Promise.all([confirmation, drained]);
+    try {
+      await Promise.all([confirmation, drained]);
+    } finally {
+      channel.off('return', onReturn);
+    }
   }
 
   private requeue(message: ConsumeMessage, channel: Channel): void {
