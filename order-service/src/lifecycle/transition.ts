@@ -230,7 +230,18 @@ const matchOf = (i: TransitionInput, edge: Edge, actor: string | null) =>
 const clearedOf = (edge: Edge) =>
   Object.fromEntries(edge.clears.map((c) => [c, null]));
 
-type Returned = { requesterId: string; courierId: string | null; rewardCredits: number };
+type Returned = {
+  requesterId: string;
+  courierId: string | null;
+  rewardCredits: number;
+  expiresAt: Date | null;
+};
+
+// now + the duration the requester chose, kept in the ErrandCreated payload
+// (ADR 0007). Truncated to ms so the event payload replays to the same value.
+const expiryFromCreated = (errandId: string) => sql`date_trunc('milliseconds', now()
+  + coalesce((SELECT (payload->>'expiryDurationMinutes')::int FROM errand_events
+              WHERE errand_id = ${errandId} AND sequence_number = 1), 60) * interval '1 minute')`;
 
 // The status UPDATE. Returns the new sequence number, undefined if no row
 // matched (wrong status, actor, or expired), or COURIER_BUSY.
@@ -247,6 +258,7 @@ async function updateErrand(
       .set({
         ...i.set,
         ...clearedOf(edge),
+        ...(edge.setsExpiry && { expiresAt: expiryFromCreated(i.errandId) }),
         status: i.to,
         lastSequenceNumber: sql`${errands.lastSequenceNumber} + 1`,
         updatedAt: new Date(),
@@ -264,6 +276,7 @@ async function updateErrand(
         requesterId: errands.requesterId,
         courierId: errands.courierId,
         rewardCredits: errands.rewardCredits,
+        expiresAt: errands.expiresAt,
       });
 
   const first = async (q: Db) => {
@@ -288,6 +301,7 @@ async function appendEvent(
   edge: Edge,
   actor: string | null,
   seq: number,
+  computed: Record<string, unknown> = {},
 ) {
   await tx.insert(errandEvents).values({
     errandId: i.errandId,
@@ -295,7 +309,7 @@ async function appendEvent(
     type: edge.type,
     fromStatus: i.expected,
     toStatus: i.to,
-    payload: { ...i.payload, ...i.set, ...clearedOf(edge) },
+    payload: { ...i.payload, ...i.set, ...computed, ...clearedOf(edge) },
     actorId: actor,
   });
 }
@@ -352,12 +366,21 @@ async function apply(
   const row = await updateErrand(tx, i, edge, actor);
   if (row === 'COURIER_BUSY') return BUSY;
   if (!row) return explainNoRow(tx, i, edge, actor);
-  await appendEvent(tx, i, edge, actor, row.seq);
+  await appendEvent(
+    tx,
+    i,
+    edge,
+    actor,
+    row.seq,
+    edge.setsExpiry ? { expiresAt: row.row.expiresAt } : {},
+  );
   // Same transaction as the event: both commit or neither does (ADR 0008).
   // Payload includes the stored columns, so the builder sees e.g. cancellationReason.
   const notice = edge.notice?.({
     errandId: i.errandId,
-    ...row.row,
+    requesterId: row.row.requesterId,
+    courierId: row.row.courierId,
+    rewardCredits: row.row.rewardCredits,
     payload: { ...i.payload, ...i.set },
   });
   if (notice) await enqueueNotice(tx, notice);
