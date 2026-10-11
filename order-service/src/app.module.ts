@@ -6,6 +6,7 @@ import { DbModule } from './db/db.module.js';
 import { LifecycleModule } from './lifecycle/lifecycle.module.js';
 import { MessagingModule } from './messaging/messaging.module.js';
 import { OutboxModule } from './outbox/outbox.module.js';
+import { SweepsModule } from './sweeps/sweeps.module.js';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { OutboxModule } from './outbox/outbox.module.js';
     LifecycleModule,
     MessagingModule,
     OutboxModule,
+    SweepsModule,
   ],
 })
 export class AppModule {}
