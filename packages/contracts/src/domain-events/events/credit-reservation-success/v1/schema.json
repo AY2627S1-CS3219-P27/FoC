@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://foc.local/schemas/credit-reservation-success.v1.schema.json",
+  "title": "CreditReservationSuccessV1",
+  "allOf": [
+    { "$ref": "https://foc.local/schemas/event-envelope.v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": { "const": "CreditReservationSuccess" },
+        "publisher": { "const": "credit-service" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "errandId",
+            "requesterUserId",
+            "reservedAmount",
+            "creditTransactionId"
+          ],
+          "properties": {
+            "errandId": { "type": "string", "format": "uuid" },
+            "requesterUserId": { "type": "string", "format": "uuid" },
+            "reservedAmount": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "creditTransactionId": { "type": "string", "format": "uuid" }
+          }
+        }
+      }
+    }
+  ]
+}
