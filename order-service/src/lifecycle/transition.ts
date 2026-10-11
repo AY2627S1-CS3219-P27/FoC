@@ -209,7 +209,7 @@ const actorOk = (edge: Edge, actor: string | null): SQL | undefined => {
   return users.length ? or(...users.map((r) => roleSql[r](actor))) : sql`false`;
 };
 
-// Unique violation on the one-active-errand-per-courier index (L5), by name.
+// Unique violation on the one-active-errand-per-courier index, by name.
 const isCourierBusy = (e: unknown) => {
   const c = ((e as { cause?: object })?.cause ?? e) as {
     code?: string;

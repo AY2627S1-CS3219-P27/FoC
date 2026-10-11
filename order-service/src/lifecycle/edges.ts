@@ -9,11 +9,11 @@ export type Col =
   | 'cancellationReason'
   | 'rewardCredits';
 
-// Who may take an edge (L4). `other` = any user who is not the requester.
+// Who may take an edge. `other` = any user who is not the requester.
 export type UserRole = 'requester' | 'courier' | 'other';
 export type Role = UserRole | 'system';
 
-// Closed set of cancellation reasons (L7); each cancel edge allows a subset.
+// Closed set of cancellation reasons; each cancel edge allows a subset.
 export const CANCELLATION_REASONS = [
   'SUPPLIER_UNAVAILABLE',
   'SUPPLIER_VALIDATION_TIMEOUT',
@@ -83,7 +83,7 @@ export const EDGES: Partial<
   },
   'Reserving-Credit': {
     Open: plain('CreditReserved', sys),
-    // Release only on timeout: a reservation may be in flight (L8). A rejection reply reserved nothing.
+    // Release only on timeout: a reservation may be in flight (a late success is released again). A rejection reply reserved nothing.
     Cancelled: cancel(
       sys,
       ['INSUFFICIENT_CREDITS', 'MISSING_BALANCE', 'CREDIT_TIMEOUT'],
@@ -128,7 +128,7 @@ export const EDGES: Partial<
     Cancelled: cancel(sys, ['PICKUP_TIME_EXCEEDED']),
   },
   Delivered: {
-    // System too: the 24h auto-complete (D3).
+    // System too: the 24h auto-complete (ADR 0007).
     'Transferring-Credit': plain('ErrandConfirmed', ['requester', 'system'], (c) => ({
       key: 'order.errand-completed.v1',
       payload: {

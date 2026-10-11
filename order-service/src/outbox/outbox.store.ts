@@ -7,10 +7,11 @@ import type { ClaimedOutboxEvent, OutboxPublication } from './outbox.types.js';
 
 /**
  * Insert a notice inside the caller's transaction, so it commits or rolls back
- * with the state change. Not wired to transition() yet (needs contracts).
+ * with the state change. A repeated `eventId` is a no-op, so a notice with a
+ * derived id (see enqueueRelease) is safe to enqueue again on redelivery.
  */
 export async function enqueueOutbox(tx: Db, event: OutboxPublication) {
-  await tx.insert(outboxEvents).values(event);
+  await tx.insert(outboxEvents).values(event).onConflictDoNothing();
 }
 
 /**

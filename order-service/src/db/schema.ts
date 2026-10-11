@@ -39,12 +39,12 @@ export const errands = pgTable(
     deliveryLocation: text('delivery_location').notNull(),
     rewardCredits: integer('reward_credits').notNull(),
 
-    // Decided (D2): set on Reserving-Credit -> Open as that time + the requester's
+    // Decided (ADR 0007): set on Reserving-Credit -> Open as that time + the requester's
     // duration (F1.7.3). Not implemented yet: today the requester supplies it
     // at creation.
     expiresAt: ts('expires_at'),
     pickedUpAt: ts('picked_up_at'), // starts the 24h Picked Up -> Cancelled timer
-    deliveredAt: ts('delivered_at'), // starts the 24h Delivered -> Completed timer (D3)
+    deliveredAt: ts('delivered_at'), // starts the 24h Delivered -> Completed timer (ADR 0007)
 
     cancellationReason: text('cancellation_reason'),
     createdAt: ts('created_at').notNull().defaultNow(),
@@ -56,7 +56,7 @@ export const errands = pgTable(
     index().on(t.status, t.pickedUpAt),
     index().on(t.status, t.deliveredAt),
     index().on(t.courierId, t.status),
-    // One active errand per courier (L5, F5.6); keep in step with the accept edge.
+    // One active errand per courier (F5.6); keep in step with the accept edge.
     uniqueIndex(COURIER_LOCK_INDEX)
       .on(t.courierId)
       .where(

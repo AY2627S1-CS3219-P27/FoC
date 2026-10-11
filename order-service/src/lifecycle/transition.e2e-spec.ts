@@ -513,7 +513,7 @@ describe('transition', () => {
     });
   });
 
-  describe('actor rules (L4)', () => {
+  describe('actor rules', () => {
     const accept = (id: string, actor: Actor) =>
       transition(t.db, {
         errandId: id,
@@ -641,7 +641,7 @@ describe('transition', () => {
     });
   });
 
-  describe('courier lock (L5)', () => {
+  describe('courier lock', () => {
     it('refuses a second active errand and leaves the first untouched', async () => {
       const a = await seed('Open');
       const b = await seed('Open');
@@ -685,7 +685,7 @@ describe('transition', () => {
     });
   });
 
-  describe('expiry on accept (L6)', () => {
+  describe('expiry on accept', () => {
     const accept = (id: string) =>
       transition(t.db, { errandId: id, expected: 'Open', to: 'Accepted', actor: user(courier), set: { courierId: courier } });
     const expireAt = (id: string, at: Date) =>
@@ -705,7 +705,7 @@ describe('transition', () => {
     });
   });
 
-  describe('cancellation reasons (L7)', () => {
+  describe('cancellation reasons', () => {
     it('rejects a reason outside the closed set or the edge subset', async () => {
       const id = await seed('Open');
       for (const cancellationReason of ['because', 'SUPPLIER_UNAVAILABLE']) {
