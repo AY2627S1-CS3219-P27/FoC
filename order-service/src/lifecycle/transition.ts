@@ -16,6 +16,7 @@ import {
   type UserRole,
 } from './edges.js';
 import { enqueueNotice } from './notice.js';
+import { payloadValid } from './payloads.js';
 import type { Status } from './status.js';
 
 export type Db = NodePgDatabase<any>;
@@ -80,6 +81,7 @@ function validate(
     // A pair with several exits needs a known `type`; that is a caller bug, not an illegal edge.
     return Array.isArray(EDGES[i.expected]?.[i.to]) ? INVALID : undefined;
   }
+  if (!payloadValid(edge.type, i.payload)) return INVALID;
   // `set` must carry exactly the columns this edge owns.
   const given = Object.entries(i.set ?? {})
     .filter(([, v]) => v != null)
@@ -294,7 +296,7 @@ async function updateErrand(
 }
 
 // The event records every column this edge changed, so the log can rebuild
-// the projection. Edge columns come last: they win over a caller payload key.
+// the projection. The caller payload never holds a column name (payloads.ts).
 async function appendEvent(
   tx: Db,
   i: TransitionInput,

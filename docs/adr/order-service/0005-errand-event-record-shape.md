@@ -117,8 +117,8 @@ holding such a key on an edge that does not own it would reach the log but not
 the row, and a rebuild would then disagree with the live row.
 
 Rule: caller `payload` must not use projection column names; edge-owned
-columns go in via `set` or the edge's `clears`. Nothing enforces this yet,
-and no current caller breaks it. The per-type Joi payload validation described above (not yet implemented)
-enforces it by allowing each `(type, schema_version)` only its own keys.
-Until then it is a convention. If a caller needs enforcement sooner,
-`apply()` can drop `COLUMNS` keys from `i.payload` before merging.
+columns go in via `set` or the edge's `clears`. The per-type Joi payload
+validation described above enforces it (`src/lifecycle/payloads.ts`): each
+event type allows only its own keys, unknown keys are refused, and an event
+type with no schema is refused, so `transition()` returns `INVALID_FIELDS`
+before the transaction. Every schema is `schema_version` 1 today.

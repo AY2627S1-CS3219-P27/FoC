@@ -46,7 +46,6 @@ describe('transition', () => {
       expected: 'Open',
       to: 'Accepted',
       actor: user(courier),
-      payload: { courierId: courier },
       set: { courierId: courier },
     });
 
@@ -477,29 +476,33 @@ describe('transition', () => {
     });
 
     it('keeps the caller payload alongside the edge columns', async () => {
-      const id = await seed('Open');
+      const id = await seed('Adjusting-Credit');
+      const credit = { creditEventId: randomUUID(), creditTransactionId: randomUUID() };
       await transition(t.db, {
-        errandId: id,
-        expected: 'Open',
-        to: 'Accepted',
-        actor: user(courier),
-        payload: { note: 'hi' },
-        set: { courierId: courier },
+        actor: SYSTEM, errandId: id,
+        expected: 'Adjusting-Credit',
+        to: 'Open',
+        type: 'CreditAdjusted',
+        payload: credit,
+        set: { rewardCredits: 9 },
       });
-      expect(await lastPayload(id)).toEqual({ note: 'hi', courierId: courier });
+      expect(await lastPayload(id)).toEqual({ ...credit, rewardCredits: 9 });
     });
 
-    it('lets the edge column win over a clashing caller payload key', async () => {
-      const id = await seed('Open');
-      await transition(t.db, {
-        errandId: id,
-        expected: 'Open',
-        to: 'Accepted',
-        actor: user(courier),
-        payload: { courierId: randomUUID() },
-        set: { courierId: courier },
-      });
-      expect(await lastPayload(id)).toEqual({ courierId: courier });
+    it('refuses a caller payload outside the event type schema, writing nothing', async () => {
+      for (const payload of [{ note: 'hi' }, { courierId: randomUUID() }]) {
+        const id = await seed('Open');
+        const res = await transition(t.db, {
+          errandId: id,
+          expected: 'Open',
+          to: 'Accepted',
+          actor: user(courier),
+          payload,
+          set: { courierId: courier },
+        });
+        expect(res).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
+        expect(await events(id)).toHaveLength(0);
+      }
     });
 
     it('writes an empty payload for an edge with no columns', async () => {
