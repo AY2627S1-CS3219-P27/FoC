@@ -63,7 +63,7 @@ Only the Lifecycle module writes. Every write, from a request, a notice reply or
 8) Adjusting-Credit -> Open, `CreditAdjusted` (adjustment confirmed, new `rewardCredits`)
 9) Adjusting-Credit -> Open, `CreditAdjustmentFailed` (adjustment rejected, amount unchanged)
 10) Accepted -> Picked Up (courier marks picked up)
-11) Accepted -> Open (courier cancels after accepting, before pickup)
+11) Accepted -> Open (courier cancels after accepting, before pickup; must give a reason, F7.4)
 12) Accepted -> Cancelled (requester cancels after acceptance, before pickup, if permitted)
 13) Picked Up -> Delivered (courier marks delivered)
 14) Picked Up -> Cancelled (PICKUP_TIME_EXCEEDED, system only; the requester cannot cancel once picked up)

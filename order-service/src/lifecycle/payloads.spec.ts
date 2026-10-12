@@ -40,6 +40,13 @@ describe('payloadValid', () => {
     ).toBe(false);
   });
 
+  it('requires a non-blank reason when the courier withdraws (F7.4)', () => {
+    expect(payloadValid('CourierWithdrew', { reason: 'bike broke down' })).toBe(true);
+    expect(payloadValid('CourierWithdrew', {})).toBe(false);
+    expect(payloadValid('CourierWithdrew', { reason: '   ' })).toBe(false);
+    expect(payloadValid('CourierWithdrew', { reason: 'x'.repeat(501) })).toBe(false);
+  });
+
   it('takes a cancel with or without credit details, never half of them', () => {
     expect(payloadValid('ErrandCancelled', {})).toBe(true);
     expect(

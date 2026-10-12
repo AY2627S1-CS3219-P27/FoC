@@ -31,7 +31,10 @@ export const PAYLOADS: Record<string, Joi.ObjectSchema> = {
     requestedAmount: amount.required(),
   }),
   ErrandPickedUp: none,
-  CourierWithdrew: none,
+  // F7.4 (#325): the courier must say why. Free text, not blank.
+  CourierWithdrew: Joi.object({
+    reason: Joi.string().pattern(/\S/).max(500).required(),
+  }),
   ErrandDelivered: none,
   ErrandConfirmed: none,
   ErrandIncomplete: none,
