@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { DB } from '../db/db.module.js';
 import { createErrand, type CreateRequestInputs } from './create.js';
+import { rebuildProjection } from './rebuild.js';
 import { transition, type Db, type TransitionInput } from './transition.js';
 
 
@@ -14,5 +15,9 @@ export class LifecycleService {
 
   transition(i: TransitionInput) {
     return transition(this.db, i);
+  }
+
+  rebuild(errandId: string) {
+    return rebuildProjection(this.db, errandId);
   }
 }

@@ -42,8 +42,30 @@ describe('createErrand', () => {
         fromStatus: null,
         toStatus: 'Pending-Supplier',
         actorId: i.requesterId,
+        payload: {
+          requesterId: i.requesterId,
+          supplierId: i.supplierId,
+          deliveryLocation: 'COM2',
+          rewardCredits: 5,
+          pickupLocation: null,
+          description: null,
+          expiresAt: null,
+        },
       },
     ]);
+  });
+
+  it('records the optional fields in the ErrandCreated payload', async () => {
+    const expiresAt = new Date('2030-01-01T00:00:00.000Z');
+    const res = await createErrand(
+      t.db,
+      input({ pickupLocation: 'Frontier', description: 'no onions', expiresAt }),
+    );
+    expect((await events(res.errandId))[0].payload).toMatchObject({
+      pickupLocation: 'Frontier',
+      description: 'no onions',
+      expiresAt: '2030-01-01T00:00:00.000Z',
+    });
   });
 
   it('returns the original errand for a repeated key', async () => {

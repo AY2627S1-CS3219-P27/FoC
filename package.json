@@ -1,4 +1,8 @@
 {
+  "engines": {
+    "node": ">=26",
+    "npm": ">=12"
+  },
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^26.6.2",
