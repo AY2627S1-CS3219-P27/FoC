@@ -11,7 +11,7 @@ import {
 } from 'typeorm';
 import { bigintTransformer } from '../bigint.transformer.js';
 import { CreditTransaction } from './credit-transaction.entity.js';
-import { OutboxEvent } from './outbox-event.entity.js';
+import { OutboxEvent } from '@foc/outbox/outbox-event.entity';
 
 export const CREDIT_OPERATION_TYPES = [
   'RESERVE',

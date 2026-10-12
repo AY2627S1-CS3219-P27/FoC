@@ -5,7 +5,7 @@ import request from 'supertest';
 import { AppModule } from './../src/app.module.js';
 import { RabbitMqConsumerTransport } from './../src/messaging/rabbitmq-consumer.transport.js';
 import { RABBITMQ_CONNECTION_URL } from './../src/messaging/rabbitmq-connection-url.provider.js';
-import { OutboxRelay } from './../src/outbox/outbox.relay.js';
+import { OutboxRelay } from '@foc/outbox';
 import { AuthKeyService } from './../src/auth/auth-key.service.js';
 import { configureHttp } from './../src/http/configure-http.js';
 import { CreditOperationWorker } from './../src/reservation/credit-operation.worker.js';

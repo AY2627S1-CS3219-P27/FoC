@@ -3,9 +3,11 @@ import type { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 import type { EnvironmentVariables } from '../src/config/environment.js';
 import { createDatabaseOptions } from '../src/database/database-options.js';
-import { OutboxRelay } from '../src/outbox/outbox.relay.js';
-import { OutboxStore } from '../src/outbox/outbox.store.js';
-import type { RabbitMqOutboxPublisher } from '../src/outbox/rabbitmq-outbox.publisher.js';
+import {
+  OutboxRelay,
+  OutboxStore,
+  type RabbitMqOutboxPublisher,
+} from '@foc/outbox';
 
 const ROUTING_KEY = 'credit.account-initialised.v1';
 

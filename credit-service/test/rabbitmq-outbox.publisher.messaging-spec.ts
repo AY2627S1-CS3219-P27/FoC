@@ -3,7 +3,7 @@ import type { ConfigService } from '@nestjs/config';
 import { connect, type Channel, type ChannelModel } from 'amqplib';
 import 'dotenv/config';
 import type { EnvironmentVariables } from '../src/config/environment.js';
-import { RabbitMqOutboxPublisher } from '../src/outbox/rabbitmq-outbox.publisher.js';
+import { RabbitMqOutboxPublisher } from '@foc/outbox';
 
 describe('RabbitMqOutboxPublisher messaging integration', () => {
   const suffix = randomUUID().replaceAll('-', '');
@@ -38,7 +38,11 @@ describe('RabbitMqOutboxPublisher messaging integration', () => {
       autoDelete: true,
     });
     await channel.bindQueue(queue, exchange, routingKey);
-    publisher = new RabbitMqOutboxPublisher(config, rabbitMqUrl, connect);
+    publisher = new RabbitMqOutboxPublisher(config, {
+      exchange,
+      appId: 'credit-service',
+      rabbitMqUrl,
+    }, connect);
     await publisher.start();
   });
 
