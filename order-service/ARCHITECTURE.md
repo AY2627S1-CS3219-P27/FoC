@@ -39,7 +39,7 @@ flowchart LR
   Life --> Events
   Sweeps --> Locks
   Sweeps --> Life
-  Life -.->|"planned: same transaction"| OutboxT
+  Life -->|"same transaction: notice"| OutboxT
   OutboxT --> Outbox
   Outbox -->|"publish with confirms"| MQ
   MQ --> Consumers
@@ -137,9 +137,11 @@ sequenceDiagram
     L-->>C: STATE_MISMATCH / FORBIDDEN / EXPIRED
   else 1 row affected
     L->>DB: INSERT errand_events (seq, type, from, to, actor, payload JSONB, key)
+    opt edge has a notice builder
+      L->>DB: INSERT outbox_events (envelope validated against its contract)
+    end
     L->>DB: COMMIT
     L-->>C: success
-    Note over L,DB: planned: INSERT outbox_events in the same transaction (not wired yet)
   end
 ```
 

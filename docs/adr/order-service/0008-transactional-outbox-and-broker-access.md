@@ -22,8 +22,9 @@ a shared package yet; revisit when supplier-service becomes the third user).
   `claimed_until`). A partial index covers unpublished rows only.
 - **Same-transaction insert.** `enqueueOutbox(tx, event)` inserts a row using the
   caller's transaction, so the notice commits or rolls back with the state
-  change. It is **not yet called** from `transition()` / `createErrand()`: that
-  waits for the event contracts (see Not decided).
+  change. `transition()` calls it through `enqueueNotice` (`src/lifecycle/notice.ts`)
+  for every edge with a `notice` builder. `createErrand()` does not call it yet:
+  the supplier validation request has no contract.
 - **Relay.** `OutboxRelay` polls every `OUTBOX_POLL_INTERVAL_MS`.
   `OutboxStore.claim` selects due rows with `FOR UPDATE SKIP LOCKED` and sets a
   lease (`claimed_by`, `claimed_until`), so several instances never take the same
@@ -59,19 +60,23 @@ a shared package yet; revisit when supplier-service becomes the third user).
   channel and connection. Migrations are not run on startup, so the table must
   exist (`npm run db:migrate`) or the first poll crashes the app.
 
-## Not decided / not built
+## Built since (PR #622)
 
-- **Event contracts.** Which notices exist, their routing keys and payloads are
-  to be agreed with the credit owner and put in `@foc/contracts`. Until then
-  nothing writes to `outbox_events` and no event types are defined.
+- **Event contracts.** The credit notices and replies are in `@foc/contracts`
+  (`credit.reservation.v1`, `credit.reservation-adjustment.v1`,
+  `order.errand-completed.v1`, `order.errand-cancelled.v1` and the seven credit
+  replies).
 - **Consumer side.** The consumer transport (`foc.order.{retry,back,dlx}`, retry
-  queues, DLQs) and the reply handlers are not built. The plan is to reuse
+  queues, DLQs) and the reply handlers (`src/credit-replies/`) reuse
   `idempotency_keys` as the inbox, with `transition()`'s `idempotencyKey` set to
   the envelope `eventId`.
-- **Queue naming.** ADR 0002's `order_service.credit_replies` breaks the
-  `<service>.<event>.vN` convention and falls outside the `order-service\..+`
-  permission pattern, and its "one queue per counterpart" conflicts with the
-  transport's one routing key per subscription. Queues will be named
+- **Queue naming.** ADR 0002's `order_service.credit_replies` broke the
+  `<service>.<event>.vN` convention and fell outside the `order-service\..+`
+  permission pattern, and its "one queue per counterpart" conflicted with the
+  transport's one routing key per subscription. Queues are named
   `order-service.<event>.vN`; ADR 0002 carries a note pointing here.
+
+## Not decided / not built
+
 - **Retention.** Published rows are never deleted. A cleanup job is not needed
   until volume warrants it.
