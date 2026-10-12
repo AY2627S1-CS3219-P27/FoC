@@ -56,7 +56,7 @@ describe('seed import (real PostgreSQL)', () => {
         dataSource.getRepository(BuildingNameKey),
       ),
       new CategoriesService(dataSource.getRepository(Category)),
-      new SuppliersService(dataSource, config),
+      new SuppliersService(dataSource, dataSource.getRepository(Supplier), config),
     );
   });
 
