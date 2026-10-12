@@ -39,6 +39,9 @@ jobs:
           - module: frontend
             lint: npm run lint
             test: npm run build
+          - module: packages/outbox
+            lint: npm run lint
+            test: npm test
 
     steps:
       - uses: actions/checkout@v4
