@@ -59,6 +59,7 @@ export const environmentSchema = Joi.object({
   RESERVING_CREDIT_TIMEOUT_MS: Joi.number().integer().min(1).default(300_000),
   CREDIT_REPLY_TIMEOUT_MS: Joi.number().integer().min(1).default(120_000),
   CREDIT_RESEND_MAX: Joi.number().integer().min(0).default(3),
+  IDEMPOTENCY_KEY_TTL_MS: Joi.number().integer().min(1).default(604_800_000), // 7 days
 })
   // The lease must outlast the confirm timeout, or a slow publish loses its claim.
   .custom((env, helpers) => {

@@ -77,7 +77,11 @@ the ambiguity between a deliberate retry and a stale duplicate. A client that
 wants a genuine second attempt sends a new key.
 
 The costs: one extra write per keyed request, and the table grows, so keys
-need a retention policy (expire after a fixed window). Claiming the key first
+expire after a fixed window: a sweep deletes keys older than
+`IDEMPOTENCY_KEY_TTL_MS` (default 7 days). A duplicate arriving after its key
+is gone loses strict replay but still meets the status guard, so it fails with
+`STATE_MISMATCH` or is caught as a keyless repeat; the window only has to
+outlast broker redelivery and client retries. Claiming the key first
 also serialises concurrent same-key requests on the primary key, which replaces
 the earlier "recheck after a lost `UPDATE`" replay path. F9.10 (repeat by the
 same user of an already-applied transition, no key) is a separate rule and is

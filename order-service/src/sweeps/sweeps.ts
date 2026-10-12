@@ -13,6 +13,7 @@ export interface SweepConfig {
   reservingTimeoutMs: number; // Reserving-Credit -> Cancelled (CREDIT_TIMEOUT)
   replyTimeoutMs: number; // in-flight credit status: re-send once per window
   resendMax: number; // windows of re-sending before the admin alert
+  keyTtlMs: number; // idempotency keys older than this are deleted (ADR 0005)
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000; // pickup and auto-complete windows (ADR 0007, F6.5)
@@ -108,6 +109,19 @@ async function resendOrAlert(db: Db, cfg: SweepConfig): Promise<number> {
   return resent;
 }
 
+// Retention (ADR 0005). A duplicate arriving after its key is gone still meets
+// the status guard, so it fails with STATE_MISMATCH or is caught as a keyless
+// repeat; the window only needs to outlast broker and client retries.
+async function pruneKeys(db: Db, cfg: SweepConfig): Promise<number> {
+  const res = await db.execute(sql`
+    DELETE FROM idempotency_keys
+    WHERE (errand_id, key) IN (
+      SELECT errand_id, key FROM idempotency_keys
+      WHERE created_at <= ${ago(cfg.keyTtlMs)}
+      ORDER BY created_at LIMIT ${BATCH})`);
+  return res.rowCount ?? 0;
+}
+
 // One pass of every sweep. Caller holds the advisory lock (sweep-lock.ts).
 // Not built: the Pending-Supplier retry and hold window (no supplier contract yet).
 export async function runSweeps(db: Db, cfg: SweepConfig) {
@@ -141,5 +155,6 @@ export async function runSweeps(db: Db, cfg: SweepConfig) {
       { expected: 'Delivered', to: 'Transferring-Credit' },
     )),
     resent: await safe('credit-reply', () => resendOrAlert(db, cfg)),
+    keysPruned: await safe('key retention', () => pruneKeys(db, cfg)),
   };
 }

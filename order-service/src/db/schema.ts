@@ -109,7 +109,10 @@ export const idempotencyKeys = pgTable(
     outcome: jsonb('outcome'), // set before the claiming transaction commits
     createdAt: ts('created_at').notNull().defaultNow(),
   },
-  (t) => [primaryKey({ columns: [t.errandId, t.key] })],
+  (t) => [
+    primaryKey({ columns: [t.errandId, t.key] }),
+    index().on(t.createdAt), // the retention sweep deletes oldest first
+  ],
 );
 
 // Transactional outbox (credit ADR 0004): notices are inserted in the same
