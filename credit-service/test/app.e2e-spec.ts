@@ -8,6 +8,7 @@ import { RABBITMQ_CONNECTION_URL } from './../src/messaging/rabbitmq-connection-
 import { OutboxRelay } from './../src/outbox/outbox.relay.js';
 import { AuthKeyService } from './../src/auth/auth-key.service.js';
 import { configureHttp } from './../src/http/configure-http.js';
+import { CreditOperationWorker } from './../src/reservation/credit-operation.worker.js';
 
 const { publicKey } = generateKeyPairSync('rsa', {
   modulusLength: 2048,
@@ -29,6 +30,8 @@ describe('Credit Service (e2e)', () => {
       .overrideProvider(RABBITMQ_CONNECTION_URL)
       .useValue('amqp://unused')
       .overrideProvider(OutboxRelay)
+      .useValue({ start: vi.fn(), close: vi.fn() })
+      .overrideProvider(CreditOperationWorker)
       .useValue({ start: vi.fn(), close: vi.fn() })
       .overrideProvider(AuthKeyService)
       .useValue({ getJwtPublicKey: () => publicKey })

@@ -78,11 +78,32 @@ try {
   });
   await channel.cancel(consumerTag);
 
+  for (const ingressQueue of [
+    'credit-service.credit-reservation.v1',
+    'credit-service.credit-reservation-adjustment.v1',
+  ]) {
+    await channel.checkQueue(ingressQueue);
+    const { consumerTag: ingressConsumerTag } = await channel.consume(
+      ingressQueue,
+      () => undefined,
+      { noAck: false },
+    );
+    await channel.cancel(ingressConsumerTag);
+  }
+
   await publishConfirmed(
     channel,
     'foc.events',
     'credit.account-initialised.v1',
   );
+  for (const routingKey of [
+    'credit.reservation-success.v1',
+    'credit.reservation-rejected.v1',
+    'credit.reservation-adjustment-success.v1',
+    'credit.reservation-adjustment-rejected.v1',
+  ]) {
+    await publishConfirmed(channel, 'foc.events', routingKey);
+  }
   await publishConfirmed(channel, 'foc.credit.retry', queue);
   await publishConfirmed(channel, 'foc.credit.dlx', `${queue}.dlq`);
   await channel.deleteQueue(queue);
@@ -99,6 +120,9 @@ try {
   );
   await expectDenied('publish to Email Service retry resources', (candidate) =>
     publishConfirmed(candidate, 'foc.retry', 'otp.email'),
+  );
+  await expectDenied('publish outside the shared domain exchange', (candidate) =>
+    publishConfirmed(candidate, 'amq.direct', 'credit.reservation.v1'),
   );
 
   console.log('Credit Service RabbitMQ permissions verified');

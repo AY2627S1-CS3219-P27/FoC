@@ -49,7 +49,7 @@ describe('supplier schema (real PostgreSQL)', () => {
       dataSource.getRepository(BuildingNameKey),
     );
     categories = new CategoriesService(dataSource.getRepository(Category));
-    suppliers = new SuppliersService(dataSource, {
+    suppliers = new SuppliersService(dataSource, dataSource.getRepository(Supplier), {
       get: (key: string) => CAMPUS[key],
     } as unknown as ConfigService<EnvironmentVariables, true>);
   });

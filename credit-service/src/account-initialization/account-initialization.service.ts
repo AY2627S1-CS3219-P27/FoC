@@ -97,7 +97,7 @@ export class AccountInitializationService {
           return {
             status: 'duplicate-event',
             userId: event.payload.userId,
-            allocationId: establishedEvent.outcomeAllocationId,
+            allocationId: establishedEvent.outcomeAllocationId!,
           };
         }
 
@@ -157,6 +157,8 @@ export class AccountInitializationService {
           payloadHash,
           processedAt: new Date(),
           outcomeAllocationId: allocation.allocationId,
+          outcomeTransactionId: null,
+          outcomeOutboxEventId: outboxEventId ?? null,
         }),
       );
 
