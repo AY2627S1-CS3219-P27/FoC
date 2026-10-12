@@ -27,3 +27,10 @@ export type CreditReservationAdjustmentSuccessEvent =
   EventOf<'credit.reservation-adjustment-success.v1'>;
 export type CreditReservationAdjustmentRejectedEvent =
   EventOf<'credit.reservation-adjustment-rejected.v1'>;
+export type ErrandCompletedEvent = EventOf<'order.errand-completed.v1'>;
+export type ErrandCancelledEvent = EventOf<'order.errand-cancelled.v1'>;
+export type CreditTransferSucceededEvent =
+  EventOf<'credit.transfer-succeeded.v1'>;
+export type CreditTransferRejectedEvent =
+  EventOf<'credit.transfer-rejected.v1'>;
+export type CreditReleaseRejectedEvent = EventOf<'credit.release-rejected.v1'>;

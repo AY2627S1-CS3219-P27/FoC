@@ -42,8 +42,7 @@ a shared package yet; revisit when supplier-service becomes the third user).
   Consumers must deduplicate on the envelope `eventId`. The confirm means the
   exchange accepted the message, not that a queue received it: a direct exchange
   drops a message with no bound queue, so the consuming service's queue must be
-  seeded before order publishes that routing key (P3 in
-  `order-messaging-feature-docs.md`).
+  seeded before order publishes that routing key.
 - **Config.** `OUTBOX_CLAIM_LEASE_MS` must exceed `OUTBOX_CONFIRM_TIMEOUT_MS` by at
   least 5 s (validated at startup), otherwise a slow successful publish could
   lose its claim and be sent twice.

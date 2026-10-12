@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://foc.local/schemas/errand-completed.v1.schema.json",
+  "title": "ErrandCompletedV1",
+  "allOf": [
+    {
+      "$ref": "https://foc.local/schemas/event-envelope.v1.schema.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "const": "ErrandCompleted"
+        },
+        "publisher": {
+          "const": "order-service"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "errandId",
+            "requesterUserId",
+            "courierUserId",
+            "amount"
+          ],
+          "properties": {
+            "errandId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "requesterUserId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "courierUserId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "amount": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          }
+        }
+      }
+    }
+  ]
+}

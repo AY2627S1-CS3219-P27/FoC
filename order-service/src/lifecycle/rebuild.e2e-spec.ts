@@ -34,9 +34,10 @@ async function create(over = {}) {
     rewardCredits: 5,
     pickupLocation: 'Frontier',
     description: 'no onions',
-    expiresAt: new Date('2030-01-01T00:00:00.000Z'),
+    expiryDurationMinutes: 90,
     ...over,
   });
+  if (!res.ok) throw new Error(res.reason);
   return res.errandId;
 }
 
@@ -80,7 +81,7 @@ describe('rebuildProjection', () => {
   });
 
   it('equals the live row for a cancelled errand', async () => {
-    const id = await create({ pickupLocation: undefined, description: undefined, expiresAt: undefined });
+    const id = await create({ pickupLocation: undefined, description: undefined, expiryDurationMinutes: undefined });
     await step(id, 'Pending-Supplier', 'Cancelled', {
       set: { cancellationReason: 'SUPPLIER_UNAVAILABLE' },
     });

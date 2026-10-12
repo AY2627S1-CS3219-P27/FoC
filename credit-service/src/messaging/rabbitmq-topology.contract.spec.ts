@@ -73,6 +73,22 @@ describe('Credit Service predeclared RabbitMQ topology', () => {
         type: 'classic',
         vhost: '/foc',
       },
+      {
+        arguments: {},
+        auto_delete: false,
+        durable: true,
+        name: 'credit-service.order-errand-completed.v1',
+        type: 'classic',
+        vhost: '/foc',
+      },
+      {
+        arguments: {},
+        auto_delete: false,
+        durable: true,
+        name: 'credit-service.order-errand-cancelled.v1',
+        type: 'classic',
+        vhost: '/foc',
+      },
     ]);
     expect(creditExchanges).toEqual([]);
     expect(creditBindings).toEqual([
@@ -97,6 +113,22 @@ describe('Credit Service predeclared RabbitMQ topology', () => {
         destination: 'credit-service.credit-reservation-adjustment.v1',
         destination_type: 'queue',
         routing_key: 'credit.reservation-adjustment.v1',
+        source: 'foc.events',
+        vhost: '/foc',
+      },
+      {
+        arguments: {},
+        destination: 'credit-service.order-errand-completed.v1',
+        destination_type: 'queue',
+        routing_key: 'order.errand-completed.v1',
+        source: 'foc.events',
+        vhost: '/foc',
+      },
+      {
+        arguments: {},
+        destination: 'credit-service.order-errand-cancelled.v1',
+        destination_type: 'queue',
+        routing_key: 'order.errand-cancelled.v1',
         source: 'foc.events',
         vhost: '/foc',
       },

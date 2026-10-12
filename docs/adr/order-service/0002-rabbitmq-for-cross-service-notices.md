@@ -1,6 +1,6 @@
 # RabbitMQ for Supplier/Credit notices
 
-> Amended by [ADR 0008](./0008-transactional-outbox-and-broker-access.md): notices are published through a transactional outbox, and reply queues are named `order-service.<event>.vN` (one routing key per subscription), not `order_service.credit_replies`. The reply-queue section below is otherwise unchanged until the consumer is built.
+> Amended by [ADR 0008](./0008-transactional-outbox-and-broker-access.md) and the consumer transport: notices are published through a transactional outbox, and replies are consumed **one queue per routing key** (`order-service.<event>.vN`, each with its own retry queues `.retry.1..5` and `.dlq` on `foc.order.retry` / `foc.order.back` / `foc.order.dlx`), not one `order_service.credit_replies` queue with several outcome keys. This matches the consumer transport's one-key-per-subscription model and the `order-service\..+` permission pattern. The "durable, order-service-owned queue" reasoning below still holds per queue.
 
 ## Decision
 

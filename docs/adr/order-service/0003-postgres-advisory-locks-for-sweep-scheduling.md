@@ -24,3 +24,5 @@ lock either expiring mid-sweep or being held forever by a crashed instance.
 Assuming a single replica was also rejected — it fails silently (duplicate
 sweeps, duplicate notices) the moment the service is scaled, rather than
 failing loudly or simply working.
+
+Implementation note: the sweeps share one lock per tick (all sweeps run under it), held on a dedicated `pool.connect()` client rather than the pool, since the lock is session-scoped.
