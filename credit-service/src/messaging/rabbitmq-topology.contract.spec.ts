@@ -37,7 +37,7 @@ const definitions = JSON.parse(
 ) as BrokerDefinitions;
 
 describe('Credit Service predeclared RabbitMQ topology', () => {
-  it('predeclares only the critical UserRegistered ingress queue and binding', () => {
+  it('predeclares every critical Credit Service ingress queue and binding', () => {
     const creditQueues = definitions.queues.filter(({ name }) =>
       name.startsWith('credit-service.'),
     );
@@ -57,6 +57,22 @@ describe('Credit Service predeclared RabbitMQ topology', () => {
         type: 'classic',
         vhost: '/foc',
       },
+      {
+        arguments: {},
+        auto_delete: false,
+        durable: true,
+        name: 'credit-service.credit-reservation.v1',
+        type: 'classic',
+        vhost: '/foc',
+      },
+      {
+        arguments: {},
+        auto_delete: false,
+        durable: true,
+        name: 'credit-service.credit-reservation-adjustment.v1',
+        type: 'classic',
+        vhost: '/foc',
+      },
     ]);
     expect(creditExchanges).toEqual([]);
     expect(creditBindings).toEqual([
@@ -65,6 +81,22 @@ describe('Credit Service predeclared RabbitMQ topology', () => {
         destination: 'credit-service.user-registered.v1',
         destination_type: 'queue',
         routing_key: 'user.registered.v1',
+        source: 'foc.events',
+        vhost: '/foc',
+      },
+      {
+        arguments: {},
+        destination: 'credit-service.credit-reservation.v1',
+        destination_type: 'queue',
+        routing_key: 'credit.reservation.v1',
+        source: 'foc.events',
+        vhost: '/foc',
+      },
+      {
+        arguments: {},
+        destination: 'credit-service.credit-reservation-adjustment.v1',
+        destination_type: 'queue',
+        routing_key: 'credit.reservation-adjustment.v1',
         source: 'foc.events',
         vhost: '/foc',
       },

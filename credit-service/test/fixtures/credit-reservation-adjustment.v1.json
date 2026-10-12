@@ -1,0 +1,11 @@
+{
+  "eventId": "bc3014c5-a72d-412f-96fa-f6b9c6647456",
+  "eventType": "CreditReservationAdjustment",
+  "timestamp": "2026-10-08T08:02:00.000Z",
+  "publisher": "order-service",
+  "payload": {
+    "errandId": "7a43c86c-ea7c-4d92-a619-d8ce18520f33",
+    "oldAmount": 25,
+    "newAmount": 40
+  }
+}
