@@ -21,6 +21,7 @@ include:
     env_file:
       - env/shared.env
       - env/credit-service.env
+  - path: frontend/compose.yml
 
 services:
   rabbitmq:
