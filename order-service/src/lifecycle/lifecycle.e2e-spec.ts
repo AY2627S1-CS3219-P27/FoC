@@ -4,6 +4,7 @@ import { createTestDb } from '../../test/db.js';
 import { DB } from '../db/db.module.js';
 import { LifecycleModule } from './lifecycle.module.js';
 import { LifecycleService } from './lifecycle.service.js';
+import { SYSTEM } from './transition.js';
 
 let t: Awaited<ReturnType<typeof createTestDb>>;
 beforeAll(async () => {
@@ -27,9 +28,9 @@ it('creates and transitions through the injected service', async () => {
 
   expect(
     await svc.transition({
-      errandId: created.errandId,
+      actor: SYSTEM, errandId: created.errandId,
       expected: 'Pending-Supplier',
-      to: 'Pending-Credit',
+      to: 'Reserving-Credit',
     }),
   ).toMatchObject({ ok: true, sequenceNumber: 2 });
 });

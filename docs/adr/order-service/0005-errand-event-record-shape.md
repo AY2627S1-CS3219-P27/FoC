@@ -34,8 +34,9 @@ Each `errand_events` row has:
 The log is append-only and only read for projection rebuilds, so nothing
 queries inside payloads and JSONB avoids a migration per event type.
 `schema_version` keeps old events replayable after a payload changes. Joi
-is already a dependency (env validation) and is the validation library the
-contracts standardisation moves to, so one tool covers both.
+is already a dependency (env validation), so one tool covers both. This is
+private payload validation only; the shared event contracts use AJV and JSON
+Schema (see [ADR 0001](../0001-domain-event-contracts-and-routing.md)).
 
 A counter on the projection row is bumped inside the same row-locked
 `UPDATE` that enforces the transition, so numbers are gap-free per errand
@@ -82,3 +83,38 @@ the earlier "recheck after a lost `UPDATE`" replay path. F9.10 (repeat by the
 same user of an already-applied transition, no key) is a separate rule and is
 not covered by this table. Deduplication of notices between services is also
 separate and uses the envelope's `eventId`.
+
+## Projection rebuild: full replay, no snapshots
+
+Decided for F9.10.3 (#352). The `errands` projection is rebuilt by replaying
+the errand's whole event stream in `sequence_number` order (`foldEvents` /
+`rebuildProjection` in `src/lifecycle/rebuild.ts`). There are no snapshots.
+
+- **Why.** A stream is short (at most about 13 events) and an errand is
+  short-lived, so replay is cheap. A snapshot would add a table and a
+  staleness question for no measurable gain. Revisit if streams get long or
+  bulk rebuilds across many errands become hot.
+- **Read-only.** Rebuild never writes `errands`. It verifies the log and
+  supports recovery; only `transition()` writes state.
+- **Not rebuildable.** `idempotency_key`, `created_at` and `updated_at` are
+  request plumbing and row bookkeeping, not event data, so a rebuild omits
+  them. Recovering a lost row must source them elsewhere (`created_at` could
+  come from event 1's `occurred_at`).
+- **Gaps are errors.** A missing or out-of-order `sequence_number` throws.
+
+### Payloads must not use projection column names
+
+For rebuild to match the live row, every column an event changes must be in
+its payload, and every column in its payload must have been changed. Replay
+applies any payload key named after an `errands` column (`COLUMNS` in
+`rebuild.ts`), whichever edge wrote it, but the row update only applies the
+columns the edge owns (`set` and `clears` in `edges.ts`). A caller `payload`
+holding such a key on an edge that does not own it would reach the log but not
+the row, and a rebuild would then disagree with the live row.
+
+Rule: caller `payload` must not use projection column names; edge-owned
+columns go in via `set` or the edge's `clears`. Nothing enforces this yet,
+and no current caller breaks it. The per-type Joi payload validation described above (not yet implemented)
+enforces it by allowing each `(type, schema_version)` only its own keys.
+Until then it is a convention. If a caller needs enforcement sooner,
+`apply()` can drop `COLUMNS` keys from `i.payload` before merging.

@@ -1,7 +1,8 @@
 services:
   order-service:
     build:
-      context: .
+      context: ..
+      dockerfile: order-service/Dockerfile
       target: development
     command: npm run start:dev
     ports:
@@ -18,8 +19,22 @@ services:
       - DB_SYNCHRONIZE=${ORDER_SERVICE_DB_SYNCHRONIZE}
       - DB_PASSWORD_FILE=/run/secrets/order_db_password
       - LOG_LEVEL=${LOG_LEVEL}
+      - RABBITMQ_USER=${ORDER_SERVICE_RABBITMQ_USER}
+      - RABBITMQ_HOST=${RABBITMQ_HOST}
+      - RABBITMQ_PORT=${RABBITMQ_PORT}
+      - RABBITMQ_VHOST=${RABBITMQ_VHOST}
+      - RABBITMQ_PASSWORD_FILE=/run/secrets/rabbitmq_password_order_service
+      - RABBITMQ_EXCHANGE=${RABBITMQ_EXCHANGE:-foc.events}
+      - OUTBOX_POLL_INTERVAL_MS=${OUTBOX_POLL_INTERVAL_MS:-1000}
+      - OUTBOX_BATCH_SIZE=${OUTBOX_BATCH_SIZE:-100}
+      - OUTBOX_CONFIRM_TIMEOUT_MS=${OUTBOX_CONFIRM_TIMEOUT_MS:-20000}
+      - OUTBOX_CLAIM_LEASE_MS=${OUTBOX_CLAIM_LEASE_MS:-30000}
+      - OUTBOX_RETRY_BASE_DELAY_MS=${OUTBOX_RETRY_BASE_DELAY_MS:-1000}
+      - OUTBOX_RETRY_MAX_DELAY_MS=${OUTBOX_RETRY_MAX_DELAY_MS:-60000}
+      - OUTBOX_UNPUBLISHED_WARNING_MS=${OUTBOX_UNPUBLISHED_WARNING_MS:-60000}
     secrets:
       - order_db_password
+      - rabbitmq_password_order_service
     develop:
       watch:
         - action: sync
@@ -34,6 +49,21 @@ services:
             - '*.secret'
         - action: rebuild
           path: package.json
+        - action: rebuild
+          path: package-lock.json
+        - action: sync+restart
+          path: ../packages/contracts/src
+          target: /usr/src/packages/contracts/src
+        - action: sync+restart
+          path: ../packages/contracts/tsconfig.json
+          target: /usr/src/packages/contracts/tsconfig.json
+        - action: sync+restart
+          path: ../packages/contracts/tsconfig.build.json
+          target: /usr/src/packages/contracts/tsconfig.build.json
+        - action: rebuild
+          path: ../packages/contracts/package.json
+        - action: rebuild
+          path: ../packages/contracts/package-lock.json
 
   order-db:
     image: postgres:18-alpine
@@ -63,3 +93,5 @@ volumes:
 secrets:
   order_db_password:
     file: secrets/order_db_password.secret
+  rabbitmq_password_order_service:
+    file: secrets/rabbitmq_password.secret

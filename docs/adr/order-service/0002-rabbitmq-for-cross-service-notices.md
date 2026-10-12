@@ -1,5 +1,7 @@
 # RabbitMQ for Supplier/Credit notices
 
+> Amended by [ADR 0008](./0008-transactional-outbox-and-broker-access.md): notices are published through a transactional outbox, and reply queues are named `order-service.<event>.vN` (one routing key per subscription), not `order_service.credit_replies`. The reply-queue section below is otherwise unchanged until the consumer is built.
+
 ## Decision
 
 Order-service exchanges notices with Supplier Service and Credit Service

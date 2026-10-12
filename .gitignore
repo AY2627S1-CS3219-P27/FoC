@@ -59,6 +59,8 @@ pids
 *.seed
 *.pid.lock
 
+# Env files
+*.env
 #Next files
 .next
 

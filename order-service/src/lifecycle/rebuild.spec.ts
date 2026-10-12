@@ -44,8 +44,8 @@ describe('foldEvents', () => {
   });
 
   it('takes status and sequence number from the last event', () => {
-    const out = foldEvents([created, ev(2, 'Pending-Credit', {})]);
-    expect(out).toMatchObject({ status: 'Pending-Credit', lastSequenceNumber: 2 });
+    const out = foldEvents([created, ev(2, 'Reserving-Credit', {})]);
+    expect(out).toMatchObject({ status: 'Reserving-Credit', lastSequenceNumber: 2 });
   });
 
   it('resets a column a later event cleared', () => {
@@ -66,7 +66,7 @@ describe('foldEvents', () => {
   });
 
   it('ignores payload keys that are not projection columns', () => {
-    const out = foldEvents([created, ev(2, 'Pending-Credit', { note: 'hi' })]);
+    const out = foldEvents([created, ev(2, 'Reserving-Credit', { note: 'hi' })]);
     expect(out).not.toHaveProperty('note');
   });
 
