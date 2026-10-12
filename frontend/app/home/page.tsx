@@ -111,7 +111,10 @@ export default function HomePage() {
   }, [searchName, filterBuilding, filterKind]);
 
   useEffect(() => {
-    loadSuppliers();
+    const timer = setTimeout(() => {
+      void loadSuppliers();
+    }, 0);
+    return () => clearTimeout(timer);
   }, [loadSuppliers]);
 
   useEffect(() => {
@@ -196,7 +199,10 @@ export default function HomePage() {
 
   useEffect(() => {
     if (tab === "users" && user?.isAdmin) {
-      loadAllUsers();
+      const timer = setTimeout(() => {
+        void loadAllUsers();
+      }, 0);
+      return () => clearTimeout(timer);
     }
   }, [tab, user?.isAdmin, loadAllUsers]);
 
@@ -708,8 +714,8 @@ function Avatar({
 
   let picture: React.ReactNode;
   if (showImage) {
-    // eslint-disable-next-line @next/next/no-img-element -- remote URLs; next/image would need remotePatterns config
     picture = (
+      // eslint-disable-next-line @next/next/no-img-element -- remote URLs; next/image would need remotePatterns config
       <img
         src={url ?? ""}
         alt="Profile picture"

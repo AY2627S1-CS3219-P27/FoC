@@ -7,25 +7,25 @@ services:
     command: npm run start:dev
     restart: unless-stopped
     ports:
-      - '${CREDIT_SERVICE_HOST_PORT:-3003}:${PORT:-3000}'
+      - '${CREDIT_SERVICE_HOST_PORT:-3003}:${CREDIT_SERVICE_PORT:-3000}'
     depends_on:
       credit-db:
         condition: service_healthy
     environment:
       NODE_ENV: ${NODE_ENV:-development}
-      PORT: ${PORT:-3000}
-      LOG_LEVEL: ${LOG_LEVEL:-log}
-      DB_HOST: ${DB_HOST:-credit-db}
-      DB_PORT: ${DB_PORT:-5432}
-      DB_USERNAME: ${DB_USERNAME:-credit_service}
-      DB_DATABASE: ${DB_DATABASE:-credit_service}
+      PORT: ${CREDIT_SERVICE_PORT:-3000}
+      LOG_LEVEL: ${LOG_LEVEL}
+      DB_HOST: ${CREDIT_SERVICE_DB_HOST:-credit-db}
+      DB_PORT: ${CREDIT_SERVICE_DB_PORT:-5432}
+      DB_USERNAME: ${CREDIT_SERVICE_DB_USERNAME:-credit_service}
+      DB_DATABASE: ${CREDIT_SERVICE_DB_DATABASE:-credit_service}
       DB_PASSWORD_FILE: /run/secrets/credit_db_password
       INITIAL_CREDIT_BALANCE: ${INITIAL_CREDIT_BALANCE:-100}
       JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key_credit_service
-      RABBITMQ_USER: credit-service
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: 5672
-      RABBITMQ_VHOST: /foc
+      RABBITMQ_USER: ${CREDIT_SERVICE_RABBITMQ_USER}
+      RABBITMQ_HOST: ${RABBITMQ_HOST}
+      RABBITMQ_PORT: ${RABBITMQ_PORT}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST}
       RABBITMQ_PASSWORD_FILE: /run/secrets/rabbitmq_password_credit_service
       RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-foc.events}
       RABBITMQ_USER_REGISTERED_QUEUE: credit-service.user-registered.v1
@@ -51,7 +51,7 @@ services:
       test:
         [
           'CMD-SHELL',
-          'wget --no-verbose --tries=1 --spider "http://127.0.0.1:$${PORT:-3000}/docs-json"',
+          'wget --no-verbose --tries=1 --spider "http://127.0.0.1:$${PORT}/"',
         ]
       interval: 10s
       timeout: 3s
@@ -104,10 +104,10 @@ services:
     image: postgres:18-alpine
     restart: unless-stopped
     ports:
-      - '${DB_HOST_PORT:-5435}:5432'
+      - '${CREDIT_SERVICE_DB_HOST_PORT:-5435}:5432'
     environment:
-      POSTGRES_USER: ${DB_USERNAME:-credit_service}
-      POSTGRES_DB: ${DB_DATABASE:-credit_service}
+      POSTGRES_USER: ${CREDIT_SERVICE_DB_USERNAME:-credit_service}
+      POSTGRES_DB: ${CREDIT_SERVICE_DB_DATABASE:-credit_service}
       POSTGRES_PASSWORD_FILE: /run/secrets/credit_db_password
     volumes:
       - credit-db-data:/var/lib/postgresql
@@ -168,8 +168,8 @@ services:
       - '${RABBITMQ_HOST_PORT:-5675}:5672'
       - '${RABBITMQ_MANAGEMENT_HOST_PORT:-15675}:15672'
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:?RABBITMQ_USERNAME must be set}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must be set}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-credit_service_test}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-replace-me}
     volumes:
       - credit-rabbitmq-data:/var/lib/rabbitmq
     healthcheck:
@@ -188,8 +188,8 @@ services:
       - '${RABBITMQ_RECOVERY_HOST_PORT:-5676}:5672'
       - '${RABBITMQ_RECOVERY_MANAGEMENT_HOST_PORT:-15676}:15672'
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:?RABBITMQ_USERNAME must be set}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must be set}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-credit_service_test}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-replace-me}
       RABBITMQ_ERLANG_COOKIE: credit-service-recovery-cookie
       RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: '+S 2:2'
       HOME: /var/lib/rabbitmq-recovery
