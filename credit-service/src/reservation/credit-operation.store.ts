@@ -27,7 +27,7 @@ export class CreditOperationStore {
         WITH candidates AS (
           SELECT id
           FROM credit_operations
-          WHERE operation_type IN ('RESERVE', 'ADJUST')
+          WHERE operation_type IN ('RESERVE', 'ADJUST', 'TRANSFER')
             AND status = 'PENDING'
             AND next_attempt_at <= clock_timestamp()
             AND (claimed_until IS NULL OR claimed_until <= clock_timestamp())

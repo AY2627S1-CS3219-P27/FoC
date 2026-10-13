@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ContractsModule } from '../contracts/contracts.module.js';
 import { DatabaseModule } from '../database/database.module.js';
 import { MessagingModule } from '../messaging/messaging.module.js';
+import { SettlementModule } from '../settlement/settlement.module.js';
 import { AdjustmentOperationProcessor } from './adjustment-operation.processor.js';
 import { CreditReservationAdjustmentConsumerLifecycle } from './credit-reservation-adjustment-consumer.lifecycle.js';
 import { CreditReservationAdjustmentMessageHandler } from './credit-reservation-adjustment-message.handler.js';
@@ -15,7 +16,7 @@ import { ReservationAdjustmentService } from './reservation-adjustment.service.j
 import { ReservationService } from './reservation.service.js';
 
 @Module({
-  imports: [ContractsModule, DatabaseModule, MessagingModule],
+  imports: [ContractsModule, DatabaseModule, MessagingModule, SettlementModule],
   providers: [
     ReservationService,
     ReservationAdjustmentService,
