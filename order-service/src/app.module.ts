@@ -1,5 +1,8 @@
+import { FocAuthModule } from '@foc/auth';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { AuthKeyModule } from './auth/auth-key.module.js';
+import { AuthKeyService } from './auth/auth-key.service.js';
 import { environmentSchema } from './config/environment.schema.js';
 import { CreditRepliesModule } from './credit-replies/credit-replies.module.js';
 import { DbModule } from './db/db.module.js';
@@ -15,6 +18,14 @@ import { SweepsModule } from './sweeps/sweeps.module.js';
       isGlobal: true,
       cache: true,
       validationSchema: environmentSchema,
+    }),
+    // Global: any controller can use @UseGuards(JwtAuthGuard | RolesGuard | AdminGuard).
+    FocAuthModule.registerAsync({
+      imports: [AuthKeyModule],
+      inject: [AuthKeyService],
+      useFactory: (keys: AuthKeyService) => ({
+        publicKey: keys.getJwtPublicKey(),
+      }),
     }),
     DbModule,
     CreditRepliesModule,
