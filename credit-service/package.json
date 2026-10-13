@@ -51,6 +51,8 @@
     "event:publish:credit-reservation-adjustment-invalid": "node scripts/publish-event-fixture.mjs credit-reservation-adjustment-invalid",
     "db:test:up": "docker compose --profile test up -d --wait credit-db-test",
     "db:test:down": "docker compose --profile test rm -sfv credit-db-test",
+    "rabbitmq:test:up": "docker compose --profile test up -d --wait --force-recreate credit-rabbitmq",
+    "rabbitmq:test:down": "docker compose --profile test rm -sfv credit-rabbitmq",
     "typeorm": "typeorm-ts-node-esm",
     "migration:create": "typeorm-ts-node-esm migration:create",
     "migration:generate": "typeorm-ts-node-esm -d src/database/data-source.ts migration:generate",

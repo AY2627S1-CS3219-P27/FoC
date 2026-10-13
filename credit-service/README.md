@@ -176,6 +176,11 @@ Outcome payloads are respectively:
 Run npm commands in `credit-service`. Run the normal application stack from the
 repository root; service-local Compose profiles are reserved for tests.
 
+Credit Service is a NestJS backend and does not contain or build an Angular
+application. The Nest CLI depends transitively on Angular DevKit's generic
+schematic and workspace tooling, so Node engine warnings can mention
+`@angular-devkit/*` while `nest build` runs.
+
 ## Local setup
 
 The app + DB config for the root-orchestrated stack lives in
@@ -198,7 +203,7 @@ root broker definitions so it matches the ignored secret. Never commit the
 actual password.
 
 Credit Service also mounts User Service's RS256 public key from
-`user-service/jwt_public_key.secret`. Generate the User Service signing keypair
+`user-service/secrets/jwt_public_key.secret`. Generate the User Service signing keypair
 before starting either service; only the public key is made available to Credit
 Service through `JWT_PUBLIC_KEY_FILE`.
 
@@ -330,6 +335,14 @@ inputs as alternatives, along with request, success, and error examples.
 The test commands deliberately separate fast source-level checks from tests
 that exercise real infrastructure.
 
+The service-local `.env` is loaded by the isolated RabbitMQ messaging tests,
+the recovery runner, and the service-local Compose profiles. Integration and
+HTTP e2e connection settings are fixed in their Vitest configurations, but the
+test database container still reads its port and credentials from `.env` and
+the local database secret. The shared-broker permission verifier uses the
+explicit shell variables shown below; it does not infer the Credit identity
+from the root `env/` files.
+
 | Test type                      | Command                             | Infrastructure                                                                     | What it verifies                                                                                                                                                          |
 | ------------------------------ | ----------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Unit                           | `npm test`                          | None                                                                               | Services, protected HTTP behavior and OpenAPI, contract integration, configuration, transaction retry logic, lifecycle wiring, and RabbitMQ/outbox behavior through fakes |
@@ -344,9 +357,37 @@ All source-mode commands rebuild `@foc/contracts` and `@foc/auth` before
 running. Their own suites run from `packages/contracts` and `packages/auth`;
 integration suites that share infrastructure run sequentially.
 
+### Complete verification workflow
+
+From `credit-service`, run the checks in this order:
+
+```powershell
+npm ci
+npm run build
+npm run lint
+npm test
+
+npm run db:test:up
+npm run test:integration
+npm run test:e2e
+npm run db:test:down
+
+npm run rabbitmq:test:up
+npm run test:messaging
+npm run rabbitmq:test:down
+
+npm run test:recovery
+```
+
+Run the shared-broker permission suite separately using the complete setup in
+its section below. A full verification does not run `npm run format`, because
+that command rewrites TypeScript source and test files. It also does not add a
+root Compose configuration test.
+
 ### Unit tests
 
-Unit tests include only `src/**/*.spec.ts` and do not require Docker:
+Unit tests include `src/**/*.spec.ts` plus the isolated broker URL-helper spec
+under `test/support`, and do not require Docker:
 
 ```powershell
 npm test
@@ -402,26 +443,38 @@ Start the service-local broker, then run the real-AMQP transport and publisher
 tests:
 
 ```powershell
-docker compose --profile test up -d --wait credit-rabbitmq
+npm run rabbitmq:test:up
 npm run test:messaging
+npm run rabbitmq:test:down
 ```
 
 Each run creates uniquely named exchanges and queues and removes them afterward.
 The tests cover all three subscriptions and prove reservation/adjustment
 handler, retry-chain, and DLQ isolation. They do not use PostgreSQL or start the
-complete NestJS application.
-The `RABBITMQ_URL` variable is retained only for these isolated test tools; the
-running application constructs its URL from component settings and a secret
-file.
+complete NestJS application. The test connection is built from
+`RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD`, and `RABBITMQ_HOST_PORT` in `.env`;
+it does not read `RABBITMQ_URL`. The broker stores its data in `tmpfs`, and the
+down command removes its container and anonymous volumes so changed credentials
+take effect on the next run.
 
-To verify least-privilege permissions against a fresh root broker, point the
-documented component settings at the host-published broker and run:
+To verify least-privilege permissions, first start the root broker, then point
+the verifier at its host-published port and the Credit Service secret:
 
 ```powershell
+docker compose -f ../compose.yaml up -d --wait rabbitmq
+$env:RABBITMQ_USER = 'credit-service'
 $env:RABBITMQ_HOST = '127.0.0.1'
+$env:RABBITMQ_PORT = '5672'
+$env:RABBITMQ_VHOST = '/foc'
 $env:RABBITMQ_PASSWORD_FILE = './secrets/rabbitmq_password.secret'
 npm run test:rabbitmq-permissions
+# If RabbitMQ was started only for this check:
+docker compose -f ../compose.yaml stop rabbitmq
 ```
+
+The password file must match the `credit-service` password hash installed by
+the root broker definitions. The verifier does not use the isolated test
+broker's `RABBITMQ_USERNAME` or `RABBITMQ_PASSWORD` values.
 
 The verifier creates only uniquely named, auto-delete queues in the
 `credit-service.*` namespace. It never deletes or reconfigures shared broker
@@ -445,7 +498,10 @@ database/broker reconnection.
 The command always attempts to remove the recovery containers and their
 anonymous volumes on success, failure, or interruption. It requires Docker,
 the service-local database secret, and `RABBITMQ_PASSWORD` in `.env`, but does
-not use the development database or RabbitMQ volumes.
+not use the development database or RabbitMQ volumes. Error logs produced while
+the scenarios deliberately stop PostgreSQL or RabbitMQ are expected fault
+injection output; the command's exit status and final Vitest summary determine
+whether recovery passed.
 
 ### Build and static checks
 
@@ -776,7 +832,9 @@ npm run event:publish:credit-reservation-adjustment-invalid
 The publisher reads the exact fixture bytes, selects the routing key from the
 event type, publishes a persistent message, and waits for broker confirmation.
 It uses `RABBITMQ_URL`, `RABBITMQ_EXCHANGE`, and the corresponding documented
-routing-key variable.
+routing-key variable. `RABBITMQ_URL` is retained for this manual publisher only;
+the running application and automated messaging tests construct their
+connections from component settings.
 
 To initialize another account, copy the fixture and replace both `eventId` and
 `payload.userId`, then provide its path:

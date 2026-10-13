@@ -4,24 +4,19 @@ import { connect, type Channel, type ChannelModel } from 'amqplib';
 import 'dotenv/config';
 import type { EnvironmentVariables } from '../src/config/environment.js';
 import { RabbitMqOutboxPublisher } from '../src/outbox/rabbitmq-outbox.publisher.js';
+import { buildRabbitMqTestUrl } from './support/rabbitmq-test-environment.js';
 
 describe('RabbitMqOutboxPublisher messaging integration', () => {
   const suffix = randomUUID().replaceAll('-', '');
   const exchange = `foc.events.outbox.test.${suffix}`;
   const queue = `credit-service.outbox.test.${suffix}`;
   const routingKey = 'credit.reservation-success.v1';
-  const rabbitMqUrl = process.env.RABBITMQ_URL;
+  const rabbitMqUrl = buildRabbitMqTestUrl();
   let connection: ChannelModel;
   let channel: Channel;
   let publisher: RabbitMqOutboxPublisher;
 
   beforeAll(async () => {
-    if (!rabbitMqUrl) {
-      throw new Error(
-        'RABBITMQ_URL is required; create credit-service/.env before running messaging tests',
-      );
-    }
-
     const values = {
       RABBITMQ_EXCHANGE: exchange,
       OUTBOX_CONFIRM_TIMEOUT_MS: 5_000,

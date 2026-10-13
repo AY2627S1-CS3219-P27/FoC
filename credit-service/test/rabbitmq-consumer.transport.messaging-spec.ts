@@ -11,6 +11,7 @@ import {
 import 'dotenv/config';
 import type { EnvironmentVariables } from '../src/config/environment.js';
 import { RabbitMqConsumerTransport } from '../src/messaging/rabbitmq-consumer.transport.js';
+import { buildRabbitMqTestUrl } from './support/rabbitmq-test-environment.js';
 import type {
   IncomingDomainMessage,
   MessageHandlingResult,
@@ -69,7 +70,7 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     siblingQueue: `credit-service.user-registered-audit.v1.test.${suffix}`,
     siblingDeadLetterQueue: `credit-service.user-registered-audit.v1.dlq.test.${suffix}`,
   };
-  const rabbitMqUrl = process.env.RABBITMQ_URL;
+  const rabbitMqUrl = buildRabbitMqTestUrl();
   let behavior: (
     message: IncomingDomainMessage,
   ) => Promise<MessageHandlingResult>;
@@ -92,12 +93,6 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
   let bufferedDelivery: IncomingDomainMessage | undefined;
 
   beforeAll(async () => {
-    if (!rabbitMqUrl) {
-      throw new Error(
-        'RABBITMQ_URL is required; create credit-service/.env before running messaging tests',
-      );
-    }
-
     const values = {
       RABBITMQ_EXCHANGE: names.domainExchange,
       RABBITMQ_USER_REGISTERED_QUEUE: names.mainQueue,

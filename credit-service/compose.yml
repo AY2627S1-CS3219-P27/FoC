@@ -22,23 +22,27 @@ services:
       DB_PASSWORD_FILE: /run/secrets/credit_db_password
       INITIAL_CREDIT_BALANCE: ${INITIAL_CREDIT_BALANCE:-100}
       JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key_credit_service
-      RABBITMQ_USER: ${CREDIT_SERVICE_RABBITMQ_USER}
-      RABBITMQ_HOST: ${RABBITMQ_HOST}
-      RABBITMQ_PORT: ${RABBITMQ_PORT}
-      RABBITMQ_VHOST: ${RABBITMQ_VHOST}
+      RABBITMQ_USER: ${CREDIT_SERVICE_RABBITMQ_USER:-credit-service}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/foc}
       RABBITMQ_PASSWORD_FILE: /run/secrets/rabbitmq_password_credit_service
       RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-foc.events}
-      RABBITMQ_USER_REGISTERED_QUEUE: credit-service.user-registered.v1
+      RABBITMQ_USER_REGISTERED_QUEUE: ${RABBITMQ_USER_REGISTERED_QUEUE:-credit-service.user-registered.v1}
       RABBITMQ_USER_REGISTERED_ROUTING_KEY: ${RABBITMQ_USER_REGISTERED_ROUTING_KEY:-user.registered.v1}
       RABBITMQ_CREDIT_ACCOUNT_INITIALISED_ROUTING_KEY: ${RABBITMQ_CREDIT_ACCOUNT_INITIALISED_ROUTING_KEY:-credit.account-initialised.v1}
-      RABBITMQ_CREDIT_RESERVATION_QUEUE: credit-service.credit-reservation.v1
+      RABBITMQ_CREDIT_RESERVATION_QUEUE: ${RABBITMQ_CREDIT_RESERVATION_QUEUE:-credit-service.credit-reservation.v1}
       RABBITMQ_CREDIT_RESERVATION_ROUTING_KEY: ${RABBITMQ_CREDIT_RESERVATION_ROUTING_KEY:-credit.reservation.v1}
-      RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_QUEUE: credit-service.credit-reservation-adjustment.v1
+      RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_QUEUE: ${RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_QUEUE:-credit-service.credit-reservation-adjustment.v1}
       RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_ROUTING_KEY: ${RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_ROUTING_KEY:-credit.reservation-adjustment.v1}
       RABBITMQ_CREDIT_RESERVATION_SUCCESS_ROUTING_KEY: ${RABBITMQ_CREDIT_RESERVATION_SUCCESS_ROUTING_KEY:-credit.reservation-success.v1}
       RABBITMQ_CREDIT_RESERVATION_REJECTED_ROUTING_KEY: ${RABBITMQ_CREDIT_RESERVATION_REJECTED_ROUTING_KEY:-credit.reservation-rejected.v1}
       RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_SUCCESS_ROUTING_KEY: ${RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_SUCCESS_ROUTING_KEY:-credit.reservation-adjustment-success.v1}
       RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_REJECTED_ROUTING_KEY: ${RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_REJECTED_ROUTING_KEY:-credit.reservation-adjustment-rejected.v1}
+      RABBITMQ_ORDER_ERRAND_COMPLETED_QUEUE: ${RABBITMQ_ORDER_ERRAND_COMPLETED_QUEUE:-credit-service.order-errand-completed.v1}
+      RABBITMQ_ORDER_ERRAND_COMPLETED_ROUTING_KEY: ${RABBITMQ_ORDER_ERRAND_COMPLETED_ROUTING_KEY:-order.errand-completed.v1}
+      RABBITMQ_CREDIT_TRANSFER_SUCCEEDED_ROUTING_KEY: ${RABBITMQ_CREDIT_TRANSFER_SUCCEEDED_ROUTING_KEY:-credit.transfer-succeeded.v1}
+      RABBITMQ_CREDIT_TRANSFER_REJECTED_ROUTING_KEY: ${RABBITMQ_CREDIT_TRANSFER_REJECTED_ROUTING_KEY:-credit.transfer-rejected.v1}
       RABBITMQ_RETRY_EXCHANGE: ${RABBITMQ_RETRY_EXCHANGE:-foc.credit.retry}
       RABBITMQ_RETRY_RETURN_EXCHANGE: ${RABBITMQ_RETRY_RETURN_EXCHANGE:-foc.credit.back}
       RABBITMQ_DEAD_LETTER_EXCHANGE: ${RABBITMQ_DEAD_LETTER_EXCHANGE:-foc.credit.dlx}
@@ -175,15 +179,14 @@ services:
   credit-rabbitmq:
     image: rabbitmq:4.3.6-management-alpine
     profiles: ['test']
-    restart: unless-stopped
     ports:
       - '${RABBITMQ_HOST_PORT:-5675}:5672'
       - '${RABBITMQ_MANAGEMENT_HOST_PORT:-15675}:15672'
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-credit_service_test}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-replace-me}
-    volumes:
-      - credit-rabbitmq-data:/var/lib/rabbitmq
+    tmpfs:
+      - /var/lib/rabbitmq
     healthcheck:
       test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
       interval: 5s
@@ -216,7 +219,6 @@ services:
 
 volumes:
   credit-db-data:
-  credit-rabbitmq-data:
 
 secrets:
   credit_db_password:
@@ -224,4 +226,4 @@ secrets:
   rabbitmq_password_credit_service:
     file: ./secrets/rabbitmq_password.secret
   jwt_public_key_credit_service:
-    file: ../user-service/jwt_public_key.secret
+    file: ../user-service/secrets/jwt_public_key.secret
