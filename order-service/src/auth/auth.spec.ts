@@ -7,7 +7,7 @@ import {
   FocAuthModule,
   JwtAuthGuard,
 } from '@foc/auth';
-import { ACCESS_TOKEN_ISSUER, Role } from '@foc/contracts';
+import { ACCESS_TOKEN_COOKIE, ACCESS_TOKEN_ISSUER, Role } from '@foc/contracts';
 import {
   Controller,
   Get,
@@ -18,6 +18,7 @@ import {
 import type { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
+import { configureHttp } from '../http/configure-http.js';
 import { AuthKeyModule } from './auth-key.module.js';
 import { AuthKeyService } from './auth-key.service.js';
 
@@ -72,6 +73,7 @@ describe('access-token auth', () => {
       .useValue({ getJwtPublicKey: () => keys.publicKey })
       .compile();
     app = module.createNestApplication();
+    configureHttp(app);
     await app.listen(0, '127.0.0.1');
     url = `${await app.getUrl()}/whoami`;
   });
@@ -98,6 +100,24 @@ describe('access-token auth', () => {
     expect(await res.json()).toEqual({
       sub: '11111111-1111-4111-8111-111111111111',
     });
+  });
+
+  // Browsers authenticate with the httpOnly cookie user-service sets on login.
+  it('accepts the token from the access_token cookie', async () => {
+    const res = await fetch(url, {
+      headers: { cookie: `${ACCESS_TOKEN_COOKIE}=${await sign(keys.privateKey)}` },
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it('prefers the cookie over the Bearer header', async () => {
+    const res = await fetch(url, {
+      headers: {
+        cookie: `${ACCESS_TOKEN_COOKIE}=${await sign(keys.privateKey)}`,
+        authorization: `Bearer ${await sign(rsa().privateKey)}`,
+      },
+    });
+    expect(res.status).toBe(200);
   });
 });
 
