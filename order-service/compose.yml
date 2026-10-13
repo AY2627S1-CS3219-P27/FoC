@@ -18,6 +18,7 @@ services:
       - DB_DATABASE=${ORDER_SERVICE_DB_DATABASE}
       - DB_SYNCHRONIZE=${ORDER_SERVICE_DB_SYNCHRONIZE}
       - DB_PASSWORD_FILE=/run/secrets/order_db_password
+      - JWT_PUBLIC_KEY_FILE=/run/secrets/jwt_public_key_order_service
       - LOG_LEVEL=${LOG_LEVEL}
       - RABBITMQ_USER=${ORDER_SERVICE_RABBITMQ_USER}
       - RABBITMQ_HOST=${RABBITMQ_HOST}
@@ -45,6 +46,7 @@ services:
     secrets:
       - order_db_password
       - rabbitmq_password_order_service
+      - jwt_public_key_order_service
     develop:
       watch:
         - action: sync
@@ -118,3 +120,6 @@ secrets:
     file: secrets/order_db_password.secret
   rabbitmq_password_order_service:
     file: secrets/rabbitmq_password.secret
+  # Owned by user-service: the public half of the key pair that signs access tokens.
+  jwt_public_key_order_service:
+    file: ../user-service/secrets/jwt_public_key.secret
