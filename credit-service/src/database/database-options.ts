@@ -12,6 +12,7 @@ import {
 } from './entities/index.js';
 import { InitialPersistence1735689600000 } from './migrations/1735689600000-initial-persistence.js';
 import { CreditReservations1735689601000 } from './migrations/1735689601000-credit-reservations.js';
+import { SettlementPersistence1735689602000 } from './migrations/1735689602000-settlement-persistence.js';
 
 export interface DatabaseEnvironment {
   DB_HOST: string;
@@ -63,6 +64,7 @@ export function createDatabaseOptions(
     migrations: [
       InitialPersistence1735689600000,
       CreditReservations1735689601000,
+      SettlementPersistence1735689602000,
     ],
     migrationsTableName: 'credit_service_migrations',
     migrationsRun: false,

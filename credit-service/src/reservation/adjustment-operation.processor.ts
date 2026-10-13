@@ -38,6 +38,18 @@ export class CreditReservationAdjustmentInvariantError extends Error {
   }
 }
 
+type OperationWithAmount = CreditOperation & { amount: number };
+
+function assertOperationAmount(
+  operation: CreditOperation,
+): asserts operation is OperationWithAmount {
+  if (operation.amount === null) {
+    throw new CreditReservationAdjustmentInvariantError(
+      'Adjustment operation has no amount',
+    );
+  }
+}
+
 function assertSafeBalances(creditBalance: number, reservedBalance: number) {
   if (
     !Number.isSafeInteger(creditBalance) ||
@@ -81,6 +93,7 @@ export class AdjustmentOperationProcessor {
           'Adjustment operation has incomplete command state',
         );
       }
+      assertOperationAmount(operation);
 
       await manager.query(
         'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
@@ -188,7 +201,7 @@ export class AdjustmentOperationProcessor {
 
   private async completeSuccess(
     manager: EntityManager,
-    operation: CreditOperation,
+    operation: OperationWithAmount,
     transactionId: string,
     occurredAt = new Date(),
   ): Promise<AdjustmentProcessingOutcome> {
@@ -236,7 +249,7 @@ export class AdjustmentOperationProcessor {
 
   private async completeRejection(
     manager: EntityManager,
-    operation: CreditOperation,
+    operation: OperationWithAmount,
     reason: CreditReservationAdjustmentRejectionReason,
   ): Promise<AdjustmentProcessingOutcome> {
     const outboxEventId = randomUUID();

@@ -32,6 +32,18 @@ export type ReservationProcessingOutcome =
     }
   | { status: 'claim-lost'; operationId: string };
 
+type OperationWithAmount = CreditOperation & { amount: number };
+
+function assertOperationAmount(
+  operation: CreditOperation,
+): asserts operation is OperationWithAmount {
+  if (operation.amount === null) {
+    throw new CreditReservationInvariantError(
+      'Reservation operation has no amount',
+    );
+  }
+}
+
 function assertSafeBalances(creditBalance: number, reservedBalance: number) {
   if (
     !Number.isSafeInteger(creditBalance) ||
@@ -75,6 +87,7 @@ export class ReservationOperationProcessor {
           'Reservation operation has no requester',
         );
       }
+      assertOperationAmount(operation);
       const requesterUserId = operation.requesterUserId;
 
       await manager.query(
@@ -164,7 +177,7 @@ export class ReservationOperationProcessor {
 
   private async completeSuccess(
     manager: EntityManager,
-    operation: CreditOperation,
+    operation: OperationWithAmount,
     transactionId: string,
     occurredAt = new Date(),
   ): Promise<ReservationProcessingOutcome> {
@@ -214,7 +227,7 @@ export class ReservationOperationProcessor {
 
   private async completeRejection(
     manager: EntityManager,
-    operation: CreditOperation,
+    operation: OperationWithAmount,
     reason: CreditReservationRejectionReason,
   ): Promise<ReservationProcessingOutcome> {
     const outboxEventId = randomUUID();
