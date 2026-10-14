@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { Logger } from '@nestjs/common';
 import type { EnvironmentVariables } from '../config/environment.js';
+import type { ReleaseOperationProcessor } from '../settlement/release-operation.processor.js';
 import type { TransferOperationProcessor } from '../settlement/transfer-operation.processor.js';
 import type { AdjustmentOperationProcessor } from './adjustment-operation.processor.js';
 import {
@@ -55,6 +56,7 @@ describe('CreditOperationWorker', () => {
       processor as unknown as ReservationOperationProcessor,
       { processClaimed: vi.fn() } as unknown as AdjustmentOperationProcessor,
       { processClaimed: vi.fn() } as unknown as TransferOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as ReleaseOperationProcessor,
     );
 
     await worker.runOnce();
@@ -88,6 +90,7 @@ describe('CreditOperationWorker', () => {
       processor as unknown as ReservationOperationProcessor,
       processor as unknown as AdjustmentOperationProcessor,
       { processClaimed: vi.fn() } as unknown as TransferOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as ReleaseOperationProcessor,
     );
 
     await worker.runOnce();
@@ -119,6 +122,7 @@ describe('CreditOperationWorker', () => {
       processor as unknown as ReservationOperationProcessor,
       { processClaimed: vi.fn() } as unknown as AdjustmentOperationProcessor,
       { processClaimed: vi.fn() } as unknown as TransferOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as ReleaseOperationProcessor,
     );
 
     await worker.runOnce();
@@ -147,6 +151,7 @@ describe('CreditOperationWorker', () => {
       { processClaimed: vi.fn() } as unknown as ReservationOperationProcessor,
       { processClaimed: vi.fn() } as unknown as AdjustmentOperationProcessor,
       { processClaimed: vi.fn() } as unknown as TransferOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as ReleaseOperationProcessor,
     );
 
     const first = worker.runOnce();
@@ -177,6 +182,7 @@ describe('CreditOperationWorker', () => {
       { processClaimed: vi.fn() } as unknown as ReservationOperationProcessor,
       { processClaimed: vi.fn() } as unknown as AdjustmentOperationProcessor,
       transferProcessor as unknown as TransferOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as ReleaseOperationProcessor,
     );
 
     await worker.runOnce();
@@ -210,6 +216,72 @@ describe('CreditOperationWorker', () => {
       { processClaimed: vi.fn() } as unknown as ReservationOperationProcessor,
       { processClaimed: vi.fn() } as unknown as AdjustmentOperationProcessor,
       transferProcessor as unknown as TransferOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as ReleaseOperationProcessor,
+    );
+
+    await worker.runOnce();
+
+    expect(store.markFailed).toHaveBeenCalledWith(
+      operation.id,
+      expect.any(String),
+      'Credit operation execution failed (Error)',
+      2_000,
+    );
+  });
+
+  it('dispatches claimed releases to the settlement processor', async () => {
+    const operation = {
+      id: '96ea8eb4-6c4a-40c8-a2a5-d673fba42033',
+      operationType: 'RELEASE' as const,
+      createdAt: new Date(),
+      attemptCount: 1,
+      lastError: null,
+    };
+    const releaseProcessor = {
+      processClaimed: vi.fn().mockResolvedValue({}),
+    };
+    const worker = new CreditOperationWorker(
+      configuration(),
+      {
+        claim: vi.fn().mockResolvedValue([operation]),
+        markFailed: vi.fn(),
+      } as unknown as CreditOperationStore,
+      { processClaimed: vi.fn() } as unknown as ReservationOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as AdjustmentOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as TransferOperationProcessor,
+      releaseProcessor as unknown as ReleaseOperationProcessor,
+    );
+
+    await worker.runOnce();
+
+    expect(releaseProcessor.processClaimed).toHaveBeenCalledWith(
+      operation.id,
+      expect.any(String),
+    );
+  });
+
+  it('keeps unresolved releases pending through the shared retry path', async () => {
+    const operation = {
+      id: '96ea8eb4-6c4a-40c8-a2a5-d673fba42033',
+      operationType: 'RELEASE' as const,
+      createdAt: new Date(),
+      attemptCount: 2,
+      lastError: null,
+    };
+    const store = {
+      claim: vi.fn().mockResolvedValue([operation]),
+      markFailed: vi.fn().mockResolvedValue(true),
+    };
+    const releaseProcessor = {
+      processClaimed: vi.fn().mockRejectedValue(new Error('private context')),
+    };
+    const worker = new CreditOperationWorker(
+      configuration(),
+      store as unknown as CreditOperationStore,
+      { processClaimed: vi.fn() } as unknown as ReservationOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as AdjustmentOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as TransferOperationProcessor,
+      releaseProcessor as unknown as ReleaseOperationProcessor,
     );
 
     await worker.runOnce();
