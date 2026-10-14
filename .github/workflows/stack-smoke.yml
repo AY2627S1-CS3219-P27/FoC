@@ -20,6 +20,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Root compose.yaml overrides included services; older Compose rejects that
+      - uses: docker/setup-compose-action@v1
+        with:
+          version: v5.5.1
+      - run: docker compose version
+
       - name: Generate throwaway env, secrets and RabbitMQ users
         run: bash scripts/ci-stack-secrets.sh
 
