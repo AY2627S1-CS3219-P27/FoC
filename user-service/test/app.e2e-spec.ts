@@ -108,6 +108,20 @@ describe('user-service (e2e)', () => {
           roles,
           isAdmin: false,
         })),
+        adminUpdateUser: vi.fn(
+          async (
+            _actorUuid: string,
+            targetUuid: string,
+            fields: { isAdmin?: boolean },
+          ) => ({
+            uuid: targetUuid,
+            email: 'mallory@example.com',
+            displayName: 'Mallory',
+            profilePictureUrl: null,
+            roles: [Role.Requester],
+            isAdmin: fields.isAdmin ?? false,
+          }),
+        ),
         countActiveAdmins: async () => 1,
       })
       .overrideProvider(SecretService)
@@ -197,6 +211,67 @@ describe('user-service (e2e)', () => {
         roles: [Role.Requester, Role.Courier],
       });
       expect(response.headers['set-cookie']).toBeDefined();
+    });
+  });
+
+  describe('admin user update endpoint', () => {
+    const TARGET_UUID = '22222222-2222-4222-8222-222222222222';
+
+    it('rejects an unauthenticated admin update with 401', async () => {
+      await request(app.getHttpServer())
+        .patch(`/users/${TARGET_UUID}`)
+        .send({ isAdmin: true })
+        .expect(401);
+    });
+
+    it('rejects a non-admin caller with 403', async () => {
+      await request(app.getHttpServer())
+        .patch(`/users/${TARGET_UUID}`)
+        .set('Authorization', `Bearer ${await signAccessToken()}`)
+        .send({ isAdmin: true })
+        .expect(403);
+    });
+
+    it('applies an admin update for an admin caller (F11)', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(`/users/${TARGET_UUID}`)
+        .set(
+          'Authorization',
+          `Bearer ${await signAccessToken({ isAdmin: true })}`,
+        )
+        .send({ isAdmin: true })
+        .expect(200);
+
+      expect(response.body).toEqual({
+        uuid: TARGET_UUID,
+        email: 'mallory@example.com',
+        displayName: 'Mallory',
+        profilePictureUrl: null,
+        roles: [Role.Requester],
+        isAdmin: true,
+      });
+    });
+
+    it('rejects a non-boolean Admin Status with 400 (F11.1.3)', async () => {
+      await request(app.getHttpServer())
+        .patch(`/users/${TARGET_UUID}`)
+        .set(
+          'Authorization',
+          `Bearer ${await signAccessToken({ isAdmin: true })}`,
+        )
+        .send({ isAdmin: 'true' })
+        .expect(400);
+    });
+
+    it('rejects a malformed target uuid with 400', async () => {
+      await request(app.getHttpServer())
+        .patch('/users/not-a-uuid')
+        .set(
+          'Authorization',
+          `Bearer ${await signAccessToken({ isAdmin: true })}`,
+        )
+        .send({ isAdmin: true })
+        .expect(400);
     });
   });
 

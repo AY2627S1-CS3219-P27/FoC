@@ -3,6 +3,8 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  Param,
+  ParseUUIDPipe,
   Patch,
   Query,
   Req,
@@ -12,12 +14,13 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
-import { JwtAuthGuard } from '@foc/auth';
+import { AdminGuard, JwtAuthGuard } from '@foc/auth';
 import type { AuthenticatedRequest } from '@foc/auth';
 import type { Paginated } from '@foc/contracts';
 import { ACCESS_TOKEN_COOKIE } from '@foc/contracts';
 import { UpdateRolesDto } from './DTO/update-roles.dto.js';
 import { UpdateProfileDto } from './DTO/update-profile.dto.js';
+import { AdminUpdateUserDto } from './DTO/admin-update-user.dto.js';
 import { ListUsersQueryDto } from './DTO/list-users.query.dto.js';
 import { toUserInfoView, UserInfoView } from './user-info.view.js';
 import { UsersService } from './users.service.js';
@@ -147,5 +150,22 @@ export class UsersController {
     });
 
     return { roles: updated.roles };
+  }
+
+  /**
+   * Admin-only user update.
+   */
+  @Patch(':uuid')
+  @UseGuards(AdminGuard)
+  async adminUpdateUser(
+    @Req() request: AuthenticatedRequest,
+    @Param('uuid', new ParseUUIDPipe()) uuid: string,
+    @Body() adminUpdateUserDto: AdminUpdateUserDto,
+  ) {
+    return this.usersService.adminUpdateUser(
+      request.user.sub,
+      uuid,
+      adminUpdateUserDto,
+    );
   }
 }
