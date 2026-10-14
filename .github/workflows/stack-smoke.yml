@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Generate throwaway env, secrets and RabbitMQ users
-        run: scripts/ci-stack-secrets.sh
+        run: bash scripts/ci-stack-secrets.sh
 
       - name: Start databases and broker
         run: docker compose up -d --wait rabbitmq credit-db
