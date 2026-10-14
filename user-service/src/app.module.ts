@@ -12,6 +12,7 @@ import { SecretModule } from './secret/secret.module.js';
 import { SecretService } from './secret/secret.service.js';
 import { User } from './users/user.entity.js';
 import { UserUpdateAudit } from './users/user-update-audit.entity.js';
+import { RefreshToken } from './auth/refresh-token.entity.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -51,7 +52,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
         username: configService.get<string>('DB_USERNAME'),
         password: secretService.getDbPassword(),
         database: configService.get<string>('DB_DATABASE'),
-        entities: [User, UserUpdateAudit],
+        entities: [User, UserUpdateAudit, RefreshToken],
         synchronize: configService.get<boolean>('DB_SYNCHRONIZE'),
       }),
     }),
