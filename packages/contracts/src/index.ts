@@ -18,6 +18,7 @@ export { eventRegistry } from './domain-events/event-registry.js';
 export type {
   CreditAccountInitialisedEvent,
   CreditReleaseRejectedEvent,
+  CreditReleaseSuccessEvent,
   CreditTransferRejectedEvent,
   CreditTransferSucceededEvent,
   ErrandCancelledEvent,
@@ -105,6 +106,11 @@ export type {
   CreditReleaseRejectedPayload,
   CreditReleaseRejectionReason,
 } from './domain-events/events/credit-release-rejected/v1/contract.js';
+export {
+  CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY,
+  creditReleaseSuccessV1Contract,
+} from './domain-events/events/credit-release-success/v1/contract.js';
+export type { CreditReleaseSuccessPayload } from './domain-events/events/credit-release-success/v1/contract.js';
 export {
   USER_REGISTERED_V1_ROUTING_KEY,
   userRegisteredV1Contract,
