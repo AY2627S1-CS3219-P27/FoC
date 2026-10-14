@@ -26,12 +26,14 @@ describe('AuthService', () => {
   let usersService: {
     provisionUser: ReturnType<typeof vi.fn>;
     checkUserAndReturnInfo: ReturnType<typeof vi.fn>;
+    getUserByUuid: ReturnType<typeof vi.fn>;
   };
   let jwtService: { signAsync: ReturnType<typeof vi.fn> };
   let refreshTokenRepository: {
     create: ReturnType<typeof vi.fn>;
     save: ReturnType<typeof vi.fn>;
     delete: ReturnType<typeof vi.fn>;
+    findOneBy: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(async () => {
@@ -45,12 +47,14 @@ describe('AuthService', () => {
         isAdmin: false,
       })),
       checkUserAndReturnInfo: vi.fn(),
+      getUserByUuid: vi.fn(),
     };
     jwtService = { signAsync: vi.fn(async () => 'signed-jwt') };
     refreshTokenRepository = {
       create: vi.fn((data) => data),
       save: vi.fn(async (data) => ({ ...data })),
       delete: vi.fn(),
+      findOneBy: vi.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -267,6 +271,92 @@ describe('AuthService', () => {
       expect(jwtService.signAsync).not.toHaveBeenCalled();
     });
   });
+
+  describe('refreshSession', () => {
+    const refreshedUser = {
+      uuid: '11111111-1111-4111-8111-111111111111',
+      email: 'eve@example.com',
+      displayName: 'Eve',
+      isAdmin: false,
+      roles: [Role.Requester],
+    };
+    const validRecord = {
+      hashedToken: 'deadbeef',
+      userId: '11111111-1111-4111-8111-111111111111',
+      expiresAt: new Date(Date.now() + 60_000),
+      issuedAt: new Date(),
+    };
+
+    it('signs a fresh access token for the session bound to a valid token', async () => {
+      refreshTokenRepository.findOneBy.mockResolvedValue(validRecord);
+      usersService.getUserByUuid.mockResolvedValue(refreshedUser);
+
+      await expect(service.refreshSession('opaque-token')).resolves.toEqual({
+        accessToken: 'signed-jwt',
+      });
+
+      // The lookup is keyed on the HMAC of the presented token, not the raw
+      // value (2-arg form; the registration path uses the 3-arg override).
+      expect(vi.mocked(hmacValue)).toHaveBeenCalledWith(
+        'opaque-token',
+        'test-secret',
+      );
+      expect(refreshTokenRepository.findOneBy).toHaveBeenCalledWith({
+        hashedToken: 'deadbeef',
+      });
+      expect(usersService.getUserByUuid).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111',
+      );
+      expect(jwtService.signAsync).toHaveBeenCalledTimes(1);
+      expect(jwtService.signAsync).toHaveBeenCalledWith({
+        sub: '11111111-1111-4111-8111-111111111111',
+        displayName: 'Eve',
+        email: 'eve@example.com',
+        isAdmin: false,
+        roles: [Role.Requester],
+      });
+    });
+
+    it.each([
+      {
+        name: 'an unknown token',
+        setup: () => refreshTokenRepository.findOneBy.mockResolvedValue(null),
+      },
+      {
+        name: 'an expired token',
+        setup: () =>
+          refreshTokenRepository.findOneBy.mockResolvedValue({
+            ...validRecord,
+            expiresAt: new Date(0),
+          }),
+      },
+      {
+        name: 'a token bound to a pruned account',
+        setup: () => {
+          refreshTokenRepository.findOneBy.mockResolvedValue(validRecord);
+          usersService.getUserByUuid.mockResolvedValue(null);
+        },
+      },
+    ])('rejects $name with the identical generic error (F5.2)', ({ setup }) => {
+      setup();
+
+      // F5.2: every failed F5.1 condition must reject indistinguishably — the
+      // caller learns "invalid", never which condition failed. A differing
+      // message would surface here.
+      return expect(service.refreshSession('opaque-token')).rejects.toThrow(
+        'Invalid refresh token',
+      );
+    });
+
+    it('never signs a token for a failed condition', async () => {
+      refreshTokenRepository.findOneBy.mockResolvedValue(null);
+
+      await expect(service.refreshSession('opaque-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(jwtService.signAsync).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe('access token contract conformance', () => {
@@ -306,6 +396,13 @@ describe('access token contract conformance', () => {
               isAdmin: false,
               roles: [Role.Requester],
             })),
+            getUserByUuid: vi.fn(async () => ({
+              uuid: '11111111-1111-4111-8111-111111111111',
+              email: 'eve@example.com',
+              displayName: 'Eve',
+              isAdmin: false,
+              roles: [Role.Requester],
+            })),
           },
         },
         { provide: JwtService, useValue: realJwtService },
@@ -315,6 +412,12 @@ describe('access token contract conformance', () => {
             create: vi.fn((data) => data),
             save: vi.fn(async (data) => ({ ...data })),
             delete: vi.fn(),
+            findOneBy: vi.fn(async () => ({
+              hashedToken: 'deadbeef',
+              userId: '11111111-1111-4111-8111-111111111111',
+              expiresAt: new Date(Date.now() + 60_000),
+              issuedAt: new Date(),
+            })),
           },
         },
       ],
@@ -325,6 +428,75 @@ describe('access token contract conformance', () => {
       'eve@example.com',
       'StrongPassw0rd!',
     );
+    const payload = await realJwtService.verifyAsync(accessToken);
+
+    const result = validateAccessTokenPayload(payload);
+
+    expect(result.valid).toBe(true);
+    expect(result.valid && result.value).toMatchObject({
+      sub: '11111111-1111-4111-8111-111111111111',
+      email: 'eve@example.com',
+      displayName: 'Eve',
+      isAdmin: false,
+      roles: [Role.Requester],
+      iss: 'user-service',
+    });
+  });
+
+  it('mints a refreshed token with the same fields as a login token (F5.3)', async () => {
+    // Same real signer + contract validator as the login conformance test:
+    // asserts a refreshed access token is shaped identically to one issued at
+    // login, not just that a JWT came back.
+    const { privateKey, publicKey } = generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+    });
+    const realJwtService = new JwtService({
+      privateKey,
+      publicKey,
+      signOptions: {
+        expiresIn: JWT_EXPIRATION_IN_SECONDS,
+        issuer: 'user-service',
+        algorithm: 'RS256',
+      },
+    });
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        AuthService,
+        { provide: REDIS, useValue: { eval: vi.fn() } },
+        {
+          provide: SecretService,
+          useValue: { getServerSecret: () => 'test-secret' },
+        },
+        {
+          provide: UsersService,
+          useValue: {
+            getUserByUuid: vi.fn(async () => ({
+              uuid: '11111111-1111-4111-8111-111111111111',
+              email: 'eve@example.com',
+              displayName: 'Eve',
+              isAdmin: false,
+              roles: [Role.Requester],
+            })),
+          },
+        },
+        { provide: JwtService, useValue: realJwtService },
+        {
+          provide: getRepositoryToken(RefreshToken),
+          useValue: {
+            findOneBy: vi.fn(async () => ({
+              hashedToken: 'deadbeef',
+              userId: '11111111-1111-4111-8111-111111111111',
+              expiresAt: new Date(Date.now() + 60_000),
+              issuedAt: new Date(),
+            })),
+          },
+        },
+      ],
+    }).compile();
+    const service = module.get<AuthService>(AuthService);
+
+    const { accessToken } = await service.refreshSession('opaque-token');
     const payload = await realJwtService.verifyAsync(accessToken);
 
     const result = validateAccessTokenPayload(payload);

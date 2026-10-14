@@ -11,6 +11,7 @@ import { registrationTokenRecordKey } from '../common/hash/token-keys.js';
 import { getRegisterUserScript } from '../scripts/retrieve-script.js';
 import {
   EmailAlreadyRegisteredError,
+  PublicUserInfo,
   UsersService,
 } from '../users/users.service.js';
 import { JwtService } from '@nestjs/jwt';
@@ -103,21 +104,32 @@ export class AuthService {
     );
     const refreshToken = await this.generateRefreshToken(user.uuid);
 
-    // create JWT. The access-token contract's iss/iat/exp claims are added
-    // by the signer (see AuthModule's signOptions); the identity claims below
-    // feed the rest of the verified payload.
-    const accessTokenPayload: Omit<AccessTokenPayload, 'iss' | 'iat' | 'exp'> =
-      {
-        sub: user.uuid,
-        displayName: user.displayName,
-        email: user.email,
-        isAdmin: user.isAdmin,
-        roles: user.roles,
-      };
     return {
-      accessToken: await this.jwtService.signAsync(accessTokenPayload),
+      accessToken: await this.signAccessToken(user),
       refreshToken,
     };
+  }
+
+  /**
+   * Renews the short-lived access token of the session bound to a valid
+   * refresh token.
+   */
+  async refreshSession(token: string): Promise<{ accessToken: string }> {
+    const hashedToken = hmacValue(token, this.secretService.getServerSecret());
+    const record = await this.refreshTokenRepository.findOneBy({ hashedToken });
+
+    if (record === null || record.expiresAt < new Date()) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    const user = await this.usersService.getUserByUuid(record.userId);
+
+    if (user === null) {
+      // throw same error
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    return { accessToken: await this.signAccessToken(user) };
   }
 
   private async generateRefreshToken(userId: string) {
@@ -130,5 +142,27 @@ export class AuthService {
       }),
     );
     return token;
+  }
+
+  /**
+   * Signs the access token shared by login and refresh. The iss/iat/exp claims
+   * are added by the signer (see AuthModule's signOptions); the identity
+   * claims below feed the rest of the verified payload (F5.3: identical
+   * fields whether minted on login or refresh).
+   */
+  private async signAccessToken(
+    user: Pick<
+      PublicUserInfo,
+      'uuid' | 'email' | 'displayName' | 'isAdmin' | 'roles'
+    >,
+  ): Promise<string> {
+    const payload: Omit<AccessTokenPayload, 'iss' | 'iat' | 'exp'> = {
+      sub: user.uuid,
+      displayName: user.displayName,
+      email: user.email,
+      isAdmin: user.isAdmin,
+      roles: user.roles,
+    };
+    return this.jwtService.signAsync(payload);
   }
 }
