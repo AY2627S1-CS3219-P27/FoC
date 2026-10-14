@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { EnvironmentVariables } from '../config/environment.js';
+import { ReleaseOperationProcessor } from '../settlement/release-operation.processor.js';
 import { TransferOperationProcessor } from '../settlement/transfer-operation.processor.js';
 import { AdjustmentOperationProcessor } from './adjustment-operation.processor.js';
 import {
@@ -63,6 +64,7 @@ export class CreditOperationWorker {
     private readonly reservationProcessor: ReservationOperationProcessor,
     private readonly adjustmentProcessor: AdjustmentOperationProcessor,
     private readonly transferProcessor: TransferOperationProcessor,
+    private readonly releaseProcessor: ReleaseOperationProcessor,
   ) {
     this.pollIntervalMilliseconds = config.getOrThrow(
       'CREDIT_OPERATION_POLL_INTERVAL_MS',
@@ -147,6 +149,8 @@ export class CreditOperationWorker {
           operation.id,
           this.workerId,
         );
+      } else if (operation.operationType === 'RELEASE') {
+        await this.releaseProcessor.processClaimed(operation.id, this.workerId);
       } else {
         throw new Error('Unsupported credit operation type');
       }

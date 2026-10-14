@@ -7,6 +7,7 @@ import { ErrandCancelledMessageHandler } from './errand-cancelled-message.handle
 import { ErrandCompletedConsumerLifecycle } from './errand-completed-consumer.lifecycle.js';
 import { ErrandCompletedMessageHandler } from './errand-completed-message.handler.js';
 import { ReleaseService } from './release.service.js';
+import { ReleaseOperationProcessor } from './release-operation.processor.js';
 import { TransferOperationProcessor } from './transfer-operation.processor.js';
 import { TransferService } from './transfer.service.js';
 
@@ -14,6 +15,7 @@ import { TransferService } from './transfer.service.js';
   imports: [ContractsModule, DatabaseModule, MessagingModule],
   providers: [
     ReleaseService,
+    ReleaseOperationProcessor,
     TransferService,
     TransferOperationProcessor,
     ErrandCancelledMessageHandler,
@@ -21,6 +23,11 @@ import { TransferService } from './transfer.service.js';
     ErrandCompletedMessageHandler,
     ErrandCompletedConsumerLifecycle,
   ],
-  exports: [ReleaseService, TransferService, TransferOperationProcessor],
+  exports: [
+    ReleaseService,
+    ReleaseOperationProcessor,
+    TransferService,
+    TransferOperationProcessor,
+  ],
 })
 export class SettlementModule {}
