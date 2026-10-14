@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { AccountEventContractValidator } from './account-event-contract.validator.js';
 import type { EventContractKey } from './event-registry.types.js';
+import type { CreditTransferRejectionReason } from './events/credit-transfer-rejected/v1/contract.js';
 
 const id = () => randomUUID();
 const envelope = (
@@ -59,6 +60,19 @@ const validContracts = [
   ],
 ] as const satisfies ReadonlyArray<readonly [EventContractKey, object]>;
 
+const transferRejectionReasons = [
+  'DESTINATION_ARCHIVED',
+  'RESERVATION_NOT_FOUND',
+  'RESERVATION_RELEASED',
+  'RESERVATION_USER_MISMATCH',
+] as const satisfies ReadonlyArray<CreditTransferRejectionReason>;
+
+const transferContracts = [
+  validContracts[0],
+  validContracts[2],
+  validContracts[3],
+] as const;
+
 describe('order errand event contracts', () => {
   const validator = new AccountEventContractValidator();
 
@@ -111,6 +125,92 @@ describe('order errand event contracts', () => {
       expect(
         validator.validate('credit.transfer-succeeded.v1', transferred),
       ).toMatchObject({ valid: false, code: 'INVALID_PAYLOAD' });
+    },
+  );
+
+  it.each(transferRejectionReasons)(
+    'accepts transfer rejection reason %s',
+    (rejectionReason) => {
+      const input = structuredClone(validContracts[3][1]);
+      input.payload.rejectionReason = rejectionReason;
+
+      expect(
+        validator.validate('credit.transfer-rejected.v1', input),
+      ).toEqual({ valid: true, value: input });
+    },
+  );
+
+  it.each(['STALE_RESERVATION_AMOUNT', 'UNKNOWN'])(
+    'rejects unsupported transfer rejection reason %s',
+    (rejectionReason) => {
+      const input = structuredClone(validContracts[3][1]);
+      input.payload.rejectionReason = rejectionReason;
+
+      expect(
+        validator.validate('credit.transfer-rejected.v1', input),
+      ).toMatchObject({ valid: false, code: 'INVALID_PAYLOAD' });
+    },
+  );
+
+  it.each(transferContracts)(
+    'rejects a non-canonical timestamp for %s',
+    (key, event) => {
+      const input = { ...structuredClone(event), timestamp: 'not-a-date' };
+      expect(validator.validate(key, input)).toMatchObject({
+        valid: false,
+        code: 'INVALID_ENVELOPE',
+      });
+    },
+  );
+
+  it.each(transferContracts)(
+    'rejects a non-UUID event ID for %s',
+    (key, event) => {
+      const input = { ...structuredClone(event), eventId: 'not-a-uuid' };
+      expect(validator.validate(key, input)).toMatchObject({
+        valid: false,
+        code: 'INVALID_ENVELOPE',
+      });
+    },
+  );
+
+  it.each([
+    ['order.errand-completed.v1', 0, 'errandId'],
+    ['order.errand-completed.v1', 0, 'requesterUserId'],
+    ['order.errand-completed.v1', 0, 'courierUserId'],
+    ['credit.transfer-succeeded.v1', 2, 'errandId'],
+    ['credit.transfer-succeeded.v1', 2, 'requesterUserId'],
+    ['credit.transfer-succeeded.v1', 2, 'courierUserId'],
+    ['credit.transfer-succeeded.v1', 2, 'creditTransactionId'],
+    ['credit.transfer-rejected.v1', 3, 'errandId'],
+    ['credit.transfer-rejected.v1', 3, 'requesterUserId'],
+    ['credit.transfer-rejected.v1', 3, 'courierUserId'],
+  ] as const)(
+    'rejects a non-UUID %s payload field %s',
+    (key, index, field) => {
+      const input = structuredClone(validContracts[index][1]);
+      input.payload[field] = 'not-a-uuid';
+
+      expect(validator.validate(key, input)).toMatchObject({
+        valid: false,
+        code: 'INVALID_PAYLOAD',
+      });
+    },
+  );
+
+  it.each([
+    ['order.errand-completed.v1', 0, 'ErrandCompletion'],
+    ['credit.transfer-succeeded.v1', 2, 'CreditTransferSuccess'],
+    ['credit.transfer-rejected.v1', 3, 'CreditTransferReject'],
+  ] as const)(
+    'rejects a non-canonical event name on %s',
+    (key, index, eventType) => {
+      const input = { ...structuredClone(validContracts[index][1]), eventType };
+
+      expect(validator.validate(key, input)).toMatchObject({
+        valid: false,
+        code: 'UNSUPPORTED_EVENT_TYPE',
+      });
     },
   );
 

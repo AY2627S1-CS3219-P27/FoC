@@ -147,6 +147,16 @@ describe('credit persistence migration', () => {
       'next_attempt_at',
     );
 
+    const [operationAmountColumn] = await dataSource.query<
+      { is_nullable: 'YES' | 'NO' }[]
+    >(`
+      SELECT is_nullable FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'credit_operations'
+        AND column_name = 'amount'
+    `);
+    expect(operationAmountColumn).toEqual({ is_nullable: 'YES' });
+
     const triggers = await dataSource.query<
       { event_object_table: string; trigger_name: string }[]
     >(`
@@ -382,6 +392,103 @@ describe('credit persistence migration', () => {
       outcomeOutboxEventId: null,
     });
     await operations.save(pending);
+
+    const unresolvedRelease = operations.create({
+      ...pending,
+      id: randomUUID(),
+      errandId: randomUUID(),
+      operationType: 'RELEASE',
+      requesterUserId: null,
+      amount: null,
+      requestPayloadHash: 'f'.repeat(64),
+    });
+    await operations.save(unresolvedRelease);
+    await expect(
+      operations.findOneByOrFail({ id: unresolvedRelease.id }),
+    ).resolves.toMatchObject({
+      operationType: 'RELEASE',
+      status: 'PENDING',
+      requesterUserId: null,
+      amount: null,
+    });
+
+    await expect(
+      operations.save(
+        operations.create({
+          ...pending,
+          id: randomUUID(),
+          errandId: randomUUID(),
+          operationType: 'TRANSFER',
+          courierUserId: randomUUID(),
+          amount: null,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      code: '23514',
+      constraint: 'CHK_credit_operations_amount',
+    });
+
+    const outbox = dataSource.getRepository(OutboxEvent);
+    const amountRejectionOutboxId = randomUUID();
+    const requesterRejectionOutboxId = randomUUID();
+    await outbox.save([
+      outbox.create({
+        eventId: amountRejectionOutboxId,
+        eventType: 'CreditReleaseRejected',
+        routingKey: 'credit.release-rejected.v1',
+        envelope: { eventId: amountRejectionOutboxId },
+        publishedAt: null,
+        attemptCount: 0,
+        lastError: null,
+        claimedBy: null,
+        claimedUntil: null,
+      }),
+      outbox.create({
+        eventId: requesterRejectionOutboxId,
+        eventType: 'CreditReleaseRejected',
+        routingKey: 'credit.release-rejected.v1',
+        envelope: { eventId: requesterRejectionOutboxId },
+        publishedAt: null,
+        attemptCount: 0,
+        lastError: null,
+        claimedBy: null,
+        claimedUntil: null,
+      }),
+    ]);
+
+    await expect(
+      operations.save(
+        operations.create({
+          ...unresolvedRelease,
+          id: randomUUID(),
+          errandId: randomUUID(),
+          status: 'REJECTED',
+          requesterUserId: randomUUID(),
+          rejectionReason: 'RESERVATION_NOT_FOUND',
+          outcomeOutboxEventId: amountRejectionOutboxId,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      code: '23514',
+      constraint: 'CHK_credit_operations_amount',
+    });
+
+    await expect(
+      operations.save(
+        operations.create({
+          ...unresolvedRelease,
+          id: randomUUID(),
+          errandId: randomUUID(),
+          status: 'REJECTED',
+          amount: 10,
+          rejectionReason: 'RESERVATION_NOT_FOUND',
+          outcomeOutboxEventId: requesterRejectionOutboxId,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      code: '23514',
+      constraint: 'CHK_credit_operations_requester',
+    });
 
     await expect(
       dataSource.query(
@@ -697,7 +804,31 @@ describe('credit persistence migration', () => {
       'TRUNCATE TABLE inbox_events, credit_operations, credit_reservations, credit_transactions, outbox_events, credit_allocations, credit_accounts',
     );
     await dataSource.undoLastMigration({ transaction: 'all' });
-    await dataSource.undoLastMigration({ transaction: 'all' });
+
+    const [originalAmountColumn] = await dataSource.query<
+      { is_nullable: 'YES' | 'NO' }[]
+    >(`
+      SELECT is_nullable FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'credit_operations'
+        AND column_name = 'amount'
+    `);
+    expect(originalAmountColumn).toEqual({ is_nullable: 'NO' });
+
+    await dataSource.runMigrations({ transaction: 'all' });
+    const [settlementAmountColumn] = await dataSource.query<
+      { is_nullable: 'YES' | 'NO' }[]
+    >(`
+      SELECT is_nullable FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'credit_operations'
+        AND column_name = 'amount'
+    `);
+    expect(settlementAmountColumn).toEqual({ is_nullable: 'YES' });
+
+    for (let index = 0; index < dataSource.migrations.length; index += 1) {
+      await dataSource.undoLastMigration({ transaction: 'all' });
+    }
     migrationReverted = true;
 
     const tables = await dataSource.query<{ table_name: string }[]>(`

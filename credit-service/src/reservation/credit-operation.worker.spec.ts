@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { Logger } from '@nestjs/common';
 import type { EnvironmentVariables } from '../config/environment.js';
+import type { TransferOperationProcessor } from '../settlement/transfer-operation.processor.js';
 import type { AdjustmentOperationProcessor } from './adjustment-operation.processor.js';
 import {
   CreditOperationWorker,
@@ -53,6 +54,7 @@ describe('CreditOperationWorker', () => {
       store as unknown as CreditOperationStore,
       processor as unknown as ReservationOperationProcessor,
       { processClaimed: vi.fn() } as unknown as AdjustmentOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as TransferOperationProcessor,
     );
 
     await worker.runOnce();
@@ -85,6 +87,7 @@ describe('CreditOperationWorker', () => {
       store as unknown as CreditOperationStore,
       processor as unknown as ReservationOperationProcessor,
       processor as unknown as AdjustmentOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as TransferOperationProcessor,
     );
 
     await worker.runOnce();
@@ -115,6 +118,7 @@ describe('CreditOperationWorker', () => {
       } as unknown as CreditOperationStore,
       processor as unknown as ReservationOperationProcessor,
       { processClaimed: vi.fn() } as unknown as AdjustmentOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as TransferOperationProcessor,
     );
 
     await worker.runOnce();
@@ -142,6 +146,7 @@ describe('CreditOperationWorker', () => {
       store as unknown as CreditOperationStore,
       { processClaimed: vi.fn() } as unknown as ReservationOperationProcessor,
       { processClaimed: vi.fn() } as unknown as AdjustmentOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as TransferOperationProcessor,
     );
 
     const first = worker.runOnce();
@@ -150,5 +155,70 @@ describe('CreditOperationWorker', () => {
     releaseClaim([]);
     await first;
     expect(store.claim).toHaveBeenCalledTimes(1);
+  });
+
+  it('dispatches claimed transfers to the settlement processor', async () => {
+    const operation = {
+      id: '96ea8eb4-6c4a-40c8-a2a5-d673fba42033',
+      operationType: 'TRANSFER' as const,
+      createdAt: new Date(),
+      attemptCount: 1,
+      lastError: null,
+    };
+    const transferProcessor = {
+      processClaimed: vi.fn().mockResolvedValue({}),
+    };
+    const worker = new CreditOperationWorker(
+      configuration(),
+      {
+        claim: vi.fn().mockResolvedValue([operation]),
+        markFailed: vi.fn(),
+      } as unknown as CreditOperationStore,
+      { processClaimed: vi.fn() } as unknown as ReservationOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as AdjustmentOperationProcessor,
+      transferProcessor as unknown as TransferOperationProcessor,
+    );
+
+    await worker.runOnce();
+
+    expect(transferProcessor.processClaimed).toHaveBeenCalledWith(
+      operation.id,
+      expect.any(String),
+    );
+  });
+
+  it('keeps transfer invariants pending through the shared retry path', async () => {
+    const operation = {
+      id: '96ea8eb4-6c4a-40c8-a2a5-d673fba42033',
+      operationType: 'TRANSFER' as const,
+      createdAt: new Date(),
+      attemptCount: 2,
+      lastError: null,
+    };
+    const store = {
+      claim: vi.fn().mockResolvedValue([operation]),
+      markFailed: vi.fn().mockResolvedValue(true),
+    };
+    const transferProcessor = {
+      processClaimed: vi
+        .fn()
+        .mockRejectedValue(new Error('participant account details')),
+    };
+    const worker = new CreditOperationWorker(
+      configuration(),
+      store as unknown as CreditOperationStore,
+      { processClaimed: vi.fn() } as unknown as ReservationOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as AdjustmentOperationProcessor,
+      transferProcessor as unknown as TransferOperationProcessor,
+    );
+
+    await worker.runOnce();
+
+    expect(store.markFailed).toHaveBeenCalledWith(
+      operation.id,
+      expect.any(String),
+      'Credit operation execution failed (Error)',
+      2_000,
+    );
   });
 });

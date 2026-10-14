@@ -24,9 +24,12 @@ RUN npm ci
 # Development image with source code and watch mode
 FROM dependencies AS development
 
-COPY packages/contracts/ /usr/src/packages/contracts/
-COPY packages/auth/ /usr/src/packages/auth/
-COPY packages/outbox/ /usr/src/packages/outbox/
+COPY packages/contracts/src/ /usr/src/packages/contracts/src/
+COPY packages/contracts/tsconfig*.json /usr/src/packages/contracts/
+COPY packages/auth/src/ /usr/src/packages/auth/src/
+COPY packages/auth/tsconfig*.json /usr/src/packages/auth/
+COPY packages/outbox/src/ /usr/src/packages/outbox/src/
+COPY packages/outbox/tsconfig*.json /usr/src/packages/outbox/
 COPY credit-service/ .
 
 EXPOSE 3000
@@ -36,9 +39,12 @@ CMD ["npm", "run", "start:dev"]
 # Build the application and remove development dependencies
 FROM dependencies AS build
 
-COPY packages/contracts/ /usr/src/packages/contracts/
-COPY packages/auth/ /usr/src/packages/auth/
-COPY packages/outbox/ /usr/src/packages/outbox/
+COPY packages/contracts/src/ /usr/src/packages/contracts/src/
+COPY packages/contracts/tsconfig*.json /usr/src/packages/contracts/
+COPY packages/auth/src/ /usr/src/packages/auth/src/
+COPY packages/auth/tsconfig*.json /usr/src/packages/auth/
+COPY packages/outbox/src/ /usr/src/packages/outbox/src/
+COPY packages/outbox/tsconfig*.json /usr/src/packages/outbox/
 COPY credit-service/ .
 
 RUN npm run build

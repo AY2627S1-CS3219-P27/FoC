@@ -12,6 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtAuthGuard } from '@foc/auth';
 import { UpdateProfileDto } from './DTO/update-profile.dto.js';
 import { UpdateRolesDto } from './DTO/update-roles.dto.js';
+import { AdminUpdateUserDto } from './DTO/admin-update-user.dto.js';
 import { ListUsersQueryDto } from './DTO/list-users.query.dto.js';
 import { ACCESS_TOKEN_COOKIE, Role } from '@foc/contracts';
 
@@ -21,6 +22,7 @@ describe('UsersController', () => {
     getUserByUuid: ReturnType<typeof vi.fn>;
     updateProfile: ReturnType<typeof vi.fn>;
     updateRoles: ReturnType<typeof vi.fn>;
+    adminUpdateUser: ReturnType<typeof vi.fn>;
     listUsers: ReturnType<typeof vi.fn>;
   };
   let configGet: ReturnType<typeof vi.fn>;
@@ -31,6 +33,7 @@ describe('UsersController', () => {
       getUserByUuid: vi.fn(),
       updateProfile: vi.fn(),
       updateRoles: vi.fn(),
+      adminUpdateUser: vi.fn(),
       listUsers: vi.fn(),
     };
     configGet = vi.fn(() => 'development');
@@ -265,6 +268,38 @@ describe('UsersController', () => {
           res as never,
         ),
       ).resolves.toEqual({ roles: [Role.Requester] });
+    });
+  });
+
+  describe('adminUpdateUser', () => {
+    const adminRequest = {
+      user: { ...authenticatedRequest.user, isAdmin: true },
+    };
+
+    it('delegates to the service with the acting admin and target', async () => {
+      const updated = {
+        uuid: '22222222-2222-4222-8222-222222222222',
+        email: 'mallory@example.com',
+        displayName: 'Mallory',
+        profilePictureUrl: null,
+        roles: [] as Role[],
+        isAdmin: true,
+      };
+      usersService.adminUpdateUser.mockResolvedValue(updated);
+
+      await expect(
+        controller.adminUpdateUser(
+          adminRequest as never,
+          '22222222-2222-4222-8222-222222222222',
+          { isAdmin: true } as never,
+        ),
+      ).resolves.toEqual(updated);
+
+      expect(usersService.adminUpdateUser).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111',
+        '22222222-2222-4222-8222-222222222222',
+        { isAdmin: true },
+      );
     });
   });
 
@@ -535,6 +570,58 @@ describe('update profile body validation', () => {
   it('rejects a non-string profile picture', async () => {
     await expect(
       pipe.transform({ profilePictureUrl: 42 }, bodyMetadata(UpdateProfileDto)),
+    ).rejects.toThrow(BadRequestException);
+  });
+});
+
+describe('admin update user body validation', () => {
+  const pipe = new ValidationPipe({ whitelist: true, transform: true });
+  const bodyMetadata = (metatype: Function) =>
+    ({ type: 'body', metatype }) as const;
+
+  it('accepts a true Admin Status (F11.1.3)', async () => {
+    const value = await pipe.transform(
+      { isAdmin: true },
+      bodyMetadata(AdminUpdateUserDto),
+    );
+    expect(value).toBeInstanceOf(AdminUpdateUserDto);
+    expect(value).toMatchObject({ isAdmin: true });
+  });
+
+  it('accepts a false Admin Status (F11.1.3)', async () => {
+    const value = await pipe.transform(
+      { isAdmin: false },
+      bodyMetadata(AdminUpdateUserDto),
+    );
+    expect(value.isAdmin).toBe(false);
+  });
+
+  it('accepts an empty body as a no-op update', async () => {
+    const value = await pipe.transform({}, bodyMetadata(AdminUpdateUserDto));
+    expect(value).toBeInstanceOf(AdminUpdateUserDto);
+  });
+
+  it('rejects a string instead of coercing it (F11.1.3)', async () => {
+    await expect(
+      pipe.transform({ isAdmin: 'true' }, bodyMetadata(AdminUpdateUserDto)),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a non-boolean garbage value (F11.1.3)', async () => {
+    await expect(
+      pipe.transform({ isAdmin: 'yes' }, bodyMetadata(AdminUpdateUserDto)),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a numeric value (F11.1.3)', async () => {
+    await expect(
+      pipe.transform({ isAdmin: 1 }, bodyMetadata(AdminUpdateUserDto)),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects null (F11.1.3)', async () => {
+    await expect(
+      pipe.transform({ isAdmin: null }, bodyMetadata(AdminUpdateUserDto)),
     ).rejects.toThrow(BadRequestException);
   });
 });

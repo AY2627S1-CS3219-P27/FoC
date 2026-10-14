@@ -41,7 +41,8 @@
               "enum": [
                 "DESTINATION_ARCHIVED",
                 "RESERVATION_NOT_FOUND",
-                "STALE_RESERVATION_AMOUNT"
+                "RESERVATION_RELEASED",
+                "RESERVATION_USER_MISMATCH"
               ]
             }
           }

@@ -1,0 +1,12 @@
+{
+  "eventId": "af78d8d1-74ce-47d5-95e0-e98cbb853abd",
+  "eventType": "ErrandCompleted",
+  "timestamp": "2026-10-13T08:02:00.000Z",
+  "publisher": "order-service",
+  "payload": {
+    "errandId": "7a43c86c-ea7c-4d92-a619-d8ce18520f33",
+    "requesterUserId": "028af3d2-4f18-4077-aa22-9ab82b9ce457",
+    "courierUserId": "546a477c-e33f-44d5-af3a-f4db4417f913",
+    "amount": 0
+  }
+}

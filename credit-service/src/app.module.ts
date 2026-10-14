@@ -13,6 +13,7 @@ import { CreditsModule } from './credits/credits.module.js';
 import { ReservationModule } from './reservation/reservation.module.js';
 import { MessagingModule } from './messaging/messaging.module.js';
 import { RABBITMQ_CONNECTION_URL } from './messaging/rabbitmq-connection-url.provider.js';
+import { SettlementModule } from './settlement/settlement.module.js';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { RABBITMQ_CONNECTION_URL } from './messaging/rabbitmq-connection-url.pro
     AccountInitializationModule,
     CreditsModule,
     ReservationModule,
+    SettlementModule,
     OutboxModule.forRootAsync({
       imports: [MessagingModule],
       inject: [ConfigService, RABBITMQ_CONNECTION_URL],

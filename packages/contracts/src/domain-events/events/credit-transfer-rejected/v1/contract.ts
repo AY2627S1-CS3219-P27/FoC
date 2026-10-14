@@ -5,7 +5,7 @@ export const CREDIT_TRANSFER_REJECTED_V1_ROUTING_KEY =
   'credit.transfer-rejected.v1';
 
 export type CreditTransferRejectionReason =
-  'DESTINATION_ARCHIVED' | 'RESERVATION_NOT_FOUND' | 'STALE_RESERVATION_AMOUNT';
+  'DESTINATION_ARCHIVED' | 'RESERVATION_NOT_FOUND' | 'RESERVATION_RELEASED' | 'RESERVATION_USER_MISMATCH';
 
 export interface CreditTransferRejectedPayload {
   errandId: string;

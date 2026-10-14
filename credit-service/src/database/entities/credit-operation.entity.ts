@@ -30,7 +30,10 @@ export type CreditOperationStatus = (typeof CREDIT_OPERATION_STATUSES)[number];
 
 /** Durable execution state for one semantic credit lifecycle operation. */
 @Entity({ name: 'credit_operations' })
-@Check('CHK_credit_operations_amount', 'amount > 0')
+@Check(
+  'CHK_credit_operations_amount',
+  "(amount IS NOT NULL AND amount > 0) OR (operation_type = 'RELEASE' AND status = 'PENDING' AND amount IS NULL)",
+)
 @Check('CHK_credit_operations_attempt_count', 'attempt_count >= 0')
 @Check(
   'CHK_credit_operations_type',
@@ -46,7 +49,7 @@ export type CreditOperationStatus = (typeof CREDIT_OPERATION_STATUSES)[number];
 )
 @Check(
   'CHK_credit_operations_requester',
-  "operation_type = 'ADJUST' OR requester_user_id IS NOT NULL",
+  "operation_type = 'ADJUST' OR requester_user_id IS NOT NULL OR (operation_type = 'RELEASE' AND status = 'PENDING')",
 )
 @Check(
   'CHK_credit_operations_adjustment_command',
@@ -106,8 +109,8 @@ export class CreditOperation {
   @Column({ name: 'courier_user_id', type: 'uuid', nullable: true })
   courierUserId: string | null;
 
-  @Column({ type: 'bigint', transformer: bigintTransformer })
-  amount: number;
+  @Column({ type: 'bigint', nullable: true, transformer: bigintTransformer })
+  amount: number | null;
 
   @Column({
     name: 'expected_amount',
