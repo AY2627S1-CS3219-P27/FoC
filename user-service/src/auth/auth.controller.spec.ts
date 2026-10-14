@@ -148,6 +148,7 @@ describe('AuthController login', () => {
   it('sets an httpOnly, same-site cookie with a millisecond maxAge', async () => {
     authService.checkCredentials.mockResolvedValue({
       accessToken: 'jwt-token',
+      refreshToken: 'opaque-token',
     });
 
     await controller.login(loginDto as never, res as never);
@@ -161,6 +162,41 @@ describe('AuthController login', () => {
       maxAge: 900_000,
       secure: false,
     });
+  });
+
+  it('sets the opaque refresh-token cookie alongside the access token', async () => {
+    authService.checkCredentials.mockResolvedValue({
+      accessToken: 'jwt-token',
+      refreshToken: 'opaque-token',
+    });
+
+    await controller.login(loginDto as never, res as never);
+
+    // The refresh token is a raw opaque value, not a JWT; its cookie outlives
+    // the access token (7 days, in milliseconds).
+    expect(res.cookie).toHaveBeenCalledWith('refresh_token', 'opaque-token', {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 604_800_000,
+      secure: false,
+    });
+  });
+
+  it('marks the refresh-token cookie secure in production', async () => {
+    authService.checkCredentials.mockResolvedValue({
+      accessToken: 'jwt-token',
+      refreshToken: 'opaque-token',
+    });
+    configGet.mockReturnValue('production');
+
+    await controller.login(loginDto as never, res as never);
+
+    expect(res.cookie).toHaveBeenCalledWith(
+      'refresh_token',
+      'opaque-token',
+      expect.objectContaining({ secure: true }),
+    );
   });
 
   it('marks the cookie secure in production', async () => {

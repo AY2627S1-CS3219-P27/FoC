@@ -2,7 +2,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { generateKeyPairSync } from 'node:crypto';
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import { AuthService, REGISTER_USER_SCRIPT } from './auth.service.js';
+import { RefreshToken } from './refresh-token.entity.js';
 import { REDIS } from '../redis/redis.provider.js';
 import { SecretService } from '../secret/secret.service.js';
 import { hmacValue } from '../common/hash/hash.js';
@@ -26,6 +28,11 @@ describe('AuthService', () => {
     checkUserAndReturnInfo: ReturnType<typeof vi.fn>;
   };
   let jwtService: { signAsync: ReturnType<typeof vi.fn> };
+  let refreshTokenRepository: {
+    create: ReturnType<typeof vi.fn>;
+    save: ReturnType<typeof vi.fn>;
+    delete: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(async () => {
     redis = { eval: vi.fn() };
@@ -40,6 +47,11 @@ describe('AuthService', () => {
       checkUserAndReturnInfo: vi.fn(),
     };
     jwtService = { signAsync: vi.fn(async () => 'signed-jwt') };
+    refreshTokenRepository = {
+      create: vi.fn((data) => data),
+      save: vi.fn(async (data) => ({ ...data })),
+      delete: vi.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -53,6 +65,10 @@ describe('AuthService', () => {
         // AuthService also issues JWTs on login; stubbed here since the
         // registration flow under test never signs.
         { provide: JwtService, useValue: jwtService },
+        {
+          provide: getRepositoryToken(RefreshToken),
+          useValue: refreshTokenRepository,
+        },
       ],
     }).compile();
 
@@ -168,23 +184,29 @@ describe('AuthService', () => {
   });
 
   describe('checkCredentials', () => {
-    it('signs a JWT carrying the user identity and roles when the credentials match', async () => {
-      usersService.checkUserAndReturnInfo.mockResolvedValue({
-        uuid: '11111111-1111-4111-8111-111111111111',
-        email: 'eve@example.com',
-        displayName: 'Eve',
-        isAdmin: false,
-        roles: [Role.Requester, Role.Courier],
-      });
+    const matchingUser = {
+      uuid: '11111111-1111-4111-8111-111111111111',
+      email: 'eve@example.com',
+      displayName: 'Eve',
+      isAdmin: false,
+      roles: [Role.Requester, Role.Courier],
+    };
 
-      await expect(
-        service.checkCredentials('eve@example.com', 'StrongPassw0rd!'),
-      ).resolves.toEqual({ accessToken: 'signed-jwt' });
+    it('signs a JWT carrying the user identity and roles when the credentials match', async () => {
+      usersService.checkUserAndReturnInfo.mockResolvedValue(matchingUser);
+
+      const { accessToken, refreshToken } = await service.checkCredentials(
+        'eve@example.com',
+        'StrongPassw0rd!',
+      );
 
       expect(usersService.checkUserAndReturnInfo).toHaveBeenCalledWith(
         'eve@example.com',
         'StrongPassw0rd!',
       );
+      // Only the access token is a JWT; the refresh token is a raw opaque
+      // value, so the signer is invoked exactly once.
+      expect(jwtService.signAsync).toHaveBeenCalledTimes(1);
       expect(jwtService.signAsync).toHaveBeenCalledWith({
         sub: '11111111-1111-4111-8111-111111111111',
         displayName: 'Eve',
@@ -192,6 +214,46 @@ describe('AuthService', () => {
         isAdmin: false,
         roles: [Role.Requester, Role.Courier],
       });
+      expect(accessToken).toBe('signed-jwt');
+      // 32 random bytes, hex-encoded -> 64 hex characters.
+      expect(refreshToken).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    it('stores the hashed refresh token, never the plaintext', async () => {
+      usersService.checkUserAndReturnInfo.mockResolvedValue(matchingUser);
+
+      const { refreshToken } = await service.checkCredentials(
+        'eve@example.com',
+        'StrongPassw0rd!',
+      );
+
+      // hmacValue is module-mocked to 'deadbeef'; the persisted record carries
+      // the keyed digest, not the raw token handed back to the caller.
+      expect(refreshTokenRepository.create).toHaveBeenCalledWith({
+        hashedToken: 'deadbeef',
+        userId: '11111111-1111-4111-8111-111111111111',
+      });
+      expect(refreshTokenRepository.save).toHaveBeenCalledTimes(1);
+      expect(refreshToken).not.toBe('deadbeef');
+    });
+
+    it('leaves previously issued tokens in place (multi-session)', async () => {
+      usersService.checkUserAndReturnInfo.mockResolvedValue(matchingUser);
+
+      await service.checkCredentials('eve@example.com', 'StrongPassw0rd!');
+
+      // Logging in on one device must not revoke other devices' sessions.
+      expect(refreshTokenRepository.delete).not.toHaveBeenCalled();
+    });
+
+    it('propagates a failed refresh-token persist without signing an access token', async () => {
+      usersService.checkUserAndReturnInfo.mockResolvedValue(matchingUser);
+      refreshTokenRepository.save.mockRejectedValue(new Error('db down'));
+
+      await expect(
+        service.checkCredentials('eve@example.com', 'StrongPassw0rd!'),
+      ).rejects.toThrow('db down');
+      expect(jwtService.signAsync).not.toHaveBeenCalled();
     });
 
     it('propagates rejected credentials without signing a token', async () => {
@@ -247,6 +309,14 @@ describe('access token contract conformance', () => {
           },
         },
         { provide: JwtService, useValue: realJwtService },
+        {
+          provide: getRepositoryToken(RefreshToken),
+          useValue: {
+            create: vi.fn((data) => data),
+            save: vi.fn(async (data) => ({ ...data })),
+            delete: vi.fn(),
+          },
+        },
       ],
     }).compile();
     const service = module.get<AuthService>(AuthService);
