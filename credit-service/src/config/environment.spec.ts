@@ -86,6 +86,12 @@ describe('environmentSchema', () => {
     expect(environment.RABBITMQ_CREDIT_TRANSFER_REJECTED_ROUTING_KEY).toBe(
       'credit.transfer-rejected.v1',
     );
+    expect(environment.RABBITMQ_CREDIT_RELEASE_SUCCESS_ROUTING_KEY).toBe(
+      'credit.release-success.v1',
+    );
+    expect(environment.RABBITMQ_CREDIT_RELEASE_REJECTED_ROUTING_KEY).toBe(
+      'credit.release-rejected.v1',
+    );
     expect(environment.RABBITMQ_RETRY_EXCHANGE).toBe('foc.credit.retry');
     expect(environment.RABBITMQ_RETRY_RETURN_EXCHANGE).toBe('foc.credit.back');
     expect(environment.RABBITMQ_DEAD_LETTER_EXCHANGE).toBe('foc.credit.dlx');
@@ -219,6 +225,14 @@ describe('environmentSchema', () => {
     [
       'RABBITMQ_CREDIT_TRANSFER_REJECTED_ROUTING_KEY',
       'credit.transfer-failed.v1',
+    ],
+    [
+      'RABBITMQ_CREDIT_RELEASE_SUCCESS_ROUTING_KEY',
+      'credit.release-succeeded.v1',
+    ],
+    [
+      'RABBITMQ_CREDIT_RELEASE_REJECTED_ROUTING_KEY',
+      'credit.release-failed.v1',
     ],
   ])('rejects noncanonical %s', (name, value) => {
     expect(() => validate({ [name]: value })).toThrow();
