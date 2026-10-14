@@ -1,8 +1,16 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import {
   ArrayContains,
+  DataSource,
+  EntityManager,
   EntityNotFoundError,
   FindOptionsWhere,
   QueryFailedError,
@@ -10,10 +18,21 @@ import {
 } from 'typeorm';
 import { hashValue } from '../common/hash/hash.js';
 import { User } from './user.entity.js';
+import {
+  UserUpdateAudit,
+  UserUpdateAuditChangedField,
+} from './user-update-audit.entity.js';
 import { MAX_PAGE_LIMIT, Role } from '@foc/contracts';
 
 /** The PostgreSQL driver error code for a unique-constraint violation. */
 const UNIQUE_VIOLATION_CODE = '23505';
+
+/**
+ * Advisory-lock key that serialises admin-privilege changes within the
+ * user-service database. Arbitrary but fixed; the user-service owns its own
+ * database, so it only has to be unique among the locks this service takes.
+ */
+const ADMIN_MUTATION_LOCK_KEY = 71_301_742_001;
 
 export class EmailAlreadyRegisteredError extends Error {
   constructor() {
@@ -76,6 +95,7 @@ async function generatePasswordHash(password: string) {
 export class UsersService {
   constructor(
     @InjectRepository(User) private userRepository: Repository<User>,
+    @InjectDataSource() private dataSource: DataSource,
   ) {}
 
   async provisionUser({
@@ -214,6 +234,88 @@ export class UsersService {
 
     const saved = await this.userRepository.save(user);
     return this.getPublicUserInfo(saved);
+  }
+
+  /**
+   * Applies an admin-initiated update to a target account.
+   *
+   * Runs in one transaction so the audit entry is written if and
+   * only if the change commits. The acting admin is re-read from the database
+   * rather than trusted from the token claims.
+   *
+   * The transaction first takes a transaction-scoped advisory lock so that
+   * concurrent admin-privilege changes cannot race the last-active-admin
+   * check: a second demotion blocks until the first commits, then re-reads
+   * the committed admin count.
+   */
+  async adminUpdateUser(
+    actorUuid: string,
+    targetUuid: string,
+    fields: { isAdmin?: boolean },
+  ): Promise<PublicUserInfo> {
+    return this.dataSource.transaction(async (manager) => {
+      await manager.query('SELECT pg_advisory_xact_lock($1::bigint)', [
+        ADMIN_MUTATION_LOCK_KEY,
+      ]);
+
+      const actor = await manager.findOneBy(User, { uuid: actorUuid });
+      if (
+        actor === null ||
+        !actor.isAdmin ||
+        actor.isLocked ||
+        actor.isArchived
+      ) {
+        throw new ForbiddenException('Admin privileges required');
+      }
+
+      const target = await manager.findOneBy(User, { uuid: targetUuid });
+      if (target === null) {
+        throw new NotFoundException('User not found');
+      }
+
+      // Audit record of changes
+      const changedFields: Record<string, UserUpdateAuditChangedField> = {};
+
+      if (fields.isAdmin !== undefined && fields.isAdmin !== target.isAdmin) {
+        changedFields.isAdmin = { from: target.isAdmin, to: fields.isAdmin };
+        if (!fields.isAdmin) {
+          await this.demoteAdmin(manager);
+        }
+        target.isAdmin = fields.isAdmin;
+      }
+
+      if (Object.keys(changedFields).length === 0) {
+        return this.getPublicUserInfo(target);
+      }
+
+      await manager.save(target);
+      await manager.save(
+        manager.create(UserUpdateAudit, {
+          actorUuid,
+          targetUuid,
+          changedFields,
+        }),
+      );
+
+      return this.getPublicUserInfo(target);
+    });
+  }
+
+  private async demoteAdmin(manager: EntityManager): Promise<boolean> {
+    // Demoting an admin must leave at least one active admin; locked
+    // admins still count, mirroring countActiveAdmins.
+    const activeAdmins = await manager.count(User, {
+      where: { isAdmin: true, isArchived: false },
+    });
+    if (activeAdmins <= 1) {
+      throw new ConflictException(
+        'Cannot demote the last active admin account',
+      );
+    }
+
+    // Create admin block in future
+
+    return true;
   }
 
   /**
