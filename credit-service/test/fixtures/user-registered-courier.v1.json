@@ -1,0 +1,11 @@
+{
+  "eventId": "45e1f841-dd3f-407d-a450-a682e7f1f120",
+  "eventType": "UserRegistered",
+  "timestamp": "2026-09-23T08:01:00.000Z",
+  "publisher": "user-service",
+  "payload": {
+    "userId": "546a477c-e33f-44d5-af3a-f4db4417f913",
+    "email": "courier@example.edu",
+    "displayName": "Courier Example"
+  }
+}

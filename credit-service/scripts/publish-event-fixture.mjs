@@ -6,6 +6,7 @@ import 'dotenv/config';
 
 const fixtures = {
   'user-registered': 'test/fixtures/user-registered.v1.json',
+  'user-registered-courier': 'test/fixtures/user-registered-courier.v1.json',
   'credit-reservation': 'test/fixtures/credit-reservation.v1.json',
   'credit-reservation-invalid':
     'test/fixtures/credit-reservation.invalid.v1.json',
@@ -13,6 +14,15 @@ const fixtures = {
     'test/fixtures/credit-reservation-adjustment.v1.json',
   'credit-reservation-adjustment-invalid':
     'test/fixtures/credit-reservation-adjustment.invalid.v1.json',
+  'errand-completed': 'test/fixtures/errand-completed.v1.json',
+  'errand-completed-participant-mismatch':
+    'test/fixtures/errand-completed-participant-mismatch.v1.json',
+  'errand-completed-invalid-amount':
+    'test/fixtures/errand-completed-invalid-amount.v1.json',
+  'errand-completed-malformed-envelope':
+    'test/fixtures/errand-completed-malformed-envelope.v1.json',
+  'errand-completed-unknown-field':
+    'test/fixtures/errand-completed-unknown-field.v1.json',
 };
 
 const routingKeys = {
@@ -27,6 +37,10 @@ const routingKeys = {
   CreditReservationAdjustment: {
     environment: 'RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_ROUTING_KEY',
     fallback: 'credit.reservation-adjustment.v1',
+  },
+  ErrandCompleted: {
+    environment: 'RABBITMQ_ORDER_ERRAND_COMPLETED_ROUTING_KEY',
+    fallback: 'order.errand-completed.v1',
   },
 };
 
