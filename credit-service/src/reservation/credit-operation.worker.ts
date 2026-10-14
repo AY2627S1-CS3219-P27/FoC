@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { EnvironmentVariables } from '../config/environment.js';
+import { TransferOperationProcessor } from '../settlement/transfer-operation.processor.js';
 import { AdjustmentOperationProcessor } from './adjustment-operation.processor.js';
 import {
   CreditOperationStore,
@@ -61,6 +62,7 @@ export class CreditOperationWorker {
     private readonly store: CreditOperationStore,
     private readonly reservationProcessor: ReservationOperationProcessor,
     private readonly adjustmentProcessor: AdjustmentOperationProcessor,
+    private readonly transferProcessor: TransferOperationProcessor,
   ) {
     this.pollIntervalMilliseconds = config.getOrThrow(
       'CREDIT_OPERATION_POLL_INTERVAL_MS',
@@ -137,6 +139,11 @@ export class CreditOperationWorker {
         );
       } else if (operation.operationType === 'ADJUST') {
         await this.adjustmentProcessor.processClaimed(
+          operation.id,
+          this.workerId,
+        );
+      } else if (operation.operationType === 'TRANSFER') {
+        await this.transferProcessor.processClaimed(
           operation.id,
           this.workerId,
         );

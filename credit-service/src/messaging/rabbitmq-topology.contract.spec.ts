@@ -134,4 +134,50 @@ describe('Credit Service predeclared RabbitMQ topology', () => {
       },
     ]);
   });
+
+  it('routes both transfer outcomes to their Order Service queues', () => {
+    const transferQueues = definitions.queues.filter(({ name }) =>
+      name.startsWith('order-service.credit-transfer-'),
+    );
+    const transferBindings = definitions.bindings.filter(({ destination }) =>
+      destination.startsWith('order-service.credit-transfer-'),
+    );
+
+    expect(transferQueues).toEqual([
+      {
+        arguments: {},
+        auto_delete: false,
+        durable: true,
+        name: 'order-service.credit-transfer-succeeded.v1',
+        type: 'classic',
+        vhost: '/foc',
+      },
+      {
+        arguments: {},
+        auto_delete: false,
+        durable: true,
+        name: 'order-service.credit-transfer-rejected.v1',
+        type: 'classic',
+        vhost: '/foc',
+      },
+    ]);
+    expect(transferBindings).toEqual([
+      {
+        arguments: {},
+        destination: 'order-service.credit-transfer-succeeded.v1',
+        destination_type: 'queue',
+        routing_key: 'credit.transfer-succeeded.v1',
+        source: 'foc.events',
+        vhost: '/foc',
+      },
+      {
+        arguments: {},
+        destination: 'order-service.credit-transfer-rejected.v1',
+        destination_type: 'queue',
+        routing_key: 'credit.transfer-rejected.v1',
+        source: 'foc.events',
+        vhost: '/foc',
+      },
+    ]);
+  });
 });

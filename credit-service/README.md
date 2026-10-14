@@ -1,9 +1,10 @@
 # Credit Service
 
 Credit Service owns credit accounts and their persistent balance history. It
-consumes account-registration, reservation, and reservation-adjustment
-commands; persists durable processing evidence; publishes transactional
-outcomes; and serves protected balance and advisory sufficiency reads.
+consumes account-registration, reservation, reservation-adjustment, and errand
+completion events; persists durable processing evidence; executes reserved
+credit transfers; publishes transactional outcomes; and serves protected
+balance and advisory sufficiency reads.
 
 The service is built with NestJS and TypeScript, PostgreSQL with TypeORM, and
 RabbitMQ. Event payloads are validated with versioned JSON Schemas and AJV.
@@ -121,6 +122,56 @@ earlier business rejection can be retried under a new event ID and may succeed
 after state changes. A fresh no-op command publishes a fresh success outcome
 but does not create a ledger entry.
 
+### Completion transfer
+
+`ErrandCompleted` settles one active reservation from the requester to the
+courier. It uses the same durable-ingress and leased-worker boundary:
+
+1. Credit validates `order.errand-completed.v1`, stores one semantic
+   `TRANSFER` operation per errand, links the inbox row, commits, and only then
+   acknowledges RabbitMQ. Ingress never changes financial state.
+2. The first validated completion establishes the operation's requester and
+   courier. Order Service is authoritative for that first courier assignment.
+3. The worker takes the per-errand advisory lock, locks the reservation, then
+   locks both participant accounts in ascending user-ID order. This prevents
+   deadlocks when simultaneous transfers share or oppose participants.
+4. The amount on Credit's locked reservation is authoritative. The completion
+   notice amount remains validated and retained for audit, but it is not a
+   stale-write precondition and cannot change the settlement amount.
+5. Success atomically removes the stored amount from requester reserved credit,
+   adds it to courier available credit, appends one immutable `TRANSFER`
+   transaction, marks the reservation `CONSUMED`, completes the operation and
+   linked inbox rows, and stores `CreditTransferSucceeded` in the outbox.
+
+Transfer business rejection reasons are:
+
+| Reason                      | Meaning                                                                         |
+| --------------------------- | ------------------------------------------------------------------------------- |
+| `RESERVATION_NOT_FOUND`     | No reservation exists for the errand.                                           |
+| `RESERVATION_RELEASED`      | Cancellation already released the reservation.                                  |
+| `RESERVATION_USER_MISMATCH` | The completion conflicts with the established requester or courier.             |
+| `DESTINATION_ARCHIVED`      | Reserved contract value for future F8 work; this implementation never emits it. |
+
+A same-event redelivery is an inbox duplicate and creates no new outcome. A
+distinct completion with the established requester and courier is a semantic
+replay even if its notice amount differs: pending ingress links to the existing
+operation, while a terminal operation produces a fresh outbox outcome that
+references the original result without another movement. A distinct requester
+or courier conflict produces `RESERVATION_USER_MISMATCH` without replacing the
+established operation.
+
+Missing participant accounts, unsafe balances, a consumed reservation under a
+pending operation, and broken persistence references are technical invariant
+failures. They stay `PENDING` and use the existing capped backoff, lease expiry,
+overdue warning, and operator investigation path rather than being converted
+to business rejections. A committed transfer whose broker publication fails is
+represented by its pending outbox row and is retried until RabbitMQ confirms it.
+
+Transfer and the forthcoming release processor use the same per-errand lock and
+reservation row lock so only one can settle an active reservation. Release
+consumption, `CreditReleaseSuccess`, transaction-history APIs, and archived
+destination behavior remain deferred to the next implementation packages.
+
 All inbound delivery and outbound publication is at least once. Duplicate
 event IDs never reapply state. A distinct equivalent reservation command links
 to the established semantic operation and replays its outcome without another
@@ -139,16 +190,19 @@ model. A requester-authorized status endpoint may be added later if a concrete
 debugging, support, or reconciliation need appears; it must not become a
 synchronous correctness dependency.
 
-## Reservation event topology
+## Credit operation event topology
 
 | Direction | Event                                 | Routing key                                 | Credit queue                                      |
 | --------- | ------------------------------------- | ------------------------------------------- | ------------------------------------------------- |
 | Consume   | `CreditReservation`                   | `credit.reservation.v1`                     | `credit-service.credit-reservation.v1`            |
 | Consume   | `CreditReservationAdjustment`         | `credit.reservation-adjustment.v1`          | `credit-service.credit-reservation-adjustment.v1` |
+| Consume   | `ErrandCompleted`                     | `order.errand-completed.v1`                 | `credit-service.order-errand-completed.v1`        |
 | Publish   | `CreditReservationSuccess`            | `credit.reservation-success.v1`             | Subscriber-owned                                  |
 | Publish   | `CreditReservationRejected`           | `credit.reservation-rejected.v1`            | Subscriber-owned                                  |
 | Publish   | `CreditReservationAdjustmentSuccess`  | `credit.reservation-adjustment-success.v1`  | Subscriber-owned                                  |
 | Publish   | `CreditReservationAdjustmentRejected` | `credit.reservation-adjustment-rejected.v1` | Subscriber-owned                                  |
+| Publish   | `CreditTransferSucceeded`             | `credit.transfer-succeeded.v1`              | Subscriber-owned                                  |
+| Publish   | `CreditTransferRejected`              | `credit.transfer-rejected.v1`               | Subscriber-owned                                  |
 
 Command payloads are:
 
@@ -160,12 +214,23 @@ Command payloads are:
 { "errandId": "<uuid>", "oldAmount": 25, "newAmount": 40 }
 ```
 
+```json
+{
+  "errandId": "<uuid>",
+  "requesterUserId": "<uuid>",
+  "courierUserId": "<uuid>",
+  "amount": 25
+}
+```
+
 Outcome payloads are respectively:
 
 - success: `{ errandId, requesterUserId, reservedAmount, creditTransactionId }`
 - rejection: `{ errandId, requesterUserId, requestedAmount, rejectionReason }`
 - adjustment success: `{ errandId, newReservedAmount, creditTransactionId }`
 - adjustment rejection: `{ errandId, requestedAmount, rejectionReason }`
+- transfer success: `{ errandId, requesterUserId, courierUserId, transferredAmount, creditTransactionId }`
+- transfer rejection: `{ errandId, requesterUserId, courierUserId, rejectionReason }`
 
 ## Prerequisites
 
@@ -175,6 +240,11 @@ Outcome payloads are respectively:
 
 Run npm commands in `credit-service`. Run the normal application stack from the
 repository root; service-local Compose profiles are reserved for tests.
+
+Credit Service is a NestJS backend and does not contain or build an Angular
+application. The Nest CLI depends transitively on Angular DevKit's generic
+schematic and workspace tooling, so Node engine warnings can mention
+`@angular-devkit/*` while `nest build` runs.
 
 ## Local setup
 
@@ -198,7 +268,7 @@ root broker definitions so it matches the ignored secret. Never commit the
 actual password.
 
 Credit Service also mounts User Service's RS256 public key from
-`user-service/jwt_public_key.secret`. Generate the User Service signing keypair
+`user-service/secrets/jwt_public_key.secret`. Generate the User Service signing keypair
 before starting either service; only the public key is made available to Credit
 Service through `JWT_PUBLIC_KEY_FILE`.
 
@@ -330,23 +400,59 @@ inputs as alternatives, along with request, success, and error examples.
 The test commands deliberately separate fast source-level checks from tests
 that exercise real infrastructure.
 
+The service-local `.env` is loaded by the isolated RabbitMQ messaging tests,
+the recovery runner, and the service-local Compose profiles. Integration and
+HTTP e2e connection settings are fixed in their Vitest configurations, but the
+test database container still reads its port and credentials from `.env` and
+the local database secret. The shared-broker permission verifier uses the
+explicit shell variables shown below; it does not infer the Credit identity
+from the root `env/` files.
+
 | Test type                      | Command                             | Infrastructure                                                                     | What it verifies                                                                                                                                                          |
 | ------------------------------ | ----------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Unit                           | `npm test`                          | None                                                                               | Services, protected HTTP behavior and OpenAPI, contract integration, configuration, transaction retry logic, lifecycle wiring, and RabbitMQ/outbox behavior through fakes |
 | Unit coverage                  | `npm run test:cov`                  | None                                                                               | The same `src/**/*.spec.ts` unit suite with V8 coverage                                                                                                                   |
-| PostgreSQL integration         | `npm run test:integration`          | Isolated PostgreSQL on port `5436`                                                 | Migrations, constraints, immutable ledger behavior, account initialization, reservations, adjustments, inbox/outbox atomicity, concurrency, and reconciliation            |
+| PostgreSQL integration         | `npm run test:integration`          | Isolated PostgreSQL on port `5436`                                                 | Migrations, constraints, immutable ledger behavior, account initialization, reservations, adjustments, transfers, inbox/outbox atomicity, concurrency, and reconciliation |
 | HTTP end-to-end                | `npm run test:e2e`                  | Isolated PostgreSQL on port `5436`; no RabbitMQ                                    | The real NestJS `AppModule` and generated OpenAPI paths; broker components are replaced with no-op test providers                                                         |
-| RabbitMQ messaging integration | `npm run test:messaging`            | RabbitMQ on port `5675`                                                            | Real queue topology, multiple stream isolation, retries, DLQs, manual acknowledgements, confirmed publication, and shutdown                                               |
-| Shared-broker permissions      | `npm run test:rabbitmq-permissions` | Root RabbitMQ on port `5672`                                                       | The Credit identity's allowed topology, consumption, and publication operations, plus denial of shared-exchange configuration and Email resources                         |
-| Messaging recovery             | `npm run test:recovery`             | Disposable PostgreSQL and RabbitMQ on ports `5437`, `5676`, and `15676` by default | Account and reservation pipelines, durable ingress, expired claims, pending outbox publication, idempotency, application restart, and live infrastructure recovery        |
+| RabbitMQ messaging integration | `npm run test:messaging`            | RabbitMQ on port `5675`                                                            | Real queue topology for registration, reservation, adjustment, and completion; retries, DLQs, acknowledgements, confirmed publication, and shutdown                       |
+| Shared-broker permissions      | `npm run test:rabbitmq-permissions` | Root RabbitMQ on port `5672`                                                       | The Credit identity's allowed User, Credit, and Order boundaries, plus denial of shared-exchange configuration and Email resources                                        |
+| Messaging recovery             | `npm run test:recovery`             | Disposable PostgreSQL and RabbitMQ on ports `5437`, `5676`, and `15676` by default | Account, reservation, and transfer durable ingress; expired claims; pending outbox publication; idempotency; restart; and live infrastructure recovery                    |
 
 All source-mode commands rebuild `@foc/contracts` and `@foc/auth` before
 running. Their own suites run from `packages/contracts` and `packages/auth`;
 integration suites that share infrastructure run sequentially.
 
+### Complete verification workflow
+
+From `credit-service`, run the checks in this order:
+
+```powershell
+npm ci
+npm run build
+npm run lint
+npm test
+
+npm run db:test:up
+npm run test:integration
+npm run test:e2e
+npm run db:test:down
+
+npm run rabbitmq:test:up
+npm run test:messaging
+npm run rabbitmq:test:down
+
+npm run test:recovery
+```
+
+Run the shared-broker permission suite separately using the complete setup in
+its section below. A full verification does not run `npm run format`, because
+that command rewrites TypeScript source and test files. It also does not add a
+root Compose configuration test.
+
 ### Unit tests
 
-Unit tests include only `src/**/*.spec.ts` and do not require Docker:
+Unit tests include `src/**/*.spec.ts` plus the isolated broker URL-helper spec
+under `test/support`, and do not require Docker:
 
 ```powershell
 npm test
@@ -402,26 +508,38 @@ Start the service-local broker, then run the real-AMQP transport and publisher
 tests:
 
 ```powershell
-docker compose --profile test up -d --wait credit-rabbitmq
+npm run rabbitmq:test:up
 npm run test:messaging
+npm run rabbitmq:test:down
 ```
 
 Each run creates uniquely named exchanges and queues and removes them afterward.
-The tests cover all three subscriptions and prove reservation/adjustment
-handler, retry-chain, and DLQ isolation. They do not use PostgreSQL or start the
-complete NestJS application.
-The `RABBITMQ_URL` variable is retained only for these isolated test tools; the
-running application constructs its URL from component settings and a secret
-file.
+The tests cover all four subscriptions and prove registration, reservation,
+adjustment, and completion handler, retry-chain, and DLQ isolation. They do not
+use PostgreSQL or start the complete NestJS application. The test connection is built from
+`RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD`, and `RABBITMQ_HOST_PORT` in `.env`;
+it does not read `RABBITMQ_URL`. The broker stores its data in `tmpfs`, and the
+down command removes its container and anonymous volumes so changed credentials
+take effect on the next run.
 
-To verify least-privilege permissions against a fresh root broker, point the
-documented component settings at the host-published broker and run:
+To verify least-privilege permissions, first start the root broker, then point
+the verifier at its host-published port and the Credit Service secret:
 
 ```powershell
+docker compose -f ../compose.yaml up -d --wait rabbitmq
+$env:RABBITMQ_USER = 'credit-service'
 $env:RABBITMQ_HOST = '127.0.0.1'
+$env:RABBITMQ_PORT = '5672'
+$env:RABBITMQ_VHOST = '/foc'
 $env:RABBITMQ_PASSWORD_FILE = './secrets/rabbitmq_password.secret'
 npm run test:rabbitmq-permissions
+# If RabbitMQ was started only for this check:
+docker compose -f ../compose.yaml stop rabbitmq
 ```
+
+The password file must match the `credit-service` password hash installed by
+the root broker definitions. The verifier does not use the isolated test
+broker's `RABBITMQ_USERNAME` or `RABBITMQ_PASSWORD` values.
 
 The verifier creates only uniquely named, auto-delete queues in the
 `credit-service.*` namespace. It never deletes or reconfigures shared broker
@@ -437,15 +555,25 @@ npm run test:recovery
 
 It builds and starts recovery-only PostgreSQL and RabbitMQ containers, migrates
 an empty database, and starts the real application modules. The scenarios cover
-the complete account pipeline plus reservation restart after durable ingress,
-recovery of an expired worker claim, restart after financial commit, exact
-pending-outbox payload publication, duplicate delivery, semantic replay, and
-database/broker reconnection.
+the complete account pipeline plus reservation and transfer restart after
+durable ingress, recovery of expired worker claims, restart after financial
+commit, exact pending-outbox payload publication, duplicate delivery, semantic
+replay, and database/broker reconnection.
+
+| Interrupted boundary                          | Durable evidence                                                                             | Automatic recovery                                                        |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Completion acknowledged before execution      | Pending `TRANSFER` operation and processed inbox row                                         | A restarted worker claims and executes the operation                      |
+| Worker stops after claiming a transfer        | Expired operation lease and claim owner                                                      | Another worker reclaims it after the lease expires                        |
+| Financial commit completes before publication | Successful operation, ledger row, balances, consumed reservation, and unpublished outbox row | The relay publishes the stored envelope and records broker confirmation   |
+| RabbitMQ is unavailable                       | Unpublished outbox row or unacknowledged ingress delivery                                    | The transport reconnects and retries without repeating financial movement |
 
 The command always attempts to remove the recovery containers and their
 anonymous volumes on success, failure, or interruption. It requires Docker,
 the service-local database secret, and `RABBITMQ_PASSWORD` in `.env`, but does
-not use the development database or RabbitMQ volumes.
+not use the development database or RabbitMQ volumes. Error logs produced while
+the scenarios deliberately stop PostgreSQL or RabbitMQ are expected fault
+injection output; the command's exit status and final Vitest summary determine
+whether recovery passed.
 
 ### Build and static checks
 
@@ -461,17 +589,17 @@ and unit tests do not replace the PostgreSQL, RabbitMQ, or recovery suites.
 ## RabbitMQ subscriptions and retries
 
 The root broker owns the shared `foc.events` direct exchange and predeclares
-the three durable Credit queues for `user.registered.v1`,
-`credit.reservation.v1`, and `credit.reservation-adjustment.v1` with exact
-bindings. Commands therefore have durable landing points before Credit Service
+the four durable Credit queues for `user.registered.v1`,
+`credit.reservation.v1`, `credit.reservation-adjustment.v1`, and
+`order.errand-completed.v1` with exact bindings. Commands therefore have durable landing points before Credit Service
 starts. Credit Service checks the shared exchange passively, then idempotently
 reasserts each main queue and binding together with its service-owned retry and
 DLQ topology during startup and connection recovery. Its credential cannot
 create, delete, or alter `foc.events`.
 
-Typed configuration fixes those three consumed routing keys and the five
-published keys: `credit.account-initialised.v1` plus the four reservation and
-adjustment outcomes listed above. Canonical deployed queue names are fixed
+Typed configuration fixes those four consumed routing keys and the seven
+published keys: `credit.account-initialised.v1`, the four reservation and
+adjustment outcomes, and the two transfer outcomes listed above. Canonical deployed queue names are fixed
 outside tests so configuration cannot bypass the predeclared subscriptions;
 isolated tests may use unique queue names.
 
@@ -509,7 +637,7 @@ not match `<queue>.dlq`.
 
 ### Hybrid topology ownership and rollout
 
-The root definitions seed all three Credit main queues and their exact
+The root definitions seed all four Credit main queues and their exact
 `foc.events` bindings. Credit Service remains the owner of subscription
 behavior and declares the same resources at runtime. Its retry, retry-return,
 and dead-letter exchanges, five retry queues per subscription, returned-retry
@@ -706,6 +834,11 @@ publication payload and tracks claim and publication state independently.
 - Effective adjustments commit their balance movement, ledger row, reservation
   update, terminal operation state, inbox completion, and outcome outbox row
   atomically. Technical failures leave the operation pending for worker retry.
+- Successful transfers atomically reduce the requester's reserved balance,
+  increase the courier's available balance, consume the reservation, append one
+  immutable `TRANSFER` transaction, complete the operation and inbox evidence,
+  and insert the success envelope into the outbox. Rejections commit only the
+  operation, inbox, and rejection envelope.
 - The shared `SERIALIZABLE` transaction runner retries PostgreSQL serialization
   failures and deadlocks up to three times.
 - Relay workers claim disjoint outbox batches with expiring PostgreSQL leases.
@@ -755,28 +888,51 @@ committed fixture selectors:
 npm run event:fixtures:list
 ```
 
-The valid fixtures form one manual happy path. They share the requester and
-errand IDs, so run them in this order:
+The valid fixtures form one manual happy path. They share the requester,
+courier, and errand IDs, so run them in this order:
 
 ```powershell
 npm run event:publish:user-registered
+npm run event:publish:user-registered-courier
 npm run event:publish:credit-reservation
 npm run event:publish:credit-reservation-adjustment
+npm run event:publish:errand-completed
 ```
 
-Publishing the same valid fixture again demonstrates event-ID idempotency. The
-two intentionally invalid command fixtures use an amount of zero and should be
-sent to their stream-specific DLQs with `INVALID_PAYLOAD`:
+The reservation starts at 25 and the adjustment raises the stored reservation
+to 40. The completion notice still carries 25 deliberately: a successful
+transfer moves the authoritative stored 40, leaving the requester at `60 / 0`
+and the courier at `140 / 0` (available / reserved). Publishing the same valid
+fixture again demonstrates event-ID idempotency; a distinct equivalent notice
+replays the established semantic outcome without another movement.
+
+The participant-mismatch fixture reuses the semantic errand with a different
+courier and produces `RESERVATION_USER_MISMATCH` without moving credit:
+
+```powershell
+npm run event:publish:errand-completed-participant-mismatch
+```
+
+The reservation and adjustment invalid fixtures use an amount of zero. The
+completion invalid fixtures cover a zero amount, malformed envelope, and an
+unknown payload field. Each should reach the completion stream's DLQ with the
+documented validation reason: `INVALID_PAYLOAD`, `INVALID_ENVELOPE`, and
+`INVALID_PAYLOAD`, respectively.
 
 ```powershell
 npm run event:publish:credit-reservation-invalid
 npm run event:publish:credit-reservation-adjustment-invalid
+npm run event:publish:errand-completed-invalid-amount
+npm run event:publish:errand-completed-malformed-envelope
+npm run event:publish:errand-completed-unknown-field
 ```
 
 The publisher reads the exact fixture bytes, selects the routing key from the
 event type, publishes a persistent message, and waits for broker confirmation.
 It uses `RABBITMQ_URL`, `RABBITMQ_EXCHANGE`, and the corresponding documented
-routing-key variable.
+routing-key variable. `RABBITMQ_URL` is retained for this manual publisher only;
+the running application and automated messaging tests construct their
+connections from component settings.
 
 To initialize another account, copy the fixture and replace both `eventId` and
 `payload.userId`, then provide its path:
@@ -785,8 +941,9 @@ To initialize another account, copy the fixture and replace both `eventId` and
 node scripts/publish-event-fixture.mjs test/fixtures/my-registration.json
 ```
 
-Order Service is not implemented by these fixtures. They are development and
-integration tools for exercising Credit Service's future upstream contract.
+These fixtures do not start Order Service. They exercise Credit Service's
+canonical upstream boundary directly so transfer behavior can be demonstrated
+before cross-service and frontend end-to-end work is added.
 
 ## Migrations
 

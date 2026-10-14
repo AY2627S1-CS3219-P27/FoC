@@ -8,6 +8,7 @@ import { environmentSchema } from './config/environment.js';
 import { CreditsModule } from './credits/credits.module.js';
 import { OutboxModule } from './outbox/outbox.module.js';
 import { ReservationModule } from './reservation/reservation.module.js';
+import { SettlementModule } from './settlement/settlement.module.js';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { ReservationModule } from './reservation/reservation.module.js';
     AccountInitializationModule,
     CreditsModule,
     ReservationModule,
+    SettlementModule,
     OutboxModule,
   ],
 })

@@ -6,7 +6,10 @@ export default defineConfig({
   test: {
     globals: true,
     root: './',
-    include: ['src/**/*.spec.ts'],
+    include: [
+      'src/**/*.spec.ts',
+      'test/support/rabbitmq-test-environment.spec.ts',
+    ],
     env: {
       NODE_ENV: 'test',
       PORT: '3000',
