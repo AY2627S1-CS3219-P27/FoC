@@ -717,7 +717,7 @@ describe('UsersService', () => {
       manager.findOneBy
         .mockResolvedValueOnce(adminActor)
         .mockResolvedValueOnce({ ...targetUser, isAdmin: true });
-      manager.count.mockResolvedValue(1);
+      manager.count.mockResolvedValue(0);
 
       await expect(
         service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: false }),
@@ -868,7 +868,7 @@ describe('UsersService', () => {
       manager.findOneBy
         .mockResolvedValueOnce(adminActor)
         .mockResolvedValueOnce({ ...targetUser, isAdmin: true });
-      manager.count.mockResolvedValue(1);
+      manager.count.mockResolvedValue(0);
 
       await expect(
         service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isArchived: true }),
@@ -967,7 +967,7 @@ describe('UsersService', () => {
         ...selfUser,
         isAdmin: true,
       });
-      manager.count.mockResolvedValue(1);
+      manager.count.mockResolvedValue(0);
 
       await expect(service.archiveSelf(FIXED_UUID)).rejects.toThrow(
         ConflictException,

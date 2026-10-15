@@ -13,6 +13,7 @@ import {
   EntityManager,
   EntityNotFoundError,
   FindOptionsWhere,
+  Not,
   QueryFailedError,
   Repository,
 } from 'typeorm';
@@ -343,27 +344,52 @@ export class UsersService {
       return undefined;
     }
 
+    const oldAdminStatus = target.isAdmin;
+
     if (!isAdmin) {
-      await this.demoteAdmin(manager);
+      await this.demoteAdmin(manager, target);
+    } else {
+      target.isAdmin = true; // no other checks needed for promotion
     }
 
-    const change = { from: target.isAdmin, to: isAdmin };
-    target.isAdmin = isAdmin;
+    const change = { from: oldAdminStatus, to: isAdmin };
     return change;
   }
 
-  private async demoteAdmin(manager: EntityManager): Promise<boolean> {
+  private async demoteAdmin(
+    manager: EntityManager,
+    target: User,
+  ): Promise<void> {
     // Demoting an admin must leave at least one active admin; locked
     // admins still count, mirroring countActiveAdmins.
-    if ((await this.activeAdminCount(manager)) <= 1) {
+    // We don't need to do further checks if user is already archived;
+    // their count doesn't matter.
+    if (await this.isFinalActiveAdmin(manager, target)) {
       throw new ConflictException(
         'Cannot demote the last active admin account',
       );
     }
 
-    // Create admin block in future
+    // TODO: Create admin block
 
-    return true;
+    target.isAdmin = false;
+  }
+
+  /**
+   * Checks if the provided user is the final non-archived admin in the
+   * application.
+   */
+  private async isFinalActiveAdmin(
+    manager: EntityManager,
+    target: User,
+  ): Promise<boolean> {
+    const otherAdminsCount = await manager.count(User, {
+      where: { isAdmin: true, isArchived: false, uuid: Not(target.uuid) },
+    });
+    if (target.isAdmin && !target.isArchived && otherAdminsCount == 0) {
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -380,7 +406,7 @@ export class UsersService {
     }
 
     if (isArchived) {
-      if (target.isAdmin && (await this.activeAdminCount(manager)) <= 1) {
+      if (await this.isFinalActiveAdmin(manager, target)) {
         throw new ConflictException(
           'Cannot archive the last remaining active admin.',
         );
@@ -394,13 +420,6 @@ export class UsersService {
     const change = { from: target.isArchived, to: isArchived };
     target.isArchived = isArchived;
     return change;
-  }
-
-  /** Active-admin count within an open transaction. */
-  private async activeAdminCount(manager: EntityManager): Promise<number> {
-    return manager.count(User, {
-      where: { isAdmin: true, isArchived: false },
-    });
   }
 
   /**
