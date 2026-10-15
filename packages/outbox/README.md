@@ -21,10 +21,15 @@ through a dedicated publisher-confirm channel.
 
 ## Adding @foc/outbox to a service
 
-This package depends on `@nestjs/*` and `typeorm`, so it must resolve the
-**same copies** the service already has (the same dual-copy rule as
-`@foc/auth`). Install it as a packed copy into the service's own
-`node_modules`, never rely on the `file:` symlink at runtime.
+The consuming service must provide compatible versions of the package's peer
+dependencies: `@nestjs/common`, `@nestjs/config`, `typeorm`, and `joi`. Keeping
+these as peers makes Nest's `ConfigService` and TypeORM's `DataSource` resolve
+to the service's runtime instances, and lets the exported Joi schemas compose
+with the service's Joi schemas.
+
+For a local `file:` dependency, build the package and install it as a packed
+copy into the service's `node_modules` so the service consumes the generated
+`dist` files rather than relying on host-specific symlinks.
 
 ```json
 {
@@ -40,23 +45,23 @@ This package depends on `@nestjs/*` and `typeorm`, so it must resolve the
 }
 ```
 
-> Keep the `@nestjs/*` and `typeorm` ranges in `@foc/outbox` in lockstep with
-> the services' ranges. A version bump that no longer intersects forces npm to
-> install a second Nest copy and reintroduces the dual-copy bug.
+During installation, npm validates that the service provides versions matching
+the peer ranges. Update the package and its consumers together when one of
+these shared runtime dependencies changes major version.
 
 Then, in the consuming app:
 
-1. Register `OutboxEvent` in the service's TypeORM entities so the
-   `outbox_events` table is created (via the service's migrations or dev
-   `synchronize`).
+1. Register `OutboxEvent` in the service's TypeORM entities and add a migration
+   that creates the expected `outbox_events` table.
 2. Fold the outbox keys into the service's environment schema:
    `schema.concat(outboxEnvironmentSchema)` and append
    `.custom(validateOutboxTiming)`.
-3. Import the module with the broker destination and identity:
+3. Import the module with a database module that exports the default TypeORM
+   `DataSource`, plus any modules needed by the options factory:
 
 ```ts
 OutboxModule.forRootAsync({
-  imports: [SecretModule],
+  imports: [DatabaseModule, SecretModule],
   inject: [SecretService, ConfigService],
   useFactory: (secrets, config) => ({
     exchange: 'foc.events',

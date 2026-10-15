@@ -41,7 +41,7 @@ jobs:
             test: npm run build
           - module: packages/outbox
             lint: npm run lint
-            test: npm test
+            test: npm test && npm run build
 
     steps:
       - uses: actions/checkout@v4
