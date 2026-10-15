@@ -104,6 +104,25 @@ describe('ErrandsController', () => {
       expect(lifecycle.create.mock.calls[0][0].idempotencyKey).toBeUndefined();
     });
 
+    it('answers a fresh create with 201 and no replay header', async () => {
+      lifecycle.create.mockResolvedValue({ ok: true, errandId: 'e1' });
+
+      const res = await post(validBody, await signAccessToken(), { 'Idempotency-Key': 'create-1' });
+
+      expect(res.status).toBe(201);
+      expect(res.headers.get('Idempotent-Replayed')).toBeNull();
+    });
+
+    it('answers a replayed create with 200, the same errand and the replay header', async () => {
+      lifecycle.create.mockResolvedValue({ ok: true, errandId: 'e1', replayed: true });
+
+      const res = await post(validBody, await signAccessToken(), { 'Idempotency-Key': 'create-1' });
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Idempotent-Replayed')).toBe('true');
+      expect(await res.json()).toEqual({ errandId: 'e1' });
+    });
+
     it.each([
       ['an empty key', ''],
       ['a key over 255 characters', 'k'.repeat(256)],
@@ -200,6 +219,36 @@ describe('ErrandsController', () => {
         await act(errandId, 'accept', undefined, await signAccessToken());
 
         expect(lifecycle.transition.mock.calls[0][0].idempotencyKey).toBeUndefined();
+      });
+
+      it('marks a replayed action with the replay header', async () => {
+        lifecycle.transition.mockResolvedValue({ ok: true, sequenceNumber: 2, replayed: true });
+
+        const res = await act(errandId, 'confirm', undefined, await signAccessToken(), keyed);
+
+        expect(res.status).toBe(200);
+        expect(res.headers.get('Idempotent-Replayed')).toBe('true');
+        expect(await res.json()).toEqual({ sequenceNumber: 2 });
+      });
+
+      it('marks a replayed cancel with the replay header', async () => {
+        lifecycle.currentStatus.mockResolvedValue('Open');
+        lifecycle.transition.mockResolvedValue({ ok: true, sequenceNumber: 2, replayed: true });
+
+        const res = await act(errandId, 'cancel', undefined, await signAccessToken(), keyed);
+
+        expect(res.headers.get('Idempotent-Replayed')).toBe('true');
+      });
+
+      it.each([
+        ['a fresh action', { ok: true, sequenceNumber: 2 }],
+        ['a replayed rejection', { ok: false, reason: 'FORBIDDEN' }],
+      ])('does not mark %s as a replay', async (_, result) => {
+        lifecycle.transition.mockResolvedValue(result);
+
+        const res = await act(errandId, 'confirm', undefined, await signAccessToken(), keyed);
+
+        expect(res.headers.get('Idempotent-Replayed')).toBeNull();
       });
 
       it.each(['accept', 'cancel'])('rejects a bad key on %s before reaching the lifecycle', async (action) => {

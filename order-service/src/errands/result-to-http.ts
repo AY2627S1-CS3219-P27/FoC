@@ -64,6 +64,14 @@ const FAILURES: Record<FailureReason, { exception: ExceptionClass; message: stri
   },
 };
 
+// Response header that tells a client its request repeated one that already
+// succeeded, so nothing new was written this time.
+export const REPLAYED_HEADER = 'Idempotent-Replayed';
+
+// A rejection replays as the same error, so only a success can be a replay.
+export const isReplay = (result: Result): boolean =>
+  result.ok && result.replayed === true;
+
 export function resultToHttp(
   result: Result,
 ): { errandId: string } | { sequenceNumber: number } {
