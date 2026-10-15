@@ -1,0 +1,8 @@
+{
+  "eventId": "edc5db90-c070-4190-89ff-45c4b1984a86",
+  "eventType": "ErrandCancelled",
+  "publisher": "order-service",
+  "payload": {
+    "errandId": "7a43c86c-ea7c-4d92-a619-d8ce18520f33"
+  }
+}

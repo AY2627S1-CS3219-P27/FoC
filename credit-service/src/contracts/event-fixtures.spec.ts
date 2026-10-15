@@ -5,6 +5,7 @@ import {
   CREDIT_RESERVATION_ADJUSTMENT_V1_ROUTING_KEY,
   CREDIT_RESERVATION_V1_ROUTING_KEY,
   ORDER_ERRAND_COMPLETED_V1_ROUTING_KEY,
+  ORDER_ERRAND_CANCELLED_V1_ROUTING_KEY,
   USER_REGISTERED_V1_ROUTING_KEY,
   type EventContractKey,
 } from '@foc/contracts';
@@ -31,6 +32,7 @@ describe('Credit command fixtures', () => {
       'errand-completed-participant-mismatch.v1.json',
       ORDER_ERRAND_COMPLETED_V1_ROUTING_KEY,
     ],
+    ['errand-cancelled.v1.json', ORDER_ERRAND_CANCELLED_V1_ROUTING_KEY],
   ] as const satisfies ReadonlyArray<readonly [string, EventContractKey]>)(
     'keeps %s valid for its published route',
     async (name, routingKey) => {
@@ -70,6 +72,23 @@ describe('Credit command fixtures', () => {
       expect(
         contracts.validate(
           ORDER_ERRAND_COMPLETED_V1_ROUTING_KEY,
+          await fixture(name),
+        ),
+      ).toMatchObject({ valid: false, code });
+    },
+  );
+
+  it.each([
+    ['errand-cancelled-invalid-uuid.v1.json', 'INVALID_PAYLOAD'],
+    ['errand-cancelled-malformed-envelope.v1.json', 'INVALID_ENVELOPE'],
+    ['errand-cancelled-wrong-publisher.v1.json', 'INVALID_ENVELOPE'],
+    ['errand-cancelled-unknown-field.v1.json', 'INVALID_PAYLOAD'],
+  ] as const)(
+    'keeps %s intentionally invalid for cancellation DLQ testing',
+    async (name, code) => {
+      expect(
+        contracts.validate(
+          ORDER_ERRAND_CANCELLED_V1_ROUTING_KEY,
           await fixture(name),
         ),
       ).toMatchObject({ valid: false, code });

@@ -1,0 +1,9 @@
+{
+  "eventId": "01a37b2f-f038-4763-94f9-19d4b4cbb30c",
+  "eventType": "ErrandCancelled",
+  "timestamp": "2026-10-13T08:07:00.000Z",
+  "publisher": "user-service",
+  "payload": {
+    "errandId": "7a43c86c-ea7c-4d92-a619-d8ce18520f33"
+  }
+}
