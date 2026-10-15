@@ -1,10 +1,11 @@
 # Credit Service
 
 Credit Service owns credit accounts and their persistent balance history. It
-consumes account-registration, reservation, reservation-adjustment, and errand
-completion events; persists durable processing evidence; executes reserved
-credit transfers; publishes transactional outcomes; and serves protected
-balance and advisory sufficiency reads.
+consumes account-registration, reservation, reservation-adjustment, errand
+completion, and errand-cancellation events; persists durable processing
+evidence; executes reserved-credit transfers and releases; publishes
+transactional outcomes; and serves protected balance and advisory sufficiency
+reads.
 
 The service is built with NestJS and TypeScript, PostgreSQL with TypeORM, and
 RabbitMQ. Event payloads are validated with versioned JSON Schemas and AJV.
@@ -167,10 +168,54 @@ overdue warning, and operator investigation path rather than being converted
 to business rejections. A committed transfer whose broker publication fails is
 represented by its pending outbox row and is retried until RabbitMQ confirms it.
 
-Transfer and the forthcoming release processor use the same per-errand lock and
-reservation row lock so only one can settle an active reservation. Release
-consumption, `CreditReleaseSuccess`, transaction-history APIs, and archived
-destination behavior remain deferred to the next implementation packages.
+### Cancellation release
+
+`ErrandCancelled` has the minimal payload `{ errandId }`. Credit validates and
+durably records one semantic `RELEASE` operation before acknowledging the
+delivery. Requester and amount may initially be unknown because cancellation
+can arrive before reservation ingress. The worker enriches that context from
+the locked reservation or the semantic `RESERVE` operation without taking a
+reserve-operation row lock that could deadlock with a reserve worker waiting
+for the same errand advisory lock.
+
+The authoritative decisions are:
+
+| Reservation evidence | Reserve evidence | Decision |
+| --- | --- | --- |
+| Missing | Missing or `PENDING` | Keep release pending and retry enrichment. |
+| Missing | `REJECTED` | Reject with `RESERVATION_NOT_FOUND`. |
+| Missing | `SUCCEEDED` | Retryable invariant failure; a successful reserve must own a reservation. |
+| `ACTIVE` | Compatible or absent | Return the stored amount to requester available credit. |
+| `CONSUMED` | Compatible or absent | Reject with `ALREADY_TRANSFERRED`. |
+| `RELEASED` | Established terminal release | Replay the established success for a distinct notice. |
+| `RELEASED` | Pending or inconsistent release | Retryable invariant failure. |
+
+Success atomically moves the stored amount from requester reserved to
+available credit, appends one same-user `RELEASE` transaction, changes the
+reservation to `RELEASED`, completes the operation and every linked inbox row,
+and inserts `CreditReleaseSuccess` into the outbox. Business rejection changes
+no account, reservation, or ledger state.
+
+`RELEASE` uses the same worker, lease, capped backoff, overdue warning, errand
+advisory lock, and conditional `ACTIVE` reservation transition as transfer.
+Transfer first produces `ALREADY_TRANSFERRED` on release; release first causes
+transfer to reject with `RESERVATION_RELEASED`. Exactly one can settle the
+reservation.
+
+A same-event cancellation redelivery is an inbox duplicate and creates no new
+outcome. A distinct cancellation links to pending work or, after completion,
+publishes a fresh outcome event that references the established transaction or
+rejection without another financial movement.
+
+Release rejection reasons are:
+
+| Reason | Meaning |
+| --- | --- |
+| `RESERVATION_NOT_FOUND` | The authoritative reserve operation rejected and no reservation exists. |
+| `ALREADY_TRANSFERRED` | Transfer consumed the reservation before release. |
+
+F7 transaction-history APIs and F8 archived-destination behavior remain out of
+scope. `DESTINATION_ARCHIVED` remains reserved and is not emitted.
 
 All inbound delivery and outbound publication is at least once. Duplicate
 event IDs never reapply state. A distinct equivalent reservation command links
@@ -197,12 +242,15 @@ synchronous correctness dependency.
 | Consume   | `CreditReservation`                   | `credit.reservation.v1`                     | `credit-service.credit-reservation.v1`            |
 | Consume   | `CreditReservationAdjustment`         | `credit.reservation-adjustment.v1`          | `credit-service.credit-reservation-adjustment.v1` |
 | Consume   | `ErrandCompleted`                     | `order.errand-completed.v1`                 | `credit-service.order-errand-completed.v1`        |
+| Consume   | `ErrandCancelled`                     | `order.errand-cancelled.v1`                 | `credit-service.order-errand-cancelled.v1`        |
 | Publish   | `CreditReservationSuccess`            | `credit.reservation-success.v1`             | Subscriber-owned                                  |
 | Publish   | `CreditReservationRejected`           | `credit.reservation-rejected.v1`            | Subscriber-owned                                  |
 | Publish   | `CreditReservationAdjustmentSuccess`  | `credit.reservation-adjustment-success.v1`  | Subscriber-owned                                  |
 | Publish   | `CreditReservationAdjustmentRejected` | `credit.reservation-adjustment-rejected.v1` | Subscriber-owned                                  |
 | Publish   | `CreditTransferSucceeded`             | `credit.transfer-succeeded.v1`              | Subscriber-owned                                  |
 | Publish   | `CreditTransferRejected`              | `credit.transfer-rejected.v1`               | Subscriber-owned                                  |
+| Publish   | `CreditReleaseSuccess`                | `credit.release-success.v1`                 | No current subscriber queue                       |
+| Publish   | `CreditReleaseRejected`               | `credit.release-rejected.v1`                | `order-service.credit-release-rejected.v1`        |
 
 Command payloads are:
 
@@ -223,6 +271,10 @@ Command payloads are:
 }
 ```
 
+```json
+{ "errandId": "<uuid>" }
+```
+
 Outcome payloads are respectively:
 
 - success: `{ errandId, requesterUserId, reservedAmount, creditTransactionId }`
@@ -231,6 +283,12 @@ Outcome payloads are respectively:
 - adjustment rejection: `{ errandId, requestedAmount, rejectionReason }`
 - transfer success: `{ errandId, requesterUserId, courierUserId, transferredAmount, creditTransactionId }`
 - transfer rejection: `{ errandId, requesterUserId, courierUserId, rejectionReason }`
+- release success: `{ errandId, requesterUserId, releasedAmount, creditTransactionId }`
+- release rejection: `{ errandId, requesterUserId, rejectionReason }`
+
+`CreditReleaseSuccess` is still published with persistent delivery and broker
+confirmation even though no queue currently binds its routing key. Subscriber
+absence does not suppress Credit's authoritative domain outcome.
 
 ## Prerequisites
 
@@ -412,11 +470,11 @@ from the root `env/` files.
 | ------------------------------ | ----------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Unit                           | `npm test`                          | None                                                                               | Services, protected HTTP behavior and OpenAPI, contract integration, configuration, transaction retry logic, lifecycle wiring, and RabbitMQ/outbox behavior through fakes |
 | Unit coverage                  | `npm run test:cov`                  | None                                                                               | The same `src/**/*.spec.ts` unit suite with V8 coverage                                                                                                                   |
-| PostgreSQL integration         | `npm run test:integration`          | Isolated PostgreSQL on port `5436`                                                 | Migrations, constraints, immutable ledger behavior, account initialization, reservations, adjustments, transfers, inbox/outbox atomicity, concurrency, and reconciliation |
+| PostgreSQL integration         | `npm run test:integration`          | Isolated PostgreSQL on port `5436`                                                 | Migrations, constraints, immutable ledger behavior, account initialization, reservations, adjustments, transfers, releases, inbox/outbox atomicity, concurrency, and reconciliation |
 | HTTP end-to-end                | `npm run test:e2e`                  | Isolated PostgreSQL on port `5436`; no RabbitMQ                                    | The real NestJS `AppModule` and generated OpenAPI paths; broker components are replaced with no-op test providers                                                         |
-| RabbitMQ messaging integration | `npm run test:messaging`            | RabbitMQ on port `5675`                                                            | Real queue topology for registration, reservation, adjustment, and completion; retries, DLQs, acknowledgements, confirmed publication, and shutdown                       |
+| RabbitMQ messaging integration | `npm run test:messaging`            | RabbitMQ on port `5675`                                                            | Real queue topology for registration, reservation, adjustment, completion, and cancellation; retries, DLQs, acknowledgements, confirmed publication, and shutdown         |
 | Shared-broker permissions      | `npm run test:rabbitmq-permissions` | Root RabbitMQ on port `5672`                                                       | The Credit identity's allowed User, Credit, and Order boundaries, plus denial of shared-exchange configuration and Email resources                                        |
-| Messaging recovery             | `npm run test:recovery`             | Disposable PostgreSQL and RabbitMQ on ports `5437`, `5676`, and `15676` by default | Account, reservation, and transfer durable ingress; expired claims; pending outbox publication; idempotency; restart; and live infrastructure recovery                    |
+| Messaging recovery             | `npm run test:recovery`             | Disposable PostgreSQL and RabbitMQ on ports `5437`, `5676`, and `15676` by default | Account, reservation, transfer, and release durable ingress; unresolved context; expired claims; pending outbox publication; restart; and live infrastructure recovery   |
 
 All source-mode commands rebuild `@foc/contracts` and `@foc/auth` before
 running. Their own suites run from `packages/contracts` and `packages/auth`;
@@ -428,6 +486,7 @@ From `credit-service`, run the checks in this order:
 
 ```powershell
 npm ci
+npm test --prefix ../packages/contracts
 npm run build
 npm run lint
 npm test
@@ -555,17 +614,22 @@ npm run test:recovery
 
 It builds and starts recovery-only PostgreSQL and RabbitMQ containers, migrates
 an empty database, and starts the real application modules. The scenarios cover
-the complete account pipeline plus reservation and transfer restart after
-durable ingress, recovery of expired worker claims, restart after financial
-commit, exact pending-outbox payload publication, duplicate delivery, semantic
-replay, and database/broker reconnection.
+the complete account pipeline plus reservation, transfer, and release restart
+after durable ingress; unresolved cancellation context; expired worker claims;
+restart after financial commit; exact pending-outbox publication; duplicate
+delivery; semantic replay; and database/broker reconnection.
 
-| Interrupted boundary                          | Durable evidence                                                                             | Automatic recovery                                                        |
-| --------------------------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Completion acknowledged before execution      | Pending `TRANSFER` operation and processed inbox row                                         | A restarted worker claims and executes the operation                      |
-| Worker stops after claiming a transfer        | Expired operation lease and claim owner                                                      | Another worker reclaims it after the lease expires                        |
-| Financial commit completes before publication | Successful operation, ledger row, balances, consumed reservation, and unpublished outbox row | The relay publishes the stored envelope and records broker confirmation   |
-| RabbitMQ is unavailable                       | Unpublished outbox row or unacknowledged ingress delivery                                    | The transport reconnects and retries without repeating financial movement |
+The operational recovery boundaries are:
+
+| Failure boundary | Durable evidence and detection | Resolution |
+| --- | --- | --- |
+| Account initialization fails before commit | No inbox/allocation row; delivery remains in its registration retry chain and eventually its DLQ, with sanitized transport logs. | Restore the dependency and retry automatically; redrive the unchanged event from the stream DLQ after retry exhaustion. Allocation uniqueness prevents a duplicate grant. |
+| Cancellation arrives before reservation | A `PENDING/RELEASE` operation has no requester/amount, or is linked to a `PENDING/RESERVE`; `attempt_count`, `next_attempt_at`, `last_error`, operation age, and the overdue log identify it. | Continue capped-backoff enrichment. Reserve success is immediately released; reserve rejection terminates release as `RESERVATION_NOT_FOUND`. |
+| Transfer execution is temporarily unavailable | Inbox and `PENDING/TRANSFER` operation are committed, with attempt count, next-attempt time, claim lease, sanitized last error, and overdue warning. | Worker retries without a terminal attempt limit; an expired claim is reclaimed after restart. |
+| Worker dies while claiming work | A pending operation or outbox row retains an expired `claimed_until` and claimant ID. | Another worker reclaims it; claimant guards prevent the stale worker from committing. |
+| RabbitMQ is unavailable after a financial commit | Terminal operation, immutable ledger row, reservation transition, and an unpublished outbox row (`published_at IS NULL`) are committed; the stale-outbox warning identifies the event. | The outbox relay retries until publisher confirmation without repeating the financial transaction. |
+| Contract or event-ID identity is permanently invalid | The original delivery is confirmed into that stream's `<queue>.dlq` with a sanitized reason in transport logs. | Correct the producer or payload and explicitly redrive it; never reinterpret conflicting event identity. |
+| Financial reconciliation fails | `SUM(credit_balance + reserved_balance)` differs from immutable allocations, or active reservation totals differ from requester reserved balances. | Alert and halt automatic correction; investigate ledger, operation, inbox, and outbox evidence and use a future explicit compensating operation instead of mutating history. |
 
 The command always attempts to remove the recovery containers and their
 anonymous volumes on success, failure, or interruption. It requires Docker,
@@ -589,17 +653,21 @@ and unit tests do not replace the PostgreSQL, RabbitMQ, or recovery suites.
 ## RabbitMQ subscriptions and retries
 
 The root broker owns the shared `foc.events` direct exchange and predeclares
-the four durable Credit queues for `user.registered.v1`,
-`credit.reservation.v1`, `credit.reservation-adjustment.v1`, and
-`order.errand-completed.v1` with exact bindings. Commands therefore have durable landing points before Credit Service
+the five durable Credit queues for `user.registered.v1`,
+`credit.reservation.v1`, `credit.reservation-adjustment.v1`,
+`order.errand-completed.v1`, and `order.errand-cancelled.v1` with exact
+bindings. Commands therefore have durable landing points before Credit Service
 starts. Credit Service checks the shared exchange passively, then idempotently
 reasserts each main queue and binding together with its service-owned retry and
 DLQ topology during startup and connection recovery. Its credential cannot
 create, delete, or alter `foc.events`.
 
-Typed configuration fixes those four consumed routing keys and the seven
+Typed configuration fixes those five consumed routing keys and the nine
 published keys: `credit.account-initialised.v1`, the four reservation and
-adjustment outcomes, and the two transfer outcomes listed above. Canonical deployed queue names are fixed
+adjustment outcomes, two transfer outcomes, and two release outcomes listed
+above. `credit.release-success.v1` deliberately has no subscriber queue today;
+publisher confirmation on the shared exchange remains its publication
+boundary. Canonical deployed queue names are fixed
 outside tests so configuration cannot bypass the predeclared subscriptions;
 isolated tests may use unique queue names.
 
@@ -637,7 +705,7 @@ not match `<queue>.dlq`.
 
 ### Hybrid topology ownership and rollout
 
-The root definitions seed all four Credit main queues and their exact
+The root definitions seed all five Credit main queues and their exact
 `foc.events` bindings. Credit Service remains the owner of subscription
 behavior and declares the same resources at runtime. Its retry, retry-return,
 and dead-letter exchanges, five retry queues per subscription, returned-retry
@@ -733,7 +801,7 @@ erDiagram
         uuid errand_id
         text operation_type
         text status
-        uuid requester_user_id "nullable for adjustment ingress"
+        uuid requester_user_id "nullable for adjustment and pending release"
         uuid courier_user_id "nullable"
         bigint amount
         bigint expected_amount "adjustments only"
@@ -839,6 +907,11 @@ publication payload and tracks claim and publication state independently.
   immutable `TRANSFER` transaction, complete the operation and inbox evidence,
   and insert the success envelope into the outbox. Rejections commit only the
   operation, inbox, and rejection envelope.
+- Successful releases atomically reduce requester reserved balance, restore
+  requester available balance, mark the reservation `RELEASED`, append one
+  immutable same-user `RELEASE` transaction, complete every linked inbox row,
+  and insert the success envelope into the outbox. Release rejection changes no
+  financial state.
 - The shared `SERIALIZABLE` transaction runner retries PostgreSQL serialization
   failures and deadlocks up to three times.
 - Relay workers claim disjoint outbox batches with expiring PostgreSQL leases.
@@ -906,6 +979,33 @@ and the courier at `140 / 0` (available / reserved). Publishing the same valid
 fixture again demonstrates event-ID idempotency; a distinct equivalent notice
 replays the established semantic outcome without another movement.
 
+For the alternative cancellation path, start from a clean Credit database,
+publish both registrations and the reservation, then publish cancellation
+instead of adjustment and completion:
+
+```powershell
+npm run event:publish:user-registered
+npm run event:publish:user-registered-courier
+npm run event:publish:credit-reservation
+npm run event:publish:errand-cancelled
+```
+
+The persistence/messaging recovery suite asserts both alternatives using
+initialized accounts and immutable evidence. For a reservation of 25:
+
+| Stage or terminal path | Requester available / reserved | Courier available / reserved |
+| --- | --- | --- |
+| Initialization | `100 / 0` | `100 / 0` |
+| Reservation | `75 / 25` | `100 / 0` |
+| Transfer | `75 / 0` | `125 / 0` |
+| Release | `100 / 0` | `100 / 0` |
+
+The release scenario verifies both allocation rows, `RESERVATION` and
+`RELEASE` transactions, `ACTIVE → RELEASED`, the semantic reserve and release
+operations, linked inbox rows, and their outbox envelopes. Available plus
+reserved credit remains 200 across the two accounts; the courier is unchanged
+on release.
+
 The participant-mismatch fixture reuses the semantic errand with a different
 courier and produces `RESERVATION_USER_MISMATCH` without moving credit:
 
@@ -925,6 +1025,18 @@ npm run event:publish:credit-reservation-adjustment-invalid
 npm run event:publish:errand-completed-invalid-amount
 npm run event:publish:errand-completed-malformed-envelope
 npm run event:publish:errand-completed-unknown-field
+```
+
+Cancellation fixtures cover an invalid errand UUID, a missing required
+envelope timestamp, a wrong publisher, and an unknown payload field. They are
+isolated to the cancellation stream and should be dead-lettered without
+creating inbox or release-operation evidence:
+
+```powershell
+npm run event:publish:errand-cancelled-invalid-uuid
+npm run event:publish:errand-cancelled-malformed-envelope
+npm run event:publish:errand-cancelled-wrong-publisher
+npm run event:publish:errand-cancelled-unknown-field
 ```
 
 The publisher reads the exact fixture bytes, selects the routing key from the
