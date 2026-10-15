@@ -89,10 +89,10 @@ describe('user-service (e2e)', () => {
         })),
         updateProfile: vi.fn(
           async (
-            id: number,
+            uuid: string,
             fields: { displayName?: string; profilePictureUrl?: string | null },
           ) => ({
-            id,
+            uuid,
             email: 'eve@example.com',
             displayName: fields.displayName ?? 'Eve',
             profilePictureUrl: fields.profilePictureUrl ?? null,
