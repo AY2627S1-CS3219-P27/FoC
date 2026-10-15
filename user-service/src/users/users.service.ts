@@ -243,16 +243,13 @@ export class UsersService {
    * only if the change commits. The acting admin is re-read from the database
    * rather than trusted from the token claims.
    *
-   * The transaction first takes a transaction-scoped advisory lock so that
-   * concurrent admin-privilege changes cannot race the last-active-admin
-   * check: a second demotion blocks until the first commits, then re-reads
-   * the committed admin count.
+   * The transaction first takes a transaction-scoped advisory lock.
    */
   async adminUpdateUser(
     actorUuid: string,
     targetUuid: string,
-    fields: { isAdmin?: boolean },
-  ): Promise<PublicUserInfo> {
+    fields: { isAdmin?: boolean; isArchived?: boolean },
+  ): Promise<User> {
     return this.dataSource.transaction(async (manager) => {
       await manager.query('SELECT pg_advisory_xact_lock($1::bigint)', [
         ADMIN_MUTATION_LOCK_KEY,
@@ -276,16 +273,22 @@ export class UsersService {
       // Audit record of changes
       const changedFields: Record<string, UserUpdateAuditChangedField> = {};
 
-      if (fields.isAdmin !== undefined && fields.isAdmin !== target.isAdmin) {
-        changedFields.isAdmin = { from: target.isAdmin, to: fields.isAdmin };
-        if (!fields.isAdmin) {
-          await this.demoteAdmin(manager);
-        }
-        target.isAdmin = fields.isAdmin;
-      }
+      const adminChange = await this.applyAdminStatusChange(
+        manager,
+        target,
+        fields.isAdmin,
+      );
+      if (adminChange !== undefined) changedFields.isAdmin = adminChange;
+
+      const archiveChange = await this.applyArchiveChange(
+        manager,
+        target,
+        fields.isArchived,
+      );
+      if (archiveChange !== undefined) changedFields.isArchived = archiveChange;
 
       if (Object.keys(changedFields).length === 0) {
-        return this.getPublicUserInfo(target);
+        return target;
       }
 
       await manager.save(target);
@@ -297,17 +300,36 @@ export class UsersService {
         }),
       );
 
-      return this.getPublicUserInfo(target);
+      return target;
     });
+  }
+
+  /**
+   * Applies an admin-status change to the target row, returning the audit
+   * entry when the value actually changed (and `undefined` otherwise).
+   */
+  private async applyAdminStatusChange(
+    manager: EntityManager,
+    target: User,
+    isAdmin: boolean | undefined,
+  ): Promise<UserUpdateAuditChangedField | undefined> {
+    if (isAdmin === undefined || isAdmin === target.isAdmin) {
+      return undefined;
+    }
+
+    if (!isAdmin) {
+      await this.demoteAdmin(manager);
+    }
+
+    const change = { from: target.isAdmin, to: isAdmin };
+    target.isAdmin = isAdmin;
+    return change;
   }
 
   private async demoteAdmin(manager: EntityManager): Promise<boolean> {
     // Demoting an admin must leave at least one active admin; locked
     // admins still count, mirroring countActiveAdmins.
-    const activeAdmins = await manager.count(User, {
-      where: { isAdmin: true, isArchived: false },
-    });
-    if (activeAdmins <= 1) {
+    if ((await this.activeAdminCount(manager)) <= 1) {
       throw new ConflictException(
         'Cannot demote the last active admin account',
       );
@@ -316,6 +338,43 @@ export class UsersService {
     // Create admin block in future
 
     return true;
+  }
+
+  /**
+   * Applies an archival-status change to the target row, returning the audit
+   * entry when the value actually changed (and `undefined` otherwise).
+   */
+  private async applyArchiveChange(
+    manager: EntityManager,
+    target: User,
+    isArchived: boolean | undefined,
+  ): Promise<UserUpdateAuditChangedField | undefined> {
+    if (isArchived === undefined || isArchived === target.isArchived) {
+      return undefined;
+    }
+
+    if (isArchived) {
+      if (target.isAdmin && (await this.activeAdminCount(manager)) <= 1) {
+        throw new ConflictException(
+          'Cannot archive the last remaining active admin.',
+        );
+      }
+      // TODO: revoke every refresh token tied to this account.
+    } else {
+      // TODO: lift the order-service activity block when the
+      // account is un-archived.
+    }
+
+    const change = { from: target.isArchived, to: isArchived };
+    target.isArchived = isArchived;
+    return change;
+  }
+
+  /** Active-admin count within an open transaction. */
+  private async activeAdminCount(manager: EntityManager): Promise<number> {
+    return manager.count(User, {
+      where: { isAdmin: true, isArchived: false },
+    });
   }
 
   /**

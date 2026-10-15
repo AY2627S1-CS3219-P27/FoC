@@ -154,6 +154,10 @@ export class UsersController {
 
   /**
    * Admin-only user update.
+  /**
+   * Admin-only user update: admin status and archival state
+   * Returns the stored account projected as the admin view, so
+   * the caller can read back the flags their change produced.
    */
   @Patch(':uuid')
   @UseGuards(AdminGuard)
@@ -162,10 +166,12 @@ export class UsersController {
     @Param('uuid', new ParseUUIDPipe()) uuid: string,
     @Body() adminUpdateUserDto: AdminUpdateUserDto,
   ) {
-    return this.usersService.adminUpdateUser(
+    const updated = await this.usersService.adminUpdateUser(
       request.user.sub,
       uuid,
       adminUpdateUserDto,
     );
+
+    return toUserInfoView(updated, { includeAdminFlags: true });
   }
 }
