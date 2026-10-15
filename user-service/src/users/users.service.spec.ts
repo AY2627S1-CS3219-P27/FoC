@@ -513,17 +513,15 @@ describe('UsersService', () => {
 
       await expect(
         service.updateRoles(FIXED_UUID, [Role.Requester]),
-      ).rejects.toThrow(
-        UnauthorizedException,
-      );
+      ).rejects.toThrow(UnauthorizedException);
     });
 
     it('lets non-entity look-up failures propagate', async () => {
       userRepository.findOneByOrFail.mockRejectedValue(new Error('db down'));
 
-      await expect(service.updateRoles(FIXED_UUID, [Role.Requester])).rejects.toThrow(
-        'db down',
-      );
+      await expect(
+        service.updateRoles(FIXED_UUID, [Role.Requester]),
+      ).rejects.toThrow('db down');
     });
   });
 
@@ -547,7 +545,9 @@ describe('UsersService', () => {
         isAdmin: false,
       });
 
-      expect(userRepository.findOneByOrFail).toHaveBeenCalledWith({ uuid: FIXED_UUID });
+      expect(userRepository.findOneByOrFail).toHaveBeenCalledWith({
+        uuid: FIXED_UUID,
+      });
       expect(userRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({
           uuid: FIXED_UUID,
@@ -588,7 +588,9 @@ describe('UsersService', () => {
     it('persists the unchanged profile for a request with neither field', async () => {
       userRepository.findOneByOrFail.mockResolvedValue(makeStoredUser());
 
-      await expect(service.updateProfile(FIXED_UUID, {})).resolves.toMatchObject({
+      await expect(
+        service.updateProfile(FIXED_UUID, {}),
+      ).resolves.toMatchObject({
         displayName: 'Eve',
         profilePictureUrl: 'https://example.com/avatar.png',
       });
@@ -650,15 +652,6 @@ describe('UsersService', () => {
       profilePictureUrl: null,
     };
 
-    const publicInfoOf = (user: typeof targetUser) => ({
-      uuid: user.uuid,
-      email: user.email,
-      displayName: user.displayName,
-      profilePictureUrl: user.profilePictureUrl ?? null,
-      roles: user.roles ?? [],
-      isAdmin: user.isAdmin,
-    });
-
     it('promotes a user and records the audit entry in the same transaction', async () => {
       manager.findOneBy
         .mockResolvedValueOnce(adminActor)
@@ -666,7 +659,7 @@ describe('UsersService', () => {
 
       await expect(
         service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: true }),
-      ).resolves.toEqual({ ...publicInfoOf(targetUser), isAdmin: true });
+      ).resolves.toEqual({ ...targetUser, isAdmin: true });
 
       expect(dataSource.transaction).toHaveBeenCalledTimes(1);
       expect(manager.save).toHaveBeenCalledWith(
@@ -711,7 +704,7 @@ describe('UsersService', () => {
 
       await expect(
         service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: false }),
-      ).resolves.toEqual(publicInfoOf(targetUser));
+      ).resolves.toEqual({ ...targetUser });
 
       expect(manager.create).toHaveBeenCalledWith(UserUpdateAudit, {
         actorUuid: ACTOR_UUID,
@@ -735,7 +728,10 @@ describe('UsersService', () => {
     });
 
     it('rejects when the acting account is no longer an admin (stale-token defence)', async () => {
-      manager.findOneBy.mockResolvedValueOnce({ ...adminActor, isAdmin: false });
+      manager.findOneBy.mockResolvedValueOnce({
+        ...adminActor,
+        isAdmin: false,
+      });
 
       await expect(
         service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: true }),
@@ -754,7 +750,10 @@ describe('UsersService', () => {
     });
 
     it('rejects a locked acting account', async () => {
-      manager.findOneBy.mockResolvedValueOnce({ ...adminActor, isLocked: true });
+      manager.findOneBy.mockResolvedValueOnce({
+        ...adminActor,
+        isLocked: true,
+      });
 
       await expect(
         service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: true }),
@@ -791,7 +790,7 @@ describe('UsersService', () => {
 
       await expect(
         service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: false }),
-      ).resolves.toEqual(publicInfoOf(targetUser));
+      ).resolves.toEqual({ ...targetUser });
 
       expect(manager.save).not.toHaveBeenCalled();
       expect(manager.create).not.toHaveBeenCalled();
@@ -804,9 +803,195 @@ describe('UsersService', () => {
 
       await expect(
         service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, {}),
-      ).resolves.toEqual(publicInfoOf(targetUser));
+      ).resolves.toEqual({ ...targetUser });
 
       expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it('archives a target account and records the archival in the audit entry (F12.2)', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser });
+
+      await expect(
+        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isArchived: true }),
+      ).resolves.toEqual({ ...targetUser, isArchived: true });
+
+      expect(manager.save).toHaveBeenCalledWith(
+        expect.objectContaining({ uuid: TARGET_UUID, isArchived: true }),
+      );
+      expect(manager.create).toHaveBeenCalledWith(UserUpdateAudit, {
+        actorUuid: ACTOR_UUID,
+        targetUuid: TARGET_UUID,
+        changedFields: { isArchived: { from: false, to: true } },
+      });
+    });
+
+    it('un-archives a target account (F12.3)', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser, isArchived: true });
+
+      await expect(
+        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isArchived: false }),
+      ).resolves.toEqual({ ...targetUser });
+
+      expect(manager.create).toHaveBeenCalledWith(UserUpdateAudit, {
+        actorUuid: ACTOR_UUID,
+        targetUuid: TARGET_UUID,
+        changedFields: { isArchived: { from: true, to: false } },
+      });
+    });
+
+    it('records both changes in a single audit entry when both flags move', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser });
+
+      await service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, {
+        isAdmin: true,
+        isArchived: true,
+      });
+
+      expect(manager.create).toHaveBeenCalledTimes(1);
+      expect(manager.create).toHaveBeenCalledWith(UserUpdateAudit, {
+        actorUuid: ACTOR_UUID,
+        targetUuid: TARGET_UUID,
+        changedFields: {
+          isAdmin: { from: false, to: true },
+          isArchived: { from: false, to: true },
+        },
+      });
+    });
+
+    it('refuses to archive the last remaining active admin (F12.2)', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser, isAdmin: true });
+      manager.count.mockResolvedValue(1);
+
+      await expect(
+        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isArchived: true }),
+      ).rejects.toThrow(ConflictException);
+
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(manager.create).not.toHaveBeenCalled();
+    });
+
+    it('archives an admin while another active admin remains', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser, isAdmin: true });
+      manager.count.mockResolvedValue(2);
+
+      await expect(
+        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isArchived: true }),
+      ).resolves.toEqual({ ...targetUser, isAdmin: true, isArchived: true });
+    });
+
+    it('treats a re-archive as a no-op with no audit entry', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser, isArchived: true });
+
+      await expect(
+        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isArchived: true }),
+      ).resolves.toEqual({ ...targetUser, isArchived: true });
+
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(manager.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('archiveSelf', () => {
+    const selfUser = {
+      uuid: FIXED_UUID,
+      email: 'eve@example.com',
+      displayName: 'Eve',
+      passwordHash: 'ab'.repeat(64),
+      passwordSalt: 'ab'.repeat(16),
+      isAdmin: false,
+      isLocked: false,
+      isArchived: false,
+      roles: [],
+      profilePictureUrl: null,
+    };
+
+    it("archives the caller's own account (F12.1)", async () => {
+      manager.findOneBy.mockResolvedValueOnce({ ...selfUser });
+
+      await expect(service.archiveSelf(FIXED_UUID)).resolves.toEqual({
+        ...selfUser,
+        isArchived: true,
+      });
+
+      expect(manager.findOneBy).toHaveBeenCalledWith(User, {
+        uuid: FIXED_UUID,
+      });
+      expect(manager.save).toHaveBeenCalledWith(
+        expect.objectContaining({ uuid: FIXED_UUID, isArchived: true }),
+      );
+    });
+
+    it('writes no audit entry for a self-initiated archive', async () => {
+      manager.findOneBy.mockResolvedValueOnce({ ...selfUser });
+
+      await service.archiveSelf(FIXED_UUID);
+
+      expect(manager.create).not.toHaveBeenCalled();
+    });
+
+    it('is a no-op when the account is already archived', async () => {
+      manager.findOneBy.mockResolvedValueOnce({
+        ...selfUser,
+        isArchived: true,
+      });
+
+      await expect(service.archiveSelf(FIXED_UUID)).resolves.toMatchObject({
+        isArchived: true,
+      });
+
+      expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the account no longer exists', async () => {
+      manager.findOneBy.mockResolvedValueOnce(null);
+
+      await expect(service.archiveSelf(FIXED_UUID)).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('refuses an admin archiving themself as the last active admin', async () => {
+      manager.findOneBy.mockResolvedValueOnce({
+        ...selfUser,
+        isAdmin: true,
+      });
+      manager.count.mockResolvedValue(1);
+
+      await expect(service.archiveSelf(FIXED_UUID)).rejects.toThrow(
+        ConflictException,
+      );
+
+      expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it('takes the advisory lock before counting admins, serialising the check', async () => {
+      manager.findOneBy.mockResolvedValueOnce({
+        ...selfUser,
+        isAdmin: true,
+      });
+      manager.count.mockResolvedValue(2);
+
+      await service.archiveSelf(FIXED_UUID);
+
+      expect(manager.query).toHaveBeenCalledWith(
+        'SELECT pg_advisory_xact_lock($1::bigint)',
+        [expect.any(Number)],
+      );
+      expect(manager.query.mock.invocationCallOrder[0]).toBeLessThan(
+        manager.count.mock.invocationCallOrder[0],
+      );
     });
   });
 
