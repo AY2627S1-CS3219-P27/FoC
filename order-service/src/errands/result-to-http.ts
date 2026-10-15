@@ -12,7 +12,12 @@ import type { TransitionResult } from '../lifecycle/transition.js';
 // Turns what create() / transition() return into an HTTP answer: the
 // success body, or a thrown Nest exception that Nest sends as the error.
 
-type Result = CreateResult | TransitionResult;
+// NOT_CANCELLABLE is the controller's own refusal (no transition ran), so it
+// is not in TransitionResult.
+type Result =
+  | CreateResult
+  | TransitionResult
+  | { ok: false; reason: 'NOT_CANCELLABLE' };
 
 // Every failure `reason` string from both result types.
 type FailureReason = Extract<Result, { ok: false }>['reason'];
@@ -40,6 +45,10 @@ const FAILURES: Record<FailureReason, { exception: ExceptionClass; message: stri
   ILLEGAL_TRANSITION: {
     exception: ConflictException,
     message: 'This action is not possible for the errand at this stage.',
+  },
+  NOT_CANCELLABLE: {
+    exception: ConflictException,
+    message: 'This errand can no longer be cancelled at its current stage.',
   },
   EXPIRED: {
     exception: ConflictException,

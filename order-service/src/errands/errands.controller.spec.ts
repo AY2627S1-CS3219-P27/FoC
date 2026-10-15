@@ -9,7 +9,7 @@ import { ErrandsModule } from './errands.module.js';
 
 // Real HTTP over ErrandsModule; only LifecycleService is faked, so no DB.
 describe('ErrandsController', () => {
-  const lifecycle = { create: vi.fn(), transition: vi.fn() };
+  const lifecycle = { create: vi.fn(), transition: vi.fn(), currentStatus: vi.fn() };
   let app: INestApplication;
   let base: string;
 
@@ -164,6 +164,32 @@ describe('ErrandsController', () => {
 
       expect(res.status).toBe(status);
       expect(await res.json()).toMatchObject({ code: reason });
+    });
+
+    describe('cancel', () => {
+      it('answers 404 for an unknown errand, without a transition', async () => {
+        lifecycle.currentStatus.mockResolvedValue(undefined);
+
+        const res = await act(errandId, 'cancel', undefined, await signAccessToken());
+
+        expect(res.status).toBe(404);
+        expect(await res.json()).toMatchObject({ code: 'NOT_FOUND' });
+        expect(lifecycle.currentStatus).toHaveBeenCalledWith(errandId);
+        expect(lifecycle.transition).not.toHaveBeenCalled();
+      });
+
+      it('rejects an errand id that is not a uuid, before reading anything', async () => {
+        expect((await act('abc', 'cancel', undefined, await signAccessToken())).status).toBe(400);
+        expect(lifecycle.currentStatus).not.toHaveBeenCalled();
+      });
+
+      // TODO (3): a status a requester can't cancel from (e.g. 'Picked Up')
+      //   answers 409 NOT_CANCELLABLE and never calls transition.
+      // TODO: from 'Open' and from 'Accepted', transition is called with
+      //   expected = that status, to 'Cancelled', the caller as actor and
+      //   set.cancellationReason 'REQUESTER_CANCELLED'; answers 200.
+      // TODO: a STATE_MISMATCH from transition (status moved after the read)
+      //   answers 409.
     });
   });
 });

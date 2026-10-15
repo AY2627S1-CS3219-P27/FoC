@@ -34,3 +34,21 @@ it('creates and transitions through the injected service', async () => {
     }),
   ).toMatchObject({ ok: true, sequenceNumber: 2 });
 });
+
+it('reads the current status, and undefined for an unknown errand', async () => {
+  const mod = await Test.createTestingModule({ imports: [LifecycleModule] })
+    .useMocker((token) => (token === DB ? t.db : undefined))
+    .compile();
+  const svc = mod.get(LifecycleService);
+
+  const created = await svc.create({
+    requesterId: randomUUID(),
+    supplierId: randomUUID(),
+    deliveryLocation: 'COM2',
+    rewardCredits: 5,
+  });
+  if (!created.ok) throw new Error('expected ok');
+
+  expect(await svc.currentStatus(created.errandId)).toBe('Pending-Supplier');
+  expect(await svc.currentStatus(randomUUID())).toBeUndefined();
+});

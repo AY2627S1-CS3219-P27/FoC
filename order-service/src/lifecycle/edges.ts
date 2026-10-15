@@ -65,8 +65,7 @@ const plain = (type: string, who: Role[], notice?: NoticeBuilder): Edge => ({
 });
 const sys: Role[] = ['system'];
 
-// The 18 edges of ARCHITECTURE.md §2 (ADR 0006); must mirror ALLOWED in
-// status.ts. A pair with several exits holds an array, picked by event type.
+// 18 edges in total
 export const EDGES: Partial<
   Record<Status, Partial<Record<Status, Edge | Edge[]>>>
 > = {
@@ -147,8 +146,10 @@ export const EDGES: Partial<
   },
 };
 
-// `type` is only needed for a pair with several exits; without it such a pair
-// is ambiguous and resolves to undefined.
+export function requesterCanCancel(from: Status): boolean {
+  return findEdge(from, 'Cancelled')?.who.includes('requester') ?? false;
+}
+
 export function findEdge(
   from: Status,
   to: Status,

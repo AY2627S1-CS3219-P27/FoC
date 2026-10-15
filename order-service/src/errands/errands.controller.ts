@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { LifecycleService } from '../lifecycle/lifecycle.service.js';
 import { WithdrawErrandDto, AdjustErrandDto, CreateErrandDto } from './errands.dto.js';
+import { requesterCanCancel } from '../lifecycle/edges.js';
 import { user } from '../lifecycle/transition.js';
 import { ACTIONS, type ActionContext, type ActionName } from './actions.js';
 import { resultToHttp } from './result-to-http.js';
@@ -95,6 +96,31 @@ export class ErrandsController {
     @Body() body: AdjustErrandDto,
     @Req() req: AuthenticatedRequest) {
     return this.run('adjust', id, req.user.sub, body);
+  }
+
+  @Post(':id/cancel')
+  @HttpCode(200)
+  async cancel(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const status = await this.lifecycle.currentStatus(id);
+    if (status === undefined) {
+      return resultToHttp({ ok: false, reason: 'NOT_FOUND' });
+    }
+
+    if (!requesterCanCancel(status)) {
+      return resultToHttp({ ok: false, reason: 'NOT_CANCELLABLE' });
+    }
+
+    const result = await this.lifecycle.transition({
+      errandId: id,
+      expected: status,
+      to: 'Cancelled',
+      actor: user(req.user.sub),
+      set: { cancellationReason: 'REQUESTER_CANCELLED' },
+    });
+    return resultToHttp(result);
   }
 
   // looks up the action's row and runs it as one transition
