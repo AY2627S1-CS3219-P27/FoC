@@ -6,6 +6,7 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Post,
   Query,
   Req,
   Res,
@@ -153,7 +154,25 @@ export class UsersController {
   }
 
   /**
-   * Admin-only user update.
+   * Archives the authenticated user's own account.
+   */
+  @Post('me/archive')
+  async archiveMe(
+    @Req() request: AuthenticatedRequest,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const archived = await this.usersService.archiveSelf(request.user.sub);
+
+    res.clearCookie(ACCESS_TOKEN_COOKIE, {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      secure: this.configService.get('NODE_ENV') === 'production',
+    });
+
+    return { uuid: archived.uuid, isArchived: archived.isArchived };
+  }
+
   /**
    * Admin-only user update: admin status and archival state
    * Returns the stored account projected as the admin view, so

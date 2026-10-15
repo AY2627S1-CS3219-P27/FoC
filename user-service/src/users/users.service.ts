@@ -305,6 +305,32 @@ export class UsersService {
   }
 
   /**
+   * Archives the caller's own account
+   *
+   * Self-initiated, so no audit entry is written.
+   */
+  async archiveSelf(uuid: string): Promise<User> {
+    return this.dataSource.transaction(async (manager) => {
+      await manager.query('SELECT pg_advisory_xact_lock($1::bigint)', [
+        ADMIN_MUTATION_LOCK_KEY,
+      ]);
+
+      const user = await manager.findOneBy(User, { uuid });
+      if (user === null) {
+        throw new UnauthorizedException();
+      }
+
+      const archiveChange = await this.applyArchiveChange(manager, user, true);
+      if (archiveChange === undefined) {
+        return user;
+      }
+
+      await manager.save(user);
+      return user;
+    });
+  }
+
+  /**
    * Applies an admin-status change to the target row, returning the audit
    * entry when the value actually changed (and `undefined` otherwise).
    */
