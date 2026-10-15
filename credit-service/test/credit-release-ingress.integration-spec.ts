@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import type { ErrandCancelledEvent } from '@foc/contracts';
+import {
+  AccountEventContractValidator,
+  type CreditReleaseRejectedEvent,
+  type CreditReleaseSuccessEvent,
+  type ErrandCancelledEvent,
+} from '@foc/contracts';
 import { DataSource } from 'typeorm';
 import { createDatabaseOptions } from '../src/database/database-options.js';
 import {
@@ -47,7 +52,10 @@ describe('ReleaseService durable ingress', () => {
     await dataSource.initialize();
     await dataSource.dropDatabase();
     await dataSource.runMigrations({ transaction: 'all' });
-    service = new ReleaseService(new SerializableTransactionRunner(dataSource));
+    service = new ReleaseService(
+      new SerializableTransactionRunner(dataSource),
+      new AccountEventContractValidator(),
+    );
   });
 
   beforeEach(async () => {
@@ -126,23 +134,122 @@ describe('ReleaseService durable ingress', () => {
   }
 
   async function createOutcome(
-    eventType: 'CreditReleaseSuccess' | 'CreditReleaseRejected',
+    event: CreditReleaseSuccessEvent | CreditReleaseRejectedEvent,
   ): Promise<OutboxEvent> {
-    const eventId = randomUUID();
     return dataSource.getRepository(OutboxEvent).save({
-      eventId,
-      eventType,
+      eventId: event.eventId,
+      eventType: event.eventType,
       routingKey:
-        eventType === 'CreditReleaseSuccess'
+        event.eventType === 'CreditReleaseSuccess'
           ? 'credit.release-success.v1'
           : 'credit.release-rejected.v1',
-      envelope: { eventId },
+      envelope: { ...event },
       publishedAt: null,
       attemptCount: 0,
       lastError: null,
       claimedBy: null,
       claimedUntil: null,
     });
+  }
+
+  async function establishSuccessfulRelease(
+    first: ErrandCancelledEvent,
+  ): Promise<{
+    operationId: string;
+    requesterUserId: string;
+    transaction: CreditTransaction;
+    originalOutcome: OutboxEvent;
+  }> {
+    const accepted = await service.accept(first);
+    if (accepted.status !== 'accepted') {
+      throw new Error('expected fresh release ingress');
+    }
+    const requesterUserId = randomUUID();
+    await dataSource.getRepository(CreditAccount).save({
+      userId: requesterUserId,
+      creditBalance: 100,
+      reservedBalance: 0,
+    });
+    const transaction = await dataSource.getRepository(CreditTransaction).save({
+      id: randomUUID(),
+      type: 'RELEASE',
+      amount: 25,
+      originBalanceType: 'RESERVED_BALANCE',
+      destinationBalanceType: 'CREDIT_BALANCE',
+      originUserId: requesterUserId,
+      destinationUserId: requesterUserId,
+      errandId: first.payload.errandId,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
+    const originalOutcome = await createOutcome({
+      eventId: randomUUID(),
+      eventType: 'CreditReleaseSuccess',
+      timestamp: transaction.createdAt.toISOString(),
+      publisher: 'credit-service',
+      payload: {
+        errandId: first.payload.errandId,
+        requesterUserId,
+        releasedAmount: 25,
+        creditTransactionId: transaction.id,
+      },
+    });
+    await dataSource.getRepository(CreditOperation).update(
+      { id: accepted.operationId },
+      {
+        status: 'SUCCEEDED',
+        requesterUserId,
+        amount: 25,
+        completionTransactionId: transaction.id,
+        outcomeOutboxEventId: originalOutcome.eventId,
+      },
+    );
+    return {
+      operationId: accepted.operationId,
+      requesterUserId,
+      transaction,
+      originalOutcome,
+    };
+  }
+
+  async function establishRejectedRelease(
+    first: ErrandCancelledEvent,
+    reason: 'RESERVATION_NOT_FOUND' | 'ALREADY_TRANSFERRED',
+  ): Promise<{
+    operationId: string;
+    requesterUserId: string;
+    originalOutcome: OutboxEvent;
+  }> {
+    const accepted = await service.accept(first);
+    if (accepted.status !== 'accepted') {
+      throw new Error('expected fresh release ingress');
+    }
+    const requesterUserId = randomUUID();
+    const originalOutcome = await createOutcome({
+      eventId: randomUUID(),
+      eventType: 'CreditReleaseRejected',
+      timestamp: new Date().toISOString(),
+      publisher: 'credit-service',
+      payload: {
+        errandId: first.payload.errandId,
+        requesterUserId,
+        rejectionReason: reason,
+      },
+    });
+    await dataSource.getRepository(CreditOperation).update(
+      { id: accepted.operationId },
+      {
+        status: 'REJECTED',
+        requesterUserId,
+        amount: 25,
+        rejectionReason: reason,
+        outcomeOutboxEventId: originalOutcome.eventId,
+      },
+    );
+    return {
+      operationId: accepted.operationId,
+      requesterUserId,
+      originalOutcome,
+    };
   }
 
   it('persists an unresolved pending release before acknowledgement', async () => {
@@ -273,44 +380,15 @@ describe('ReleaseService durable ingress', () => {
 
   it('replays success with the original release transaction', async () => {
     const first = command();
-    const accepted = await service.accept(first);
-    if (accepted.status !== 'accepted') {
-      throw new Error('expected fresh release ingress');
-    }
-    const requesterUserId = randomUUID();
-    await dataSource.getRepository(CreditAccount).save({
-      userId: requesterUserId,
-      creditBalance: 100,
-      reservedBalance: 0,
-    });
-    const transaction = await dataSource.getRepository(CreditTransaction).save({
-      id: randomUUID(),
-      type: 'RELEASE',
-      amount: 25,
-      originBalanceType: 'RESERVED_BALANCE',
-      destinationBalanceType: 'CREDIT_BALANCE',
-      originUserId: requesterUserId,
-      destinationUserId: requesterUserId,
-      errandId: first.payload.errandId,
-    });
-    const originalOutcome = await createOutcome('CreditReleaseSuccess');
-    await dataSource.getRepository(CreditOperation).update(
-      { id: accepted.operationId },
-      {
-        status: 'SUCCEEDED',
-        requesterUserId,
-        amount: 25,
-        completionTransactionId: transaction.id,
-        outcomeOutboxEventId: originalOutcome.eventId,
-      },
-    );
+    const { operationId, requesterUserId, transaction, originalOutcome } =
+      await establishSuccessfulRelease(first);
     const replayCommand = command({ payload: { ...first.payload } });
 
     const replay = await service.accept(replayCommand);
 
     expect(replay).toMatchObject({
       status: 'semantic-replay-completed',
-      operationId: accepted.operationId,
+      operationId,
       transactionId: transaction.id,
     });
     const replayOutbox = await dataSource
@@ -325,7 +403,6 @@ describe('ReleaseService durable ingress', () => {
       eventType: 'CreditReleaseSuccess',
       routingKey: 'credit.release-success.v1',
       envelope: {
-        timestamp: transaction.createdAt.toISOString(),
         payload: {
           errandId: first.payload.errandId,
           requesterUserId,
@@ -334,6 +411,15 @@ describe('ReleaseService durable ingress', () => {
         },
       },
     });
+    const replayEnvelope = replayOutbox.envelope as CreditReleaseSuccessEvent;
+    expect(replayEnvelope.eventId).toBe(replayOutbox.eventId);
+    expect(replayEnvelope.eventId).not.toBe(originalOutcome.eventId);
+    expect(replayEnvelope.timestamp).not.toBe(
+      transaction.createdAt.toISOString(),
+    );
+    expect(new Date(replayEnvelope.timestamp).getTime()).toBeGreaterThan(
+      transaction.createdAt.getTime(),
+    );
     const duplicate = await service.accept(replayCommand);
     expect(duplicate).toMatchObject({
       status: 'duplicate-event',
@@ -347,22 +433,8 @@ describe('ReleaseService durable ingress', () => {
     'replays the established %s rejection',
     async (reason) => {
       const first = command();
-      const accepted = await service.accept(first);
-      if (accepted.status !== 'accepted') {
-        throw new Error('expected fresh release ingress');
-      }
-      const requesterUserId = randomUUID();
-      const originalOutcome = await createOutcome('CreditReleaseRejected');
-      await dataSource.getRepository(CreditOperation).update(
-        { id: accepted.operationId },
-        {
-          status: 'REJECTED',
-          requesterUserId,
-          amount: 25,
-          rejectionReason: reason,
-          outcomeOutboxEventId: originalOutcome.eventId,
-        },
-      );
+      const { operationId, requesterUserId } =
+        await establishRejectedRelease(first, reason);
 
       const replay = await service.accept(
         command({ payload: { ...first.payload } }),
@@ -370,7 +442,7 @@ describe('ReleaseService durable ingress', () => {
 
       expect(replay).toMatchObject({
         status: 'semantic-replay-completed',
-        operationId: accepted.operationId,
+        operationId,
         transactionId: null,
       });
       await expect(
@@ -392,6 +464,94 @@ describe('ReleaseService durable ingress', () => {
         },
       });
       expect(await dataSource.getRepository(CreditTransaction).count()).toBe(0);
+    },
+  );
+
+  it.each([
+    'wrong event type',
+    'wrong routing key',
+    'invalid envelope',
+    'mismatched payload',
+  ] as const)(
+    'rolls back success replay with %s evidence',
+    async (scenario) => {
+      const first = command();
+      const { originalOutcome } = await establishSuccessfulRelease(first);
+      const updates: Partial<OutboxEvent> = {};
+      if (scenario === 'wrong event type') {
+        updates.eventType = 'CreditReleaseRejected';
+      } else if (scenario === 'wrong routing key') {
+        updates.routingKey = 'credit.release-rejected.v1';
+      } else if (scenario === 'invalid envelope') {
+        updates.envelope = {
+          ...originalOutcome.envelope,
+          unexpected: true,
+        };
+      } else {
+        const envelope = originalOutcome.envelope as CreditReleaseSuccessEvent;
+        updates.envelope = {
+          ...envelope,
+          payload: { ...envelope.payload, releasedAmount: 26 },
+        };
+      }
+      await dataSource
+        .getRepository(OutboxEvent)
+        .save(Object.assign(originalOutcome, updates));
+
+      await expect(
+        service.accept(command({ payload: { ...first.payload } })),
+      ).rejects.toThrow(
+        'Successful release operation has inconsistent outbox evidence',
+      );
+      expect(await dataSource.getRepository(InboxEvent).count()).toBe(1);
+      expect(await dataSource.getRepository(OutboxEvent).count()).toBe(1);
+    },
+  );
+
+  it.each([
+    'wrong event type',
+    'wrong routing key',
+    'invalid envelope',
+    'mismatched payload',
+  ] as const)(
+    'rolls back rejection replay with %s evidence',
+    async (scenario) => {
+      const first = command();
+      const { originalOutcome } = await establishRejectedRelease(
+        first,
+        'RESERVATION_NOT_FOUND',
+      );
+      const updates: Partial<OutboxEvent> = {};
+      if (scenario === 'wrong event type') {
+        updates.eventType = 'CreditReleaseSuccess';
+      } else if (scenario === 'wrong routing key') {
+        updates.routingKey = 'credit.release-success.v1';
+      } else if (scenario === 'invalid envelope') {
+        updates.envelope = {
+          ...originalOutcome.envelope,
+          unexpected: true,
+        };
+      } else {
+        const envelope = originalOutcome.envelope as CreditReleaseRejectedEvent;
+        updates.envelope = {
+          ...envelope,
+          payload: {
+            ...envelope.payload,
+            rejectionReason: 'ALREADY_TRANSFERRED',
+          },
+        };
+      }
+      await dataSource
+        .getRepository(OutboxEvent)
+        .save(Object.assign(originalOutcome, updates));
+
+      await expect(
+        service.accept(command({ payload: { ...first.payload } })),
+      ).rejects.toThrow(
+        'Rejected release operation has inconsistent outbox evidence',
+      );
+      expect(await dataSource.getRepository(InboxEvent).count()).toBe(1);
+      expect(await dataSource.getRepository(OutboxEvent).count()).toBe(1);
     },
   );
 
@@ -419,7 +579,18 @@ describe('ReleaseService durable ingress', () => {
         destinationUserId: otherUserId,
         errandId: first.payload.errandId,
       });
-    const originalOutcome = await createOutcome('CreditReleaseSuccess');
+    const originalOutcome = await createOutcome({
+      eventId: randomUUID(),
+      eventType: 'CreditReleaseSuccess',
+      timestamp: inconsistentTransaction.createdAt.toISOString(),
+      publisher: 'credit-service',
+      payload: {
+        errandId: first.payload.errandId,
+        requesterUserId,
+        releasedAmount: 25,
+        creditTransactionId: inconsistentTransaction.id,
+      },
+    });
     await dataSource.getRepository(CreditOperation).update(
       { id: accepted.operationId },
       {

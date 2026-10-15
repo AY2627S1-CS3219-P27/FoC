@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
+  AccountEventContractValidator,
   CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY,
   CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY,
   type CreditReleaseRejectedEvent,
@@ -94,7 +95,10 @@ function rejectionReason(operation: CreditOperation) {
 /** Persists a validated cancellation before financial release execution. */
 @Injectable()
 export class ReleaseService {
-  constructor(private readonly transactions: SerializableTransactionRunner) {}
+  constructor(
+    private readonly transactions: SerializableTransactionRunner,
+    private readonly contracts: AccountEventContractValidator,
+  ) {}
 
   async accept(
     command: ErrandCancelledEvent,
@@ -212,6 +216,11 @@ export class ReleaseService {
           .getRepository(CreditTransaction)
           .findOneBy({ id: transactionId });
         this.assertReleaseTransaction(establishedOperation, transaction);
+        await this.assertSuccessOutcome(
+          manager,
+          establishedOperation,
+          transaction,
+        );
         const outboxEventId = await this.recordSuccess(
           manager,
           command,
@@ -228,12 +237,14 @@ export class ReleaseService {
         };
       }
 
+      const reason = rejectionReason(establishedOperation);
+      await this.assertRejectedOutcome(manager, establishedOperation, reason);
       const outboxEventId = await this.recordRejection(
         manager,
         command,
         payloadHash,
         establishedOperation,
-        rejectionReason(establishedOperation),
+        reason,
       );
       return {
         status: 'semantic-replay-completed',
@@ -344,6 +355,68 @@ export class ReleaseService {
     }
   }
 
+  private async assertSuccessOutcome(
+    manager: EntityManager,
+    operation: CreditOperation,
+    transaction: CreditTransaction,
+  ): Promise<void> {
+    const outcome = await manager.getRepository(OutboxEvent).findOneBy({
+      eventId: operation.outcomeOutboxEventId!,
+    });
+    const validation = outcome
+      ? this.contracts.validate(
+          CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY,
+          outcome.envelope,
+        )
+      : null;
+    if (
+      !outcome ||
+      outcome.eventType !== 'CreditReleaseSuccess' ||
+      outcome.routingKey !== CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY ||
+      !validation?.valid ||
+      validation.value.eventId !== outcome.eventId ||
+      validation.value.timestamp !== transaction.createdAt.toISOString() ||
+      validation.value.payload.errandId !== operation.errandId ||
+      validation.value.payload.requesterUserId !== operation.requesterUserId ||
+      validation.value.payload.releasedAmount !== operation.amount ||
+      validation.value.payload.creditTransactionId !== transaction.id
+    ) {
+      throw new CreditReleaseIngressInvariantError(
+        'Successful release operation has inconsistent outbox evidence',
+      );
+    }
+  }
+
+  private async assertRejectedOutcome(
+    manager: EntityManager,
+    operation: CreditOperation,
+    reason: CreditReleaseRejectionReason,
+  ): Promise<void> {
+    const outcome = await manager.getRepository(OutboxEvent).findOneBy({
+      eventId: operation.outcomeOutboxEventId!,
+    });
+    const validation = outcome
+      ? this.contracts.validate(
+          CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY,
+          outcome.envelope,
+        )
+      : null;
+    if (
+      !outcome ||
+      outcome.eventType !== 'CreditReleaseRejected' ||
+      outcome.routingKey !== CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY ||
+      !validation?.valid ||
+      validation.value.eventId !== outcome.eventId ||
+      validation.value.payload.errandId !== operation.errandId ||
+      validation.value.payload.requesterUserId !== operation.requesterUserId ||
+      validation.value.payload.rejectionReason !== reason
+    ) {
+      throw new CreditReleaseIngressInvariantError(
+        'Rejected release operation has inconsistent outbox evidence',
+      );
+    }
+  }
+
   private async recordSuccess(
     manager: EntityManager,
     command: ErrandCancelledEvent,
@@ -356,7 +429,7 @@ export class ReleaseService {
     const event: CreditReleaseSuccessEvent = {
       eventId,
       eventType: 'CreditReleaseSuccess',
-      timestamp: transaction.createdAt.toISOString(),
+      timestamp: new Date().toISOString(),
       publisher: 'credit-service',
       payload: {
         errandId: command.payload.errandId,

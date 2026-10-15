@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import type {
-  ErrandCancelledEvent,
-  ErrandCompletedEvent,
+import {
+  AccountEventContractValidator,
+  type ErrandCancelledEvent,
+  type ErrandCompletedEvent,
 } from '@foc/contracts';
 import { DataSource } from 'typeorm';
 import { createDatabaseOptions } from '../src/database/database-options.js';
@@ -191,7 +192,10 @@ describe('ReleaseOperationProcessor', () => {
     await dataSource.dropDatabase();
     await dataSource.runMigrations({ transaction: 'all' });
     const transactions = new SerializableTransactionRunner(dataSource);
-    ingress = new ReleaseService(transactions);
+    ingress = new ReleaseService(
+      transactions,
+      new AccountEventContractValidator(),
+    );
     processor = new ReleaseOperationProcessor(transactions);
     transferIngress = new TransferService(transactions);
     transferProcessor = new TransferOperationProcessor(transactions);
