@@ -52,3 +52,38 @@ it('reads the current status, and undefined for an unknown errand', async () => 
   expect(await svc.currentStatus(created.errandId)).toBe('Pending-Supplier');
   expect(await svc.currentStatus(randomUUID())).toBeUndefined();
 });
+
+it('reads the latest event, and undefined for an unknown errand', async () => {
+  const mod = await Test.createTestingModule({ imports: [LifecycleModule] })
+    .useMocker((token) => (token === DB ? t.db : undefined))
+    .compile();
+  const svc = mod.get(LifecycleService);
+
+  const created = await svc.create({
+    requesterId: randomUUID(),
+    supplierId: randomUUID(),
+    deliveryLocation: 'COM2',
+    rewardCredits: 5,
+  });
+  if (!created.ok) throw new Error('expected ok');
+  expect(await svc.lastEvent(created.errandId)).toEqual({
+    fromStatus: null,
+    toStatus: 'Pending-Supplier',
+    type: 'ErrandCreated',
+  });
+
+  await svc.transition({
+    actor: SYSTEM,
+    errandId: created.errandId,
+    expected: 'Pending-Supplier',
+    to: 'Cancelled',
+    set: { cancellationReason: 'SUPPLIER_UNAVAILABLE' },
+  });
+  expect(await svc.lastEvent(created.errandId)).toEqual({
+    fromStatus: 'Pending-Supplier',
+    toStatus: 'Cancelled',
+    type: 'ErrandCancelled',
+  });
+
+  expect(await svc.lastEvent(randomUUID())).toBeUndefined();
+});

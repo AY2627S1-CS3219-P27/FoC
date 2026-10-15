@@ -9,7 +9,12 @@ import { ErrandsModule } from './errands.module.js';
 
 // Real HTTP over ErrandsModule; only LifecycleService is faked, so no DB.
 describe('ErrandsController', () => {
-  const lifecycle = { create: vi.fn(), transition: vi.fn(), currentStatus: vi.fn() };
+  const lifecycle = {
+    create: vi.fn(),
+    transition: vi.fn(),
+    currentStatus: vi.fn(),
+    lastEvent: vi.fn(),
+  };
   let app: INestApplication;
   let base: string;
 
@@ -183,13 +188,69 @@ describe('ErrandsController', () => {
         expect(lifecycle.currentStatus).not.toHaveBeenCalled();
       });
 
-      // TODO (3): a status a requester can't cancel from (e.g. 'Picked Up')
-      //   answers 409 NOT_CANCELLABLE and never calls transition.
-      // TODO: from 'Open' and from 'Accepted', transition is called with
-      //   expected = that status, to 'Cancelled', the caller as actor and
-      //   set.cancellationReason 'REQUESTER_CANCELLED'; answers 200.
-      // TODO: a STATE_MISMATCH from transition (status moved after the read)
-      //   answers 409.
+      describe('when the errand is already Cancelled', () => {
+        const cancelledFrom = (fromStatus: string | null) => {
+          lifecycle.currentStatus.mockResolvedValue('Cancelled');
+          lifecycle.lastEvent.mockResolvedValue({
+            fromStatus,
+            toStatus: 'Cancelled',
+            type: 'ErrandCancelled',
+          });
+        };
+
+        it.each(['Open', 'Accepted'])(
+          'aims at the %s edge it was cancelled from, so a retry replays',
+          async (fromStatus) => {
+            cancelledFrom(fromStatus);
+            lifecycle.transition.mockResolvedValue({ ok: true, sequenceNumber: 2, replayed: true });
+
+            const res = await act(errandId, 'cancel', undefined, await signAccessToken());
+
+            expect(res.status).toBe(200);
+            expect(lifecycle.transition).toHaveBeenCalledWith({
+              errandId,
+              expected: fromStatus,
+              to: 'Cancelled',
+              actor,
+              set: { cancellationReason: 'REQUESTER_CANCELLED' },
+            });
+          },
+        );
+
+        it('passes on 409 when someone else cancelled it (transition says STATE_MISMATCH)', async () => {
+          cancelledFrom('Open');
+          lifecycle.transition.mockResolvedValue({
+            ok: false,
+            reason: 'STATE_MISMATCH',
+            currentStatus: 'Cancelled',
+          });
+
+          const res = await act(errandId, 'cancel', undefined, await signAccessToken());
+
+          expect(res.status).toBe(409);
+          expect(await res.json()).toMatchObject({ code: 'STATE_MISMATCH' });
+        });
+
+        it('answers NOT_CANCELLABLE when it was cancelled from a status a requester cannot cancel', async () => {
+          cancelledFrom('Picked Up');
+
+          const res = await act(errandId, 'cancel', undefined, await signAccessToken());
+
+          expect(res.status).toBe(409);
+          expect(await res.json()).toMatchObject({ code: 'NOT_CANCELLABLE' });
+          expect(lifecycle.transition).not.toHaveBeenCalled();
+        });
+      });
+
+      it('does not read the last event for an errand that is not Cancelled', async () => {
+        lifecycle.currentStatus.mockResolvedValue('Open');
+        lifecycle.transition.mockResolvedValue({ ok: true, sequenceNumber: 2 });
+
+        await act(errandId, 'cancel', undefined, await signAccessToken());
+
+        expect(lifecycle.lastEvent).not.toHaveBeenCalled();
+        expect(lifecycle.transition.mock.calls[0][0].expected).toBe('Open');
+      });
     });
   });
 });

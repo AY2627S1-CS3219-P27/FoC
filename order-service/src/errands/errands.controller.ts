@@ -109,13 +109,19 @@ export class ErrandsController {
       return resultToHttp({ ok: false, reason: 'NOT_FOUND' });
     }
 
-    if (!requesterCanCancel(status)) {
+    //idempotency check for cancelled
+    const expected =
+      status === 'Cancelled'
+        ? ((await this.lifecycle.lastEvent(id))?.fromStatus ?? status)
+        : status;
+
+    if (!requesterCanCancel(expected)) {
       return resultToHttp({ ok: false, reason: 'NOT_CANCELLABLE' });
     }
 
     const result = await this.lifecycle.transition({
       errandId: id,
-      expected: status,
+      expected,
       to: 'Cancelled',
       actor: user(req.user.sub),
       set: { cancellationReason: 'REQUESTER_CANCELLED' },

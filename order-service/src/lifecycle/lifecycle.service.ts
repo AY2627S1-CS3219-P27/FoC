@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { DB } from '../db/db.module.js';
-import { errands } from '../db/schema.js';
+import { errandEvents, errands } from '../db/schema.js';
 import { enqueueRelease } from './notice.js';
 import { createErrand, type CreateRequestInputs } from './create.js';
 import { rebuildProjection } from './rebuild.js';
@@ -30,14 +30,29 @@ export class LifecycleService {
     return rebuildProjection(this.db, errandId);
   }
 
-  // The errand's status right now, or undefined if there is no such errand.
-  // Only a guess for a caller picking `expected`: it may change before the
-  // transition runs, and transition()'s WHERE status = expected catches that.
+  // used for incoming cancel HTTP requests and cancel has to 
+  // know where it is coming from
   async currentStatus(errandId: string): Promise<Status | undefined> {
     const [row] = await this.db
       .select({ status: errands.status })
       .from(errands)
       .where(eq(errands.id, errandId));
     return row?.status;
+  }
+
+  async lastEvent(
+    errandId: string,
+  ): Promise<{ fromStatus: Status | null; toStatus: Status; type: string } | undefined> {
+    const [row] = await this.db
+      .select({
+        fromStatus: errandEvents.fromStatus,
+        toStatus: errandEvents.toStatus,
+        type: errandEvents.type,
+      })
+      .from(errandEvents)
+      .where(eq(errandEvents.errandId, errandId))
+      .orderBy(desc(errandEvents.sequenceNumber))
+      .limit(1);
+    return row;
   }
 }
