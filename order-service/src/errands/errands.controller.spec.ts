@@ -38,12 +38,13 @@ describe('ErrandsController', () => {
     deliveryLocation: 'COM2',
     rewardCredits: 5,
   };
-  const post = async (body: unknown, token?: string) =>
+  const post = async (body: unknown, token?: string, headers: Record<string, string> = {}) =>
     fetch(base, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         ...(token && { authorization: `Bearer ${token}` }),
+        ...headers,
       },
       body: JSON.stringify(body),
     });
@@ -87,6 +88,34 @@ describe('ErrandsController', () => {
       expect(lifecycle.create).not.toHaveBeenCalled();
     });
 
+    it('passes the Idempotency-Key header to create', async () => {
+      lifecycle.create.mockResolvedValue({ ok: true, errandId: 'e1' });
+
+      await post(validBody, await signAccessToken(), { 'Idempotency-Key': 'create-1' });
+
+      expect(lifecycle.create.mock.calls[0][0].idempotencyKey).toBe('create-1');
+    });
+
+    it('sends no key when the header is absent', async () => {
+      lifecycle.create.mockResolvedValue({ ok: true, errandId: 'e1' });
+
+      await post(validBody, await signAccessToken());
+
+      expect(lifecycle.create.mock.calls[0][0].idempotencyKey).toBeUndefined();
+    });
+
+    it.each([
+      ['an empty key', ''],
+      ['a key over 255 characters', 'k'.repeat(256)],
+      ['a key with a space', 'my key'],
+    ])('rejects %s before reaching the lifecycle', async (_, key) => {
+      const res = await post(validBody, await signAccessToken(), { 'Idempotency-Key': key });
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ code: 'INVALID_IDEMPOTENCY_KEY' });
+      expect(lifecycle.create).not.toHaveBeenCalled();
+    });
+
     it('maps a lifecycle failure to its HTTP error', async () => {
       lifecycle.create.mockResolvedValue({ ok: false, reason: 'INVALID_FIELDS' });
 
@@ -99,12 +128,19 @@ describe('ErrandsController', () => {
 
   describe('POST /v1/errands/:id/<action>', () => {
     const errandId = randomUUID();
-    const act = async (id: string, action: string, body?: unknown, token?: string) =>
+    const act = async (
+      id: string,
+      action: string,
+      body?: unknown,
+      token?: string,
+      headers: Record<string, string> = {},
+    ) =>
       fetch(`${base}/${id}/${action}`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
           ...(token && { authorization: `Bearer ${token}` }),
+          ...headers,
         },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
@@ -133,6 +169,49 @@ describe('ErrandsController', () => {
     it('rejects a caller without a token', async () => {
       expect((await act(errandId, 'accept')).status).toBe(401);
       expect(lifecycle.transition).not.toHaveBeenCalled();
+    });
+
+    describe('Idempotency-Key', () => {
+      const keyed = { 'Idempotency-Key': 'action-1' };
+
+      it.each([
+        ['accept', undefined],
+        ['withdraw', { reason: 'bike broke down' }],
+      ])('passes the key to the %s transition', async (action, body) => {
+        lifecycle.transition.mockResolvedValue({ ok: true, sequenceNumber: 2 });
+
+        await act(errandId, action, body, await signAccessToken(), keyed);
+
+        expect(lifecycle.transition.mock.calls[0][0].idempotencyKey).toBe('action-1');
+      });
+
+      it('passes the key to the cancel transition', async () => {
+        lifecycle.currentStatus.mockResolvedValue('Open');
+        lifecycle.transition.mockResolvedValue({ ok: true, sequenceNumber: 2 });
+
+        await act(errandId, 'cancel', undefined, await signAccessToken(), keyed);
+
+        expect(lifecycle.transition.mock.calls[0][0].idempotencyKey).toBe('action-1');
+      });
+
+      it('sends no key when the header is absent', async () => {
+        lifecycle.transition.mockResolvedValue({ ok: true, sequenceNumber: 2 });
+
+        await act(errandId, 'accept', undefined, await signAccessToken());
+
+        expect(lifecycle.transition.mock.calls[0][0].idempotencyKey).toBeUndefined();
+      });
+
+      it.each(['accept', 'cancel'])('rejects a bad key on %s before reaching the lifecycle', async (action) => {
+        const res = await act(errandId, action, undefined, await signAccessToken(), {
+          'Idempotency-Key': 'k'.repeat(256),
+        });
+
+        expect(res.status).toBe(400);
+        expect(await res.json()).toMatchObject({ code: 'INVALID_IDEMPOTENCY_KEY' });
+        expect(lifecycle.currentStatus).not.toHaveBeenCalled();
+        expect(lifecycle.transition).not.toHaveBeenCalled();
+      });
     });
 
     it('rejects an errand id that is not a uuid, before reaching the lifecycle', async () => {

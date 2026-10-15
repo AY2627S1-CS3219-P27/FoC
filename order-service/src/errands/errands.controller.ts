@@ -14,6 +14,7 @@ import { WithdrawErrandDto, AdjustErrandDto, CreateErrandDto } from './errands.d
 import { requesterCanCancel } from '../lifecycle/edges.js';
 import { user } from '../lifecycle/transition.js';
 import { ACTIONS, type ActionContext, type ActionName } from './actions.js';
+import { IdempotencyKey } from './idempotency-key.js';
 import { resultToHttp } from './result-to-http.js';
 
 // Every route needs a valid access token: none of them is public.
@@ -26,10 +27,12 @@ export class ErrandsController {
   async create(
     @Body() body: CreateErrandDto,
     @Req() req: AuthenticatedRequest,
+    @IdempotencyKey() idempotencyKey: string | undefined,
   ) {
     const result = await this.lifecycle.create({
       ...body,
       requesterId: req.user.sub,
+      idempotencyKey,
     });
     return resultToHttp(result);
   }
@@ -39,8 +42,9 @@ export class ErrandsController {
   accept(
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req: AuthenticatedRequest,
+    @IdempotencyKey() idempotencyKey: string | undefined,
   ) {
-    return this.run('accept', id, req.user.sub);
+    return this.run('accept', id, req.user.sub, idempotencyKey);
   }
 
   @Post(':id/pickup')
@@ -48,8 +52,9 @@ export class ErrandsController {
   pickup(
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req: AuthenticatedRequest,
+    @IdempotencyKey() idempotencyKey: string | undefined,
   ) {
-    return this.run('pickup', id, req.user.sub);
+    return this.run('pickup', id, req.user.sub, idempotencyKey);
   }
 
   @Post(':id/deliver')
@@ -57,8 +62,9 @@ export class ErrandsController {
   deliver(
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req: AuthenticatedRequest,
+    @IdempotencyKey() idempotencyKey: string | undefined,
   ) {
-    return this.run('deliver', id, req.user.sub);
+    return this.run('deliver', id, req.user.sub, idempotencyKey);
   }
 
   @Post(':id/confirm')
@@ -66,8 +72,9 @@ export class ErrandsController {
   confirm(
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req: AuthenticatedRequest,
+    @IdempotencyKey() idempotencyKey: string | undefined,
   ) {
-    return this.run('confirm', id, req.user.sub);
+    return this.run('confirm', id, req.user.sub, idempotencyKey);
   }
 
   @Post(':id/incomplete')
@@ -75,8 +82,9 @@ export class ErrandsController {
   incomplete(
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req: AuthenticatedRequest,
+    @IdempotencyKey() idempotencyKey: string | undefined,
   ) {
-    return this.run('incomplete', id, req.user.sub);
+    return this.run('incomplete', id, req.user.sub, idempotencyKey);
   }
 
   @Post(':id/withdraw')
@@ -85,8 +93,9 @@ export class ErrandsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: WithdrawErrandDto,
     @Req() req: AuthenticatedRequest,
+    @IdempotencyKey() idempotencyKey: string | undefined,
   ) {
-    return this.run('withdraw', id, req.user.sub, body);
+    return this.run('withdraw', id, req.user.sub, idempotencyKey, body);
   }
 
   @Post(':id/adjust')
@@ -94,8 +103,10 @@ export class ErrandsController {
   adjust(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: AdjustErrandDto,
-    @Req() req: AuthenticatedRequest) {
-    return this.run('adjust', id, req.user.sub, body);
+    @Req() req: AuthenticatedRequest,
+    @IdempotencyKey() idempotencyKey: string | undefined,
+  ) {
+    return this.run('adjust', id, req.user.sub, idempotencyKey, body);
   }
 
   @Post(':id/cancel')
@@ -103,6 +114,7 @@ export class ErrandsController {
   async cancel(
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req: AuthenticatedRequest,
+    @IdempotencyKey() idempotencyKey: string | undefined,
   ) {
     const status = await this.lifecycle.currentStatus(id);
     if (status === undefined) {
@@ -125,6 +137,7 @@ export class ErrandsController {
       to: 'Cancelled',
       actor: user(req.user.sub),
       set: { cancellationReason: 'REQUESTER_CANCELLED' },
+      idempotencyKey,
     });
     return resultToHttp(result);
   }
@@ -134,6 +147,7 @@ export class ErrandsController {
     action: ActionName,
     errandId: string,
     callerId: string,
+    idempotencyKey: string | undefined,
     body?: ActionContext['body'],
   ) {
     const actionValue = ACTIONS[action];
@@ -146,6 +160,7 @@ export class ErrandsController {
       to: actionValue.to,
       actor: user(callerId),
       ...actionReturn,
+      idempotencyKey,
     });
     
     return resultToHttp(result);
