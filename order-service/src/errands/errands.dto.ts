@@ -47,3 +47,17 @@ export class CreateErrandDto {
   @Max(MAX_EXPIRY_MINUTES)
   expiryDurationMinutes?: number;
 }
+
+// F7.4: the courier must say why. Same limits as the CourierWithdrew payload.
+export class WithdrawErrandDto {
+  @IsString()
+  @MaxLength(500)
+  @Matches(NOT_BLANK)
+  reason: string;
+}
+
+export class AdjustErrandDto {
+  @IsInt()
+  @Min(1)
+  newAmount: number;
+}
