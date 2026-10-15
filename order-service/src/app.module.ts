@@ -6,6 +6,7 @@ import { AuthKeyService } from './auth/auth-key.service.js';
 import { environmentSchema } from './config/environment.schema.js';
 import { CreditRepliesModule } from './credit-replies/credit-replies.module.js';
 import { DbModule } from './db/db.module.js';
+import { ErrandsModule } from './errands/errands.module.js';
 import { HealthController } from './health/health.controller.js';
 import { LifecycleModule } from './lifecycle/lifecycle.module.js';
 import { MessagingModule } from './messaging/messaging.module.js';
@@ -29,6 +30,7 @@ import { SweepsModule } from './sweeps/sweeps.module.js';
     }),
     DbModule,
     CreditRepliesModule,
+    ErrandsModule,
     LifecycleModule,
     MessagingModule,
     OutboxModule,
