@@ -274,6 +274,14 @@ export class ReleaseService {
           'Reservation and reserve operation disagree on requester',
         );
       }
+      if (
+        reserveContext?.amount !== undefined &&
+        reserveContext.amount !== reservation.reservedAmount
+      ) {
+        throw new CreditReleaseIngressInvariantError(
+          'Reservation and reserve operation disagree on amount',
+        );
+      }
       return {
         requesterUserId: reservation.requesterUserId,
         amount: reservation.reservedAmount,

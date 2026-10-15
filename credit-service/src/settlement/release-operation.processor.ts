@@ -178,6 +178,9 @@ export class ReleaseOperationProcessor {
         );
       }
       if (reservation.status === 'RELEASED') {
+        if (contextEnriched) {
+          await operations.save(operation);
+        }
         return this.defer(
           'Pending release found a reservation already released',
         );
@@ -340,6 +343,15 @@ export class ReleaseOperationProcessor {
     ) {
       throw new CreditReleaseExecutionError(
         'Reservation and reserve operation disagree on requester',
+      );
+    }
+    if (
+      reserveOperation?.amount !== null &&
+      reserveOperation?.amount !== undefined &&
+      reserveOperation.amount !== reservation.reservedAmount
+    ) {
+      throw new CreditReleaseExecutionError(
+        'Reservation and reserve operation disagree on amount',
       );
     }
   }

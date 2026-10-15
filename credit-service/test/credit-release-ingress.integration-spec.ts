@@ -184,7 +184,7 @@ describe('ReleaseService durable ingress', () => {
     await createReserveOperation(
       incoming.payload.errandId,
       requesterUserId,
-      20,
+      25,
     );
     await createReservation(incoming.payload.errandId, requesterUserId, 25);
 
@@ -196,6 +196,33 @@ describe('ReleaseService durable ingress', () => {
         operationType: 'RELEASE',
       }),
     ).resolves.toMatchObject({ requesterUserId, amount: 25 });
+  });
+
+  it('rejects conflicting reserve and reservation amounts without accepting ingress', async () => {
+    const incoming = command();
+    const requesterUserId = randomUUID();
+    await createReserveOperation(
+      incoming.payload.errandId,
+      requesterUserId,
+      20,
+    );
+    await createReservation(incoming.payload.errandId, requesterUserId, 25);
+
+    await expect(service.accept(incoming)).rejects.toThrow(
+      'Reservation and reserve operation disagree on amount',
+    );
+
+    expect(
+      await dataSource.getRepository(CreditOperation).countBy({
+        errandId: incoming.payload.errandId,
+        operationType: 'RELEASE',
+      }),
+    ).toBe(0);
+    expect(
+      await dataSource
+        .getRepository(InboxEvent)
+        .countBy({ eventId: incoming.eventId }),
+    ).toBe(0);
   });
 
   it('enriches a pending semantic replay from the reserve operation', async () => {

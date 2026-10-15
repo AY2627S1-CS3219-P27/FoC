@@ -431,19 +431,95 @@ describe('ReleaseOperationProcessor', () => {
     const event = cancellation();
     const requesterUserId = randomUUID();
     await createAccount(requesterUserId, 100, 0);
+    const accepted = await ingress.accept(event);
+    if (accepted.status !== 'accepted') {
+      throw new Error('expected fresh release ingress');
+    }
     await createReservation(
       event.payload.errandId,
       requesterUserId,
       'RELEASED',
     );
-    const { operationId, workerId } = await acceptAndClaim(event);
+    const workerId = randomUUID();
+    await operationStore.claim(workerId, 10, 30_000);
 
     await expect(
-      processor.processClaimed(operationId, workerId),
+      processor.processClaimed(accepted.operationId, workerId),
     ).rejects.toBeInstanceOf(CreditReleaseExecutionError);
+    await expect(
+      dataSource
+        .getRepository(CreditOperation)
+        .findOneByOrFail({ id: accepted.operationId }),
+    ).resolves.toMatchObject({
+      status: 'PENDING',
+      requesterUserId,
+      amount: 25,
+      completionTransactionId: null,
+      outcomeOutboxEventId: null,
+    });
     expect(
       await dataSource.getRepository(CreditTransaction).countBy({
         type: 'RELEASE',
+      }),
+    ).toBe(0);
+  });
+
+  it('rejects conflicting reserve and reservation amounts without financial mutation', async () => {
+    const event = cancellation();
+    const requesterUserId = randomUUID();
+    const accepted = await ingress.accept(event);
+    if (accepted.status !== 'accepted') {
+      throw new Error('expected fresh release ingress');
+    }
+    await createAccount(requesterUserId, 75, 25);
+    await createReserveOperation(
+      event.payload.errandId,
+      requesterUserId,
+      'SUCCEEDED',
+      30,
+    );
+    const reservation = await createReservation(
+      event.payload.errandId,
+      requesterUserId,
+      'ACTIVE',
+      25,
+    );
+    const workerId = randomUUID();
+    await operationStore.claim(workerId, 10, 30_000);
+
+    await expect(
+      processor.processClaimed(accepted.operationId, workerId),
+    ).rejects.toThrow('Reservation and reserve operation disagree on amount');
+
+    await expect(
+      dataSource
+        .getRepository(CreditAccount)
+        .findOneByOrFail({ userId: requesterUserId }),
+    ).resolves.toMatchObject({ creditBalance: 75, reservedBalance: 25 });
+    await expect(
+      dataSource
+        .getRepository(CreditReservation)
+        .findOneByOrFail({ id: reservation.id }),
+    ).resolves.toMatchObject({ status: 'ACTIVE', reservedAmount: 25 });
+    await expect(
+      dataSource
+        .getRepository(CreditOperation)
+        .findOneByOrFail({ id: accepted.operationId }),
+    ).resolves.toMatchObject({
+      status: 'PENDING',
+      requesterUserId: null,
+      amount: null,
+      completionTransactionId: null,
+      outcomeOutboxEventId: null,
+    });
+    expect(
+      await dataSource
+        .getRepository(CreditTransaction)
+        .countBy({ type: 'RELEASE' }),
+    ).toBe(0);
+    expect(
+      await dataSource.getRepository(OutboxEvent).countBy({
+        eventType: 'CreditReleaseSuccess',
       }),
     ).toBe(0);
   });
