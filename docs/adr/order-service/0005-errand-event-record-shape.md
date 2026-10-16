@@ -77,7 +77,11 @@ the ambiguity between a deliberate retry and a stale duplicate. A client that
 wants a genuine second attempt sends a new key.
 
 The costs: one extra write per keyed request, and the table grows, so keys
-need a retention policy (expire after a fixed window). Claiming the key first
+expire after a fixed window: a sweep deletes keys older than
+`IDEMPOTENCY_KEY_TTL_MS` (default 7 days). A duplicate arriving after its key
+is gone loses strict replay but still meets the status guard, so it fails with
+`STATE_MISMATCH` or is caught as a keyless repeat; the window only has to
+outlast broker redelivery and client retries. Claiming the key first
 also serialises concurrent same-key requests on the primary key, which replaces
 the earlier "recheck after a lost `UPDATE`" replay path. F9.10 (repeat by the
 same user of an already-applied transition, no key) is a separate rule and is
@@ -113,8 +117,8 @@ holding such a key on an edge that does not own it would reach the log but not
 the row, and a rebuild would then disagree with the live row.
 
 Rule: caller `payload` must not use projection column names; edge-owned
-columns go in via `set` or the edge's `clears`. Nothing enforces this yet,
-and no current caller breaks it. The per-type Joi payload validation described above (not yet implemented)
-enforces it by allowing each `(type, schema_version)` only its own keys.
-Until then it is a convention. If a caller needs enforcement sooner,
-`apply()` can drop `COLUMNS` keys from `i.payload` before merging.
+columns go in via `set` or the edge's `clears`. The per-type Joi payload
+validation described above enforces it (`src/lifecycle/payloads.ts`): each
+event type allows only its own keys, unknown keys are refused, and an event
+type with no schema is refused, so `transition()` returns `INVALID_FIELDS`
+before the transaction. Every schema is `schema_version` 1 today.

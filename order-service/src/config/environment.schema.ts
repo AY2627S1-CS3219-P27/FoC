@@ -35,6 +35,9 @@ export const environmentSchema = Joi.object({
   DB_DATABASE: Joi.string().min(1).required(),
   DB_PASSWORD_FILE: Joi.string().min(1).required(),
 
+  // user-service's RS256 public key (PEM), used by @foc/auth to verify access tokens.
+  JWT_PUBLIC_KEY_FILE: Joi.string().min(1).required(),
+
   RABBITMQ_USER: Joi.string().min(1).required(),
   RABBITMQ_HOST: Joi.string().hostname().required(),
   RABBITMQ_PORT: Joi.number().port().required(),
@@ -59,6 +62,7 @@ export const environmentSchema = Joi.object({
   RESERVING_CREDIT_TIMEOUT_MS: Joi.number().integer().min(1).default(300_000),
   CREDIT_REPLY_TIMEOUT_MS: Joi.number().integer().min(1).default(120_000),
   CREDIT_RESEND_MAX: Joi.number().integer().min(0).default(3),
+  IDEMPOTENCY_KEY_TTL_MS: Joi.number().integer().min(1).default(604_800_000), // 7 days
 })
   // The lease must outlast the confirm timeout, or a slow publish loses its claim.
   .custom((env, helpers) => {

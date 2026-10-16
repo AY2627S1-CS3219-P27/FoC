@@ -39,7 +39,7 @@ flowchart LR
   Life --> Events
   Sweeps --> Locks
   Sweeps --> Life
-  Life -.->|"planned: same transaction"| OutboxT
+  Life -->|"same transaction: notice"| OutboxT
   OutboxT --> Outbox
   Outbox -->|"publish with confirms"| MQ
   MQ --> Consumers
@@ -63,7 +63,7 @@ Only the Lifecycle module writes. Every write, from a request, a notice reply or
 8) Adjusting-Credit -> Open, `CreditAdjusted` (adjustment confirmed, new `rewardCredits`)
 9) Adjusting-Credit -> Open, `CreditAdjustmentFailed` (adjustment rejected, amount unchanged)
 10) Accepted -> Picked Up (courier marks picked up)
-11) Accepted -> Open (courier cancels after accepting, before pickup)
+11) Accepted -> Open (courier cancels after accepting, before pickup; must give a reason, F7.4)
 12) Accepted -> Cancelled (requester cancels after acceptance, before pickup, if permitted)
 13) Picked Up -> Delivered (courier marks delivered)
 14) Picked Up -> Cancelled (PICKUP_TIME_EXCEEDED, system only; the requester cannot cancel once picked up)
@@ -137,9 +137,11 @@ sequenceDiagram
     L-->>C: STATE_MISMATCH / FORBIDDEN / EXPIRED
   else 1 row affected
     L->>DB: INSERT errand_events (seq, type, from, to, actor, payload JSONB, key)
+    opt edge has a notice builder
+      L->>DB: INSERT outbox_events (envelope validated against its contract)
+    end
     L->>DB: COMMIT
     L-->>C: success
-    Note over L,DB: planned: INSERT outbox_events in the same transaction (not wired yet)
   end
 ```
 

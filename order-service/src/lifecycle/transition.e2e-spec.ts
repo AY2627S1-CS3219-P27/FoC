@@ -12,6 +12,7 @@ beforeAll(async () => {
 afterAll(() => t.close());
 
 const requester = randomUUID();
+const withdrawal = { reason: 'bike broke down' }; // F7.4: a courier withdraw needs one
 // Fresh per test: the one-active-errand-per-courier index forbids reuse.
 let courier: string;
 beforeEach(() => {
@@ -46,7 +47,6 @@ describe('transition', () => {
       expected: 'Open',
       to: 'Accepted',
       actor: user(courier),
-      payload: { courierId: courier },
       set: { courierId: courier },
     });
 
@@ -139,6 +139,7 @@ describe('transition', () => {
         to,
         actor: user(courier),
         set: to === 'Accepted' ? { courierId: courier } : undefined,
+        payload: to === 'Open' ? withdrawal : undefined,
       });
 
     await step('Open', 'Accepted');
@@ -205,6 +206,7 @@ describe('transition', () => {
       actor: user(courier),
       expected: 'Accepted',
       to: 'Open',
+      payload: withdrawal,
     });
 
     expect(res).toEqual({ ok: false, reason: 'IDEMPOTENCY_KEY_REUSED' });
@@ -225,7 +227,7 @@ describe('transition', () => {
     };
     const first = await transition(t.db, req);
     // The errand goes back to Open, so a fresh attempt would now succeed.
-    await transition(t.db, { errandId: id, expected: 'Accepted', to: 'Open', actor: user(courier) });
+    await transition(t.db, { errandId: id, expected: 'Accepted', to: 'Open', actor: user(courier), payload: withdrawal });
 
     const second = await transition(t.db, req);
 
@@ -249,7 +251,7 @@ describe('transition', () => {
       idempotencyKey: 'key-5',
     };
     const first = await transition(t.db, req);
-    await transition(t.db, { errandId: id, expected: 'Accepted', to: 'Open', actor: user(courier) });
+    await transition(t.db, { errandId: id, expected: 'Accepted', to: 'Open', actor: user(courier), payload: withdrawal });
 
     const second = await transition(t.db, req);
 
@@ -339,6 +341,7 @@ describe('transition', () => {
         expected: 'Accepted',
         to: 'Open',
         actor: user(courier),
+        payload: withdrawal,
       });
 
       // Latest event is Accepted -> Open; Reserving-Credit -> Open is another edge.
@@ -398,7 +401,7 @@ describe('transition', () => {
       actor: user(courier),
       set: { courierId: courier },
     });
-    await transition(t.db, { errandId: id, expected: 'Accepted', to: 'Open', actor: user(courier) });
+    await transition(t.db, { errandId: id, expected: 'Accepted', to: 'Open', actor: user(courier), payload: withdrawal });
     expect((await projection(id)).courierId).toBeNull();
   });
 
@@ -444,8 +447,8 @@ describe('transition', () => {
 
     it('records a cleared column as null', async () => {
       const id = await seed('Accepted');
-      await transition(t.db, { errandId: id, expected: 'Accepted', to: 'Open', actor: user(courier) });
-      expect(await lastPayload(id)).toEqual({ courierId: null });
+      await transition(t.db, { errandId: id, expected: 'Accepted', to: 'Open', actor: user(courier), payload: withdrawal });
+      expect(await lastPayload(id)).toEqual({ ...withdrawal, courierId: null });
     });
 
     it('records a timestamp as an ISO string', async () => {
@@ -477,29 +480,45 @@ describe('transition', () => {
     });
 
     it('keeps the caller payload alongside the edge columns', async () => {
-      const id = await seed('Open');
+      const id = await seed('Adjusting-Credit');
+      const credit = { creditEventId: randomUUID(), creditTransactionId: randomUUID() };
       await transition(t.db, {
-        errandId: id,
-        expected: 'Open',
-        to: 'Accepted',
-        actor: user(courier),
-        payload: { note: 'hi' },
-        set: { courierId: courier },
+        actor: SYSTEM, errandId: id,
+        expected: 'Adjusting-Credit',
+        to: 'Open',
+        type: 'CreditAdjusted',
+        payload: credit,
+        set: { rewardCredits: 9 },
       });
-      expect(await lastPayload(id)).toEqual({ note: 'hi', courierId: courier });
+      expect(await lastPayload(id)).toEqual({ ...credit, rewardCredits: 9 });
     });
 
-    it('lets the edge column win over a clashing caller payload key', async () => {
-      const id = await seed('Open');
-      await transition(t.db, {
+    it('refuses a caller payload outside the event type schema, writing nothing', async () => {
+      for (const payload of [{ note: 'hi' }, { courierId: randomUUID() }]) {
+        const id = await seed('Open');
+        const res = await transition(t.db, {
+          errandId: id,
+          expected: 'Open',
+          to: 'Accepted',
+          actor: user(courier),
+          payload,
+          set: { courierId: courier },
+        });
+        expect(res).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
+        expect(await events(id)).toHaveLength(0);
+      }
+    });
+
+    it('refuses a courier withdraw without a reason (F7.4)', async () => {
+      const id = await seed('Accepted');
+      const res = await transition(t.db, {
         errandId: id,
-        expected: 'Open',
-        to: 'Accepted',
+        expected: 'Accepted',
+        to: 'Open',
         actor: user(courier),
-        payload: { courierId: randomUUID() },
-        set: { courierId: courier },
       });
-      expect(await lastPayload(id)).toEqual({ courierId: courier });
+      expect(res).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
+      expect(await projection(id)).toMatchObject({ status: 'Accepted', courierId: courier });
     });
 
     it('writes an empty payload for an edge with no columns', async () => {
@@ -602,7 +621,7 @@ describe('transition', () => {
         ).toEqual({ ok: false, reason: 'FORBIDDEN' });
       }
       expect(
-        await transition(t.db, { errandId: id, expected: 'Accepted', to: 'Open', actor: user(stranger) }),
+        await transition(t.db, { errandId: id, expected: 'Accepted', to: 'Open', actor: user(stranger), payload: withdrawal }),
       ).toEqual({ ok: false, reason: 'FORBIDDEN' });
     });
 
@@ -660,7 +679,7 @@ describe('transition', () => {
       expect(await events(b)).toHaveLength(0);
       // The transaction survived the violation; the key was released, not stored.
       expect(await accept(b)).toEqual({ ok: false, reason: 'COURIER_BUSY' });
-      await transition(t.db, { errandId: a, expected: 'Accepted', to: 'Open', actor: user(courier) });
+      await transition(t.db, { errandId: a, expected: 'Accepted', to: 'Open', actor: user(courier), payload: withdrawal });
       expect(await accept(b)).toMatchObject({ ok: true });
     });
 
@@ -680,7 +699,7 @@ describe('transition', () => {
       const b = await seed('Open');
       const base = { expected: 'Open' as const, to: 'Accepted' as const, actor: user(courier), set: { courierId: courier } };
       await transition(t.db, { ...base, errandId: a });
-      await transition(t.db, { errandId: a, expected: 'Accepted', to: 'Open', actor: user(courier) });
+      await transition(t.db, { errandId: a, expected: 'Accepted', to: 'Open', actor: user(courier), payload: withdrawal });
       expect(await transition(t.db, { ...base, errandId: b })).toMatchObject({ ok: true });
     });
   });

@@ -18,6 +18,7 @@ services:
       - DB_DATABASE=${ORDER_SERVICE_DB_DATABASE}
       - DB_SYNCHRONIZE=${ORDER_SERVICE_DB_SYNCHRONIZE}
       - DB_PASSWORD_FILE=/run/secrets/order_db_password
+      - JWT_PUBLIC_KEY_FILE=/run/secrets/jwt_public_key_order_service
       - LOG_LEVEL=${LOG_LEVEL}
       - RABBITMQ_USER=${ORDER_SERVICE_RABBITMQ_USER}
       - RABBITMQ_HOST=${RABBITMQ_HOST}
@@ -41,9 +42,11 @@ services:
       - RESERVING_CREDIT_TIMEOUT_MS=${RESERVING_CREDIT_TIMEOUT_MS:-300000}
       - CREDIT_REPLY_TIMEOUT_MS=${CREDIT_REPLY_TIMEOUT_MS:-120000}
       - CREDIT_RESEND_MAX=${CREDIT_RESEND_MAX:-3}
+      - IDEMPOTENCY_KEY_TTL_MS=${IDEMPOTENCY_KEY_TTL_MS:-604800000}
     secrets:
       - order_db_password
       - rabbitmq_password_order_service
+      - jwt_public_key_order_service
     develop:
       watch:
         - action: sync
@@ -73,6 +76,19 @@ services:
           path: ../packages/contracts/package.json
         - action: rebuild
           path: ../packages/contracts/package-lock.json
+        - action: sync+restart
+          path: ../packages/auth/src
+          target: /usr/src/packages/auth/src
+        - action: sync+restart
+          path: ../packages/auth/tsconfig.json
+          target: /usr/src/packages/auth/tsconfig.json
+        - action: sync+restart
+          path: ../packages/auth/tsconfig.build.json
+          target: /usr/src/packages/auth/tsconfig.build.json
+        - action: rebuild
+          path: ../packages/auth/package.json
+        - action: rebuild
+          path: ../packages/auth/package-lock.json
 
   order-db:
     image: postgres:18-alpine
@@ -104,3 +120,6 @@ secrets:
     file: secrets/order_db_password.secret
   rabbitmq_password_order_service:
     file: secrets/rabbitmq_password.secret
+  # Owned by user-service: the public half of the key pair that signs access tokens.
+  jwt_public_key_order_service:
+    file: ../user-service/secrets/jwt_public_key.secret
