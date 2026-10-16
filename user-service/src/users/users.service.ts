@@ -50,6 +50,14 @@ export interface ProvisionUserParams {
   isLocked?: boolean;
 }
 
+export interface AdminCreateUserParams {
+  email: string;
+  displayName: string;
+  roles?: Role[];
+  profilePictureUrl?: string | null;
+  isAdmin?: boolean;
+}
+
 export interface PublicUserInfo {
   uuid: string;
   email: string;
@@ -420,6 +428,92 @@ export class UsersService {
     const change = { from: target.isArchived, to: isArchived };
     target.isArchived = isArchived;
     return change;
+  }
+
+  /**
+   * Creates a new user on behalf of an acting admin
+   *
+   * The account is provisioned locked with a random discarded
+   * password.
+   */
+  async adminCreateUser(
+    actorUuid: string,
+    fields: AdminCreateUserParams,
+  ): Promise<User> {
+    return this.dataSource.transaction(async (manager) => {
+      await manager.query('SELECT pg_advisory_xact_lock($1::bigint)', [
+        ADMIN_MUTATION_LOCK_KEY,
+      ]);
+
+      const actor = await manager.findOneBy(User, { uuid: actorUuid });
+      if (
+        actor === null ||
+        !actor.isAdmin ||
+        actor.isLocked ||
+        actor.isArchived
+      ) {
+        throw new ForbiddenException('Admin privileges required');
+      }
+
+      // Random password with the plaintext discarded immediately after
+      // hashing. Will be set by the user through the reset flow.
+      const password = randomBytes(32).toString('base64url');
+      const { passwordSalt, passwordHash } =
+        await generatePasswordHash(password);
+
+      const user = manager.create(User, {
+        email: fields.email,
+        displayName: fields.displayName,
+        uuid: randomUUID(),
+        passwordHash,
+        passwordSalt,
+        isArchived: false,
+        isAdmin: fields.isAdmin ?? false,
+        isLocked: true,
+        roles: [...new Set(fields.roles ?? [])],
+        profilePictureUrl: fields.profilePictureUrl ?? null,
+      });
+
+      try {
+        await manager.save(user);
+      } catch (error) {
+        if (
+          error instanceof QueryFailedError &&
+          (error.driverError as { code?: string } | null)?.code ===
+            UNIQUE_VIOLATION_CODE
+        ) {
+          throw new ConflictException('Email is already registered.');
+        }
+        throw error;
+      }
+
+      // Audit record of the insert: every field set is recorded as a
+      // from-null change. Credentials are never audited.
+      const changedFields: Record<string, UserUpdateAuditChangedField> = {
+        email: { from: null, to: fields.email },
+        displayName: { from: null, to: fields.displayName },
+        roles: { from: null, to: user.roles },
+        isAdmin: { from: null, to: user.isAdmin },
+        isLocked: { from: null, to: true },
+        isArchived: { from: null, to: false },
+      };
+      if (fields.profilePictureUrl !== undefined) {
+        changedFields.profilePictureUrl = {
+          from: null,
+          to: fields.profilePictureUrl,
+        };
+      }
+
+      await manager.save(
+        manager.create(UserUpdateAudit, {
+          actorUuid,
+          targetUuid: user.uuid,
+          changedFields,
+        }),
+      );
+
+      return user;
+    });
   }
 
   /**
