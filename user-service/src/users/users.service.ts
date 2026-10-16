@@ -264,15 +264,7 @@ export class UsersService {
         ADMIN_MUTATION_LOCK_KEY,
       ]);
 
-      const actor = await manager.findOneBy(User, { uuid: actorUuid });
-      if (
-        actor === null ||
-        !actor.isAdmin ||
-        actor.isLocked ||
-        actor.isArchived
-      ) {
-        throw new ForbiddenException('Admin privileges required');
-      }
+      await this.checkIsAdmin(manager, actorUuid);
 
       const target = await manager.findOneBy(User, { uuid: targetUuid });
       if (target === null) {
@@ -364,6 +356,18 @@ export class UsersService {
     return change;
   }
 
+  private async checkIsAdmin(manager: EntityManager, actorUuid: string) {
+    const actor = await manager.findOneBy(User, { uuid: actorUuid });
+    if (
+      actor === null ||
+      !actor.isAdmin ||
+      actor.isLocked ||
+      actor.isArchived
+    ) {
+      throw new ForbiddenException('Admin privileges required');
+    }
+  }
+
   private async demoteAdmin(
     manager: EntityManager,
     target: User,
@@ -445,15 +449,7 @@ export class UsersService {
         ADMIN_MUTATION_LOCK_KEY,
       ]);
 
-      const actor = await manager.findOneBy(User, { uuid: actorUuid });
-      if (
-        actor === null ||
-        !actor.isAdmin ||
-        actor.isLocked ||
-        actor.isArchived
-      ) {
-        throw new ForbiddenException('Admin privileges required');
-      }
+      await this.checkIsAdmin(manager, actorUuid);
 
       // Random password with the plaintext discarded immediately after
       // hashing. Will be set by the user through the reset flow.
