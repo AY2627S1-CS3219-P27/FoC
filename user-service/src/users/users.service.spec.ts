@@ -995,6 +995,221 @@ describe('UsersService', () => {
     });
   });
 
+  describe('adminCreateUser', () => {
+    const ACTOR_UUID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+    const adminActor = {
+      uuid: ACTOR_UUID,
+      email: 'admin@example.com',
+      displayName: 'Admin',
+      passwordHash: 'ab'.repeat(64),
+      passwordSalt: 'ab'.repeat(16),
+      isAdmin: true,
+      isLocked: false,
+      isArchived: false,
+      roles: [],
+      profilePictureUrl: null,
+    };
+
+    const fields = {
+      email: 'eve@example.com',
+      displayName: 'Eve',
+      roles: [Role.Requester],
+      profilePictureUrl: 'https://example.com/avatar.png',
+      isAdmin: false,
+    };
+
+    it('provisions a locked, un-archived account with a discarded random password', async () => {
+      manager.findOneBy.mockResolvedValueOnce(adminActor);
+
+      const user = await service.adminCreateUser(ACTOR_UUID, fields);
+
+      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+      expect(manager.findOneBy).toHaveBeenCalledWith(User, {
+        uuid: ACTOR_UUID,
+      });
+      expect(manager.create).toHaveBeenCalledWith(
+        User,
+        expect.objectContaining({
+          email: 'eve@example.com',
+          displayName: 'Eve',
+          uuid: expect.stringMatching(UUID_PATTERN),
+          passwordHash: 'ab'.repeat(64),
+          passwordSalt: expect.stringMatching(/^[0-9a-f]{32}$/),
+          isArchived: false,
+          isAdmin: false,
+          isLocked: true,
+          roles: [Role.Requester],
+          profilePictureUrl: 'https://example.com/avatar.png',
+        }),
+      );
+
+      // The plaintext password is never surfaced: hashed with a fresh salt and
+      // absent from both the returned user and the audit record.
+      expect(vi.mocked(hashValue)).toHaveBeenCalledWith(
+        expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+        expect.stringMatching(/^[0-9a-f]{32}$/),
+      );
+      expect(user).not.toHaveProperty('password');
+    });
+
+    it('defaults an omitted role set to empty and dedupes supplied roles', async () => {
+      manager.findOneBy.mockResolvedValueOnce(adminActor);
+
+      const user = await service.adminCreateUser(ACTOR_UUID, {
+        email: 'eve@example.com',
+        displayName: 'Eve',
+        roles: [Role.Requester, Role.Requester],
+      });
+
+      expect(manager.create).toHaveBeenCalledWith(
+        User,
+        expect.objectContaining({ roles: [Role.Requester] }),
+      );
+      expect(user.roles).toEqual([Role.Requester]);
+    });
+
+    it('takes the advisory lock before re-reading the acting admin, serialising against privilege changes', async () => {
+      manager.findOneBy.mockResolvedValueOnce(adminActor);
+
+      await service.adminCreateUser(ACTOR_UUID, fields);
+
+      expect(manager.query).toHaveBeenCalledWith(
+        'SELECT pg_advisory_xact_lock($1::bigint)',
+        [expect.any(Number)],
+      );
+      expect(manager.query.mock.invocationCallOrder[0]).toBeLessThan(
+        manager.findOneBy.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('records the insert as a set of from-null changes in the same transaction', async () => {
+      manager.findOneBy.mockResolvedValueOnce(adminActor);
+
+      const user = await service.adminCreateUser(ACTOR_UUID, fields);
+
+      const expectedAuditRow = {
+        actorUuid: ACTOR_UUID,
+        targetUuid: expect.stringMatching(UUID_PATTERN),
+        changedFields: {
+          email: { from: null, to: 'eve@example.com' },
+          displayName: { from: null, to: 'Eve' },
+          roles: { from: null, to: [Role.Requester] },
+          isAdmin: { from: null, to: false },
+          isLocked: { from: null, to: true },
+          isArchived: { from: null, to: false },
+          profilePictureUrl: {
+            from: null,
+            to: 'https://example.com/avatar.png',
+          },
+        },
+      };
+      expect(manager.create).toHaveBeenCalledWith(
+        UserUpdateAudit,
+        expectedAuditRow,
+      );
+      expect(manager.save).toHaveBeenLastCalledWith(expectedAuditRow);
+      expect(user.uuid).toBeDefined();
+    });
+
+    it('omits an unset profile picture from the audit record', async () => {
+      manager.findOneBy.mockResolvedValueOnce(adminActor);
+
+      await service.adminCreateUser(ACTOR_UUID, {
+        email: 'eve@example.com',
+        displayName: 'Eve',
+      });
+
+      const auditCreateCall = vi
+        .mocked(manager.create)
+        .mock.calls.find(([entity]) => entity === UserUpdateAudit);
+      expect(auditCreateCall).toBeDefined();
+      expect(auditCreateCall![1].changedFields).not.toHaveProperty(
+        'profilePictureUrl',
+      );
+    });
+
+    it('never audits credentials', async () => {
+      manager.findOneBy.mockResolvedValueOnce(adminActor);
+
+      await service.adminCreateUser(ACTOR_UUID, fields);
+
+      const auditCreateCall = vi
+        .mocked(manager.create)
+        .mock.calls.find(([entity]) => entity === UserUpdateAudit);
+      expect(auditCreateCall).toBeDefined();
+      expect(auditCreateCall![1].changedFields).not.toHaveProperty(
+        'passwordHash',
+      );
+      expect(auditCreateCall![1].changedFields).not.toHaveProperty(
+        'passwordSalt',
+      );
+    });
+
+    it('rejects when the acting account is no longer an admin (stale-token defence)', async () => {
+      manager.findOneBy.mockResolvedValueOnce({
+        ...adminActor,
+        isAdmin: false,
+      });
+
+      await expect(service.adminCreateUser(ACTOR_UUID, fields)).rejects.toThrow(
+        ForbiddenException,
+      );
+
+      expect(manager.create).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the acting account no longer exists', async () => {
+      manager.findOneBy.mockResolvedValueOnce(null);
+
+      await expect(service.adminCreateUser(ACTOR_UUID, fields)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('rejects a locked acting account', async () => {
+      manager.findOneBy.mockResolvedValueOnce({
+        ...adminActor,
+        isLocked: true,
+      });
+
+      await expect(service.adminCreateUser(ACTOR_UUID, fields)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('rejects an archived acting account', async () => {
+      manager.findOneBy.mockResolvedValueOnce({
+        ...adminActor,
+        isArchived: true,
+      });
+
+      await expect(service.adminCreateUser(ACTOR_UUID, fields)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('rejects a duplicate email with a conflict', async () => {
+      manager.findOneBy.mockResolvedValueOnce(adminActor);
+      const driverError = Object.assign(new Error('duplicate key value'), {
+        code: '23505',
+      });
+      manager.save.mockRejectedValueOnce(
+        new QueryFailedError('INSERT INTO users', [], driverError),
+      );
+
+      await expect(service.adminCreateUser(ACTOR_UUID, fields)).rejects.toThrow(
+        ConflictException,
+      );
+
+      expect(manager.create).not.toHaveBeenCalledWith(
+        UserUpdateAudit,
+        expect.anything(),
+      );
+    });
+  });
+
   describe('listUsers', () => {
     it('lists the whole directory in a stable order with the paged window', async () => {
       userRepository.findAndCount.mockResolvedValue([
