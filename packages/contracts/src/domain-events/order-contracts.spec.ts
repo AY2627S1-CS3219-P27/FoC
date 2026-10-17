@@ -2,6 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { AccountEventContractValidator } from './account-event-contract.validator.js';
 import type { EventContractKey } from './event-registry.types.js';
+import {
+  CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY,
+  type CreditReleaseRejectionReason,
+} from './events/credit-release-rejected/v1/contract.js';
+import { CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY } from './events/credit-release-success/v1/contract.js';
 import type { CreditTransferRejectionReason } from './events/credit-transfer-rejected/v1/contract.js';
 
 const id = () => randomUUID();
@@ -51,7 +56,16 @@ const validContracts = [
     }),
   ],
   [
-    'credit.release-rejected.v1',
+    CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY,
+    envelope('CreditReleaseSuccess', 'credit-service', {
+      errandId: id(),
+      requesterUserId: id(),
+      releasedAmount: 50,
+      creditTransactionId: id(),
+    }),
+  ],
+  [
+    CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY,
     envelope('CreditReleaseRejected', 'credit-service', {
       errandId: id(),
       requesterUserId: id(),
@@ -59,6 +73,11 @@ const validContracts = [
     }),
   ],
 ] as const satisfies ReadonlyArray<readonly [EventContractKey, object]>;
+
+const releaseRejectionReasons = [
+  'RESERVATION_NOT_FOUND',
+  'ALREADY_TRANSFERRED',
+] as const satisfies ReadonlyArray<CreditReleaseRejectionReason>;
 
 const transferRejectionReasons = [
   'DESTINATION_ARCHIVED',
@@ -72,6 +91,8 @@ const transferContracts = [
   validContracts[2],
   validContracts[3],
 ] as const;
+
+const releaseContracts = [validContracts[4], validContracts[5]] as const;
 
 describe('order errand event contracts', () => {
   const validator = new AccountEventContractValidator();
@@ -125,6 +146,12 @@ describe('order errand event contracts', () => {
       expect(
         validator.validate('credit.transfer-succeeded.v1', transferred),
       ).toMatchObject({ valid: false, code: 'INVALID_PAYLOAD' });
+
+      const released = structuredClone(validContracts[4][1]);
+      released.payload.releasedAmount = amount;
+      expect(
+        validator.validate(CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY, released),
+      ).toMatchObject({ valid: false, code: 'INVALID_PAYLOAD' });
     },
   );
 
@@ -134,9 +161,10 @@ describe('order errand event contracts', () => {
       const input = structuredClone(validContracts[3][1]);
       input.payload.rejectionReason = rejectionReason;
 
-      expect(
-        validator.validate('credit.transfer-rejected.v1', input),
-      ).toEqual({ valid: true, value: input });
+      expect(validator.validate('credit.transfer-rejected.v1', input)).toEqual({
+        valid: true,
+        value: input,
+      });
     },
   );
 
@@ -152,7 +180,42 @@ describe('order errand event contracts', () => {
     },
   );
 
+  it.each(releaseRejectionReasons)(
+    'accepts release rejection reason %s',
+    (rejectionReason) => {
+      const input = structuredClone(validContracts[5][1]);
+      input.payload.rejectionReason = rejectionReason;
+
+      expect(
+        validator.validate(CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY, input),
+      ).toEqual({ valid: true, value: input });
+    },
+  );
+
+  it.each(['RESERVATION_RELEASED', 'UNKNOWN'])(
+    'rejects unsupported release rejection reason %s',
+    (rejectionReason) => {
+      const input = structuredClone(validContracts[5][1]);
+      input.payload.rejectionReason = rejectionReason;
+
+      expect(
+        validator.validate(CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY, input),
+      ).toMatchObject({ valid: false, code: 'INVALID_PAYLOAD' });
+    },
+  );
+
   it.each(transferContracts)(
+    'rejects a non-canonical timestamp for %s',
+    (key, event) => {
+      const input = { ...structuredClone(event), timestamp: 'not-a-date' };
+      expect(validator.validate(key, input)).toMatchObject({
+        valid: false,
+        code: 'INVALID_ENVELOPE',
+      });
+    },
+  );
+
+  it.each(releaseContracts)(
     'rejects a non-canonical timestamp for %s',
     (key, event) => {
       const input = { ...structuredClone(event), timestamp: 'not-a-date' };
@@ -174,6 +237,17 @@ describe('order errand event contracts', () => {
     },
   );
 
+  it.each(releaseContracts)(
+    'rejects a non-UUID event ID for %s',
+    (key, event) => {
+      const input = { ...structuredClone(event), eventId: 'not-a-uuid' };
+      expect(validator.validate(key, input)).toMatchObject({
+        valid: false,
+        code: 'INVALID_ENVELOPE',
+      });
+    },
+  );
+
   it.each([
     ['order.errand-completed.v1', 0, 'errandId'],
     ['order.errand-completed.v1', 0, 'requesterUserId'],
@@ -185,23 +259,27 @@ describe('order errand event contracts', () => {
     ['credit.transfer-rejected.v1', 3, 'errandId'],
     ['credit.transfer-rejected.v1', 3, 'requesterUserId'],
     ['credit.transfer-rejected.v1', 3, 'courierUserId'],
-  ] as const)(
-    'rejects a non-UUID %s payload field %s',
-    (key, index, field) => {
-      const input = structuredClone(validContracts[index][1]);
-      input.payload[field] = 'not-a-uuid';
+    [CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY, 4, 'errandId'],
+    [CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY, 4, 'requesterUserId'],
+    [CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY, 4, 'creditTransactionId'],
+    [CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY, 5, 'errandId'],
+    [CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY, 5, 'requesterUserId'],
+  ] as const)('rejects a non-UUID %s payload field %s', (key, index, field) => {
+    const input = structuredClone(validContracts[index][1]);
+    input.payload[field] = 'not-a-uuid';
 
-      expect(validator.validate(key, input)).toMatchObject({
-        valid: false,
-        code: 'INVALID_PAYLOAD',
-      });
-    },
-  );
+    expect(validator.validate(key, input)).toMatchObject({
+      valid: false,
+      code: 'INVALID_PAYLOAD',
+    });
+  });
 
   it.each([
     ['order.errand-completed.v1', 0, 'ErrandCompletion'],
     ['credit.transfer-succeeded.v1', 2, 'CreditTransferSuccess'],
     ['credit.transfer-rejected.v1', 3, 'CreditTransferReject'],
+    [CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY, 4, 'CreditReleasedSuccess'],
+    [CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY, 5, 'CreditReleaseReject'],
   ] as const)(
     'rejects a non-canonical event name on %s',
     (key, index, eventType) => {
@@ -216,7 +294,7 @@ describe('order errand event contracts', () => {
 
   it.each([
     ['credit.transfer-rejected.v1', 3],
-    ['credit.release-rejected.v1', 4],
+    [CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY, 5],
   ] as const)('enforces rejection reasons for %s', (key, index) => {
     const input = structuredClone(validContracts[index][1]);
     input.payload.rejectionReason = 'UNKNOWN';
@@ -224,5 +302,38 @@ describe('order errand event contracts', () => {
       valid: false,
       code: 'INVALID_PAYLOAD',
     });
+  });
+
+  it.each([
+    [CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY, 4, 'errandId'],
+    [CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY, 4, 'requesterUserId'],
+    [CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY, 4, 'releasedAmount'],
+    [CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY, 4, 'creditTransactionId'],
+    [CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY, 5, 'errandId'],
+    [CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY, 5, 'requesterUserId'],
+    [CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY, 5, 'rejectionReason'],
+  ] as const)('requires %s payload field %s', (key, index, field) => {
+    const input = structuredClone(validContracts[index][1]);
+    delete (input.payload as Record<string, unknown>)[field];
+
+    expect(validator.validate(key, input)).toMatchObject({
+      valid: false,
+      code: 'INVALID_PAYLOAD',
+    });
+  });
+
+  it('rejects release events validated against the wrong release route', () => {
+    expect(
+      validator.validate(
+        CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY,
+        structuredClone(validContracts[4][1]),
+      ),
+    ).toMatchObject({ valid: false, code: 'UNSUPPORTED_EVENT_TYPE' });
+    expect(
+      validator.validate(
+        CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY,
+        structuredClone(validContracts[5][1]),
+      ),
+    ).toMatchObject({ valid: false, code: 'UNSUPPORTED_EVENT_TYPE' });
   });
 });

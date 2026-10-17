@@ -312,6 +312,18 @@ describe('credit persistence migration', () => {
         [randomUUID(), userId, otherUserId, errandId],
       ),
     ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      dataSource.query(
+        `INSERT INTO credit_transactions
+         (id, type, amount, origin_balance_type, destination_balance_type,
+          origin_user_id, destination_user_id, errand_id)
+         VALUES ($1, 'RELEASE', 25, 'CREDIT_BALANCE', 'RESERVED_BALANCE', $2, $2, $3)`,
+        [randomUUID(), userId, errandId],
+      ),
+    ).rejects.toMatchObject({
+      code: '23514',
+      constraint: 'CHK_credit_transactions_direction',
+    });
 
     await dataSource.query(
       `INSERT INTO credit_transactions
@@ -564,6 +576,258 @@ describe('credit persistence migration', () => {
         [randomUUID(), randomUUID(), 'e'.repeat(64), randomUUID()],
       ),
     ).rejects.toMatchObject({ code: '23514' });
+  });
+
+  it('represents terminal release outcomes with intact settlement references', async () => {
+    const requesterUserId = randomUUID();
+    const successErrandId = randomUUID();
+    const rejectedErrandId = randomUUID();
+    const releaseTransactionId = randomUUID();
+    const successOutboxEventId = randomUUID();
+    const rejectedOutboxEventId = randomUUID();
+    const invalidTransactionOutboxEventId = randomUUID();
+    const invalidRejectedOutboxEventId = randomUUID();
+    const inboxEventId = randomUUID();
+    const accounts = dataSource.getRepository(CreditAccount);
+    const transactions = dataSource.getRepository(CreditTransaction);
+    const operations = dataSource.getRepository(CreditOperation);
+    const outbox = dataSource.getRepository(OutboxEvent);
+    const inbox = dataSource.getRepository(InboxEvent);
+
+    await accounts.save(
+      accounts.create({
+        userId: requesterUserId,
+        creditBalance: 100,
+        reservedBalance: 0,
+      }),
+    );
+    await transactions.save(
+      transactions.create({
+        id: releaseTransactionId,
+        type: 'RELEASE',
+        amount: 25,
+        originBalanceType: 'RESERVED_BALANCE',
+        destinationBalanceType: 'CREDIT_BALANCE',
+        originUserId: requesterUserId,
+        destinationUserId: requesterUserId,
+        errandId: successErrandId,
+      }),
+    );
+
+    const createOutbox = (
+      eventId: string,
+      eventType: 'CreditReleaseSuccess' | 'CreditReleaseRejected',
+      routingKey: 'credit.release-success.v1' | 'credit.release-rejected.v1',
+    ) =>
+      outbox.create({
+        eventId,
+        eventType,
+        routingKey,
+        envelope: { eventId },
+        publishedAt: null,
+        attemptCount: 0,
+        lastError: null,
+        claimedBy: null,
+        claimedUntil: null,
+      });
+
+    await outbox.save([
+      createOutbox(
+        successOutboxEventId,
+        'CreditReleaseSuccess',
+        'credit.release-success.v1',
+      ),
+      createOutbox(
+        rejectedOutboxEventId,
+        'CreditReleaseRejected',
+        'credit.release-rejected.v1',
+      ),
+      createOutbox(
+        invalidTransactionOutboxEventId,
+        'CreditReleaseSuccess',
+        'credit.release-success.v1',
+      ),
+      createOutbox(
+        invalidRejectedOutboxEventId,
+        'CreditReleaseRejected',
+        'credit.release-rejected.v1',
+      ),
+    ]);
+
+    const successfulRelease = operations.create({
+      id: randomUUID(),
+      errandId: successErrandId,
+      operationType: 'RELEASE',
+      status: 'SUCCEEDED',
+      requesterUserId,
+      courierUserId: null,
+      amount: 25,
+      expectedAmount: null,
+      commandEventId: null,
+      requestPayloadHash: '1'.repeat(64),
+      attemptCount: 0,
+      nextAttemptAt: new Date(),
+      claimedBy: null,
+      claimedUntil: null,
+      lastError: null,
+      rejectionReason: null,
+      completionTransactionId: releaseTransactionId,
+      outcomeOutboxEventId: successOutboxEventId,
+    });
+    const rejectedRelease = operations.create({
+      id: randomUUID(),
+      errandId: rejectedErrandId,
+      operationType: 'RELEASE',
+      status: 'REJECTED',
+      requesterUserId,
+      courierUserId: null,
+      amount: 15,
+      expectedAmount: null,
+      commandEventId: null,
+      requestPayloadHash: '2'.repeat(64),
+      attemptCount: 0,
+      nextAttemptAt: new Date(),
+      claimedBy: null,
+      claimedUntil: null,
+      lastError: null,
+      rejectionReason: 'RESERVATION_NOT_FOUND',
+      completionTransactionId: null,
+      outcomeOutboxEventId: rejectedOutboxEventId,
+    });
+    await operations.save([successfulRelease, rejectedRelease]);
+    await inbox.save(
+      inbox.create({
+        eventId: inboxEventId,
+        eventType: 'ErrandCancelled',
+        payloadHash: '3'.repeat(64),
+        processedAt: new Date(),
+        outcomeAllocationId: null,
+        outcomeOperationId: successfulRelease.id,
+        outcomeTransactionId: releaseTransactionId,
+        outcomeOutboxEventId: successOutboxEventId,
+      }),
+    );
+
+    await expect(
+      transactions.findOneByOrFail({ id: releaseTransactionId }),
+    ).resolves.toMatchObject({
+      type: 'RELEASE',
+      amount: 25,
+      originBalanceType: 'RESERVED_BALANCE',
+      destinationBalanceType: 'CREDIT_BALANCE',
+      originUserId: requesterUserId,
+      destinationUserId: requesterUserId,
+      errandId: successErrandId,
+    });
+    await expect(
+      operations.findOneByOrFail({ id: successfulRelease.id }),
+    ).resolves.toMatchObject({
+      operationType: 'RELEASE',
+      status: 'SUCCEEDED',
+      requesterUserId,
+      amount: 25,
+      completionTransactionId: releaseTransactionId,
+      outcomeOutboxEventId: successOutboxEventId,
+    });
+    await expect(
+      operations.findOneByOrFail({ id: rejectedRelease.id }),
+    ).resolves.toMatchObject({
+      operationType: 'RELEASE',
+      status: 'REJECTED',
+      requesterUserId,
+      amount: 15,
+      rejectionReason: 'RESERVATION_NOT_FOUND',
+      completionTransactionId: null,
+      outcomeOutboxEventId: rejectedOutboxEventId,
+    });
+    await expect(
+      inbox.findOneByOrFail({ eventId: inboxEventId }),
+    ).resolves.toMatchObject({
+      outcomeOperationId: successfulRelease.id,
+      outcomeTransactionId: releaseTransactionId,
+      outcomeOutboxEventId: successOutboxEventId,
+    });
+
+    await expect(
+      operations.save(
+        operations.create({
+          ...successfulRelease,
+          id: randomUUID(),
+          status: 'PENDING',
+          completionTransactionId: null,
+          outcomeOutboxEventId: null,
+        }),
+      ),
+    ).rejects.toMatchObject({ code: '23505' });
+
+    await expect(
+      operations.save(
+        operations.create({
+          ...successfulRelease,
+          id: randomUUID(),
+          errandId: randomUUID(),
+          completionTransactionId: randomUUID(),
+          outcomeOutboxEventId: invalidTransactionOutboxEventId,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      code: '23503',
+      constraint: 'FK_credit_operations_completion_transaction',
+    });
+    await expect(
+      operations.save(
+        operations.create({
+          ...successfulRelease,
+          id: randomUUID(),
+          errandId: randomUUID(),
+          outcomeOutboxEventId: randomUUID(),
+        }),
+      ),
+    ).rejects.toMatchObject({
+      code: '23503',
+      constraint: 'FK_credit_operations_outcome_outbox',
+    });
+    await expect(
+      operations.save(
+        operations.create({
+          ...rejectedRelease,
+          id: randomUUID(),
+          errandId: randomUUID(),
+          completionTransactionId: releaseTransactionId,
+          outcomeOutboxEventId: invalidRejectedOutboxEventId,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      code: '23514',
+      constraint: 'CHK_credit_operations_outcome',
+    });
+
+    for (const [column, missingId, constraint] of [
+      [
+        'outcome_operation_id',
+        randomUUID(),
+        'FK_inbox_events_outcome_operation',
+      ],
+      [
+        'outcome_transaction_id',
+        randomUUID(),
+        'FK_inbox_events_outcome_transaction',
+      ],
+      [
+        'outcome_outbox_event_id',
+        randomUUID(),
+        'FK_inbox_events_outcome_outbox',
+      ],
+    ] as const) {
+      await expect(
+        dataSource.query(
+          `INSERT INTO inbox_events
+           (event_id, event_type, payload_hash, processed_at, ${column})
+           VALUES ($1, 'ErrandCancelled', $2, now(), $3)`,
+          [randomUUID(), '4'.repeat(64), missingId],
+        ),
+      ).rejects.toMatchObject({ code: '23503', constraint });
+    }
   });
 
   it('rejects updates and deletes from immutable allocations', async () => {

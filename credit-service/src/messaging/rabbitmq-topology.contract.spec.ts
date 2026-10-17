@@ -180,4 +180,36 @@ describe('Credit Service predeclared RabbitMQ topology', () => {
       },
     ]);
   });
+
+  it('routes release rejection without declaring an unused success queue', () => {
+    const releaseQueues = definitions.queues.filter(({ name }) =>
+      name.startsWith('order-service.credit-release-'),
+    );
+    const releaseBindings = definitions.bindings.filter(
+      ({ destination, routing_key: routingKey }) =>
+        destination.startsWith('order-service.credit-release-') ||
+        routingKey === 'credit.release-success.v1',
+    );
+
+    expect(releaseQueues).toEqual([
+      {
+        arguments: {},
+        auto_delete: false,
+        durable: true,
+        name: 'order-service.credit-release-rejected.v1',
+        type: 'classic',
+        vhost: '/foc',
+      },
+    ]);
+    expect(releaseBindings).toEqual([
+      {
+        arguments: {},
+        destination: 'order-service.credit-release-rejected.v1',
+        destination_type: 'queue',
+        routing_key: 'credit.release-rejected.v1',
+        source: 'foc.events',
+        vhost: '/foc',
+      },
+    ]);
+  });
 });

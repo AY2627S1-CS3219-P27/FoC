@@ -82,6 +82,7 @@ try {
     'credit-service.credit-reservation.v1',
     'credit-service.credit-reservation-adjustment.v1',
     'credit-service.order-errand-completed.v1',
+    'credit-service.order-errand-cancelled.v1',
   ]) {
     await channel.checkQueue(ingressQueue);
     const { consumerTag: ingressConsumerTag } = await channel.consume(
@@ -104,6 +105,8 @@ try {
     'credit.reservation-adjustment-rejected.v1',
     'credit.transfer-succeeded.v1',
     'credit.transfer-rejected.v1',
+    'credit.release-success.v1',
+    'credit.release-rejected.v1',
   ]) {
     await publishConfirmed(channel, 'foc.events', routingKey);
   }
@@ -126,6 +129,14 @@ try {
     (candidate) =>
       candidate.consume(
         'order-service.credit-transfer-succeeded.v1',
+        () => undefined,
+      ),
+  );
+  await expectDenied(
+    'consume an Order Service release outcome queue',
+    (candidate) =>
+      candidate.consume(
+        'order-service.credit-release-rejected.v1',
         () => undefined,
       ),
   );

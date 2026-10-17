@@ -23,6 +23,15 @@ const fixtures = {
     'test/fixtures/errand-completed-malformed-envelope.v1.json',
   'errand-completed-unknown-field':
     'test/fixtures/errand-completed-unknown-field.v1.json',
+  'errand-cancelled': 'test/fixtures/errand-cancelled.v1.json',
+  'errand-cancelled-invalid-uuid':
+    'test/fixtures/errand-cancelled-invalid-uuid.v1.json',
+  'errand-cancelled-malformed-envelope':
+    'test/fixtures/errand-cancelled-malformed-envelope.v1.json',
+  'errand-cancelled-wrong-publisher':
+    'test/fixtures/errand-cancelled-wrong-publisher.v1.json',
+  'errand-cancelled-unknown-field':
+    'test/fixtures/errand-cancelled-unknown-field.v1.json',
 };
 
 const routingKeys = {
@@ -41,6 +50,10 @@ const routingKeys = {
   ErrandCompleted: {
     environment: 'RABBITMQ_ORDER_ERRAND_COMPLETED_ROUTING_KEY',
     fallback: 'order.errand-completed.v1',
+  },
+  ErrandCancelled: {
+    environment: 'RABBITMQ_ORDER_ERRAND_CANCELLED_ROUTING_KEY',
+    fallback: 'order.errand-cancelled.v1',
   },
 };
 

@@ -33,4 +33,5 @@ export type CreditTransferSucceededEvent =
   EventOf<'credit.transfer-succeeded.v1'>;
 export type CreditTransferRejectedEvent =
   EventOf<'credit.transfer-rejected.v1'>;
+export type CreditReleaseSuccessEvent = EventOf<'credit.release-success.v1'>;
 export type CreditReleaseRejectedEvent = EventOf<'credit.release-rejected.v1'>;

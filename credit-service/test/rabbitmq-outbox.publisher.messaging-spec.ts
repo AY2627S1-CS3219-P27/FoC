@@ -91,4 +91,29 @@ describe('RabbitMqOutboxPublisher messaging integration', () => {
       appId: 'credit-service',
     });
   });
+
+  it('confirms release-success publication without a subscriber queue', async () => {
+    const eventId = randomUUID();
+    const envelope = {
+      eventId,
+      eventType: 'CreditReleaseSuccess',
+      timestamp: new Date().toISOString(),
+      publisher: 'credit-service',
+      payload: {
+        errandId: randomUUID(),
+        requesterUserId: randomUUID(),
+        releasedAmount: 25,
+        creditTransactionId: randomUUID(),
+      },
+    };
+
+    await expect(
+      publisher.publish({
+        eventId,
+        eventType: 'CreditReleaseSuccess',
+        routingKey: 'credit.release-success.v1',
+        envelope,
+      }),
+    ).resolves.toBeUndefined();
+  });
 });

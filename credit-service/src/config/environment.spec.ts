@@ -74,11 +74,23 @@ describe('environmentSchema', () => {
     expect(environment.RABBITMQ_ORDER_ERRAND_COMPLETED_ROUTING_KEY).toBe(
       'order.errand-completed.v1',
     );
+    expect(environment.RABBITMQ_ORDER_ERRAND_CANCELLED_QUEUE).toBe(
+      'credit-service.order-errand-cancelled.v1',
+    );
+    expect(environment.RABBITMQ_ORDER_ERRAND_CANCELLED_ROUTING_KEY).toBe(
+      'order.errand-cancelled.v1',
+    );
     expect(environment.RABBITMQ_CREDIT_TRANSFER_SUCCEEDED_ROUTING_KEY).toBe(
       'credit.transfer-succeeded.v1',
     );
     expect(environment.RABBITMQ_CREDIT_TRANSFER_REJECTED_ROUTING_KEY).toBe(
       'credit.transfer-rejected.v1',
+    );
+    expect(environment.RABBITMQ_CREDIT_RELEASE_SUCCESS_ROUTING_KEY).toBe(
+      'credit.release-success.v1',
+    );
+    expect(environment.RABBITMQ_CREDIT_RELEASE_REJECTED_ROUTING_KEY).toBe(
+      'credit.release-rejected.v1',
     );
     expect(environment.RABBITMQ_RETRY_EXCHANGE).toBe('foc.credit.retry');
     expect(environment.RABBITMQ_RETRY_RETURN_EXCHANGE).toBe('foc.credit.back');
@@ -142,6 +154,10 @@ describe('environmentSchema', () => {
       'RABBITMQ_ORDER_ERRAND_COMPLETED_QUEUE',
       'credit-service.order-errand-completed.v1',
     ],
+    [
+      'RABBITMQ_ORDER_ERRAND_CANCELLED_QUEUE',
+      'credit-service.order-errand-cancelled.v1',
+    ],
   ])('restricts %s to its canonical production name', (name, canonical) => {
     expect(() =>
       validate({ NODE_ENV: 'production', [name]: `${canonical}.alternate` }),
@@ -201,6 +217,7 @@ describe('environmentSchema', () => {
       'credit.adjusted-rejected.v1',
     ],
     ['RABBITMQ_ORDER_ERRAND_COMPLETED_ROUTING_KEY', 'order.completed.v1'],
+    ['RABBITMQ_ORDER_ERRAND_CANCELLED_ROUTING_KEY', 'order.cancelled.v1'],
     [
       'RABBITMQ_CREDIT_TRANSFER_SUCCEEDED_ROUTING_KEY',
       'credit.transfer-success.v1',
@@ -208,6 +225,14 @@ describe('environmentSchema', () => {
     [
       'RABBITMQ_CREDIT_TRANSFER_REJECTED_ROUTING_KEY',
       'credit.transfer-failed.v1',
+    ],
+    [
+      'RABBITMQ_CREDIT_RELEASE_SUCCESS_ROUTING_KEY',
+      'credit.release-succeeded.v1',
+    ],
+    [
+      'RABBITMQ_CREDIT_RELEASE_REJECTED_ROUTING_KEY',
+      'credit.release-failed.v1',
     ],
   ])('rejects noncanonical %s', (name, value) => {
     expect(() => validate({ [name]: value })).toThrow();

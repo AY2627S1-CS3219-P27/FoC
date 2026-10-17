@@ -1,0 +1,10 @@
+{
+  "eventId": "89389701-140e-419b-9745-c2c78fbbece4",
+  "eventType": "ErrandCancelled",
+  "timestamp": "2026-10-13T08:08:00.000Z",
+  "publisher": "order-service",
+  "payload": {
+    "errandId": "7a43c86c-ea7c-4d92-a619-d8ce18520f33",
+    "cancellationReason": "must not cross the service boundary"
+  }
+}
