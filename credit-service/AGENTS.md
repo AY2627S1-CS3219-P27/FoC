@@ -1,10 +1,9 @@
 # credit-service
 
 Credit ledger built with NestJS and TypeScript, PostgreSQL with TypeORM, and
-RabbitMQ. It consumes `UserRegistered`, `CreditReservation`, and
-`CreditReservationAdjustment`; initializes accounts; executes durable leased
-reservation and adjustment work; and relays committed
-outcomes through a transactional outbox.
+RabbitMQ. It currently consumes `UserRegistered`, initializes accounts through
+an inbox-backed serializable transaction, and relays `CreditAccountInitialised`
+through a transactional outbox (the shared `@foc/outbox` package).
 
 Run npm commands from this directory. Run the normal development stack from the
 repository root; service-local RabbitMQ and PostgreSQL profiles are isolated

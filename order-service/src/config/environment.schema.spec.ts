@@ -6,6 +6,7 @@ const base = {
   DB_USERNAME: 'u',
   DB_DATABASE: 'd',
   DB_PASSWORD_FILE: '/p',
+  JWT_PUBLIC_KEY_FILE: '/k',
   RABBITMQ_USER: 'order-service',
   RABBITMQ_HOST: 'rabbitmq',
   RABBITMQ_PORT: '5672',
@@ -38,5 +39,14 @@ describe('consumer env', () => {
           .error,
       ).toBeDefined();
     }
+  });
+});
+
+describe('auth env', () => {
+  it('requires the JWT public key file', () => {
+    const { JWT_PUBLIC_KEY_FILE: _, ...withoutKey } = base;
+    expect(environmentSchema.validate(withoutKey).error?.message).toMatch(
+      /JWT_PUBLIC_KEY_FILE/,
+    );
   });
 });

@@ -89,10 +89,10 @@ describe('user-service (e2e)', () => {
         })),
         updateProfile: vi.fn(
           async (
-            id: number,
+            uuid: string,
             fields: { displayName?: string; profilePictureUrl?: string | null },
           ) => ({
-            id,
+            uuid,
             email: 'eve@example.com',
             displayName: fields.displayName ?? 'Eve',
             profilePictureUrl: fields.profilePictureUrl ?? null,
@@ -108,11 +108,21 @@ describe('user-service (e2e)', () => {
           roles,
           isAdmin: false,
         })),
+        archiveSelf: vi.fn(async (uuid: string) => ({
+          uuid,
+          email: 'eve@example.com',
+          displayName: 'Eve',
+          profilePictureUrl: null,
+          roles: [Role.Requester],
+          isAdmin: false,
+          isLocked: false,
+          isArchived: true,
+        })),
         adminUpdateUser: vi.fn(
           async (
             _actorUuid: string,
             targetUuid: string,
-            fields: { isAdmin?: boolean },
+            fields: { isAdmin?: boolean; isArchived?: boolean },
           ) => ({
             uuid: targetUuid,
             email: 'mallory@example.com',
@@ -120,6 +130,8 @@ describe('user-service (e2e)', () => {
             profilePictureUrl: null,
             roles: [Role.Requester],
             isAdmin: fields.isAdmin ?? false,
+            isLocked: false,
+            isArchived: fields.isArchived ?? false,
           }),
         ),
         countActiveAdmins: async () => 1,
@@ -249,7 +261,52 @@ describe('user-service (e2e)', () => {
         profilePictureUrl: null,
         roles: [Role.Requester],
         isAdmin: true,
+        isLocked: false,
+        isArchived: false,
       });
+    });
+
+    it('archives an account for an admin caller and reports the flag (F12.2)', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(`/users/${TARGET_UUID}`)
+        .set(
+          'Authorization',
+          `Bearer ${await signAccessToken({ isAdmin: true })}`,
+        )
+        .send({ isArchived: true })
+        .expect(200);
+
+      expect(response.body).toMatchObject({
+        uuid: TARGET_UUID,
+        isArchived: true,
+      });
+    });
+
+    it('un-archives an account for an admin caller (F12.3)', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(`/users/${TARGET_UUID}`)
+        .set(
+          'Authorization',
+          `Bearer ${await signAccessToken({ isAdmin: true })}`,
+        )
+        .send({ isArchived: false })
+        .expect(200);
+
+      expect(response.body).toMatchObject({
+        uuid: TARGET_UUID,
+        isArchived: false,
+      });
+    });
+
+    it('rejects a non-boolean Archival Status with 400', async () => {
+      await request(app.getHttpServer())
+        .patch(`/users/${TARGET_UUID}`)
+        .set(
+          'Authorization',
+          `Bearer ${await signAccessToken({ isAdmin: true })}`,
+        )
+        .send({ isArchived: 'true' })
+        .expect(400);
     });
 
     it('rejects a non-boolean Admin Status with 400 (F11.1.3)', async () => {
@@ -272,6 +329,25 @@ describe('user-service (e2e)', () => {
         )
         .send({ isAdmin: true })
         .expect(400);
+    });
+  });
+
+  describe('self-archive endpoint', () => {
+    it('rejects an unauthenticated archive with 401', async () => {
+      await request(app.getHttpServer()).post('/users/me/archive').expect(401);
+    });
+
+    it('archives the caller and clears the session cookie (F12.1)', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/users/me/archive')
+        .set('Cookie', `${ACCESS_TOKEN_COOKIE}=${await signAccessToken()}`)
+        .expect(201);
+
+      expect(response.body).toEqual({
+        uuid: '11111111-1111-4111-8111-111111111111',
+        isArchived: true,
+      });
+      expect(response.headers['set-cookie']).toBeDefined();
     });
   });
 

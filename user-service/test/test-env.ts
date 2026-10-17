@@ -6,11 +6,15 @@
 // .env file in @nestjs/config, so this is hermetic even on machines whose
 // .env is absent.
 export function seedTestEnvironment(): void {
+  process.env.LOG_LEVEL = 'error';
   process.env.DB_HOST = 'localhost';
   process.env.DB_PORT = '5432';
   process.env.DB_USERNAME = 'test';
   process.env.DB_DATABASE = 'test';
+  process.env.DB_SYNCHRONIZE = 'false';
   process.env.DB_PASSWORD_FILE = '/run/secrets/db_password';
+  process.env.ADMIN_BOOTSTRAP_EMAIL = 'admin@example.com';
+  process.env.ADMIN_BOOTSTRAP_DISPLAY_NAME = 'Test Admin';
   process.env.REDIS_HOST = 'localhost';
   process.env.REDIS_PORT = '6379';
   process.env.REDIS_USERNAME = 'default';

@@ -60,13 +60,16 @@ describe('transition notices', () => {
 
   it('rolls the state change back when the notice breaks its contract', async () => {
     const id = await seed('Open');
+    // A valid payload, but errand data the payload schema cannot see breaks
+    // the notice: oldAmount must be >= 1.
+    await t.db.update(errands).set({ rewardCredits: 0 }).where(eq(errands.id, id));
     await expect(
       transition(t.db, {
         errandId: id,
         expected: 'Open',
         to: 'Adjusting-Credit',
         actor: user(requester),
-        payload: {}, // no newAmount
+        payload: { newAmount: 9 },
       }),
     ).rejects.toThrow(/failed its contract/);
 
@@ -83,7 +86,7 @@ describe('transition notices', () => {
       expected: 'Reserving-Credit',
       to: 'Cancelled',
       actor: SYSTEM,
-      payload: { cancellationReason: 'INSUFFICIENT_CREDITS' },
+      payload: { creditEventId: randomUUID(), requestedAmount: 5 },
       set: { cancellationReason: 'INSUFFICIENT_CREDITS' },
     });
     expect(await outbox(rejected)).toHaveLength(0);

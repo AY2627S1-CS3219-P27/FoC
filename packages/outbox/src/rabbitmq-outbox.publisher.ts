@@ -6,12 +6,12 @@ import type {
   ConfirmChannel,
   RecoveringChannelModel,
 } from 'amqplib';
-import type { EnvironmentVariables } from '../config/environment.js';
+import type { OutboxEnvironmentVariables } from './outbox-environment.js';
 import {
   AMQP_CONNECT,
   type AmqpConnect,
-} from '../messaging/amqp-connection.provider.js';
-import { RABBITMQ_CONNECTION_URL } from '../messaging/rabbitmq-connection-url.provider.js';
+} from './amqp-connection.provider.js';
+import { OUTBOX_OPTIONS, type OutboxOptions } from './outbox.options.js';
 import type { OutboxPublication } from './outbox-publication.types.js';
 
 export class RabbitMqOutboxPublisherUnavailableError extends Error {
@@ -33,6 +33,7 @@ export class RabbitMqOutboxConfirmationTimeoutError extends Error {
 export class RabbitMqOutboxPublisher {
   private readonly logger = new Logger(RabbitMqOutboxPublisher.name);
   private readonly exchange: string;
+  private readonly appId: string;
   private readonly confirmationTimeoutMilliseconds: number;
   private readonly rabbitMqUrl: string;
   private connection?: RecoveringChannelModel;
@@ -41,15 +42,16 @@ export class RabbitMqOutboxPublisher {
   private stopping = false;
 
   constructor(
-    config: ConfigService<EnvironmentVariables, true>,
-    @Inject(RABBITMQ_CONNECTION_URL) rabbitMqUrl: string,
+    config: ConfigService<OutboxEnvironmentVariables, true>,
+    @Inject(OUTBOX_OPTIONS) options: OutboxOptions,
     @Inject(AMQP_CONNECT) private readonly connectAmqp: AmqpConnect,
   ) {
-    this.exchange = config.getOrThrow('RABBITMQ_EXCHANGE');
+    this.exchange = options.exchange;
+    this.appId = options.appId;
+    this.rabbitMqUrl = options.rabbitMqUrl;
     this.confirmationTimeoutMilliseconds = config.getOrThrow(
       'OUTBOX_CONFIRM_TIMEOUT_MS',
     );
-    this.rabbitMqUrl = rabbitMqUrl;
   }
 
   async start(): Promise<void> {
@@ -102,7 +104,7 @@ export class RabbitMqOutboxPublisher {
           contentType: 'application/json',
           messageId: event.eventId,
           type: event.eventType,
-          appId: 'credit-service',
+          appId: this.appId,
         },
         (error) => {
           if (error) {
@@ -151,8 +153,8 @@ export class RabbitMqOutboxPublisher {
     }
 
     const channel = await model.createConfirmChannel();
-    // The root broker owns foc.events; Credit Service only verifies that the
-    // shared exchange exists before using its permitted routing key.
+    // The root broker owns foc.events; services only verify that the shared
+    // exchange exists before using their permitted routing key.
     await channel.checkExchange(this.exchange);
     channel.on('error', (error) =>
       this.logger.error(

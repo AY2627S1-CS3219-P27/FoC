@@ -12,4 +12,13 @@ export class AdminUpdateUserDto {
   @ValidateIf((_object, value) => value !== undefined)
   @IsBoolean()
   isAdmin?: boolean;
+
+  /**
+   * Archival Status. Optional, and held to the same strict
+   * JSON-boolean rule as `isAdmin`. `true` archives the account, `false`
+   * un-archives it.
+   */
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsBoolean()
+  isArchived?: boolean;
 }

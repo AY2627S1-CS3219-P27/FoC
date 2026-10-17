@@ -62,7 +62,7 @@ describe('rebuildProjection', () => {
       set: { rewardCredits: 9 },
     });
     await step(id, 'Open', 'Accepted', { actor: user(courier), set: { courierId: courier } });
-    await step(id, 'Accepted', 'Open', { actor: user(courier) }); // courier withdraws
+    await step(id, 'Accepted', 'Open', { actor: user(courier), payload: { reason: 'bike broke down' } }); // courier withdraws
     await step(id, 'Open', 'Accepted', { actor: user(courier), set: { courierId: courier } });
     await step(id, 'Accepted', 'Picked Up', {
       actor: user(courier),

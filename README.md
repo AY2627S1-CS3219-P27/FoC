@@ -73,21 +73,21 @@ included service; see `env/README.md`. In addition, there are some `.secret`
 files that should be created in order to set-up passwords and authentication.
 View them in the compose files.
 
-Credit Service deliberately disables TypeORM schema synchronization and does
-not run migrations during application startup. Initialize its database before
-starting the complete stack so its consumer and outbox relay cannot access an
-empty schema:
+Credit Service and Order Service deliberately do not run migrations during
+application startup. Initialize their databases before starting the complete
+stack so their consumers and outbox relays cannot access an empty schema
 
 ```sh
-docker compose up -d --wait rabbitmq credit-db
-docker compose build credit-service
+docker compose up -d --wait rabbitmq credit-db order-db
+docker compose build credit-service order-service
 docker compose run --rm credit-service npm run migration:run
+docker compose run --rm --no-deps order-service npm run db:migrate
 docker compose up --watch
 ```
 
-Run the same Credit migration command after pulling a new committed migration,
-before starting the updated Credit Service. TypeORM skips migrations that have
-already been applied. See the [Credit Service setup](credit-service/README.md#run-with-docker-compose)
+Run the same migration commands after pulling a new committed migration, before
+starting the updated service (Credit uses TypeORM, Order uses Drizzle). Both skip
+migrations that have already been applied. See the [Credit Service setup](credit-service/README.md#run-with-docker-compose)
 for its service-specific workflow and verification commands.
 
 ### RabbitMQ set-up

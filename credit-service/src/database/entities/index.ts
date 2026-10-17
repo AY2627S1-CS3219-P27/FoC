@@ -20,4 +20,4 @@ export {
   type CreditTransactionType,
 } from './credit-transaction.entity.js';
 export { InboxEvent } from './inbox-event.entity.js';
-export { OutboxEvent } from './outbox-event.entity.js';
+export { OutboxEvent } from '@foc/outbox/outbox-event.entity';

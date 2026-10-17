@@ -10,7 +10,7 @@ import {
 import { CreditAllocation } from './credit-allocation.entity.js';
 import { CreditOperation } from './credit-operation.entity.js';
 import { CreditTransaction } from './credit-transaction.entity.js';
-import { OutboxEvent } from './outbox-event.entity.js';
+import { OutboxEvent } from '@foc/outbox/outbox-event.entity';
 
 /** Durable evidence that an incoming event produced a known business outcome. */
 @Entity({ name: 'inbox_events' })

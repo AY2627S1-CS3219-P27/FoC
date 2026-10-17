@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { eq, sql } from 'drizzle-orm';
 import { createTestDb } from '../../test/db.js';
-import { errandEvents, errands, outboxEvents } from '../db/schema.js';
+import { errandEvents, errands, idempotencyKeys, outboxEvents } from '../db/schema.js';
 import { createErrand } from '../lifecycle/create.js';
 import type { Status } from '../lifecycle/status.js';
 import { SYSTEM, transition } from '../lifecycle/transition.js';
@@ -16,7 +16,12 @@ afterAll(() => t.close());
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
-const cfg: SweepConfig = { reservingTimeoutMs: 5 * MIN, replyTimeoutMs: 2 * MIN, resendMax: 2 };
+const cfg: SweepConfig = {
+  reservingTimeoutMs: 5 * MIN,
+  replyTimeoutMs: 2 * MIN,
+  resendMax: 2,
+  keyTtlMs: 7 * 24 * HOUR,
+};
 const ago = (ms: number) => new Date(Date.now() - ms);
 
 async function seed(status: Status, over: Partial<typeof errands.$inferInsert> = {}) {
@@ -196,6 +201,24 @@ describe('credit reply timeout', () => {
     expect((await outboxFor(recent))[0].publishedAt).not.toBeNull();
     expect((await outboxFor(capped))[0].publishedAt).not.toBeNull();
     expect((await row(capped)).status).toBe('Transferring-Credit');
+  });
+});
+
+describe('idempotency key retention', () => {
+  it('deletes keys past the TTL and keeps newer ones', async () => {
+    const id = await seed('Open');
+    await t.db.insert(idempotencyKeys).values([
+      { errandId: id, key: 'old', fingerprint: 'f', createdAt: ago(8 * 24 * HOUR) },
+      { errandId: id, key: 'new', fingerprint: 'f', createdAt: ago(HOUR) },
+    ]);
+
+    expect((await runSweeps(t.db, cfg)).keysPruned).toBeGreaterThanOrEqual(1);
+
+    const left = await t.db
+      .select({ key: idempotencyKeys.key })
+      .from(idempotencyKeys)
+      .where(eq(idempotencyKeys.errandId, id));
+    expect(left).toEqual([{ key: 'new' }]);
   });
 });
 

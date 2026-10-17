@@ -13,6 +13,7 @@ import {
   EntityManager,
   EntityNotFoundError,
   FindOptionsWhere,
+  Not,
   QueryFailedError,
   Repository,
 } from 'typeorm';
@@ -243,16 +244,13 @@ export class UsersService {
    * only if the change commits. The acting admin is re-read from the database
    * rather than trusted from the token claims.
    *
-   * The transaction first takes a transaction-scoped advisory lock so that
-   * concurrent admin-privilege changes cannot race the last-active-admin
-   * check: a second demotion blocks until the first commits, then re-reads
-   * the committed admin count.
+   * The transaction first takes a transaction-scoped advisory lock.
    */
   async adminUpdateUser(
     actorUuid: string,
     targetUuid: string,
-    fields: { isAdmin?: boolean },
-  ): Promise<PublicUserInfo> {
+    fields: { isAdmin?: boolean; isArchived?: boolean },
+  ): Promise<User> {
     return this.dataSource.transaction(async (manager) => {
       await manager.query('SELECT pg_advisory_xact_lock($1::bigint)', [
         ADMIN_MUTATION_LOCK_KEY,
@@ -276,16 +274,22 @@ export class UsersService {
       // Audit record of changes
       const changedFields: Record<string, UserUpdateAuditChangedField> = {};
 
-      if (fields.isAdmin !== undefined && fields.isAdmin !== target.isAdmin) {
-        changedFields.isAdmin = { from: target.isAdmin, to: fields.isAdmin };
-        if (!fields.isAdmin) {
-          await this.demoteAdmin(manager);
-        }
-        target.isAdmin = fields.isAdmin;
-      }
+      const adminChange = await this.applyAdminStatusChange(
+        manager,
+        target,
+        fields.isAdmin,
+      );
+      if (adminChange !== undefined) changedFields.isAdmin = adminChange;
+
+      const archiveChange = await this.applyArchiveChange(
+        manager,
+        target,
+        fields.isArchived,
+      );
+      if (archiveChange !== undefined) changedFields.isArchived = archiveChange;
 
       if (Object.keys(changedFields).length === 0) {
-        return this.getPublicUserInfo(target);
+        return target;
       }
 
       await manager.save(target);
@@ -297,25 +301,125 @@ export class UsersService {
         }),
       );
 
-      return this.getPublicUserInfo(target);
+      return target;
     });
   }
 
-  private async demoteAdmin(manager: EntityManager): Promise<boolean> {
+  /**
+   * Archives the caller's own account
+   *
+   * Self-initiated, so no audit entry is written.
+   */
+  async archiveSelf(uuid: string): Promise<User> {
+    return this.dataSource.transaction(async (manager) => {
+      await manager.query('SELECT pg_advisory_xact_lock($1::bigint)', [
+        ADMIN_MUTATION_LOCK_KEY,
+      ]);
+
+      const user = await manager.findOneBy(User, { uuid });
+      if (user === null) {
+        throw new UnauthorizedException();
+      }
+
+      const archiveChange = await this.applyArchiveChange(manager, user, true);
+      if (archiveChange === undefined) {
+        return user;
+      }
+
+      await manager.save(user);
+      return user;
+    });
+  }
+
+  /**
+   * Applies an admin-status change to the target row, returning the audit
+   * entry when the value actually changed (and `undefined` otherwise).
+   */
+  private async applyAdminStatusChange(
+    manager: EntityManager,
+    target: User,
+    isAdmin: boolean | undefined,
+  ): Promise<UserUpdateAuditChangedField | undefined> {
+    if (isAdmin === undefined || isAdmin === target.isAdmin) {
+      return undefined;
+    }
+
+    const oldAdminStatus = target.isAdmin;
+
+    if (!isAdmin) {
+      await this.demoteAdmin(manager, target);
+    } else {
+      target.isAdmin = true; // no other checks needed for promotion
+    }
+
+    const change = { from: oldAdminStatus, to: isAdmin };
+    return change;
+  }
+
+  private async demoteAdmin(
+    manager: EntityManager,
+    target: User,
+  ): Promise<void> {
     // Demoting an admin must leave at least one active admin; locked
     // admins still count, mirroring countActiveAdmins.
-    const activeAdmins = await manager.count(User, {
-      where: { isAdmin: true, isArchived: false },
-    });
-    if (activeAdmins <= 1) {
+    // We don't need to do further checks if user is already archived;
+    // their count doesn't matter.
+    if (await this.isFinalActiveAdmin(manager, target)) {
       throw new ConflictException(
         'Cannot demote the last active admin account',
       );
     }
 
-    // Create admin block in future
+    // TODO: Create admin block
 
-    return true;
+    target.isAdmin = false;
+  }
+
+  /**
+   * Checks if the provided user is the final non-archived admin in the
+   * application.
+   */
+  private async isFinalActiveAdmin(
+    manager: EntityManager,
+    target: User,
+  ): Promise<boolean> {
+    const otherAdminsCount = await manager.count(User, {
+      where: { isAdmin: true, isArchived: false, uuid: Not(target.uuid) },
+    });
+    if (target.isAdmin && !target.isArchived && otherAdminsCount == 0) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Applies an archival-status change to the target row, returning the audit
+   * entry when the value actually changed (and `undefined` otherwise).
+   */
+  private async applyArchiveChange(
+    manager: EntityManager,
+    target: User,
+    isArchived: boolean | undefined,
+  ): Promise<UserUpdateAuditChangedField | undefined> {
+    if (isArchived === undefined || isArchived === target.isArchived) {
+      return undefined;
+    }
+
+    if (isArchived) {
+      if (await this.isFinalActiveAdmin(manager, target)) {
+        throw new ConflictException(
+          'Cannot archive the last remaining active admin.',
+        );
+      }
+      // TODO: revoke every refresh token tied to this account.
+    } else {
+      // TODO: lift the order-service activity block when the
+      // account is un-archived.
+    }
+
+    const change = { from: target.isArchived, to: isArchived };
+    target.isArchived = isArchived;
+    return change;
   }
 
   /**
