@@ -1,10 +1,12 @@
 import {
   Body,
+  Delete,
   Post,
   Controller,
   Req,
   Res,
   UnauthorizedException,
+  UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { ACCESS_TOKEN_COOKIE } from '@foc/contracts';
@@ -19,6 +21,7 @@ import { AuthService } from './auth.service.js';
 import { LoginDto } from './DTO/login.dto.js';
 import { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
+import { type AuthenticatedRequest, JwtAuthGuard } from '@foc/auth';
 
 @Controller('auth')
 export class AuthController {
@@ -68,12 +71,57 @@ export class AuthController {
     res.cookie(REFRESH_TOKEN_COOKIE, refreshToken, {
       httpOnly: true,
       sameSite: 'lax',
-      path: '/auth/refresh',
+      path: '/auth',
       maxAge: REFRESH_TOKEN_EXPIRATION_IN_SECONDS * 1000, // seconds -> milliseconds
       secure: this.configService.get('NODE_ENV') === 'production',
     });
 
     return { message: 'Logged in.' };
+  }
+
+  @Delete('sessions/current')
+  @UseGuards(JwtAuthGuard)
+  async logout(
+    @Res({ passthrough: true }) res: Response,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const refreshToken = request.cookies[REFRESH_TOKEN_COOKIE];
+    if (typeof refreshToken === 'string' && refreshToken.length > 0) {
+      await this.authService.revokeRefreshToken(refreshToken);
+    }
+
+    this.clearCookies(res);
+
+    return { message: 'Logged out.' };
+  }
+
+  @Delete('sessions')
+  @UseGuards(JwtAuthGuard)
+  async logoutAll(
+    @Res({ passthrough: true }) res: Response,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    await this.authService.revokeAllRefreshTokens(request.user.sub);
+
+    this.clearCookies(res);
+
+    return { message: 'Logged out of all devices.' };
+  }
+
+  private clearCookies(res: Response) {
+    res.clearCookie(ACCESS_TOKEN_COOKIE, {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      secure: this.configService.get('NODE_ENV') === 'production',
+    });
+
+    res.clearCookie(REFRESH_TOKEN_COOKIE, {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/auth',
+      secure: this.configService.get('NODE_ENV') === 'production',
+    });
   }
 
   @Post('refresh')

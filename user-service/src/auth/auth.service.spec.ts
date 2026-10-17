@@ -34,6 +34,7 @@ describe('AuthService', () => {
     save: ReturnType<typeof vi.fn>;
     delete: ReturnType<typeof vi.fn>;
     findOneBy: ReturnType<typeof vi.fn>;
+    update: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(async () => {
@@ -55,6 +56,7 @@ describe('AuthService', () => {
       save: vi.fn(async (data) => ({ ...data })),
       delete: vi.fn(),
       findOneBy: vi.fn(),
+      update: vi.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -355,6 +357,54 @@ describe('AuthService', () => {
         UnauthorizedException,
       );
       expect(jwtService.signAsync).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('revokeRefreshToken', () => {
+    it('revokes exactly the presented token by its HMAC', async () => {
+      await service.revokeRefreshToken('opaque-token');
+
+      // The revocation is keyed on the HMAC of the raw token, matching how the
+      // session record is stored and looked up on refresh.
+      expect(vi.mocked(hmacValue)).toHaveBeenCalledWith(
+        'opaque-token',
+        'test-secret',
+      );
+      expect(refreshTokenRepository.update).toHaveBeenCalledWith(
+        { hashedToken: 'deadbeef' },
+        { expiresAt: expect.any(Date) },
+      );
+      // Device-scoped: no other rows are touched.
+      expect(refreshTokenRepository.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('records the revocation datetime as the moment of revocation (F7.1.2)', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-10-17T12:00:00Z'));
+
+      await service.revokeRefreshToken('opaque-token');
+
+      expect(refreshTokenRepository.update).toHaveBeenCalledWith(
+        { hashedToken: 'deadbeef' },
+        { expiresAt: new Date('2026-10-17T12:00:00Z') },
+      );
+
+      vi.useRealTimers();
+    });
+  });
+
+  describe('revokeAllRefreshTokens', () => {
+    it('revokes every token for the account in a single statement (F7.2.1)', async () => {
+      await service.revokeAllRefreshTokens(
+        '11111111-1111-4111-8111-111111111111',
+      );
+
+      // One update, keyed on the user, stamps every row with the same value.
+      expect(refreshTokenRepository.update).toHaveBeenCalledTimes(1);
+      expect(refreshTokenRepository.update).toHaveBeenCalledWith(
+        { userId: '11111111-1111-4111-8111-111111111111' },
+        { expiresAt: expect.any(Date) },
+      );
     });
   });
 });
