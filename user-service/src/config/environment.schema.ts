@@ -1,4 +1,8 @@
 import Joi from 'joi';
+import {
+  outboxEnvironmentSchema,
+  validateOutboxTiming,
+} from '@foc/outbox';
 
 /**
  * Validates the whole environment up front when the app boots.
@@ -40,5 +44,7 @@ export const environmentSchema = Joi.object({
     .pattern(/^\//)
     .default('/reset-password'),
 })
+  .concat(outboxEnvironmentSchema)
+  .custom(validateOutboxTiming)
   .unknown(true)
   .prefs({ abortEarly: false, convert: true });
