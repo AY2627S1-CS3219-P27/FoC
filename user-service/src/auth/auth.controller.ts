@@ -68,7 +68,7 @@ export class AuthController {
     res.cookie(REFRESH_TOKEN_COOKIE, refreshToken, {
       httpOnly: true,
       sameSite: 'lax',
-      path: '/',
+      path: '/auth/refresh',
       maxAge: REFRESH_TOKEN_EXPIRATION_IN_SECONDS * 1000, // seconds -> milliseconds
       secure: this.configService.get('NODE_ENV') === 'production',
     });
