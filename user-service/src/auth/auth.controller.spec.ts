@@ -177,7 +177,7 @@ describe('AuthController login', () => {
     expect(res.cookie).toHaveBeenCalledWith('refresh_token', 'opaque-token', {
       httpOnly: true,
       sameSite: 'lax',
-      path: '/',
+      path: '/auth/refresh',
       maxAge: 604_800_000,
       secure: false,
     });
