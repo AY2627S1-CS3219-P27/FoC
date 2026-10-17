@@ -10,6 +10,7 @@ import {
   OPENAPI_DOCUMENT_PATH,
 } from '../http/configure-http.js';
 import { CreditAccountQueryService } from './credit-account-query.service.js';
+import { CreditTransactionQueryService } from './credit-transaction-query.service.js';
 import { CreditsController } from './credits.controller.js';
 
 describe('CreditsController', () => {
@@ -29,6 +30,7 @@ describe('CreditsController', () => {
     },
   });
   const getBalance = vi.fn();
+  const listHistory = vi.fn();
   let app: INestApplication;
 
   const accessToken = (sub = userId, roles: Role[] = [Role.Requester]) =>
@@ -42,10 +44,17 @@ describe('CreditsController', () => {
 
   beforeEach(async () => {
     getBalance.mockReset();
+    listHistory.mockReset();
     getBalance.mockResolvedValue({
       userId,
       creditBalance: 100,
       reservedBalance: 20,
+    });
+    listHistory.mockResolvedValue({
+      items: [],
+      total: 0,
+      offset: 0,
+      limit: 25,
     });
 
     const module = await Test.createTestingModule({
@@ -55,6 +64,10 @@ describe('CreditsController', () => {
         {
           provide: CreditAccountQueryService,
           useValue: { getBalance },
+        },
+        {
+          provide: CreditTransactionQueryService,
+          useValue: { listHistory },
         },
       ],
     }).compile();
@@ -118,6 +131,102 @@ describe('CreditsController', () => {
 
     await request(app.getHttpServer())
       .get('/v1/credits/balance')
+      .set('Authorization', `Bearer ${await accessToken()}`)
+      .expect(404, {
+        code: 'CREDIT_ACCOUNT_NOT_FOUND',
+        message: 'Credit account not found',
+      });
+  });
+
+  it('returns the authenticated user history with default pagination', async () => {
+    await request(app.getHttpServer())
+      .get('/v1/credits/transactions')
+      .set('Authorization', `Bearer ${await accessToken()}`)
+      .expect(200, {
+        items: [],
+        total: 0,
+        offset: 0,
+        limit: 25,
+        hasMore: false,
+      });
+
+    expect(listHistory).toHaveBeenCalledExactlyOnceWith(userId, 0, 25);
+  });
+
+  it('accepts the shared access-token cookie for transaction history', async () => {
+    await request(app.getHttpServer())
+      .get('/v1/credits/transactions')
+      .set('Cookie', `${ACCESS_TOKEN_COOKIE}=${await accessToken(userId, [])}`)
+      .expect(200);
+
+    expect(listHistory).toHaveBeenCalledExactlyOnceWith(userId, 0, 25);
+  });
+
+  it('reports more history and derives identity only from the token', async () => {
+    listHistory.mockResolvedValue({
+      items: [
+        {
+          transactionId: '55555555-5555-4555-8555-555555555555',
+          type: 'TRANSFER',
+          datetime: '2026-10-17T08:00:00.000Z',
+          amount: 25,
+          errandId: '33333333-3333-4333-8333-333333333333',
+          origin: { userId, balanceType: 'RESERVED_BALANCE' },
+          destination: {
+            userId: otherUserId,
+            balanceType: 'CREDIT_BALANCE',
+          },
+        },
+      ],
+      total: 4,
+      offset: 1,
+      limit: 2,
+    });
+
+    const response = await request(app.getHttpServer())
+      .get('/v1/credits/transactions?offset=1&limit=2')
+      .set('Authorization', `Bearer ${await accessToken()}`)
+      .expect(200);
+
+    expect(response.body).toMatchObject({ total: 4, hasMore: true });
+    expect(listHistory).toHaveBeenCalledExactlyOnceWith(userId, 1, 2);
+  });
+
+  it.each([
+    'offset=-1',
+    'offset=1.5',
+    'limit=0',
+    'limit=1001',
+    'limit=not-a-number',
+    'userId=22222222-2222-4222-8222-222222222222',
+  ])(
+    'rejects invalid or unknown history query parameters: %s',
+    async (query) => {
+      await request(app.getHttpServer())
+        .get(`/v1/credits/transactions?${query}`)
+        .set('Authorization', `Bearer ${await accessToken()}`)
+        .expect(400)
+        .expect(({ body }) => {
+          expect(body).toMatchObject({
+            code: 'VALIDATION_ERROR',
+            message: 'Request validation failed',
+          });
+        });
+
+      expect(listHistory).not.toHaveBeenCalled();
+    },
+  );
+
+  it('applies the centralized missing-account error to transaction history', async () => {
+    listHistory.mockRejectedValue(
+      new NotFoundException({
+        code: 'CREDIT_ACCOUNT_NOT_FOUND',
+        message: 'Credit account not found',
+      }),
+    );
+
+    await request(app.getHttpServer())
+      .get('/v1/credits/transactions')
       .set('Authorization', `Bearer ${await accessToken()}`)
       .expect(404, {
         code: 'CREDIT_ACCOUNT_NOT_FOUND',
@@ -208,6 +317,19 @@ describe('CreditsController', () => {
         400: expect.any(Object),
         401: expect.any(Object),
         403: expect.any(Object),
+        404: expect.any(Object),
+      },
+    });
+    expect(response.body.paths['/v1/credits/transactions'].get).toMatchObject({
+      security: expect.arrayContaining([{ bearer: [] }, { access_token: [] }]),
+      parameters: expect.arrayContaining([
+        expect.objectContaining({ name: 'offset', in: 'query' }),
+        expect.objectContaining({ name: 'limit', in: 'query' }),
+      ]),
+      responses: {
+        200: expect.any(Object),
+        400: expect.any(Object),
+        401: expect.any(Object),
         404: expect.any(Object),
       },
     });
