@@ -14,6 +14,7 @@ RUN npm install --global "npm@${NPM_VERSION}"
 # available without relying on host-generated files.
 COPY packages/contracts/package*.json /usr/src/packages/contracts/
 COPY packages/auth/package*.json /usr/src/packages/auth/
+COPY packages/outbox/package*.json /usr/src/packages/outbox/
 COPY credit-service/package*.json ./
 
 # Install the exact dependency versions. Credit Service's postinstall also
@@ -23,8 +24,12 @@ RUN npm ci
 # Development image with source code and watch mode
 FROM dependencies AS development
 
-COPY packages/contracts/ /usr/src/packages/contracts/
-COPY packages/auth/ /usr/src/packages/auth/
+COPY packages/contracts/src/ /usr/src/packages/contracts/src/
+COPY packages/contracts/tsconfig*.json /usr/src/packages/contracts/
+COPY packages/auth/src/ /usr/src/packages/auth/src/
+COPY packages/auth/tsconfig*.json /usr/src/packages/auth/
+COPY packages/outbox/src/ /usr/src/packages/outbox/src/
+COPY packages/outbox/tsconfig*.json /usr/src/packages/outbox/
 COPY credit-service/ .
 
 EXPOSE 3000
@@ -34,8 +39,12 @@ CMD ["npm", "run", "start:dev"]
 # Build the application and remove development dependencies
 FROM dependencies AS build
 
-COPY packages/contracts/ /usr/src/packages/contracts/
-COPY packages/auth/ /usr/src/packages/auth/
+COPY packages/contracts/src/ /usr/src/packages/contracts/src/
+COPY packages/contracts/tsconfig*.json /usr/src/packages/contracts/
+COPY packages/auth/src/ /usr/src/packages/auth/src/
+COPY packages/auth/tsconfig*.json /usr/src/packages/auth/
+COPY packages/outbox/src/ /usr/src/packages/outbox/src/
+COPY packages/outbox/tsconfig*.json /usr/src/packages/outbox/
 COPY credit-service/ .
 
 RUN npm run build

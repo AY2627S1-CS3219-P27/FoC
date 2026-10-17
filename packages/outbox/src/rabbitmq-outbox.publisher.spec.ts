@@ -1,8 +1,9 @@
 import { EventEmitter } from 'node:events';
 import type { ConfigService } from '@nestjs/config';
 import type { ChannelModel, Options, RecoveryOptions } from 'amqplib';
-import type { EnvironmentVariables } from '../config/environment.js';
-import type { AmqpConnect } from '../messaging/amqp-connection.provider.js';
+import type { OutboxEnvironmentVariables } from './outbox-environment.js';
+import type { AmqpConnect } from './amqp-connection.provider.js';
+import type { OutboxOptions } from './outbox.options.js';
 import type { OutboxPublication } from './outbox-publication.types.js';
 import {
   RabbitMqOutboxConfirmationTimeoutError,
@@ -86,28 +87,29 @@ const publication: OutboxPublication = {
   },
 };
 
+const options: OutboxOptions = {
+  exchange: 'foc.events',
+  appId: 'credit-service',
+  rabbitMqUrl: 'amqp://credit-service:test@rabbitmq:5672/%2Ffoc',
+};
+
 function harness(timeout = 20_000) {
   const values = {
-    RABBITMQ_EXCHANGE: 'foc.events',
     OUTBOX_CONFIRM_TIMEOUT_MS: timeout,
   };
   const config = {
     getOrThrow: vi.fn((key: keyof typeof values) => values[key]),
-  } as unknown as ConfigService<EnvironmentVariables, true>;
+  } as unknown as ConfigService<OutboxEnvironmentVariables, true>;
   const model = new FakeModel();
   let recoverySetup: RecoveryOptions['setup'];
-  const connect = vi.fn(async (_url, options) => {
-    recoverySetup = options.recovery.setup;
+  const connect = vi.fn(async (_url, amqpOptions) => {
+    recoverySetup = amqpOptions.recovery.setup;
     await (recoverySetup as (model: ChannelModel) => Promise<void>)(
       model as unknown as ChannelModel,
     );
     return model;
   }) as unknown as AmqpConnect;
-  const publisher = new RabbitMqOutboxPublisher(
-    config,
-    'amqp://credit-service:test@rabbitmq:5672/%2Ffoc',
-    connect,
-  );
+  const publisher = new RabbitMqOutboxPublisher(config, options, connect);
 
   return { connect, model, publisher, getRecoverySetup: () => recoverySetup };
 }

@@ -36,7 +36,7 @@ import {
 } from '@foc/contracts';
 import { createDatabaseOptions } from '../src/database/database-options.js';
 import { RABBITMQ_CONNECTION_URL } from '../src/messaging/rabbitmq-connection-url.provider.js';
-import { OutboxRelay } from '../src/outbox/outbox.relay.js';
+import { OutboxRelay } from '@foc/outbox';
 import { AuthKeyService } from '../src/auth/auth-key.service.js';
 import { CreditOperationWorker } from '../src/reservation/credit-operation.worker.js';
 

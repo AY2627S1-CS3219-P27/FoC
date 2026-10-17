@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { EnvironmentVariables } from '../config/environment.js';
+import type { OutboxEnvironmentVariables } from './outbox-environment.js';
 import type { ClaimedOutboxEvent } from './outbox-publication.types.js';
 import { OutboxStore } from './outbox.store.js';
 import { RabbitMqOutboxPublisher } from './rabbitmq-outbox.publisher.js';
@@ -59,7 +59,7 @@ export class OutboxRelay {
   private activePoll?: Promise<void>;
 
   constructor(
-    config: ConfigService<EnvironmentVariables, true>,
+    config: ConfigService<OutboxEnvironmentVariables, true>,
     private readonly store: OutboxStore,
     private readonly publisher: RabbitMqOutboxPublisher,
   ) {

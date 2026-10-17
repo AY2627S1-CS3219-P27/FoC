@@ -12,6 +12,11 @@ import {
   ORDER_ERRAND_COMPLETED_V1_ROUTING_KEY,
   USER_REGISTERED_V1_ROUTING_KEY,
 } from '@foc/contracts';
+import {
+  outboxEnvironmentKeys,
+  validateOutboxTiming,
+  type OutboxEnvironmentVariables,
+} from '@foc/outbox';
 
 const DEFAULT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000];
 const USER_REGISTERED_QUEUE = 'credit-service.user-registered.v1';
@@ -19,9 +24,8 @@ const CREDIT_RESERVATION_QUEUE = 'credit-service.credit-reservation.v1';
 const CREDIT_RESERVATION_ADJUSTMENT_QUEUE =
   'credit-service.credit-reservation-adjustment.v1';
 const ORDER_ERRAND_COMPLETED_QUEUE = 'credit-service.order-errand-completed.v1';
-const MIN_OUTBOX_COMPLETION_MARGIN_MS = 5_000;
 
-export interface EnvironmentVariables {
+export interface EnvironmentVariables extends OutboxEnvironmentVariables {
   NODE_ENV: 'development' | 'test' | 'production';
   PORT: number;
   LOG_LEVEL: 'debug' | 'info' | 'warn' | 'error' | 'fatal';
@@ -58,13 +62,6 @@ export interface EnvironmentVariables {
   RABBITMQ_DEAD_LETTER_EXCHANGE: string;
   RABBITMQ_PREFETCH: number;
   RABBITMQ_RETRY_DELAYS_MS: number[];
-  OUTBOX_POLL_INTERVAL_MS: number;
-  OUTBOX_BATCH_SIZE: number;
-  OUTBOX_CONFIRM_TIMEOUT_MS: number;
-  OUTBOX_CLAIM_LEASE_MS: number;
-  OUTBOX_RETRY_BASE_DELAY_MS: number;
-  OUTBOX_RETRY_MAX_DELAY_MS: number;
-  OUTBOX_UNPUBLISHED_WARNING_MS: number;
   CREDIT_OPERATION_CLAIM_LEASE_MS: number;
   CREDIT_OPERATION_POLL_INTERVAL_MS: number;
   CREDIT_OPERATION_MAX_BACKOFF_MS: number;
@@ -184,21 +181,7 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
   RABBITMQ_DEAD_LETTER_EXCHANGE: Joi.string().min(1).default('foc.credit.dlx'),
   RABBITMQ_PREFETCH: Joi.number().integer().min(1).default(10),
   RABBITMQ_RETRY_DELAYS_MS: retryDelaysSchema,
-  OUTBOX_POLL_INTERVAL_MS: Joi.number().integer().min(1).default(1_000),
-  OUTBOX_BATCH_SIZE: Joi.number().integer().min(1).default(100),
-  OUTBOX_CONFIRM_TIMEOUT_MS: Joi.number().integer().min(1).default(20_000),
-  OUTBOX_CLAIM_LEASE_MS: Joi.number().integer().min(1).default(30_000),
-  OUTBOX_RETRY_BASE_DELAY_MS: Joi.number()
-    .integer()
-    .min(1)
-    .max(Number.MAX_SAFE_INTEGER)
-    .default(1_000),
-  OUTBOX_RETRY_MAX_DELAY_MS: Joi.number()
-    .integer()
-    .min(1)
-    .max(Number.MAX_SAFE_INTEGER)
-    .default(60_000),
-  OUTBOX_UNPUBLISHED_WARNING_MS: Joi.number().integer().min(1).default(60_000),
+  ...outboxEnvironmentKeys,
   CREDIT_OPERATION_CLAIM_LEASE_MS: Joi.number()
     .integer()
     .min(1)
@@ -217,18 +200,8 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
     .min(1)
     .default(60_000),
 })
+  .custom(validateOutboxTiming, 'outbox timing relationships')
   .custom((environment: EnvironmentVariables, helpers) => {
-    const completionMargin =
-      environment.OUTBOX_CLAIM_LEASE_MS - environment.OUTBOX_CONFIRM_TIMEOUT_MS;
-    if (completionMargin < MIN_OUTBOX_COMPLETION_MARGIN_MS) {
-      return helpers.error('any.invalid');
-    }
-    if (
-      environment.OUTBOX_RETRY_MAX_DELAY_MS <
-      environment.OUTBOX_RETRY_BASE_DELAY_MS
-    ) {
-      return helpers.error('any.invalid');
-    }
     if (
       environment.CREDIT_OPERATION_MAX_BACKOFF_MS <
       environment.CREDIT_OPERATION_POLL_INTERVAL_MS
@@ -236,6 +209,6 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
       return helpers.error('any.invalid');
     }
     return environment;
-  }, 'worker timing relationships')
+  }, 'credit operation timing relationships')
   .unknown(true)
   .prefs({ abortEarly: false, convert: true });

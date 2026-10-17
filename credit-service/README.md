@@ -950,6 +950,9 @@ before cross-service and frontend end-to-end work is added.
 TypeORM uses [data-source.ts](./src/database/data-source.ts) for CLI commands.
 The CLI reads `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_DATABASE`, and
 `DB_PASSWORD_FILE` from the environment or service-local `.env` file.
+Development migration commands automatically build the shared `@foc/outbox`
+package before TypeORM loads the data source. Production migration commands use
+the compiled package bundled into the production image.
 
 The initial migration uses User Service's UUID user IDs. A database created
 from the temporary integer-based migration cannot be upgraded in place because

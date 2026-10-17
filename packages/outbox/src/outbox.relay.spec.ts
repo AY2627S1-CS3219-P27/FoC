@@ -1,13 +1,13 @@
 import { Logger } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
-import type { EnvironmentVariables } from '../config/environment.js';
+import type { OutboxEnvironmentVariables } from './outbox-environment.js';
 import type { ClaimedOutboxEvent } from './outbox-publication.types.js';
 import { OutboxRelay } from './outbox.relay.js';
 import type { OutboxStore } from './outbox.store.js';
 import type { RabbitMqOutboxPublisher } from './rabbitmq-outbox.publisher.js';
 
 const configuration: Pick<
-  EnvironmentVariables,
+  OutboxEnvironmentVariables,
   | 'OUTBOX_POLL_INTERVAL_MS'
   | 'OUTBOX_BATCH_SIZE'
   | 'OUTBOX_CLAIM_LEASE_MS'
@@ -48,8 +48,10 @@ function deferred<T = void>() {
 
 function harness(events: ClaimedOutboxEvent[] = []) {
   const config = {
-    getOrThrow: vi.fn((key: keyof typeof configuration) => configuration[key]),
-  } as unknown as ConfigService<EnvironmentVariables, true>;
+    getOrThrow: vi.fn(
+      (key: keyof typeof configuration) => configuration[key],
+    ),
+  } as unknown as ConfigService<OutboxEnvironmentVariables, true>;
   const store = {
     claim: vi.fn().mockResolvedValue(events),
     markPublished: vi.fn().mockResolvedValue(true),

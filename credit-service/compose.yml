@@ -71,7 +71,7 @@ services:
         ]
       interval: 10s
       timeout: 3s
-      start_period: 10s
+      start_period: 60s
       retries: 3
     develop:
       watch:
@@ -115,6 +115,19 @@ services:
           path: ../packages/auth/package.json
         - action: rebuild
           path: ../packages/auth/package-lock.json
+        - action: sync+restart
+          path: ../packages/outbox/src
+          target: /usr/src/packages/outbox/src
+        - action: sync+restart
+          path: ../packages/outbox/tsconfig.json
+          target: /usr/src/packages/outbox/tsconfig.json
+        - action: sync+restart
+          path: ../packages/outbox/tsconfig.build.json
+          target: /usr/src/packages/outbox/tsconfig.build.json
+        - action: rebuild
+          path: ../packages/outbox/package.json
+        - action: rebuild
+          path: ../packages/outbox/package-lock.json
 
   credit-db:
     image: postgres:18-alpine
