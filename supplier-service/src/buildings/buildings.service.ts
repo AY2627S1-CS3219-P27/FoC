@@ -72,6 +72,27 @@ export class BuildingsService {
     return match?.building ?? null;
   }
 
+  /**
+   * The building known by this canonical name, short name or alias, retired
+   * or not, ignoring case, whitespace and apostrophe style; the in-use one
+   * first. Unlike resolve(), it also finds retired buildings, so the seed
+   * never creates again a building an admin retired.
+   */
+  async findByAnyName(name: string): Promise<Building | null> {
+    const key = buildingKey(name);
+    const all = await this.buildings.find({ order: { createdAt: 'DESC' } });
+    const matches = all.filter((building) =>
+      [building.canonicalName, building.shortName, ...building.aliases]
+        .map(buildingKey)
+        .includes(key),
+    );
+    return (
+      matches.find((building) => building.retiredAt === null) ??
+      matches[0] ??
+      null
+    );
+  }
+
   async create(input: CreateBuildingInput): Promise<Building> {
     const building = this.buildings.create({
       id: randomUUID(),

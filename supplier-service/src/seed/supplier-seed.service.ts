@@ -27,6 +27,9 @@ import {
   toSupplierInput,
 } from './seed-row.mapper.js';
 
+/** Stands in for the category ids while the row's other fields are checked. */
+const PLACEHOLDER_CATEGORY_ID = '00000000-0000-4000-8000-000000000000';
+
 export interface SeedReport {
   created: number;
   alreadyPresent: number;
@@ -88,10 +91,13 @@ export class SupplierSeedService implements OnApplicationBootstrap {
     return report;
   }
 
-  /** Creates any seed building not yet present (F12.2.1). */
+  /**
+   * Creates any seed building not yet present (F12.2.1). A building that
+   * exists but was retired by an admin is left retired, not created again.
+   */
   private async ensureBuildings(): Promise<void> {
     for (const building of SEED_BUILDINGS) {
-      if (await this.buildings.resolve(building.canonicalName)) {
+      if (await this.buildings.findByAnyName(building.canonicalName)) {
         continue;
       }
       try {
@@ -132,7 +138,7 @@ export class SupplierSeedService implements OnApplicationBootstrap {
 
     const buildingName = row.values[SEED_COLUMNS.building] ?? '';
     const building = buildingName
-      ? await this.buildings.resolve(buildingName)
+      ? await this.buildings.findByAnyName(buildingName)
       : null;
     if (!building) {
       return reject([
@@ -143,17 +149,50 @@ export class SupplierSeedService implements OnApplicationBootstrap {
       ]);
     }
 
-    const input = toSupplierInput(row.values, {
-      name: seedSupplierName(
-        seedName,
-        await this.stripOwnBuildingSuffix(seedName, building),
-      ),
+    const name = seedSupplierName(
+      seedName,
+      await this.stripOwnBuildingSuffix(seedName, building),
+    );
+    const floor = row.values[SEED_COLUMNS.floor] ?? '';
+
+    // Already imported: nothing to do, and no category is touched, so even a
+    // category an admin has since retired is left alone (F12.1).
+    if (await this.suppliers.exists(name, building.id, floor)) {
+      return 'alreadyPresent';
+    }
+    if (building.retiredAt !== null) {
+      return reject([
+        {
+          field: SEED_COLUMNS.building,
+          reason: `building "${buildingName}" is retired`,
+        },
+      ]);
+    }
+
+    // Check every other field before creating any category, so a rejected
+    // row never leaves a new, unused category behind.
+    const categoryNames = categoryNamesOf(row.values[SEED_COLUMNS.type] ?? '');
+    const draft = toSupplierInput(row.values, {
+      name,
       buildingId: building.id,
-      categoryIds: await this.ensureCategories(
-        categoryNamesOf(row.values[SEED_COLUMNS.type] ?? ''),
-        categoryIds,
-      ),
+      categoryIds: [PLACEHOLDER_CATEGORY_ID],
     });
+    const fieldViolations = await this.suppliers.fieldViolations(draft);
+    if (categoryNames.length === 0) {
+      fieldViolations.push({
+        field: SEED_COLUMNS.type,
+        reason: 'no category given',
+      });
+    }
+    if (fieldViolations.length > 0) {
+      return reject(fieldViolations);
+    }
+
+    const categories = await this.ensureCategories(categoryNames, categoryIds);
+    if (!categories.ok) {
+      return reject(categories.violations);
+    }
+    const input = { ...draft, categoryIds: categories.ids };
 
     try {
       await this.suppliers.create(input);
@@ -181,29 +220,42 @@ export class SupplierSeedService implements OnApplicationBootstrap {
     if (!split) {
       return seedName;
     }
-    const named = await this.buildings.resolve(split.suffix);
+    const named = await this.buildings.findByAnyName(split.suffix);
     return named?.id === building.id ? split.base : seedName;
   }
 
-  /** Ids for the named categories, creating missing ones (F12.2.2). */
+  /**
+   * Ids for the named categories, creating any that never existed (F12.2.2).
+   * A category an admin retired is not created again: the row is rejected.
+   */
   private async ensureCategories(
     names: string[],
     cache: Map<string, string>,
-  ): Promise<string[]> {
+  ): Promise<
+    { ok: true; ids: string[] } | { ok: false; violations: FieldViolation[] }
+  > {
     const ids: string[] = [];
+    const violations: FieldViolation[] = [];
     for (const name of names) {
       const key = nameKey(name);
       let id = cache.get(key);
       if (id === undefined) {
-        const category =
-          (await this.categories.findActiveByName(name)) ??
-          (await this.createCategory(name));
-        id = category.id;
+        const existing = await this.categories.findByName(name);
+        if (existing?.retiredAt) {
+          violations.push({
+            field: SEED_COLUMNS.type,
+            reason: `category "${name}" is retired`,
+          });
+          continue;
+        }
+        id = (existing ?? (await this.createCategory(name))).id;
         cache.set(key, id);
       }
       ids.push(id);
     }
-    return ids;
+    return violations.length > 0
+      ? { ok: false, violations }
+      : { ok: true, ids };
   }
 
   private async createCategory(name: string) {

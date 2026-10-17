@@ -1,0 +1,18 @@
+# Used instead of the root .dockerignore for supplier-service/Dockerfile (whose
+# build context is the repository root). Same rules as the root file, plus
+# TypeScript build caches: a host *.tsbuildinfo copied without its dist/ makes
+# tsc skip emitting, so packages/contracts would build to nothing.
+**/node_modules
+**/dist
+**/coverage
+**/.git
+**/.gitignore
+**/.env
+**/.env.*
+!**/.env.example
+**/secrets
+**/data
+**/docs
+**/*.secret
+**/*.log
+**/*.tsbuildinfo

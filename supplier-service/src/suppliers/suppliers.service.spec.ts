@@ -46,10 +46,10 @@ function setup(
   const categories = options.categories ?? [{ id: FOOD_ID, retiredAt: null }];
 
   const manager = {
-    findOneBy: vi.fn(async (entity: unknown) =>
+    findOne: vi.fn(async (entity: unknown) =>
       entity === Building ? building : null,
     ),
-    findBy: vi.fn(async (entity: unknown) =>
+    find: vi.fn(async (entity: unknown) =>
       entity === Category ? categories : [],
     ),
     create: vi.fn((_entity: unknown, values: object) => ({ ...values })),
@@ -70,17 +70,7 @@ function setup(
     get: (key: string) => CAMPUS[key],
   } as unknown as ConfigService<EnvironmentVariables, true>;
 
-  const suppliersRepo = {
-    createQueryBuilder: vi.fn(() => ({
-      leftJoinAndSelect: vi.fn().mockReturnThis(),
-      andWhere: vi.fn().mockReturnThis(),
-      orderBy: vi.fn().mockReturnThis(),
-      getMany: vi.fn(async () => []),
-    })),
-    findOne: vi.fn(async () => null),
-  } as any;
-
-  return { service: new SuppliersService(dataSource, suppliersRepo, config), manager };
+  return { service: new SuppliersService(dataSource, config), manager };
 }
 
 async function violationsOf(promise: Promise<unknown>) {

@@ -57,6 +57,7 @@ describe('seed configuration', () => {
   it('marks the Com 2 printer a Facility and defaults to Store (F12.2.5)', () => {
     expect(seedKind('Printer @ Com 2')).toBe('Facility');
     expect(seedKind('Cool Spot')).toBe('Store');
+    expect(seedKind('')).toBe('Store');
   });
 
   it('renames the Terrace outlets so they stay distinct in COM3', () => {

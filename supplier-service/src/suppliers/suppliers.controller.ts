@@ -1,93 +1,118 @@
+import { AdminGuard, JwtAuthGuard } from '@foc/auth';
 import {
+  Body,
   Controller,
   Get,
-  NotFoundException,
+  Headers,
+  HttpCode,
   Param,
+  Patch,
+  Post,
+  Put,
   Query,
+  Res,
+  UseGuards,
 } from '@nestjs/common';
-import { SupplierStatus } from '../database/entities/index.js';
-import { ErrorCode } from '../common/errors/error-response.js';
+import type { Response } from 'express';
+import { parseIfMatch } from '../common/validation/if-match.js';
+import { uuidParam } from '../common/validation/parse-uuid.pipe.js';
+import { ChangeSupplierStatusDto } from './dto/change-supplier-status.dto.js';
+import { ListSuppliersQueryDto } from './dto/list-suppliers-query.dto.js';
+import { SupplierQueriesService } from './supplier-queries.service.js';
+import type {
+  Page,
+  SupplierDetail,
+  SupplierListItem,
+} from './supplier-view.js';
 import { SuppliersService } from './suppliers.service.js';
 
+/**
+ * Every route requires a valid user-service access token (F13.2). Reading is
+ * open to any authenticated user (F13.3); direct changes are admin-only
+ * (F13.4), and a basic user gets 403 with no part of the change performed
+ * (F13.5).
+ */
 @Controller('suppliers')
+@UseGuards(JwtAuthGuard)
 export class SuppliersController {
-  constructor(private readonly suppliersService: SuppliersService) {}
+  constructor(
+    private readonly queries: SupplierQueriesService,
+    private readonly suppliers: SuppliersService,
+  ) {}
 
+  /** List, search, filter, sort and paginate (F5, N3.1). */
   @Get()
-  async list(
-    @Query('status') status?: string,
-    @Query('name') name?: string,
-    @Query('buildingId') buildingId?: string,
-    @Query('kind') kind?: string,
-  ) {
-    const suppliers = await this.suppliersService.list({
-      status: status as SupplierStatus | undefined,
-      name,
-      buildingId,
-      kind,
-    });
-
-    return {
-      items: suppliers.map((s) => ({
-        id: s.id,
-        name: s.name,
-        displayName: `${s.name} @ ${s.building?.shortName ?? ''}`,
-        kind: s.kind,
-        categories:
-          s.categoryLinks?.map((link) => ({
-            id: link.category?.id,
-            name: link.category?.name,
-          })) ?? [],
-        building: s.building
-          ? { id: s.building.id, shortName: s.building.shortName }
-          : null,
-        floor: s.floor,
-        status: s.status,
-        photoUrl: s.photoUrl,
-        locationDescription: s.locationDescription,
-      })),
-      total: suppliers.length,
-    };
+  list(@Query() query: ListSuppliersQueryDto): Promise<Page<SupplierListItem>> {
+    return this.queries.list(query);
   }
 
+  /**
+   * One supplier (F5.9). The version is also sent as the ETag, which an
+   * admin edit must send back in If-Match (F14.3).
+   */
   @Get(':id')
-  async findOne(@Param('id') id: string) {
-    const supplier = await this.suppliersService.findById(id);
-    if (!supplier) {
-      throw new NotFoundException({
-        code: ErrorCode.NotFound,
-        message: `Supplier ${id} does not exist.`,
-      });
-    }
+  async get(
+    @Param('id', uuidParam('id')) id: string,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<SupplierDetail> {
+    return this.withEtag(response, await this.queries.get(id));
+  }
 
-    return {
-      id: supplier.id,
-      name: supplier.name,
-      displayName: `${supplier.name} @ ${supplier.building?.shortName ?? ''}`,
-      kind: supplier.kind,
-      categories:
-        supplier.categoryLinks?.map((link) => ({
-          id: link.category?.id,
-          name: link.category?.name,
-        })) ?? [],
-      building: supplier.building
-        ? {
-            id: supplier.building.id,
-            canonicalName: supplier.building.canonicalName,
-            shortName: supplier.building.shortName,
-          }
-        : null,
-      floor: supplier.floor,
-      locationDescription: supplier.locationDescription,
-      coordinates: {
-        latitude: supplier.latitude,
-        longitude: supplier.longitude,
-      },
-      photoUrl: supplier.photoUrl,
-      status: supplier.status,
-      version: supplier.version,
-      createdAt: supplier.createdAt,
-      updatedAt: supplier.updatedAt,
-    };
+  /**
+   * Creates an Active supplier directly, without a request (F7.5). The body
+   * is passed to the service unvalidated so that field rules and reference
+   * checks (does the building exist?) come back in one 400 (F1.6.1).
+   */
+  @Post()
+  @UseGuards(AdminGuard)
+  @HttpCode(201)
+  async create(
+    @Body() body: unknown,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<SupplierDetail> {
+    const { id } = await this.suppliers.create(body);
+    response.setHeader('Location', `/suppliers/${id}`);
+    return this.withEtag(response, await this.queries.get(id));
+  }
+
+  /**
+   * Edits one or more fields directly (F8.6), based on the version in
+   * If-Match (F14.3): missing → 428, out of date → 409 with currentVersion.
+   */
+  @Patch(':id')
+  @UseGuards(AdminGuard)
+  async update(
+    @Param('id', uuidParam('id')) id: string,
+    @Headers('if-match') ifMatch: string | undefined,
+    @Body() body: unknown,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<SupplierDetail> {
+    await this.suppliers.update(id, parseIfMatch(ifMatch), body);
+    return this.withEtag(response, await this.queries.get(id));
+  }
+
+  /**
+   * Activates or deactivates directly (F9.5), based on the version in
+   * If-Match (F14.3). Deactivating is D2's "delete": the supplier stays,
+   * tagged Inactive, and can be reactivated.
+   */
+  @Put(':id/status')
+  @UseGuards(AdminGuard)
+  async changeStatus(
+    @Param('id', uuidParam('id')) id: string,
+    @Headers('if-match') ifMatch: string | undefined,
+    @Body() body: ChangeSupplierStatusDto,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<SupplierDetail> {
+    await this.suppliers.changeStatus(id, parseIfMatch(ifMatch), body.status);
+    return this.withEtag(response, await this.queries.get(id));
+  }
+
+  private withEtag(
+    response: Response,
+    supplier: SupplierDetail,
+  ): SupplierDetail {
+    response.setHeader('ETag', `"${supplier.version}"`);
+    return supplier;
   }
 }
