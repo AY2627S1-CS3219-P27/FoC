@@ -23,10 +23,22 @@ import {
   UserUpdateAudit,
   UserUpdateAuditChangedField,
 } from './user-update-audit.entity.js';
-import { MAX_PAGE_LIMIT, Role } from '@foc/contracts';
+import {
+  AccountEventContractValidator,
+  MAX_PAGE_LIMIT,
+  Role,
+  USER_REGISTERED_V1_ROUTING_KEY,
+  type UserRegisteredEvent,
+} from '@foc/contracts';
+import { OutboxEvent } from '@foc/outbox';
 
 /** The PostgreSQL driver error code for a unique-constraint violation. */
 const UNIQUE_VIOLATION_CODE = '23505';
+
+/** The event publisher identity this service stamps on its outbox envelopes. */
+const PUBLISHER = 'user-service';
+
+const eventContractValidator = new AccountEventContractValidator();
 
 /**
  * Advisory-lock key that serialises admin-privilege changes within the
@@ -39,6 +51,14 @@ export class EmailAlreadyRegisteredError extends Error {
   constructor() {
     super('Email is already registered.');
     this.name = 'EmailAlreadyRegisteredError';
+  }
+}
+
+/** Raised when a constructed outbox envelope fails its own contract check. */
+export class OutboxEnvelopeError extends Error {
+  constructor() {
+    super('Failed to construct a valid outbox envelope.');
+    this.name = 'OutboxEnvelopeError';
   }
 }
 
@@ -107,23 +127,44 @@ export class UsersService {
     isLocked = false,
   }: ProvisionUserParams): Promise<PublicUserInfo> {
     const { passwordSalt, passwordHash } = await generatePasswordHash(password);
+    const uuid = randomUUID();
 
     try {
-      const user = await this.userRepository.save(
-        this.userRepository.create({
-          email,
-          displayName,
-          uuid: randomUUID(),
-          passwordHash,
-          passwordSalt,
-          isArchived: false,
-          isAdmin,
-          isLocked,
-          roles: [],
-        }),
-      );
+      return await this.dataSource.transaction(async (manager) => {
+        const users = manager.getRepository(User);
+        const user = await users.save(
+          users.create({
+            email,
+            displayName,
+            uuid,
+            passwordHash,
+            passwordSalt,
+            isArchived: false,
+            isAdmin,
+            isLocked,
+            roles: [],
+          }),
+        );
 
-      return this.getPublicUserInfo(user);
+        const event = this.createUserRegisteredEvent(user);
+
+        const outbox = manager.getRepository(OutboxEvent);
+        await outbox.save(
+          outbox.create({
+            eventId: event.eventId,
+            eventType: event.eventType,
+            routingKey: USER_REGISTERED_V1_ROUTING_KEY,
+            envelope: event,
+            publishedAt: null,
+            attemptCount: 0,
+            lastError: null,
+            claimedBy: null,
+            claimedUntil: null,
+          }),
+        );
+
+        return this.getPublicUserInfo(user);
+      });
     } catch (error) {
       if (
         error instanceof QueryFailedError &&
@@ -134,6 +175,29 @@ export class UsersService {
       }
       throw error;
     }
+  }
+
+  private createUserRegisteredEvent(user: User): UserRegisteredEvent {
+    const event: UserRegisteredEvent = {
+      eventId: randomUUID(),
+      eventType: 'UserRegistered',
+      timestamp: new Date().toISOString(),
+      publisher: PUBLISHER,
+      payload: {
+        userId: user.uuid,
+        email: user.email,
+        displayName: user.displayName,
+      },
+    };
+    const validation = eventContractValidator.validate(
+      USER_REGISTERED_V1_ROUTING_KEY,
+      event,
+    );
+    if (!validation.valid) {
+      throw new OutboxEnvelopeError();
+    }
+
+    return event;
   }
 
   /**
