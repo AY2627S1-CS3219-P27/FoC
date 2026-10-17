@@ -1,8 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { desc, eq } from 'drizzle-orm';
 import { DB } from '../db/db.module.js';
+import { errandEvents, errands } from '../db/schema.js';
 import { enqueueRelease } from './notice.js';
 import { createErrand, type CreateRequestInputs } from './create.js';
 import { rebuildProjection } from './rebuild.js';
+import type { Status } from './status.js';
 import { transition, type Db, type TransitionInput } from './transition.js';
 
 
@@ -25,5 +28,31 @@ export class LifecycleService {
 
   rebuild(errandId: string) {
     return rebuildProjection(this.db, errandId);
+  }
+
+  // used for incoming cancel HTTP requests and cancel has to 
+  // know where it is coming from
+  async currentStatus(errandId: string): Promise<Status | undefined> {
+    const [row] = await this.db
+      .select({ status: errands.status })
+      .from(errands)
+      .where(eq(errands.id, errandId));
+    return row?.status;
+  }
+
+  async lastEvent(
+    errandId: string,
+  ): Promise<{ fromStatus: Status | null; toStatus: Status; type: string } | undefined> {
+    const [row] = await this.db
+      .select({
+        fromStatus: errandEvents.fromStatus,
+        toStatus: errandEvents.toStatus,
+        type: errandEvents.type,
+      })
+      .from(errandEvents)
+      .where(eq(errandEvents.errandId, errandId))
+      .orderBy(desc(errandEvents.sequenceNumber))
+      .limit(1);
+    return row;
   }
 }

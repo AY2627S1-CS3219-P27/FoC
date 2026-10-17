@@ -16,7 +16,7 @@ export interface CreateRequestInputs {
 
 export type CreateResult =
   | { ok: true; errandId: string; replayed?: true }
-  | { ok: false; reason: 'INVALID_FIELDS' };
+  | { ok: false; reason: 'INVALID_FIELDS' | 'IDEMPOTENCY_KEY_REUSED' };
 
 // F1.7.2: 15 minutes to 168 hours.
 export const DEFAULT_EXPIRY_MINUTES = 60;
@@ -34,6 +34,17 @@ export function createErrand(db: Db, i: CreateRequestInputs): Promise<CreateResu
   ) {
     return Promise.resolve({ ok: false, reason: 'INVALID_FIELDS' });
   }
+  // What the requester asked for: event 1's payload, and what a repeated key
+  // is compared against.
+  const request: Record<string, unknown> = {
+    requesterId: i.requesterId,
+    supplierId: i.supplierId,
+    deliveryLocation: i.deliveryLocation,
+    rewardCredits: i.rewardCredits,
+    pickupLocation: i.pickupLocation ?? null,
+    description: i.description ?? null,
+    expiryDurationMinutes, // the Reserving-Credit -> Open edge turns this into expiresAt
+  };
   return db.transaction(async (tx): Promise<CreateResult> => {
     const [row] = await tx
       .insert(errands)
@@ -55,15 +66,7 @@ export function createErrand(db: Db, i: CreateRequestInputs): Promise<CreateResu
         type: 'ErrandCreated',
         fromStatus: null,
         toStatus: 'Pending-Supplier',
-        payload: {
-          requesterId: i.requesterId,
-          supplierId: i.supplierId,
-          deliveryLocation: i.deliveryLocation,
-          rewardCredits: i.rewardCredits,
-          pickupLocation: i.pickupLocation ?? null,
-          description: i.description ?? null,
-          expiryDurationMinutes, // the Reserving-Credit -> Open edge turns this into expiresAt
-        },
+        payload: request,
         actorId: i.requesterId,
       });
       return { ok: true, errandId: row.id };
@@ -79,6 +82,19 @@ export function createErrand(db: Db, i: CreateRequestInputs): Promise<CreateResu
           eq(errands.idempotencyKey, i.idempotencyKey!),
         ),
       );
+    // Same key, different request: refuse rather than hand back an errand the
+    // requester did not ask for this time. Event 1, not the row, because the
+    // row changes later (an adjust rewrites rewardCredits).
+    const [first] = await tx
+      .select({ payload: errandEvents.payload })
+      .from(errandEvents)
+      .where(
+        and(eq(errandEvents.errandId, prior.id), eq(errandEvents.sequenceNumber, 1)),
+      );
+    const asked = first.payload as Record<string, unknown>;
+    if (Object.keys(request).some((k) => request[k] !== asked[k])) {
+      return { ok: false, reason: 'IDEMPOTENCY_KEY_REUSED' };
+    }
     return { ok: true, errandId: prior.id, replayed: true };
   });
 }
