@@ -25,7 +25,7 @@ than maintain a separate verifier that can drift from the issuer.
 
 ### HTTP interfaces
 
-Credit Service exposes two versioned, read-only endpoints.
+Credit Service exposes three versioned, read-only endpoints.
 
 `GET /v1/credits/balance` derives the account identity exclusively from the
 verified token's `sub` claim and returns exactly:
@@ -63,10 +63,30 @@ token's `sub` claim. The response contains exactly:
 ```
 
 The result is `true` when `credit_balance >= amount`, including when the values
-are equal. Both endpoints use an ordinary primary-key lookup without a row lock
-or balance-changing transaction. They do not update an account, increment its
-version, reserve credits, create a credit transaction, or write inbox or outbox
-records.
+are equal. These two account-state endpoints use an ordinary primary-key lookup
+without a row lock or balance-changing transaction. They do not update an
+account, increment its version, reserve credits, create a credit transaction,
+or write inbox or outbox records.
+
+`GET /v1/credits/transactions` derives the account identity exclusively from
+the verified token's `sub` claim and accepts only `offset` and `limit` query
+parameters. Offset defaults to 0. Limit defaults to 25 and cannot exceed 1000.
+The response follows the shared `{ items, total, offset, limit, hasMore }`
+pagination contract.
+
+History contains every immutable ledger row where the authenticated user is
+either the origin or destination, including reservation, adjustment, transfer,
+and release movements. Same-user movements appear once. Each item exposes the
+transaction ID, type, ISO 8601 UTC datetime, amount, errand ID, and origin and
+destination user/balance-type pairs. Results are ordered by
+`created_at DESC, id DESC`; the ID is the deterministic tie-breaker for equal
+timestamps. An existing account without ledger rows returns an empty page. A
+missing Credit account returns `404 CREDIT_ACCOUNT_NOT_FOUND`, matching the
+balance endpoint.
+
+The history query uses ordinary indexed reads and does not lock an account or
+mutate the ledger. Offset pagination does not promise a stable snapshot across
+separate requests when new transactions are appended concurrently.
 
 The endpoint contracts, validation constraints, security schemes, success
 responses, and error responses are published through the service's generated
@@ -86,10 +106,10 @@ header only when the cookie is absent.
 Credit Service reads `JWT_PUBLIC_KEY_FILE` through validated configuration and
 loads the PEM public key from that mounted secret file, following its existing
 file-backed credential pattern. It then registers `FocAuthModule` with the
-public key. The private signing key never enters Credit Service. Both endpoints
-use the shared `JwtAuthGuard`; they do not use `RolesGuard` or `AdminGuard`
-because possession of a valid identity plus the self-only subject rule is the
-complete authorization policy for these routes.
+public key. The private signing key never enters Credit Service. All three
+endpoints use the shared `JwtAuthGuard`; they do not use `RolesGuard` or
+`AdminGuard` because possession of a valid identity plus the self-only subject
+rule is the complete authorization policy for these routes.
 
 Only the `RS256` algorithm and fixed `user-service` issuer are accepted. A
 valid principal requires:
@@ -195,6 +215,8 @@ Service can make an authoritative concurrency-safe decision.
   installations created from the temporary integer schema.
 - Formal certification of the p95 50 ms read target remains scheduled for the
   later performance-testing sprint.
+- Transaction history uses the existing participant/time/ID indexes and needs
+  no schema migration.
 
 ## Requirement Traceability
 
@@ -202,6 +224,10 @@ Service can make an authoritative concurrency-safe decision.
   and non-mutating behavior.
 - Issues #577-#579 / M5.F6-F6.2: protected self-only available and reserved
   balance endpoint.
+- Issues #580-#582 / M5.F7-F7.2: protected, self-only, paginated transaction
+  history ordered newest first.
+- N3.1-N3.1.3: collection pagination parameters, maximum page size, and
+  response metadata.
 - N5.2-N5.3.1: validate access tokens and allowed roles and reject invalid
   tokens on protected endpoints.
 - N10.3.4.1: design the balance and sufficiency lookups for the future p95
