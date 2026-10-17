@@ -13,7 +13,8 @@ import {
   QueryFailedError,
 } from 'typeorm';
 import { hashValue } from '../common/hash/hash.js';
-import { Role } from '@foc/contracts';
+import { Role, USER_REGISTERED_V1_ROUTING_KEY } from '@foc/contracts';
+import { OutboxEvent } from '@foc/outbox';
 import { User } from './user.entity.js';
 import { UserUpdateAudit } from './user-update-audit.entity.js';
 import { EmailAlreadyRegisteredError, UsersService } from './users.service.js';
@@ -47,6 +48,15 @@ describe('UsersService', () => {
     count: ReturnType<typeof vi.fn>;
     save: ReturnType<typeof vi.fn>;
     create: ReturnType<typeof vi.fn>;
+    getRepository: ReturnType<typeof vi.fn>;
+  };
+  let userRepo: {
+    create: ReturnType<typeof vi.fn>;
+    save: ReturnType<typeof vi.fn>;
+  };
+  let outboxRepo: {
+    create: ReturnType<typeof vi.fn>;
+    save: ReturnType<typeof vi.fn>;
   };
   let dataSource: { transaction: ReturnType<typeof vi.fn> };
 
@@ -60,12 +70,23 @@ describe('UsersService', () => {
       exists: vi.fn(async () => false),
       findAndCount: vi.fn(),
     };
+    userRepo = {
+      create: vi.fn((data) => data),
+      save: vi.fn(async (data) => ({ ...data })),
+    };
+    outboxRepo = {
+      create: vi.fn((data) => data),
+      save: vi.fn(async (data) => ({ ...data })),
+    };
     manager = {
       query: vi.fn(async () => undefined),
       findOneBy: vi.fn(),
       count: vi.fn(),
       save: vi.fn(async (_entity, data) => data),
       create: vi.fn((_entity, data) => data),
+      getRepository: vi.fn((entity: unknown) =>
+        entity === User ? userRepo : outboxRepo,
+      ),
     };
     dataSource = {
       transaction: vi.fn(
@@ -103,7 +124,7 @@ describe('UsersService', () => {
     // Same contract the registration flow relied on: a fresh
     // per-user salt, argon2id digest, active account — plus the new flags
     // defaulting to false and no participant roles until the user opts in.
-    expect(userRepository.save).toHaveBeenCalledWith({
+    expect(userRepo.save).toHaveBeenCalledWith({
       email: 'eve@example.com',
       displayName: 'Eve',
       uuid: expect.stringMatching(UUID_PATTERN),
@@ -127,6 +148,44 @@ describe('UsersService', () => {
     });
   });
 
+  it('writes a user-registered outbox envelope alongside the account', async () => {
+    await service.provisionUser({
+      email: 'eve@example.com',
+      displayName: 'Eve',
+      password: 'StrongPassw0rd!',
+    });
+
+    expect(manager.getRepository).toHaveBeenCalledWith(OutboxEvent);
+    expect(outboxRepo.save).toHaveBeenCalledTimes(1);
+
+    const outboxRow = outboxRepo.save.mock.calls[0][0];
+    expect(outboxRow).toMatchObject({
+      eventId: expect.stringMatching(UUID_PATTERN),
+      eventType: 'UserRegistered',
+      routingKey: USER_REGISTERED_V1_ROUTING_KEY,
+      publishedAt: null,
+      attemptCount: 0,
+      lastError: null,
+      claimedBy: null,
+      claimedUntil: null,
+    });
+    expect(outboxRow.envelope).toMatchObject({
+      eventId: outboxRow.eventId,
+      eventType: 'UserRegistered',
+      timestamp: expect.stringMatching(/Z$/),
+      publisher: 'user-service',
+      payload: {
+        userId: expect.stringMatching(UUID_PATTERN),
+        email: 'eve@example.com',
+        displayName: 'Eve',
+      },
+    });
+
+    // The account write and its outbox envelope commit in the same
+    // transaction, so they cannot diverge.
+    expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+  });
+
   it('provisions an admin account locked on request', async () => {
     await service.provisionUser({
       email: 'root@example.com',
@@ -136,7 +195,7 @@ describe('UsersService', () => {
       isLocked: true,
     });
 
-    expect(userRepository.save).toHaveBeenCalledWith({
+    expect(userRepo.save).toHaveBeenCalledWith({
       email: 'root@example.com',
       displayName: 'Root',
       uuid: expect.stringMatching(UUID_PATTERN),
@@ -171,7 +230,7 @@ describe('UsersService', () => {
     const driverError = Object.assign(new Error('duplicate key value'), {
       code: '23505',
     });
-    userRepository.save.mockRejectedValue(
+    userRepo.save.mockRejectedValue(
       new QueryFailedError('INSERT INTO users', [], driverError),
     );
 
@@ -182,6 +241,25 @@ describe('UsersService', () => {
         password: 'StrongPassw0rd!',
       }),
     ).rejects.toThrow(EmailAlreadyRegisteredError);
+  });
+
+  it('writes no outbox envelope when the account insert is rejected', async () => {
+    const driverError = Object.assign(new Error('duplicate key value'), {
+      code: '23505',
+    });
+    userRepo.save.mockRejectedValue(
+      new QueryFailedError('INSERT INTO users', [], driverError),
+    );
+
+    await expect(
+      service.provisionUser({
+        email: 'eve@example.com',
+        displayName: 'Eve',
+        password: 'StrongPassw0rd!',
+      }),
+    ).rejects.toThrow(EmailAlreadyRegisteredError);
+
+    expect(outboxRepo.save).not.toHaveBeenCalled();
   });
 
   it('counts only unarchived admins', async () => {

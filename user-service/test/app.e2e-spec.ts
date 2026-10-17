@@ -7,6 +7,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import request from 'supertest';
 import cookieParser from 'cookie-parser';
 import { ACCESS_TOKEN_COOKIE, ACCESS_TOKEN_ISSUER, Role } from '@foc/contracts';
+import { OutboxRelay } from '@foc/outbox';
 import { REDIS } from '../src/redis/redis.provider.js';
 import { SecretService } from '../src/secret/secret.service.js';
 import { User } from '../src/users/user.entity.js';
@@ -75,6 +76,10 @@ describe('user-service (e2e)', () => {
       .useValue({
         count: async () => 1,
       })
+      // HTTP smoke tests must not require a broker; the outbox relay owns the
+      // only RabbitMQ connection opened at bootstrap.
+      .overrideProvider(OutboxRelay)
+      .useValue({ start: vi.fn(), close: vi.fn() })
       // UsersService is faked so the guarded user endpoints can run without a
       // Postgres container
       .overrideProvider(UsersService)

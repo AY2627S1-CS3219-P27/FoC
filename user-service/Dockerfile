@@ -11,6 +11,7 @@ WORKDIR /usr/src/app
 # files.
 COPY packages/contracts/package*.json /usr/src/packages/contracts/
 COPY packages/auth/package*.json /usr/src/packages/auth/
+COPY packages/outbox/package*.json /usr/src/packages/outbox/
 
 # Copy the application manifests and install dependencies. The file:
 # dependencies resolve to ../packages/* and postinstall installs each shared
@@ -23,6 +24,7 @@ RUN npm install
 # into this service's node_modules so Nest resolves a single copy).
 COPY packages/contracts/ /usr/src/packages/contracts/
 COPY packages/auth/ /usr/src/packages/auth/
+COPY packages/outbox/ /usr/src/packages/outbox/
 COPY user-service/ .
 
 # Build the NestJS application
