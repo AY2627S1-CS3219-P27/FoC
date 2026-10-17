@@ -17,6 +17,18 @@ export type { EventEnvelope } from './domain-events/event-envelope.types.js';
 export { eventRegistry } from './domain-events/event-registry.js';
 export type {
   CreditAccountInitialisedEvent,
+  CreditReleaseRejectedEvent,
+  CreditReleaseSuccessEvent,
+  CreditTransferRejectedEvent,
+  CreditTransferSucceededEvent,
+  ErrandCancelledEvent,
+  ErrandCompletedEvent,
+  CreditReservationAdjustmentEvent,
+  CreditReservationAdjustmentRejectedEvent,
+  CreditReservationAdjustmentSuccessEvent,
+  CreditReservationEvent,
+  CreditReservationRejectedEvent,
+  CreditReservationSuccessEvent,
   EventContractKey,
   EventOf,
   EventType,
@@ -27,6 +39,78 @@ export {
   creditAccountInitialisedV1Contract,
 } from './domain-events/events/credit-account-initialised/v1/contract.js';
 export type { CreditAccountInitialisedPayload } from './domain-events/events/credit-account-initialised/v1/contract.js';
+export {
+  CREDIT_RESERVATION_ADJUSTMENT_REJECTED_V1_ROUTING_KEY,
+  creditReservationAdjustmentRejectedV1Contract,
+} from './domain-events/events/credit-reservation-adjustment-rejected/v1/contract.js';
+export type {
+  CreditReservationAdjustmentRejectedPayload,
+  CreditReservationAdjustmentRejectionReason,
+} from './domain-events/events/credit-reservation-adjustment-rejected/v1/contract.js';
+export {
+  CREDIT_RESERVATION_ADJUSTMENT_SUCCESS_V1_ROUTING_KEY,
+  creditReservationAdjustmentSuccessV1Contract,
+} from './domain-events/events/credit-reservation-adjustment-success/v1/contract.js';
+export type { CreditReservationAdjustmentSuccessPayload } from './domain-events/events/credit-reservation-adjustment-success/v1/contract.js';
+export {
+  CREDIT_RESERVATION_ADJUSTMENT_V1_ROUTING_KEY,
+  creditReservationAdjustmentV1Contract,
+} from './domain-events/events/credit-reservation-adjustment/v1/contract.js';
+export type { CreditReservationAdjustmentPayload } from './domain-events/events/credit-reservation-adjustment/v1/contract.js';
+export {
+  CREDIT_RESERVATION_REJECTED_V1_ROUTING_KEY,
+  creditReservationRejectedV1Contract,
+} from './domain-events/events/credit-reservation-rejected/v1/contract.js';
+export type {
+  CreditReservationRejectedPayload,
+  CreditReservationRejectionReason,
+} from './domain-events/events/credit-reservation-rejected/v1/contract.js';
+export {
+  CREDIT_RESERVATION_SUCCESS_V1_ROUTING_KEY,
+  creditReservationSuccessV1Contract,
+} from './domain-events/events/credit-reservation-success/v1/contract.js';
+export type { CreditReservationSuccessPayload } from './domain-events/events/credit-reservation-success/v1/contract.js';
+export {
+  CREDIT_RESERVATION_V1_ROUTING_KEY,
+  creditReservationV1Contract,
+} from './domain-events/events/credit-reservation/v1/contract.js';
+export type { CreditReservationPayload } from './domain-events/events/credit-reservation/v1/contract.js';
+export {
+  ORDER_ERRAND_COMPLETED_V1_ROUTING_KEY,
+  errandCompletedV1Contract,
+} from './domain-events/events/errand-completed/v1/contract.js';
+export type { ErrandCompletedPayload } from './domain-events/events/errand-completed/v1/contract.js';
+export {
+  ORDER_ERRAND_CANCELLED_V1_ROUTING_KEY,
+  errandCancelledV1Contract,
+} from './domain-events/events/errand-cancelled/v1/contract.js';
+export type { ErrandCancelledPayload } from './domain-events/events/errand-cancelled/v1/contract.js';
+export {
+  CREDIT_TRANSFER_SUCCEEDED_V1_ROUTING_KEY,
+  creditTransferSucceededV1Contract,
+} from './domain-events/events/credit-transfer-succeeded/v1/contract.js';
+export type { CreditTransferSucceededPayload } from './domain-events/events/credit-transfer-succeeded/v1/contract.js';
+export {
+  CREDIT_TRANSFER_REJECTED_V1_ROUTING_KEY,
+  creditTransferRejectedV1Contract,
+} from './domain-events/events/credit-transfer-rejected/v1/contract.js';
+export type {
+  CreditTransferRejectedPayload,
+  CreditTransferRejectionReason,
+} from './domain-events/events/credit-transfer-rejected/v1/contract.js';
+export {
+  CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY,
+  creditReleaseRejectedV1Contract,
+} from './domain-events/events/credit-release-rejected/v1/contract.js';
+export type {
+  CreditReleaseRejectedPayload,
+  CreditReleaseRejectionReason,
+} from './domain-events/events/credit-release-rejected/v1/contract.js';
+export {
+  CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY,
+  creditReleaseSuccessV1Contract,
+} from './domain-events/events/credit-release-success/v1/contract.js';
+export type { CreditReleaseSuccessPayload } from './domain-events/events/credit-release-success/v1/contract.js';
 export {
   USER_REGISTERED_V1_ROUTING_KEY,
   userRegisteredV1Contract,

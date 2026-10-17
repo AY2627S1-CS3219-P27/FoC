@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "FoC",
-  description: "Friend on Campus",
+  title: "FoC — Friend on Campus",
+  description: "Peer-to-peer campus errand platform",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

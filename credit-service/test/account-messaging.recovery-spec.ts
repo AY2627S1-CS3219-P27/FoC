@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { generateKeyPairSync, randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
 import type { INestApplication, Type } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -15,13 +15,35 @@ import { AccountInitializationService } from '../src/account-initialization/acco
 import {
   AccountEventContractValidator,
   CREDIT_ACCOUNT_INITIALISED_V1_ROUTING_KEY,
+  CREDIT_RESERVATION_ADJUSTMENT_REJECTED_V1_ROUTING_KEY,
+  CREDIT_RESERVATION_ADJUSTMENT_SUCCESS_V1_ROUTING_KEY,
+  CREDIT_RESERVATION_REJECTED_V1_ROUTING_KEY,
+  CREDIT_RESERVATION_SUCCESS_V1_ROUTING_KEY,
+  CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY,
+  CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY,
+  CREDIT_TRANSFER_REJECTED_V1_ROUTING_KEY,
+  CREDIT_TRANSFER_SUCCEEDED_V1_ROUTING_KEY,
   type ContractValidationResult,
   type CreditAccountInitialisedEvent,
+  type CreditReservationAdjustmentEvent,
+  type CreditReservationAdjustmentRejectedEvent,
+  type CreditReservationAdjustmentSuccessEvent,
+  type CreditReservationEvent,
+  type CreditReservationRejectedEvent,
+  type CreditReservationSuccessEvent,
+  type CreditReleaseRejectedEvent,
+  type CreditReleaseSuccessEvent,
+  type CreditTransferRejectedEvent,
+  type CreditTransferSucceededEvent,
+  type ErrandCompletedEvent,
+  type ErrandCancelledEvent,
   type UserRegisteredEvent,
 } from '@foc/contracts';
 import { createDatabaseOptions } from '../src/database/database-options.js';
 import { RABBITMQ_CONNECTION_URL } from '../src/messaging/rabbitmq-connection-url.provider.js';
-import { OutboxRelay } from '../src/outbox/outbox.relay.js';
+import { OutboxRelay } from '@foc/outbox';
+import { AuthKeyService } from '../src/auth/auth-key.service.js';
+import { CreditOperationWorker } from '../src/reservation/credit-operation.worker.js';
 
 const execFileAsync = promisify(execFile);
 const dockerServices = ['credit-db-recovery', 'credit-rabbitmq-recovery'];
@@ -29,13 +51,81 @@ const suffix = randomUUID().replaceAll('-', '');
 const topology = {
   domainExchange: `foc.events.recovery.${suffix}`,
   incomingQueue: `credit-service.user-registered.recovery.${suffix}`,
+  reservationQueue: `credit-service.credit-reservation.recovery.${suffix}`,
+  adjustmentQueue: `credit-service.credit-reservation-adjustment.recovery.${suffix}`,
+  completionQueue: `credit-service.order-errand-completed.recovery.${suffix}`,
+  cancellationQueue: `credit-service.order-errand-cancelled.recovery.${suffix}`,
   retryExchange: `foc.credit.retry.recovery.${suffix}`,
   retryReturnExchange: `foc.credit.back.recovery.${suffix}`,
   deadLetterExchange: `foc.credit.dlx.recovery.${suffix}`,
   observationQueue: `credit-service.account-initialised.observation.${suffix}`,
+  reservationObservationQueue: `credit-service.reservation.observation.${suffix}`,
 };
 const incomingRoutingKey = 'user.registered.v1';
 const outgoingRoutingKey = 'credit.account-initialised.v1';
+const reservationRoutingKey = 'credit.reservation.v1';
+const adjustmentRoutingKey = 'credit.reservation-adjustment.v1';
+const completionRoutingKey = 'order.errand-completed.v1';
+const cancellationRoutingKey = 'order.errand-cancelled.v1';
+const { publicKey: testJwtPublicKey } = generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+});
+
+interface ReservationState {
+  id: string;
+  status: 'PENDING' | 'SUCCEEDED' | 'REJECTED';
+  attemptCount: number;
+  claimedBy: string | null;
+  transactionId: string | null;
+  outboxEventId: string | null;
+  outboxPublished: boolean | null;
+  outboxEnvelope: CreditReservationSuccessEvent | null;
+  creditBalance: number;
+  reservedBalance: number;
+  reservationStatus: 'ACTIVE' | null;
+  reservedAmount: number | null;
+  transactionCount: number;
+  inboxCount: number;
+}
+
+interface TransferState {
+  id: string;
+  status: 'PENDING' | 'SUCCEEDED' | 'REJECTED';
+  attemptCount: number;
+  claimedBy: string | null;
+  transactionId: string | null;
+  outboxEventId: string | null;
+  outboxPublished: boolean | null;
+  outboxEnvelope:
+    CreditTransferSucceededEvent | CreditTransferRejectedEvent | null;
+  requesterCreditBalance: number;
+  requesterReservedBalance: number;
+  courierCreditBalance: number;
+  courierReservedBalance: number;
+  reservationStatus: 'ACTIVE' | 'CONSUMED' | 'RELEASED' | null;
+  transactionCount: number;
+  inboxCount: number;
+}
+
+interface ReleaseState {
+  id: string;
+  status: 'PENDING' | 'SUCCEEDED' | 'REJECTED';
+  attemptCount: number;
+  claimedBy: string | null;
+  requesterUserId: string | null;
+  amount: number | null;
+  transactionId: string | null;
+  outboxEventId: string | null;
+  outboxPublished: boolean | null;
+  outboxEnvelope: CreditReleaseSuccessEvent | CreditReleaseRejectedEvent | null;
+  requesterCreditBalance: number | null;
+  requesterReservedBalance: number | null;
+  reservationStatus: 'ACTIVE' | 'CONSUMED' | 'RELEASED' | null;
+  transactionCount: number;
+  inboxCount: number;
+}
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -81,7 +171,66 @@ function registration(
   };
 }
 
-describe.sequential('account messaging recovery', () => {
+function reservation(
+  requesterUserId: string,
+  amount = 25,
+  errandId: string = randomUUID(),
+  eventId: string = randomUUID(),
+): CreditReservationEvent {
+  return {
+    eventId,
+    eventType: 'CreditReservation',
+    timestamp: new Date().toISOString(),
+    publisher: 'order-service',
+    payload: { errandId, requesterUserId, amount },
+  };
+}
+
+function adjustment(
+  errandId: string,
+  oldAmount: number,
+  newAmount: number,
+  eventId: string = randomUUID(),
+): CreditReservationAdjustmentEvent {
+  return {
+    eventId,
+    eventType: 'CreditReservationAdjustment',
+    timestamp: new Date().toISOString(),
+    publisher: 'order-service',
+    payload: { errandId, oldAmount, newAmount },
+  };
+}
+
+function completion(
+  errandId: string,
+  requesterUserId: string,
+  courierUserId: string,
+  amount = 25,
+  eventId: string = randomUUID(),
+): ErrandCompletedEvent {
+  return {
+    eventId,
+    eventType: 'ErrandCompleted',
+    timestamp: new Date().toISOString(),
+    publisher: 'order-service',
+    payload: { errandId, requesterUserId, courierUserId, amount },
+  };
+}
+
+function cancellation(
+  errandId: string = randomUUID(),
+  eventId: string = randomUUID(),
+): ErrandCancelledEvent {
+  return {
+    eventId,
+    eventType: 'ErrandCancelled',
+    timestamp: new Date().toISOString(),
+    publisher: 'order-service',
+    payload: { errandId },
+  };
+}
+
+describe.sequential('credit messaging recovery', () => {
   const rabbitMqUrl = process.env.RABBITMQ_URL!;
   const managementUrl = process.env.RABBITMQ_MANAGEMENT_URL!;
   const rabbitUsername = process.env.RABBITMQ_USERNAME ?? 'credit_service';
@@ -123,16 +272,46 @@ describe.sequential('account messaging recovery', () => {
       topology.domainExchange,
       outgoingRoutingKey,
     );
+    await adminChannel.assertQueue(topology.reservationObservationQueue, {
+      durable: true,
+    });
+    for (const routingKey of [
+      CREDIT_RESERVATION_SUCCESS_V1_ROUTING_KEY,
+      CREDIT_RESERVATION_REJECTED_V1_ROUTING_KEY,
+      CREDIT_RESERVATION_ADJUSTMENT_SUCCESS_V1_ROUTING_KEY,
+      CREDIT_RESERVATION_ADJUSTMENT_REJECTED_V1_ROUTING_KEY,
+      CREDIT_TRANSFER_SUCCEEDED_V1_ROUTING_KEY,
+      CREDIT_TRANSFER_REJECTED_V1_ROUTING_KEY,
+      CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY,
+      CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY,
+    ]) {
+      await adminChannel.bindQueue(
+        topology.reservationObservationQueue,
+        topology.domainExchange,
+        routingKey,
+      );
+    }
   }
 
   async function startApplication(
-    disableRelay = false,
+    options: {
+      disableRelay?: boolean;
+      disableOperationWorker?: boolean;
+    } = {},
   ): Promise<INestApplication> {
     let builder = Test.createTestingModule({ imports: [appModule] })
       .overrideProvider(RABBITMQ_CONNECTION_URL)
-      .useValue(rabbitMqUrl);
-    if (disableRelay) {
+      .useValue(rabbitMqUrl)
+      .overrideProvider(AuthKeyService)
+      .useValue({ getJwtPublicKey: () => testJwtPublicKey });
+    if (options.disableRelay) {
       builder = builder.overrideProvider(OutboxRelay).useValue({
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+      });
+    }
+    if (options.disableOperationWorker) {
+      builder = builder.overrideProvider(CreditOperationWorker).useValue({
         start: vi.fn().mockResolvedValue(undefined),
         close: vi.fn().mockResolvedValue(undefined),
       });
@@ -160,6 +339,28 @@ describe.sequential('account messaging recovery', () => {
 
   async function publishEvent(event: UserRegisteredEvent): Promise<void> {
     await publish(Buffer.from(JSON.stringify(event)));
+  }
+
+  async function publishReservation(
+    event: CreditReservationEvent,
+  ): Promise<void> {
+    await publish(Buffer.from(JSON.stringify(event)), reservationRoutingKey);
+  }
+
+  async function publishAdjustment(
+    event: CreditReservationAdjustmentEvent,
+  ): Promise<void> {
+    await publish(Buffer.from(JSON.stringify(event)), adjustmentRoutingKey);
+  }
+
+  async function publishCompletion(event: ErrandCompletedEvent): Promise<void> {
+    await publish(Buffer.from(JSON.stringify(event)), completionRoutingKey);
+  }
+
+  async function publishCancellation(
+    event: ErrandCancelledEvent,
+  ): Promise<void> {
+    await publish(Buffer.from(JSON.stringify(event)), cancellationRoutingKey);
   }
 
   async function takeMessage(
@@ -200,6 +401,110 @@ describe.sequential('account messaging recovery', () => {
     throw new Error(
       `No CreditAccountInitialised event was observed for user ${userId}`,
     );
+  }
+
+  async function takeReservationOutcome(
+    errandId: string,
+    timeoutMilliseconds = 15_000,
+  ): Promise<{
+    message: GetMessage;
+    envelope: CreditReservationSuccessEvent | CreditReservationRejectedEvent;
+  }> {
+    const deadline = Date.now() + timeoutMilliseconds;
+    while (Date.now() < deadline) {
+      const message = await takeMessage(
+        topology.reservationObservationQueue,
+        Math.max(1, deadline - Date.now()),
+      );
+      const envelope = JSON.parse(message.content.toString('utf8')) as
+        CreditReservationSuccessEvent | CreditReservationRejectedEvent;
+      if (envelope.payload.errandId === errandId) {
+        return { message, envelope };
+      }
+    }
+    throw new Error(
+      `No reservation outcome was observed for errand ${errandId}`,
+    );
+  }
+
+  async function takeAdjustmentOutcome(
+    errandId: string,
+    timeoutMilliseconds = 15_000,
+  ): Promise<{
+    message: GetMessage;
+    envelope:
+      | CreditReservationAdjustmentSuccessEvent
+      | CreditReservationAdjustmentRejectedEvent;
+  }> {
+    const deadline = Date.now() + timeoutMilliseconds;
+    while (Date.now() < deadline) {
+      const message = await takeMessage(
+        topology.reservationObservationQueue,
+        Math.max(1, deadline - Date.now()),
+      );
+      const envelope = JSON.parse(message.content.toString('utf8')) as
+        | CreditReservationAdjustmentSuccessEvent
+        | CreditReservationAdjustmentRejectedEvent;
+      if (
+        envelope.payload.errandId === errandId &&
+        envelope.eventType.startsWith('CreditReservationAdjustment')
+      ) {
+        return { message, envelope };
+      }
+    }
+    throw new Error(
+      `No reservation adjustment outcome was observed for errand ${errandId}`,
+    );
+  }
+
+  async function takeTransferOutcome(
+    errandId: string,
+    timeoutMilliseconds = 15_000,
+  ): Promise<{
+    message: GetMessage;
+    envelope: CreditTransferSucceededEvent | CreditTransferRejectedEvent;
+  }> {
+    const deadline = Date.now() + timeoutMilliseconds;
+    while (Date.now() < deadline) {
+      const message = await takeMessage(
+        topology.reservationObservationQueue,
+        Math.max(1, deadline - Date.now()),
+      );
+      const envelope = JSON.parse(message.content.toString('utf8')) as
+        CreditTransferSucceededEvent | CreditTransferRejectedEvent;
+      if (
+        envelope.payload.errandId === errandId &&
+        envelope.eventType.startsWith('CreditTransfer')
+      ) {
+        return { message, envelope };
+      }
+    }
+    throw new Error(`No transfer outcome was observed for errand ${errandId}`);
+  }
+
+  async function takeReleaseOutcome(
+    errandId: string,
+    timeoutMilliseconds = 15_000,
+  ): Promise<{
+    message: GetMessage;
+    envelope: CreditReleaseSuccessEvent | CreditReleaseRejectedEvent;
+  }> {
+    const deadline = Date.now() + timeoutMilliseconds;
+    while (Date.now() < deadline) {
+      const message = await takeMessage(
+        topology.reservationObservationQueue,
+        Math.max(1, deadline - Date.now()),
+      );
+      const envelope = JSON.parse(message.content.toString('utf8')) as
+        CreditReleaseSuccessEvent | CreditReleaseRejectedEvent;
+      if (
+        envelope.payload.errandId === errandId &&
+        envelope.eventType.startsWith('CreditRelease')
+      ) {
+        return { message, envelope };
+      }
+    }
+    throw new Error(`No release outcome was observed for errand ${errandId}`);
   }
 
   async function userCounts(userId: string): Promise<{
@@ -247,11 +552,178 @@ describe.sequential('account messaging recovery', () => {
     );
   }
 
-  async function queueMetrics(): Promise<{
+  async function createFundedAccount(userId: string): Promise<void> {
+    const outcome = await app
+      .get(AccountInitializationService)
+      .process(registration(userId));
+    expect(['created', 'existing-account']).toContain(outcome.status);
+    await waitFor(async () =>
+      (await userCounts(userId)).accounts === 1 ? true : undefined,
+    );
+  }
+
+  async function createActiveReservationForTransfer(
+    requesterUserId: string,
+    courierUserId: string,
+    amount = 25,
+  ): Promise<CreditReservationEvent> {
+    await createFundedAccount(requesterUserId);
+    await createFundedAccount(courierUserId);
+    const event = reservation(requesterUserId, amount);
+    await publishReservation(event);
+    await takeReservationOutcome(event.payload.errandId);
+    await waitFor(async () =>
+      (await reservationState(event.payload.errandId))?.status === 'SUCCEEDED'
+        ? true
+        : undefined,
+    );
+    return event;
+  }
+
+  async function reservationState(
+    errandId: string,
+  ): Promise<ReservationState | null> {
+    const [row] = (await dataSource.query(
+      `
+        SELECT operation.id,
+               operation.status,
+               operation.attempt_count AS "attemptCount",
+               operation.claimed_by AS "claimedBy",
+               operation.completion_transaction_id AS "transactionId",
+               operation.outcome_outbox_event_id AS "outboxEventId",
+               CASE
+                 WHEN outbox.event_id IS NULL THEN NULL
+                 ELSE outbox.published_at IS NOT NULL
+               END AS "outboxPublished",
+               outbox.envelope AS "outboxEnvelope",
+               account.credit_balance::int AS "creditBalance",
+               account.reserved_balance::int AS "reservedBalance",
+               reservation.status AS "reservationStatus",
+               reservation.reserved_amount::int AS "reservedAmount",
+               (
+                 SELECT COUNT(*)::int
+                 FROM credit_transactions movement
+                 WHERE movement.errand_id = operation.errand_id
+               ) AS "transactionCount",
+               (
+                 SELECT COUNT(*)::int
+                 FROM inbox_events inbox
+                 WHERE inbox.outcome_operation_id = operation.id
+               ) AS "inboxCount"
+        FROM credit_operations operation
+        JOIN credit_accounts account
+          ON account.user_id = operation.requester_user_id
+        LEFT JOIN credit_reservations reservation
+          ON reservation.errand_id = operation.errand_id
+        LEFT JOIN outbox_events outbox
+          ON outbox.event_id = operation.outcome_outbox_event_id
+        WHERE operation.errand_id = $1
+          AND operation.operation_type = 'RESERVE'
+      `,
+      [errandId],
+    )) as ReservationState[];
+    return row ?? null;
+  }
+
+  async function transferState(
+    errandId: string,
+  ): Promise<TransferState | null> {
+    const [row] = (await dataSource.query(
+      `
+        SELECT operation.id,
+               operation.status,
+               operation.attempt_count AS "attemptCount",
+               operation.claimed_by AS "claimedBy",
+               operation.completion_transaction_id AS "transactionId",
+               operation.outcome_outbox_event_id AS "outboxEventId",
+               CASE
+                 WHEN outbox.event_id IS NULL THEN NULL
+                 ELSE outbox.published_at IS NOT NULL
+               END AS "outboxPublished",
+               outbox.envelope AS "outboxEnvelope",
+               requester.credit_balance::int AS "requesterCreditBalance",
+               requester.reserved_balance::int AS "requesterReservedBalance",
+               courier.credit_balance::int AS "courierCreditBalance",
+               courier.reserved_balance::int AS "courierReservedBalance",
+               reservation.status AS "reservationStatus",
+               (
+                 SELECT COUNT(*)::int
+                 FROM credit_transactions movement
+                 WHERE movement.errand_id = operation.errand_id
+                   AND movement.type = 'TRANSFER'
+               ) AS "transactionCount",
+               (
+                 SELECT COUNT(*)::int
+                 FROM inbox_events inbox
+                 WHERE inbox.outcome_operation_id = operation.id
+               ) AS "inboxCount"
+        FROM credit_operations operation
+        JOIN credit_accounts requester
+          ON requester.user_id = operation.requester_user_id
+        JOIN credit_accounts courier
+          ON courier.user_id = operation.courier_user_id
+        LEFT JOIN credit_reservations reservation
+          ON reservation.errand_id = operation.errand_id
+        LEFT JOIN outbox_events outbox
+          ON outbox.event_id = operation.outcome_outbox_event_id
+        WHERE operation.errand_id = $1
+          AND operation.operation_type = 'TRANSFER'
+      `,
+      [errandId],
+    )) as TransferState[];
+    return row ?? null;
+  }
+
+  async function releaseState(errandId: string): Promise<ReleaseState | null> {
+    const [row] = (await dataSource.query(
+      `
+        SELECT operation.id,
+               operation.status,
+               operation.attempt_count AS "attemptCount",
+               operation.claimed_by AS "claimedBy",
+               operation.requester_user_id AS "requesterUserId",
+               operation.amount::int AS amount,
+               operation.completion_transaction_id AS "transactionId",
+               operation.outcome_outbox_event_id AS "outboxEventId",
+               CASE
+                 WHEN outbox.event_id IS NULL THEN NULL
+                 ELSE outbox.published_at IS NOT NULL
+               END AS "outboxPublished",
+               outbox.envelope AS "outboxEnvelope",
+               requester.credit_balance::int AS "requesterCreditBalance",
+               requester.reserved_balance::int AS "requesterReservedBalance",
+               reservation.status AS "reservationStatus",
+               (
+                 SELECT COUNT(*)::int
+                 FROM credit_transactions movement
+                 WHERE movement.errand_id = operation.errand_id
+                   AND movement.type = 'RELEASE'
+               ) AS "transactionCount",
+               (
+                 SELECT COUNT(*)::int
+                 FROM inbox_events inbox
+                 WHERE inbox.outcome_operation_id = operation.id
+               ) AS "inboxCount"
+        FROM credit_operations operation
+        LEFT JOIN credit_accounts requester
+          ON requester.user_id = operation.requester_user_id
+        LEFT JOIN credit_reservations reservation
+          ON reservation.errand_id = operation.errand_id
+        LEFT JOIN outbox_events outbox
+          ON outbox.event_id = operation.outcome_outbox_event_id
+        WHERE operation.errand_id = $1
+          AND operation.operation_type = 'RELEASE'
+      `,
+      [errandId],
+    )) as ReleaseState[];
+    return row ?? null;
+  }
+
+  async function queueMetrics(queue = topology.incomingQueue): Promise<{
     messages_unacknowledged: number;
   }> {
     const response = await fetch(
-      `${managementUrl}/api/queues/%2F/${encodeURIComponent(topology.incomingQueue)}`,
+      `${managementUrl}/api/queues/%2F/${encodeURIComponent(queue)}`,
       {
         headers: {
           Authorization: `Basic ${Buffer.from(`${rabbitUsername}:${rabbitPassword}`).toString('base64')}`,
@@ -281,6 +753,26 @@ describe.sequential('account messaging recovery', () => {
       RABBITMQ_USER_REGISTERED_QUEUE: topology.incomingQueue,
       RABBITMQ_USER_REGISTERED_ROUTING_KEY: incomingRoutingKey,
       RABBITMQ_CREDIT_ACCOUNT_INITIALISED_ROUTING_KEY: outgoingRoutingKey,
+      RABBITMQ_CREDIT_RESERVATION_QUEUE: topology.reservationQueue,
+      RABBITMQ_CREDIT_RESERVATION_ROUTING_KEY: reservationRoutingKey,
+      RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_QUEUE: topology.adjustmentQueue,
+      RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_ROUTING_KEY: adjustmentRoutingKey,
+      RABBITMQ_ORDER_ERRAND_COMPLETED_QUEUE: topology.completionQueue,
+      RABBITMQ_ORDER_ERRAND_COMPLETED_ROUTING_KEY: completionRoutingKey,
+      RABBITMQ_ORDER_ERRAND_CANCELLED_QUEUE: topology.cancellationQueue,
+      RABBITMQ_ORDER_ERRAND_CANCELLED_ROUTING_KEY: cancellationRoutingKey,
+      RABBITMQ_CREDIT_RESERVATION_SUCCESS_ROUTING_KEY:
+        CREDIT_RESERVATION_SUCCESS_V1_ROUTING_KEY,
+      RABBITMQ_CREDIT_RESERVATION_REJECTED_ROUTING_KEY:
+        CREDIT_RESERVATION_REJECTED_V1_ROUTING_KEY,
+      RABBITMQ_CREDIT_TRANSFER_SUCCEEDED_ROUTING_KEY:
+        CREDIT_TRANSFER_SUCCEEDED_V1_ROUTING_KEY,
+      RABBITMQ_CREDIT_TRANSFER_REJECTED_ROUTING_KEY:
+        CREDIT_TRANSFER_REJECTED_V1_ROUTING_KEY,
+      RABBITMQ_CREDIT_RELEASE_SUCCESS_ROUTING_KEY:
+        CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY,
+      RABBITMQ_CREDIT_RELEASE_REJECTED_ROUTING_KEY:
+        CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY,
       RABBITMQ_RETRY_EXCHANGE: topology.retryExchange,
       RABBITMQ_RETRY_RETURN_EXCHANGE: topology.retryReturnExchange,
       RABBITMQ_DEAD_LETTER_EXCHANGE: topology.deadLetterExchange,
@@ -291,7 +783,12 @@ describe.sequential('account messaging recovery', () => {
       OUTBOX_CONFIRM_TIMEOUT_MS: '5000',
       OUTBOX_CLAIM_LEASE_MS: '10000',
       OUTBOX_UNPUBLISHED_WARNING_MS: '60000',
+      CREDIT_OPERATION_CLAIM_LEASE_MS: '1000',
+      CREDIT_OPERATION_POLL_INTERVAL_MS: '100',
+      CREDIT_OPERATION_MAX_BACKOFF_MS: '1000',
+      CREDIT_OPERATION_STUCK_AFTER_MS: '60000',
       INITIAL_CREDIT_BALANCE: '100',
+      JWT_PUBLIC_KEY_FILE: '/run/secrets/jwt_public_key_credit_service',
     });
     appModule = (await import('../src/app.module.js')).AppModule;
 
@@ -315,7 +812,12 @@ describe.sequential('account messaging recovery', () => {
     // Keep scenarios independent even when a prior assertion failed after an
     // event was confirmed but before that event was consumed by the test.
     await adminChannel.purgeQueue(topology.observationQueue);
+    await adminChannel.purgeQueue(topology.reservationObservationQueue);
     await adminChannel.purgeQueue(`${topology.incomingQueue}.dlq`);
+    await adminChannel.purgeQueue(`${topology.reservationQueue}.dlq`);
+    await adminChannel.purgeQueue(`${topology.adjustmentQueue}.dlq`);
+    await adminChannel.purgeQueue(`${topology.completionQueue}.dlq`);
+    await adminChannel.purgeQueue(`${topology.cancellationQueue}.dlq`);
   });
 
   afterAll(async () => {
@@ -332,15 +834,22 @@ describe.sequential('account messaging recovery', () => {
         .deleteQueue(topology.observationQueue)
         .catch(() => undefined);
       await adminChannel
-        .deleteQueue(topology.incomingQueue)
+        .deleteQueue(topology.reservationObservationQueue)
         .catch(() => undefined);
-      await adminChannel
-        .deleteQueue(`${topology.incomingQueue}.dlq`)
-        .catch(() => undefined);
-      for (let index = 1; index <= 5; index += 1) {
-        await adminChannel
-          .deleteQueue(`${topology.incomingQueue}.retry.${index}`)
-          .catch(() => undefined);
+      for (const queue of [
+        topology.incomingQueue,
+        topology.reservationQueue,
+        topology.adjustmentQueue,
+        topology.completionQueue,
+        topology.cancellationQueue,
+      ]) {
+        await adminChannel.deleteQueue(queue).catch(() => undefined);
+        await adminChannel.deleteQueue(`${queue}.dlq`).catch(() => undefined);
+        for (let index = 1; index <= 5; index += 1) {
+          await adminChannel
+            .deleteQueue(`${queue}.retry.${index}`)
+            .catch(() => undefined);
+        }
       }
       await adminChannel
         .deleteExchange(topology.retryExchange)
@@ -360,7 +869,24 @@ describe.sequential('account messaging recovery', () => {
     await adminConnection?.close().catch(() => undefined);
 
     if (dataSource?.isInitialized) {
-      await dataSource.undoLastMigration({ transaction: 'all' });
+      // Migration reversal verifies schema teardown, not preservation of test
+      // scenario rows. Reservation inbox rows deliberately have no allocation
+      // outcome, while the earlier schema restores that legacy column to
+      // NOT NULL, so clear all scenario data before walking migrations down.
+      await dataSource.query(`
+        TRUNCATE TABLE
+          inbox_events,
+          credit_operations,
+          credit_reservations,
+          credit_transactions,
+          outbox_events,
+          credit_allocations,
+          credit_accounts
+        CASCADE
+      `);
+      for (let index = 0; index < dataSource.migrations.length; index += 1) {
+        await dataSource.undoLastMigration({ transaction: 'all' });
+      }
       const tables = (await dataSource.query(
         `
           SELECT table_name
@@ -516,9 +1042,13 @@ describe.sequential('account messaging recovery', () => {
     const initialization = app.get(AccountInitializationService);
     const original = initialization.process.bind(initialization);
     let reportCommitted!: () => void;
+    let reportCompleted!: () => void;
     let release!: () => void;
     const committed = new Promise<void>((resolve) => {
       reportCommitted = resolve;
+    });
+    const completed = new Promise<void>((resolve) => {
+      reportCompleted = resolve;
     });
     const gate = new Promise<void>((resolve) => {
       release = resolve;
@@ -529,6 +1059,7 @@ describe.sequential('account messaging recovery', () => {
         const outcome = await original(incoming);
         reportCommitted();
         await gate;
+        reportCompleted();
         return outcome;
       });
 
@@ -545,13 +1076,7 @@ describe.sequential('account messaging recovery', () => {
         outbox: 1,
       });
       release();
-      await waitFor(
-        async () =>
-          (await queueMetrics()).messages_unacknowledged === 0
-            ? true
-            : undefined,
-        30_000,
-      );
+      await completed;
       await takeOutgoingForUser(event.payload.userId);
     } finally {
       release();
@@ -561,7 +1086,7 @@ describe.sequential('account messaging recovery', () => {
 
   it('publishes a committed pending event after an application restart', async () => {
     await app.close();
-    app = await startApplication(true);
+    app = await startApplication({ disableRelay: true });
     const event = registration();
     await publishEvent(event);
     await waitForUserCounts(event.payload.userId, {
@@ -596,6 +1121,616 @@ describe.sequential('account messaging recovery', () => {
         [pending.event_id],
       )) as Array<{ published: boolean }>;
       return row.published ? true : undefined;
+    });
+  });
+
+  it('recovers durable reservation ingress and preserves duplicate and semantic replay idempotency', async () => {
+    await app.close();
+    app = await startApplication({ disableOperationWorker: true });
+    const userId = randomUUID();
+    await createFundedAccount(userId);
+    const event = reservation(userId);
+
+    await publishReservation(event);
+    const pending = await waitFor(async () => {
+      const state = await reservationState(event.payload.errandId);
+      return state?.status === 'PENDING' ? state : undefined;
+    });
+    expect(pending).toMatchObject({
+      attemptCount: 0,
+      claimedBy: null,
+      transactionCount: 0,
+      inboxCount: 1,
+      creditBalance: 100,
+      reservedBalance: 0,
+      reservationStatus: null,
+    });
+    await waitFor(async () =>
+      (await queueMetrics(topology.reservationQueue))
+        .messages_unacknowledged === 0
+        ? true
+        : undefined,
+    );
+
+    await app.close();
+    app = await startApplication();
+    const first = await takeReservationOutcome(event.payload.errandId);
+    expect(first.envelope).toMatchObject({
+      eventType: 'CreditReservationSuccess',
+      payload: {
+        errandId: event.payload.errandId,
+        requesterUserId: userId,
+        reservedAmount: event.payload.amount,
+      },
+    });
+    const succeeded = await waitFor(async () => {
+      const state = await reservationState(event.payload.errandId);
+      return state?.status === 'SUCCEEDED' ? state : undefined;
+    });
+    expect(succeeded).toMatchObject({
+      creditBalance: 75,
+      reservedBalance: 25,
+      reservationStatus: 'ACTIVE',
+      reservedAmount: 25,
+      transactionCount: 1,
+      inboxCount: 1,
+    });
+
+    await publishReservation(event);
+    await delay(250);
+    expect(await reservationState(event.payload.errandId)).toMatchObject({
+      transactionId: succeeded.transactionId,
+      transactionCount: 1,
+      inboxCount: 1,
+    });
+
+    const replay = reservation(
+      userId,
+      event.payload.amount,
+      event.payload.errandId,
+    );
+    await publishReservation(replay);
+    const replayed = await takeReservationOutcome(event.payload.errandId);
+    expect(replayed.envelope).toMatchObject({
+      eventType: 'CreditReservationSuccess',
+      payload: { creditTransactionId: succeeded.transactionId },
+    });
+    await waitFor(async () =>
+      (await reservationState(event.payload.errandId))?.inboxCount === 2
+        ? true
+        : undefined,
+    );
+    expect(await reservationState(event.payload.errandId)).toMatchObject({
+      transactionId: succeeded.transactionId,
+      transactionCount: 1,
+      inboxCount: 2,
+    });
+  });
+
+  it('recovers durable adjustment ingress after an application restart', async () => {
+    const userId = randomUUID();
+    await createFundedAccount(userId);
+    const reserve = reservation(userId, 25);
+    await publishReservation(reserve);
+    await takeReservationOutcome(reserve.payload.errandId);
+    await waitFor(async () =>
+      (await reservationState(reserve.payload.errandId))?.status === 'SUCCEEDED'
+        ? true
+        : undefined,
+    );
+
+    await app.close();
+    app = await startApplication({ disableOperationWorker: true });
+    const adjust = adjustment(reserve.payload.errandId, 25, 40);
+    await publishAdjustment(adjust);
+    const pending = await waitFor(async () => {
+      const [row] = (await dataSource.query(
+        `SELECT status,
+                attempt_count AS "attemptCount",
+                claimed_by AS "claimedBy",
+                completion_transaction_id AS "transactionId"
+         FROM credit_operations
+         WHERE command_event_id = $1`,
+        [adjust.eventId],
+      )) as Array<{
+        status: string;
+        attemptCount: number;
+        claimedBy: string | null;
+        transactionId: string | null;
+      }>;
+      return row?.status === 'PENDING' ? row : undefined;
+    });
+    expect(pending).toMatchObject({
+      attemptCount: 0,
+      claimedBy: null,
+      transactionId: null,
+    });
+    const [before] = (await dataSource.query(
+      `SELECT credit_balance::int AS "creditBalance",
+              reserved_balance::int AS "reservedBalance"
+       FROM credit_accounts WHERE user_id = $1`,
+      [userId],
+    )) as Array<{ creditBalance: number; reservedBalance: number }>;
+    expect(before).toEqual({ creditBalance: 75, reservedBalance: 25 });
+    await waitFor(async () =>
+      (await queueMetrics(topology.adjustmentQueue)).messages_unacknowledged ===
+      0
+        ? true
+        : undefined,
+    );
+
+    await app.close();
+    app = await startApplication();
+    const outcome = await takeAdjustmentOutcome(reserve.payload.errandId);
+    expect(outcome.envelope).toMatchObject({
+      eventType: 'CreditReservationAdjustmentSuccess',
+      payload: {
+        errandId: reserve.payload.errandId,
+        newReservedAmount: 40,
+      },
+    });
+    await waitFor(async () => {
+      const [row] = (await dataSource.query(
+        `SELECT status FROM credit_operations WHERE command_event_id = $1`,
+        [adjust.eventId],
+      )) as Array<{ status: string }>;
+      return row?.status === 'SUCCEEDED' ? true : undefined;
+    });
+    const [after] = (await dataSource.query(
+      `SELECT credit_balance::int AS "creditBalance",
+              reserved_balance::int AS "reservedBalance"
+       FROM credit_accounts WHERE user_id = $1`,
+      [userId],
+    )) as Array<{ creditBalance: number; reservedBalance: number }>;
+    expect(after).toEqual({ creditBalance: 60, reservedBalance: 40 });
+  });
+
+  it('recovers an expired reservation claim after a process restart', async () => {
+    await app.close();
+    app = await startApplication({ disableOperationWorker: true });
+    const userId = randomUUID();
+    await createFundedAccount(userId);
+    const event = reservation(userId, 30);
+    await publishReservation(event);
+    const pending = await waitFor(async () => {
+      const state = await reservationState(event.payload.errandId);
+      return state?.status === 'PENDING' ? state : undefined;
+    });
+    await dataSource.query(
+      `
+        UPDATE credit_operations
+        SET claimed_by = 'crashed-worker',
+            claimed_until = clock_timestamp() + INTERVAL '250 milliseconds',
+            attempt_count = 1
+        WHERE id = $1
+      `,
+      [pending.id],
+    );
+
+    await app.close();
+    app = await startApplication();
+    const outcome = await takeReservationOutcome(
+      event.payload.errandId,
+      20_000,
+    );
+    expect(outcome.envelope.eventType).toBe('CreditReservationSuccess');
+    const recovered = await waitFor(async () => {
+      const state = await reservationState(event.payload.errandId);
+      return state?.status === 'SUCCEEDED' ? state : undefined;
+    });
+    expect(recovered).toMatchObject({
+      attemptCount: 2,
+      claimedBy: null,
+      creditBalance: 70,
+      reservedBalance: 30,
+      transactionCount: 1,
+    });
+  });
+
+  it('publishes the exact committed reservation outcome after an application restart', async () => {
+    await app.close();
+    app = await startApplication({ disableRelay: true });
+    const userId = randomUUID();
+    await createFundedAccount(userId);
+    const event = reservation(userId, 40);
+    await publishReservation(event);
+    const committed = await waitFor(async () => {
+      const state = await reservationState(event.payload.errandId);
+      return state?.status === 'SUCCEEDED' && state.outboxEnvelope
+        ? state
+        : undefined;
+    });
+    expect(committed).toMatchObject({
+      outboxPublished: false,
+      creditBalance: 60,
+      reservedBalance: 40,
+      transactionCount: 1,
+    });
+
+    await app.close();
+    app = await startApplication();
+    const published = await takeReservationOutcome(event.payload.errandId);
+    expect(published.envelope).toEqual(committed.outboxEnvelope);
+    expect(published.envelope.eventId).toBe(committed.outboxEventId);
+    expect(published.message.fields.routingKey).toBe(
+      CREDIT_RESERVATION_SUCCESS_V1_ROUTING_KEY,
+    );
+    await waitFor(async () =>
+      (await reservationState(event.payload.errandId))?.outboxPublished
+        ? true
+        : undefined,
+    );
+  });
+
+  it('recovers durable transfer ingress after an application restart', async () => {
+    const requesterUserId = randomUUID();
+    const courierUserId = randomUUID();
+    const reserve = await createActiveReservationForTransfer(
+      requesterUserId,
+      courierUserId,
+    );
+    await app.close();
+    app = await startApplication({ disableOperationWorker: true });
+    const event = completion(
+      reserve.payload.errandId,
+      requesterUserId,
+      courierUserId,
+      999,
+    );
+
+    await publishCompletion(event);
+    const pending = await waitFor(async () => {
+      const state = await transferState(event.payload.errandId);
+      return state?.status === 'PENDING' ? state : undefined;
+    });
+    expect(pending).toMatchObject({
+      attemptCount: 0,
+      claimedBy: null,
+      requesterCreditBalance: 75,
+      requesterReservedBalance: 25,
+      courierCreditBalance: 100,
+      courierReservedBalance: 0,
+      reservationStatus: 'ACTIVE',
+      transactionCount: 0,
+      inboxCount: 1,
+    });
+    await waitFor(async () =>
+      (await queueMetrics(topology.completionQueue)).messages_unacknowledged ===
+      0
+        ? true
+        : undefined,
+    );
+
+    await app.close();
+    app = await startApplication();
+    const published = await takeTransferOutcome(event.payload.errandId);
+    expect(published.envelope).toMatchObject({
+      eventType: 'CreditTransferSucceeded',
+      payload: {
+        errandId: event.payload.errandId,
+        requesterUserId,
+        courierUserId,
+        transferredAmount: 25,
+      },
+    });
+    const succeeded = await waitFor(async () => {
+      const state = await transferState(event.payload.errandId);
+      return state?.status === 'SUCCEEDED' ? state : undefined;
+    });
+    expect(succeeded).toMatchObject({
+      requesterCreditBalance: 75,
+      requesterReservedBalance: 0,
+      courierCreditBalance: 125,
+      courierReservedBalance: 0,
+      reservationStatus: 'CONSUMED',
+      transactionCount: 1,
+      inboxCount: 1,
+    });
+  });
+
+  it('recovers an expired transfer claim without repeating movement', async () => {
+    const requesterUserId = randomUUID();
+    const courierUserId = randomUUID();
+    const reserve = await createActiveReservationForTransfer(
+      requesterUserId,
+      courierUserId,
+    );
+    await app.close();
+    app = await startApplication({ disableOperationWorker: true });
+    const event = completion(
+      reserve.payload.errandId,
+      requesterUserId,
+      courierUserId,
+    );
+    await publishCompletion(event);
+    const pending = await waitFor(async () => {
+      const state = await transferState(event.payload.errandId);
+      return state?.status === 'PENDING' ? state : undefined;
+    });
+    await dataSource.query(
+      `
+        UPDATE credit_operations
+        SET claimed_by = 'crashed-transfer-worker',
+            claimed_until = clock_timestamp() + INTERVAL '250 milliseconds',
+            attempt_count = 1
+        WHERE id = $1
+      `,
+      [pending.id],
+    );
+
+    await app.close();
+    app = await startApplication();
+    await takeTransferOutcome(event.payload.errandId, 20_000);
+    const recovered = await waitFor(async () => {
+      const state = await transferState(event.payload.errandId);
+      return state?.status === 'SUCCEEDED' ? state : undefined;
+    });
+    expect(recovered).toMatchObject({
+      attemptCount: 2,
+      claimedBy: null,
+      requesterReservedBalance: 0,
+      courierCreditBalance: 125,
+      reservationStatus: 'CONSUMED',
+      transactionCount: 1,
+    });
+  });
+
+  it('publishes the exact committed transfer outcome after relay recovery', async () => {
+    const requesterUserId = randomUUID();
+    const courierUserId = randomUUID();
+    const reserve = await createActiveReservationForTransfer(
+      requesterUserId,
+      courierUserId,
+    );
+    await app.close();
+    app = await startApplication({ disableRelay: true });
+    const event = completion(
+      reserve.payload.errandId,
+      requesterUserId,
+      courierUserId,
+    );
+    await publishCompletion(event);
+    const committed = await waitFor(async () => {
+      const state = await transferState(event.payload.errandId);
+      return state?.status === 'SUCCEEDED' && state.outboxEnvelope
+        ? state
+        : undefined;
+    });
+    expect(committed).toMatchObject({
+      outboxPublished: false,
+      requesterReservedBalance: 0,
+      courierCreditBalance: 125,
+      reservationStatus: 'CONSUMED',
+      transactionCount: 1,
+    });
+
+    await app.close();
+    app = await startApplication();
+    const published = await takeTransferOutcome(event.payload.errandId);
+    expect(published.envelope).toEqual(committed.outboxEnvelope);
+    expect(published.envelope.eventId).toBe(committed.outboxEventId);
+    expect(published.message.fields.routingKey).toBe(
+      CREDIT_TRANSFER_SUCCEEDED_V1_ROUTING_KEY,
+    );
+    await waitFor(async () =>
+      (await transferState(event.payload.errandId))?.outboxPublished
+        ? true
+        : undefined,
+    );
+    expect(await transferState(event.payload.errandId)).toMatchObject({
+      transactionCount: 1,
+      requesterReservedBalance: 0,
+      courierCreditBalance: 125,
+    });
+  });
+
+  it('dead-letters an invalid cancellation only on its isolated stream', async () => {
+    const invalid = {
+      ...cancellation(),
+      payload: { errandId: randomUUID(), unexpected: true },
+    };
+    const [before] = (await dataSource.query(
+      'SELECT COUNT(*)::int AS count FROM inbox_events',
+    )) as Array<{ count: number }>;
+
+    await publish(Buffer.from(JSON.stringify(invalid)), cancellationRoutingKey);
+    const deadLetter = await takeMessage(`${topology.cancellationQueue}.dlq`);
+    const [after] = (await dataSource.query(
+      'SELECT COUNT(*)::int AS count FROM inbox_events',
+    )) as Array<{ count: number }>;
+
+    expect(deadLetter.properties.headers).toMatchObject({
+      'x-failure-category': 'INVALID_PAYLOAD',
+    });
+    expect(after.count).toBe(before.count);
+    expect(
+      await adminChannel.get(`${topology.completionQueue}.dlq`, {
+        noAck: true,
+      }),
+    ).toBe(false);
+  });
+
+  it('recovers unresolved cancellation ingress and releases a later reservation', async () => {
+    const requesterUserId = randomUUID();
+    const courierUserId = randomUUID();
+    const errandId = randomUUID();
+    await createFundedAccount(requesterUserId);
+    await createFundedAccount(courierUserId);
+    await app.close();
+    app = await startApplication({ disableOperationWorker: true });
+    const event = cancellation(errandId);
+
+    await publishCancellation(event);
+    const unresolved = await waitFor(async () => {
+      const state = await releaseState(errandId);
+      return state?.status === 'PENDING' ? state : undefined;
+    });
+    expect(unresolved).toMatchObject({
+      attemptCount: 0,
+      claimedBy: null,
+      requesterUserId: null,
+      amount: null,
+      transactionId: null,
+      outboxEventId: null,
+      reservationStatus: null,
+      transactionCount: 0,
+      inboxCount: 1,
+    });
+    await waitFor(async () =>
+      (await queueMetrics(topology.cancellationQueue))
+        .messages_unacknowledged === 0
+        ? true
+        : undefined,
+    );
+
+    await app.close();
+    app = await startApplication();
+    await waitFor(async () => {
+      const state = await releaseState(errandId);
+      return state && state.attemptCount > 0 ? true : undefined;
+    });
+    await publishReservation(reservation(requesterUserId, 25, errandId));
+    await takeReservationOutcome(errandId);
+    const published = await takeReleaseOutcome(errandId, 20_000);
+    expect(published.envelope).toMatchObject({
+      eventType: 'CreditReleaseSuccess',
+      payload: {
+        errandId,
+        requesterUserId,
+        releasedAmount: 25,
+      },
+    });
+    const succeeded = await waitFor(async () => {
+      const state = await releaseState(errandId);
+      return state?.status === 'SUCCEEDED' ? state : undefined;
+    });
+    expect(succeeded).toMatchObject({
+      requesterUserId,
+      amount: 25,
+      requesterCreditBalance: 100,
+      requesterReservedBalance: 0,
+      reservationStatus: 'RELEASED',
+      transactionCount: 1,
+      inboxCount: 1,
+      outboxPublished: true,
+    });
+    const [courier, evidence] = await Promise.all([
+      dataSource.query(
+        `SELECT credit_balance::int AS "creditBalance",
+                reserved_balance::int AS "reservedBalance"
+         FROM credit_accounts WHERE user_id = $1`,
+        [courierUserId],
+      ),
+      dataSource.query(
+        `SELECT
+           (SELECT COUNT(*)::int FROM credit_allocations
+             WHERE user_id IN ($1, $2)) AS allocations,
+           (SELECT COUNT(*)::int FROM credit_transactions
+             WHERE errand_id = $3) AS transactions,
+           (SELECT COUNT(*)::int FROM credit_operations
+             WHERE errand_id = $3) AS operations,
+           (SELECT COUNT(*)::int FROM inbox_events
+             WHERE outcome_operation_id IN (
+               SELECT id FROM credit_operations WHERE errand_id = $3
+             )) AS inbox,
+           (SELECT COUNT(*)::int FROM outbox_events
+             WHERE envelope->'payload'->>'errandId' = $3::text) AS outbox`,
+        [requesterUserId, courierUserId, errandId],
+      ),
+    ]);
+    expect(courier[0]).toEqual({ creditBalance: 100, reservedBalance: 0 });
+    expect(evidence[0]).toEqual({
+      allocations: 2,
+      transactions: 2,
+      operations: 2,
+      inbox: 2,
+      outbox: 2,
+    });
+  });
+
+  it('recovers an expired release claim without repeating movement', async () => {
+    const requesterUserId = randomUUID();
+    const courierUserId = randomUUID();
+    const reserve = await createActiveReservationForTransfer(
+      requesterUserId,
+      courierUserId,
+    );
+    await app.close();
+    app = await startApplication({ disableOperationWorker: true });
+    const event = cancellation(reserve.payload.errandId);
+    await publishCancellation(event);
+    const pending = await waitFor(async () => {
+      const state = await releaseState(event.payload.errandId);
+      return state?.status === 'PENDING' ? state : undefined;
+    });
+    await dataSource.query(
+      `UPDATE credit_operations
+       SET claimed_by = 'crashed-release-worker',
+           claimed_until = clock_timestamp() + INTERVAL '250 milliseconds',
+           attempt_count = 1
+       WHERE id = $1`,
+      [pending.id],
+    );
+
+    await app.close();
+    app = await startApplication();
+    await takeReleaseOutcome(event.payload.errandId, 20_000);
+    const recovered = await waitFor(async () => {
+      const state = await releaseState(event.payload.errandId);
+      return state?.status === 'SUCCEEDED' ? state : undefined;
+    });
+    expect(recovered).toMatchObject({
+      attemptCount: 2,
+      claimedBy: null,
+      requesterCreditBalance: 100,
+      requesterReservedBalance: 0,
+      reservationStatus: 'RELEASED',
+      transactionCount: 1,
+    });
+  });
+
+  it('publishes the exact committed release outcome after relay recovery', async () => {
+    const requesterUserId = randomUUID();
+    const courierUserId = randomUUID();
+    const reserve = await createActiveReservationForTransfer(
+      requesterUserId,
+      courierUserId,
+    );
+    await app.close();
+    app = await startApplication({ disableRelay: true });
+    const event = cancellation(reserve.payload.errandId);
+    await publishCancellation(event);
+    const committed = await waitFor(async () => {
+      const state = await releaseState(event.payload.errandId);
+      return state?.status === 'SUCCEEDED' && state.outboxEnvelope
+        ? state
+        : undefined;
+    });
+    expect(committed).toMatchObject({
+      outboxPublished: false,
+      requesterCreditBalance: 100,
+      requesterReservedBalance: 0,
+      reservationStatus: 'RELEASED',
+      transactionCount: 1,
+    });
+
+    await app.close();
+    app = await startApplication();
+    const published = await takeReleaseOutcome(event.payload.errandId);
+    expect(published.envelope).toEqual(committed.outboxEnvelope);
+    expect(published.envelope.eventId).toBe(committed.outboxEventId);
+    expect(published.message.fields.routingKey).toBe(
+      CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY,
+    );
+    await waitFor(async () =>
+      (await releaseState(event.payload.errandId))?.outboxPublished
+        ? true
+        : undefined,
+    );
+    expect(await releaseState(event.payload.errandId)).toMatchObject({
+      transactionCount: 1,
+      requesterCreditBalance: 100,
+      requesterReservedBalance: 0,
     });
   });
 
@@ -671,5 +1806,19 @@ describe.sequential('account messaging recovery', () => {
     expect(afterRecoveryPublication.envelope.payload.userId).toBe(
       afterRecovery.payload.userId,
     );
+
+    const reservationAfterRecovery = reservation(afterRecovery.payload.userId);
+    await publishReservation(reservationAfterRecovery);
+    const reservationPublication = await takeReservationOutcome(
+      reservationAfterRecovery.payload.errandId,
+      30_000,
+    );
+    expect(reservationPublication.envelope).toMatchObject({
+      eventType: 'CreditReservationSuccess',
+      payload: {
+        errandId: reservationAfterRecovery.payload.errandId,
+        requesterUserId: afterRecovery.payload.userId,
+      },
+    });
   });
 });

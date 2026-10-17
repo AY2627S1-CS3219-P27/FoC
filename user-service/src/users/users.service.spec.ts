@@ -1,10 +1,22 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { UnauthorizedException } from '@nestjs/common';
-import { ArrayContains, EntityNotFoundError, QueryFailedError } from 'typeorm';
+import {
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import {
+  ArrayContains,
+  DataSource,
+  EntityNotFoundError,
+  QueryFailedError,
+} from 'typeorm';
 import { hashValue } from '../common/hash/hash.js';
-import { Role } from '@foc/contracts';
+import { Role, USER_REGISTERED_V1_ROUTING_KEY } from '@foc/contracts';
+import { OutboxEvent } from '@foc/outbox';
 import { User } from './user.entity.js';
+import { UserUpdateAudit } from './user-update-audit.entity.js';
 import { EmailAlreadyRegisteredError, UsersService } from './users.service.js';
 
 vi.mock('../common/hash/hash.js', () => ({
@@ -30,6 +42,23 @@ describe('UsersService', () => {
     exists: ReturnType<typeof vi.fn>;
     findAndCount: ReturnType<typeof vi.fn>;
   };
+  let manager: {
+    query: ReturnType<typeof vi.fn>;
+    findOneBy: ReturnType<typeof vi.fn>;
+    count: ReturnType<typeof vi.fn>;
+    save: ReturnType<typeof vi.fn>;
+    create: ReturnType<typeof vi.fn>;
+    getRepository: ReturnType<typeof vi.fn>;
+  };
+  let userRepo: {
+    create: ReturnType<typeof vi.fn>;
+    save: ReturnType<typeof vi.fn>;
+  };
+  let outboxRepo: {
+    create: ReturnType<typeof vi.fn>;
+    save: ReturnType<typeof vi.fn>;
+  };
+  let dataSource: { transaction: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
     userRepository = {
@@ -41,11 +70,36 @@ describe('UsersService', () => {
       exists: vi.fn(async () => false),
       findAndCount: vi.fn(),
     };
+    userRepo = {
+      create: vi.fn((data) => data),
+      save: vi.fn(async (data) => ({ ...data })),
+    };
+    outboxRepo = {
+      create: vi.fn((data) => data),
+      save: vi.fn(async (data) => ({ ...data })),
+    };
+    manager = {
+      query: vi.fn(async () => undefined),
+      findOneBy: vi.fn(),
+      count: vi.fn(),
+      save: vi.fn(async (_entity, data) => data),
+      create: vi.fn((_entity, data) => data),
+      getRepository: vi.fn((entity: unknown) =>
+        entity === User ? userRepo : outboxRepo,
+      ),
+    };
+    dataSource = {
+      transaction: vi.fn(
+        async (callback: (m: typeof manager) => Promise<unknown>) =>
+          callback(manager),
+      ),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsersService,
         { provide: getRepositoryToken(User), useValue: userRepository },
+        { provide: DataSource, useValue: dataSource },
       ],
     }).compile();
 
@@ -70,7 +124,7 @@ describe('UsersService', () => {
     // Same contract the registration flow relied on: a fresh
     // per-user salt, argon2id digest, active account — plus the new flags
     // defaulting to false and no participant roles until the user opts in.
-    expect(userRepository.save).toHaveBeenCalledWith({
+    expect(userRepo.save).toHaveBeenCalledWith({
       email: 'eve@example.com',
       displayName: 'Eve',
       uuid: expect.stringMatching(UUID_PATTERN),
@@ -94,6 +148,44 @@ describe('UsersService', () => {
     });
   });
 
+  it('writes a user-registered outbox envelope alongside the account', async () => {
+    await service.provisionUser({
+      email: 'eve@example.com',
+      displayName: 'Eve',
+      password: 'StrongPassw0rd!',
+    });
+
+    expect(manager.getRepository).toHaveBeenCalledWith(OutboxEvent);
+    expect(outboxRepo.save).toHaveBeenCalledTimes(1);
+
+    const outboxRow = outboxRepo.save.mock.calls[0][0];
+    expect(outboxRow).toMatchObject({
+      eventId: expect.stringMatching(UUID_PATTERN),
+      eventType: 'UserRegistered',
+      routingKey: USER_REGISTERED_V1_ROUTING_KEY,
+      publishedAt: null,
+      attemptCount: 0,
+      lastError: null,
+      claimedBy: null,
+      claimedUntil: null,
+    });
+    expect(outboxRow.envelope).toMatchObject({
+      eventId: outboxRow.eventId,
+      eventType: 'UserRegistered',
+      timestamp: expect.stringMatching(/Z$/),
+      publisher: 'user-service',
+      payload: {
+        userId: expect.stringMatching(UUID_PATTERN),
+        email: 'eve@example.com',
+        displayName: 'Eve',
+      },
+    });
+
+    // The account write and its outbox envelope commit in the same
+    // transaction, so they cannot diverge.
+    expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+  });
+
   it('provisions an admin account locked on request', async () => {
     await service.provisionUser({
       email: 'root@example.com',
@@ -103,7 +195,7 @@ describe('UsersService', () => {
       isLocked: true,
     });
 
-    expect(userRepository.save).toHaveBeenCalledWith({
+    expect(userRepo.save).toHaveBeenCalledWith({
       email: 'root@example.com',
       displayName: 'Root',
       uuid: expect.stringMatching(UUID_PATTERN),
@@ -138,7 +230,7 @@ describe('UsersService', () => {
     const driverError = Object.assign(new Error('duplicate key value'), {
       code: '23505',
     });
-    userRepository.save.mockRejectedValue(
+    userRepo.save.mockRejectedValue(
       new QueryFailedError('INSERT INTO users', [], driverError),
     );
 
@@ -149,6 +241,25 @@ describe('UsersService', () => {
         password: 'StrongPassw0rd!',
       }),
     ).rejects.toThrow(EmailAlreadyRegisteredError);
+  });
+
+  it('writes no outbox envelope when the account insert is rejected', async () => {
+    const driverError = Object.assign(new Error('duplicate key value'), {
+      code: '23505',
+    });
+    userRepo.save.mockRejectedValue(
+      new QueryFailedError('INSERT INTO users', [], driverError),
+    );
+
+    await expect(
+      service.provisionUser({
+        email: 'eve@example.com',
+        displayName: 'Eve',
+        password: 'StrongPassw0rd!',
+      }),
+    ).rejects.toThrow(EmailAlreadyRegisteredError);
+
+    expect(outboxRepo.save).not.toHaveBeenCalled();
   });
 
   it('counts only unarchived admins', async () => {
@@ -480,17 +591,15 @@ describe('UsersService', () => {
 
       await expect(
         service.updateRoles(FIXED_UUID, [Role.Requester]),
-      ).rejects.toThrow(
-        UnauthorizedException,
-      );
+      ).rejects.toThrow(UnauthorizedException);
     });
 
     it('lets non-entity look-up failures propagate', async () => {
       userRepository.findOneByOrFail.mockRejectedValue(new Error('db down'));
 
-      await expect(service.updateRoles(FIXED_UUID, [Role.Requester])).rejects.toThrow(
-        'db down',
-      );
+      await expect(
+        service.updateRoles(FIXED_UUID, [Role.Requester]),
+      ).rejects.toThrow('db down');
     });
   });
 
@@ -504,9 +613,9 @@ describe('UsersService', () => {
       userRepository.findOneByOrFail.mockResolvedValue(makeStoredUser());
 
       await expect(
-        service.updateProfile(7, { displayName: 'Eve Newman' }),
+        service.updateProfile(FIXED_UUID, { displayName: 'Eve Newman' }),
       ).resolves.toEqual({
-        id: 7,
+        uuid: FIXED_UUID,
         email: 'eve@example.com',
         displayName: 'Eve Newman',
         profilePictureUrl: 'https://example.com/avatar.png',
@@ -514,10 +623,12 @@ describe('UsersService', () => {
         isAdmin: false,
       });
 
-      expect(userRepository.findOneByOrFail).toHaveBeenCalledWith({ id: 7 });
+      expect(userRepository.findOneByOrFail).toHaveBeenCalledWith({
+        uuid: FIXED_UUID,
+      });
       expect(userRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({
-          id: 7,
+          uuid: FIXED_UUID,
           displayName: 'Eve Newman',
           profilePictureUrl: 'https://example.com/avatar.png',
         }),
@@ -530,7 +641,7 @@ describe('UsersService', () => {
         profilePictureUrl: null,
       });
 
-      await service.updateProfile(7, {
+      await service.updateProfile(FIXED_UUID, {
         profilePictureUrl: 'https://example.com/new.png',
       });
 
@@ -545,7 +656,7 @@ describe('UsersService', () => {
     it('clears the profile picture URL when null is supplied', async () => {
       userRepository.findOneByOrFail.mockResolvedValue(makeStoredUser());
 
-      await service.updateProfile(7, { profilePictureUrl: null });
+      await service.updateProfile(FIXED_UUID, { profilePictureUrl: null });
 
       expect(userRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({ profilePictureUrl: null }),
@@ -555,7 +666,9 @@ describe('UsersService', () => {
     it('persists the unchanged profile for a request with neither field', async () => {
       userRepository.findOneByOrFail.mockResolvedValue(makeStoredUser());
 
-      await expect(service.updateProfile(7, {})).resolves.toMatchObject({
+      await expect(
+        service.updateProfile(FIXED_UUID, {}),
+      ).resolves.toMatchObject({
         displayName: 'Eve',
         profilePictureUrl: 'https://example.com/avatar.png',
       });
@@ -570,11 +683,11 @@ describe('UsersService', () => {
 
     it('rejects a user id with no matching account', async () => {
       userRepository.findOneByOrFail.mockRejectedValue(
-        new EntityNotFoundError(User, { id: 7 }),
+        new EntityNotFoundError(User, { uuid: FIXED_UUID }),
       );
 
       await expect(
-        service.updateProfile(7, { displayName: 'Eve Newman' }),
+        service.updateProfile(FIXED_UUID, { displayName: 'Eve Newman' }),
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -582,8 +695,381 @@ describe('UsersService', () => {
       userRepository.findOneByOrFail.mockRejectedValue(new Error('db down'));
 
       await expect(
-        service.updateProfile(7, { displayName: 'Eve Newman' }),
+        service.updateProfile(FIXED_UUID, { displayName: 'Eve Newman' }),
       ).rejects.toThrow('db down');
+    });
+  });
+
+  describe('adminUpdateUser', () => {
+    const ACTOR_UUID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const TARGET_UUID = FIXED_UUID;
+
+    const adminActor = {
+      uuid: ACTOR_UUID,
+      email: 'admin@example.com',
+      displayName: 'Admin',
+      passwordHash: 'ab'.repeat(64),
+      passwordSalt: 'ab'.repeat(16),
+      isAdmin: true,
+      isLocked: false,
+      isArchived: false,
+      roles: [],
+      profilePictureUrl: null,
+    };
+
+    const targetUser = {
+      uuid: TARGET_UUID,
+      email: 'eve@example.com',
+      displayName: 'Eve',
+      passwordHash: 'ab'.repeat(64),
+      passwordSalt: 'ab'.repeat(16),
+      isAdmin: false,
+      isLocked: false,
+      isArchived: false,
+      roles: [],
+      profilePictureUrl: null,
+    };
+
+    it('promotes a user and records the audit entry in the same transaction', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser });
+
+      await expect(
+        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: true }),
+      ).resolves.toEqual({ ...targetUser, isAdmin: true });
+
+      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+      expect(manager.save).toHaveBeenCalledWith(
+        expect.objectContaining({ uuid: TARGET_UUID, isAdmin: true }),
+      );
+      const expectedAuditRow = {
+        actorUuid: ACTOR_UUID,
+        targetUuid: TARGET_UUID,
+        changedFields: { isAdmin: { from: false, to: true } },
+      };
+      expect(manager.create).toHaveBeenCalledWith(
+        UserUpdateAudit,
+        expectedAuditRow,
+      );
+      expect(manager.save).toHaveBeenCalledWith(expectedAuditRow);
+    });
+
+    it('takes the advisory lock before counting admins, serialising concurrent changes', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser, isAdmin: true });
+      manager.count.mockResolvedValue(2);
+
+      await service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, {
+        isAdmin: false,
+      });
+
+      expect(manager.query).toHaveBeenCalledWith(
+        'SELECT pg_advisory_xact_lock($1::bigint)',
+        [expect.any(Number)],
+      );
+      expect(manager.query.mock.invocationCallOrder[0]).toBeLessThan(
+        manager.count.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('demotes an admin while another active admin remains', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser, isAdmin: true });
+      manager.count.mockResolvedValue(2);
+
+      await expect(
+        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: false }),
+      ).resolves.toEqual({ ...targetUser });
+
+      expect(manager.create).toHaveBeenCalledWith(UserUpdateAudit, {
+        actorUuid: ACTOR_UUID,
+        targetUuid: TARGET_UUID,
+        changedFields: { isAdmin: { from: true, to: false } },
+      });
+    });
+
+    it('rejects demoting the last active admin (F11.4 mitigation)', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser, isAdmin: true });
+      manager.count.mockResolvedValue(0);
+
+      await expect(
+        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: false }),
+      ).rejects.toThrow(ConflictException);
+
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(manager.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the acting account is no longer an admin (stale-token defence)', async () => {
+      manager.findOneBy.mockResolvedValueOnce({
+        ...adminActor,
+        isAdmin: false,
+      });
+
+      await expect(
+        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: true }),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(manager.count).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the acting account no longer exists', async () => {
+      manager.findOneBy.mockResolvedValueOnce(null);
+
+      await expect(
+        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: true }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects a locked acting account', async () => {
+      manager.findOneBy.mockResolvedValueOnce({
+        ...adminActor,
+        isLocked: true,
+      });
+
+      await expect(
+        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: true }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects an archived acting account', async () => {
+      manager.findOneBy.mockResolvedValueOnce({
+        ...adminActor,
+        isArchived: true,
+      });
+
+      await expect(
+        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: true }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('reports 404 when the target account does not exist', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce(null);
+
+      await expect(
+        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: true }),
+      ).rejects.toThrow(NotFoundException);
+
+      expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it('returns the current state without writing an audit entry when nothing changes', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser });
+
+      await expect(
+        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: false }),
+      ).resolves.toEqual({ ...targetUser });
+
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(manager.create).not.toHaveBeenCalled();
+    });
+
+    it('treats an empty update as a no-op', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser });
+
+      await expect(
+        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, {}),
+      ).resolves.toEqual({ ...targetUser });
+
+      expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it('archives a target account and records the archival in the audit entry (F12.2)', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser });
+
+      await expect(
+        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isArchived: true }),
+      ).resolves.toEqual({ ...targetUser, isArchived: true });
+
+      expect(manager.save).toHaveBeenCalledWith(
+        expect.objectContaining({ uuid: TARGET_UUID, isArchived: true }),
+      );
+      expect(manager.create).toHaveBeenCalledWith(UserUpdateAudit, {
+        actorUuid: ACTOR_UUID,
+        targetUuid: TARGET_UUID,
+        changedFields: { isArchived: { from: false, to: true } },
+      });
+    });
+
+    it('un-archives a target account (F12.3)', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser, isArchived: true });
+
+      await expect(
+        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isArchived: false }),
+      ).resolves.toEqual({ ...targetUser });
+
+      expect(manager.create).toHaveBeenCalledWith(UserUpdateAudit, {
+        actorUuid: ACTOR_UUID,
+        targetUuid: TARGET_UUID,
+        changedFields: { isArchived: { from: true, to: false } },
+      });
+    });
+
+    it('records both changes in a single audit entry when both flags move', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser });
+
+      await service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, {
+        isAdmin: true,
+        isArchived: true,
+      });
+
+      expect(manager.create).toHaveBeenCalledTimes(1);
+      expect(manager.create).toHaveBeenCalledWith(UserUpdateAudit, {
+        actorUuid: ACTOR_UUID,
+        targetUuid: TARGET_UUID,
+        changedFields: {
+          isAdmin: { from: false, to: true },
+          isArchived: { from: false, to: true },
+        },
+      });
+    });
+
+    it('refuses to archive the last remaining active admin (F12.2)', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser, isAdmin: true });
+      manager.count.mockResolvedValue(0);
+
+      await expect(
+        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isArchived: true }),
+      ).rejects.toThrow(ConflictException);
+
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(manager.create).not.toHaveBeenCalled();
+    });
+
+    it('archives an admin while another active admin remains', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser, isAdmin: true });
+      manager.count.mockResolvedValue(2);
+
+      await expect(
+        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isArchived: true }),
+      ).resolves.toEqual({ ...targetUser, isAdmin: true, isArchived: true });
+    });
+
+    it('treats a re-archive as a no-op with no audit entry', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser, isArchived: true });
+
+      await expect(
+        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isArchived: true }),
+      ).resolves.toEqual({ ...targetUser, isArchived: true });
+
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(manager.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('archiveSelf', () => {
+    const selfUser = {
+      uuid: FIXED_UUID,
+      email: 'eve@example.com',
+      displayName: 'Eve',
+      passwordHash: 'ab'.repeat(64),
+      passwordSalt: 'ab'.repeat(16),
+      isAdmin: false,
+      isLocked: false,
+      isArchived: false,
+      roles: [],
+      profilePictureUrl: null,
+    };
+
+    it("archives the caller's own account (F12.1)", async () => {
+      manager.findOneBy.mockResolvedValueOnce({ ...selfUser });
+
+      await expect(service.archiveSelf(FIXED_UUID)).resolves.toEqual({
+        ...selfUser,
+        isArchived: true,
+      });
+
+      expect(manager.findOneBy).toHaveBeenCalledWith(User, {
+        uuid: FIXED_UUID,
+      });
+      expect(manager.save).toHaveBeenCalledWith(
+        expect.objectContaining({ uuid: FIXED_UUID, isArchived: true }),
+      );
+    });
+
+    it('writes no audit entry for a self-initiated archive', async () => {
+      manager.findOneBy.mockResolvedValueOnce({ ...selfUser });
+
+      await service.archiveSelf(FIXED_UUID);
+
+      expect(manager.create).not.toHaveBeenCalled();
+    });
+
+    it('is a no-op when the account is already archived', async () => {
+      manager.findOneBy.mockResolvedValueOnce({
+        ...selfUser,
+        isArchived: true,
+      });
+
+      await expect(service.archiveSelf(FIXED_UUID)).resolves.toMatchObject({
+        isArchived: true,
+      });
+
+      expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the account no longer exists', async () => {
+      manager.findOneBy.mockResolvedValueOnce(null);
+
+      await expect(service.archiveSelf(FIXED_UUID)).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('refuses an admin archiving themself as the last active admin', async () => {
+      manager.findOneBy.mockResolvedValueOnce({
+        ...selfUser,
+        isAdmin: true,
+      });
+      manager.count.mockResolvedValue(0);
+
+      await expect(service.archiveSelf(FIXED_UUID)).rejects.toThrow(
+        ConflictException,
+      );
+
+      expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it('takes the advisory lock before counting admins, serialising the check', async () => {
+      manager.findOneBy.mockResolvedValueOnce({
+        ...selfUser,
+        isAdmin: true,
+      });
+      manager.count.mockResolvedValue(2);
+
+      await service.archiveSelf(FIXED_UUID);
+
+      expect(manager.query).toHaveBeenCalledWith(
+        'SELECT pg_advisory_xact_lock($1::bigint)',
+        [expect.any(Number)],
+      );
+      expect(manager.query.mock.invocationCallOrder[0]).toBeLessThan(
+        manager.count.mock.invocationCallOrder[0],
+      );
     });
   });
 

@@ -62,6 +62,7 @@ describe('UserRegistered v1 contract', () => {
 
   it.each([
     ['user ID', { ...validEvent.payload, userId: 'not-a-uuid' }],
+    ['numeric user ID', { ...validEvent.payload, userId: 7 }],
     ['email', { ...validEvent.payload, email: 'not-an-email' }],
     ['display name', { ...validEvent.payload, displayName: '' }],
   ])('rejects an invalid %s', (_, payload) => {

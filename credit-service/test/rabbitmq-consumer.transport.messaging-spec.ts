@@ -11,6 +11,7 @@ import {
 import 'dotenv/config';
 import type { EnvironmentVariables } from '../src/config/environment.js';
 import { RabbitMqConsumerTransport } from '../src/messaging/rabbitmq-consumer.transport.js';
+import { buildRabbitMqTestUrl } from './support/rabbitmq-test-environment.js';
 import type {
   IncomingDomainMessage,
   MessageHandlingResult,
@@ -64,10 +65,14 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     deadLetterQueue: `credit-service.user-registered.v1.dlq.test.${suffix}`,
     secondQueue: `credit-service.credit-reservation.v1.test.${suffix}`,
     secondDeadLetterQueue: `credit-service.credit-reservation.v1.dlq.test.${suffix}`,
+    thirdQueue: `credit-service.credit-reservation-adjustment.v1.test.${suffix}`,
+    thirdDeadLetterQueue: `credit-service.credit-reservation-adjustment.v1.dlq.test.${suffix}`,
+    fourthQueue: `credit-service.order-errand-completed.v1.test.${suffix}`,
+    fourthDeadLetterQueue: `credit-service.order-errand-completed.v1.dlq.test.${suffix}`,
     siblingQueue: `credit-service.user-registered-audit.v1.test.${suffix}`,
     siblingDeadLetterQueue: `credit-service.user-registered-audit.v1.dlq.test.${suffix}`,
   };
-  const rabbitMqUrl = process.env.RABBITMQ_URL;
+  const rabbitMqUrl = buildRabbitMqTestUrl();
   let behavior: (
     message: IncomingDomainMessage,
   ) => Promise<MessageHandlingResult>;
@@ -75,6 +80,12 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     handle: vi.fn((message) => behavior(message)),
   };
   const secondHandler: RabbitMqMessageHandler = {
+    handle: vi.fn().mockResolvedValue({ outcome: 'ack' }),
+  };
+  const thirdHandler: RabbitMqMessageHandler = {
+    handle: vi.fn().mockResolvedValue({ outcome: 'ack' }),
+  };
+  const fourthHandler: RabbitMqMessageHandler = {
     handle: vi.fn().mockResolvedValue({ outcome: 'ack' }),
   };
   const siblingHandler: RabbitMqMessageHandler = {
@@ -87,12 +98,6 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
   let bufferedDelivery: IncomingDomainMessage | undefined;
 
   beforeAll(async () => {
-    if (!rabbitMqUrl) {
-      throw new Error(
-        'RABBITMQ_URL is required; create credit-service/.env before running messaging tests',
-      );
-    }
-
     const values = {
       RABBITMQ_EXCHANGE: names.domainExchange,
       RABBITMQ_USER_REGISTERED_QUEUE: names.mainQueue,
@@ -150,19 +155,39 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
       deadLetterQueue: names.secondDeadLetterQueue,
       handler: secondHandler,
     });
+    await transport.subscribe({
+      queue: names.thirdQueue,
+      routingKey: 'credit.reservation-adjustment.v1',
+      deadLetterQueue: names.thirdDeadLetterQueue,
+      handler: thirdHandler,
+    });
+    await transport.subscribe({
+      queue: names.fourthQueue,
+      routingKey: 'order.errand-completed.v1',
+      deadLetterQueue: names.fourthDeadLetterQueue,
+      handler: fourthHandler,
+    });
   });
 
   beforeEach(async () => {
     vi.mocked(handler.handle).mockClear();
     vi.mocked(secondHandler.handle).mockClear();
+    vi.mocked(thirdHandler.handle).mockClear();
+    vi.mocked(fourthHandler.handle).mockClear();
     behavior = async () => ({ outcome: 'ack' });
     await adminChannel.purgeQueue(names.mainQueue);
     await adminChannel.purgeQueue(names.deadLetterQueue);
     await adminChannel.purgeQueue(names.secondQueue);
     await adminChannel.purgeQueue(names.secondDeadLetterQueue);
+    await adminChannel.purgeQueue(names.thirdQueue);
+    await adminChannel.purgeQueue(names.thirdDeadLetterQueue);
+    await adminChannel.purgeQueue(names.fourthQueue);
+    await adminChannel.purgeQueue(names.fourthDeadLetterQueue);
     for (const index of RETRY_DELAYS.keys()) {
       await adminChannel.purgeQueue(`${names.mainQueue}.retry.${index + 1}`);
       await adminChannel.purgeQueue(`${names.secondQueue}.retry.${index + 1}`);
+      await adminChannel.purgeQueue(`${names.thirdQueue}.retry.${index + 1}`);
+      await adminChannel.purgeQueue(`${names.fourthQueue}.retry.${index + 1}`);
     }
   });
 
@@ -174,12 +199,22 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
       await adminChannel.deleteQueue(names.deadLetterQueue);
       await adminChannel.deleteQueue(names.secondQueue);
       await adminChannel.deleteQueue(names.secondDeadLetterQueue);
+      await adminChannel.deleteQueue(names.thirdQueue);
+      await adminChannel.deleteQueue(names.thirdDeadLetterQueue);
+      await adminChannel.deleteQueue(names.fourthQueue);
+      await adminChannel.deleteQueue(names.fourthDeadLetterQueue);
       await adminChannel.deleteQueue(names.siblingQueue);
       await adminChannel.deleteQueue(names.siblingDeadLetterQueue);
       for (const index of RETRY_DELAYS.keys()) {
         await adminChannel.deleteQueue(`${names.mainQueue}.retry.${index + 1}`);
         await adminChannel.deleteQueue(
           `${names.secondQueue}.retry.${index + 1}`,
+        );
+        await adminChannel.deleteQueue(
+          `${names.thirdQueue}.retry.${index + 1}`,
+        );
+        await adminChannel.deleteQueue(
+          `${names.fourthQueue}.retry.${index + 1}`,
         );
         await adminChannel.deleteQueue(
           `${names.siblingQueue}.retry.${index + 1}`,
@@ -244,6 +279,15 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     });
   }
 
+  async function takeThirdDeadLetter(): Promise<GetMessage> {
+    return waitFor(async () => {
+      const delivery = await adminChannel.get(names.thirdDeadLetterQueue, {
+        noAck: true,
+      });
+      return delivery || undefined;
+    });
+  }
+
   it('consumes a message buffered before the consumer starts', () => {
     expect(bufferedDelivery).toEqual(
       expect.objectContaining({
@@ -278,6 +322,66 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     ).toBe(0);
   });
 
+  it('isolates adjustment failures from reservation retries and dead letters', async () => {
+    vi.mocked(thirdHandler.handle).mockResolvedValueOnce({
+      outcome: 'dead-letter',
+      category: 'INVALID_PAYLOAD',
+      reason: 'invalid adjustment',
+    });
+    const original = Buffer.from(
+      JSON.stringify({
+        eventId: randomUUID(),
+        eventType: 'CreditReservationAdjustment',
+      }),
+    );
+
+    await publish(original, 'credit.reservation-adjustment.v1');
+    const deadLetter = await takeThirdDeadLetter();
+
+    expect(deadLetter.content.equals(original)).toBe(true);
+    expect(thirdHandler.handle).toHaveBeenCalledOnce();
+    expect(secondHandler.handle).not.toHaveBeenCalled();
+    expect(fourthHandler.handle).not.toHaveBeenCalled();
+    expect(
+      (await adminChannel.checkQueue(names.secondDeadLetterQueue)).messageCount,
+    ).toBe(0);
+    for (const index of RETRY_DELAYS.keys()) {
+      expect(
+        (
+          await adminChannel.checkQueue(
+            `${names.secondQueue}.retry.${index + 1}`,
+          )
+        ).messageCount,
+      ).toBe(0);
+    }
+  });
+
+  it('delivers completion notices only to the completion subscription', async () => {
+    const original = Buffer.from(
+      JSON.stringify({
+        eventId: randomUUID(),
+        eventType: 'ErrandCompleted',
+      }),
+    );
+
+    await publish(original, 'order.errand-completed.v1');
+    await waitFor(() =>
+      vi.mocked(fourthHandler.handle).mock.calls.length === 1
+        ? true
+        : undefined,
+    );
+
+    expect(fourthHandler.handle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        routingKey: 'order.errand-completed.v1',
+        retryCount: 0,
+      }),
+    );
+    expect(handler.handle).not.toHaveBeenCalled();
+    expect(secondHandler.handle).not.toHaveBeenCalled();
+    expect(thirdHandler.handle).not.toHaveBeenCalled();
+  });
+
   it('does not deliver a routing key without an exact binding', async () => {
     await publish(eventBody(), 'user.profile-updated.v1');
 
@@ -285,6 +389,8 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     // assertions; the direct exchange has no matching destination.
     expect(handler.handle).not.toHaveBeenCalled();
     expect(secondHandler.handle).not.toHaveBeenCalled();
+    expect(thirdHandler.handle).not.toHaveBeenCalled();
+    expect(fourthHandler.handle).not.toHaveBeenCalled();
     expect((await adminChannel.checkQueue(names.mainQueue)).messageCount).toBe(
       0,
     );
@@ -485,9 +591,13 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
 
     const firstQueue = await adminChannel.checkQueue(names.mainQueue);
     const secondQueue = await adminChannel.checkQueue(names.secondQueue);
+    const thirdQueue = await adminChannel.checkQueue(names.thirdQueue);
+    const fourthQueue = await adminChannel.checkQueue(names.fourthQueue);
     const siblingQueue = await adminChannel.checkQueue(names.siblingQueue);
     expect(firstQueue.consumerCount).toBe(0);
     expect(secondQueue.consumerCount).toBe(0);
+    expect(thirdQueue.consumerCount).toBe(0);
+    expect(fourthQueue.consumerCount).toBe(0);
     expect(siblingQueue.consumerCount).toBe(0);
   });
 });

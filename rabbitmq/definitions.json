@@ -22,6 +22,13 @@
       "user": "credit-service",
       "vhost": "/foc",
       "write": "^(foc\\.events|foc\\.credit\\.(retry|back|dlx)|credit-service\\..+)$"
+    },
+    {
+      "configure": "^(foc\\.order\\.(retry|back|dlx)|order-service\\..+)$",
+      "read": "^(foc\\.events|foc\\.order\\.(retry|back|dlx)|order-service\\..+)$",
+      "user": "order-service",
+      "vhost": "/foc",
+      "write": "^(foc\\.events|foc\\.order\\.(retry|back|dlx)|order-service\\..+)$"
     }
   ],
   "rabbitmq_version": "4.3.6",
@@ -69,7 +76,7 @@
       "hashing_algorithm": "rabbit_password_hashing_sha256",
       "limits": {},
       "name": "email-service",
-      "password_hash": "9x8oOUzthUw3yuT4Y419+YFmpz5I0wlI344cZEuItwWrRqwe",
+      "password_hash": "uZ8DXrP9ady3wd40dexs3GmhVuS8JMWzzUezwtKKxHGiFiPm",
       "tags": []
     },
     {
@@ -83,7 +90,7 @@
       "hashing_algorithm": "rabbit_password_hashing_sha256",
       "limits": {},
       "name": "user-service",
-      "password_hash": "aZjxvyiX+QPAl8WbNLq04VI3OAf1myY0IMh8FyhngraRlhZH",
+      "password_hash": "IWxKEY+vM09I8ogOUmwtcEg+3XhV3tDwZAz+LeJtSfBjGaOt",
       "tags": []
     },
     {
@@ -91,6 +98,13 @@
       "limits": {},
       "name": "credit-service",
       "password_hash": "cCrZGqJNVrHK6legaAer8PjD7koLxgocDiQ/BJsrYOATi9iy",
+      "tags": []
+    },
+    {
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "limits": {},
+      "name": "order-service",
+      "password_hash": "sUvxR6IwUJmDLu1plGwH4ef47h48RwF8jeDIAN5bXsnpa0i3",
       "tags": []
     }
   ],
@@ -105,6 +119,17 @@
     { "arguments": { "x-queue-type": "classic" }, "auto_delete": false, "durable": true, "name": "otp_emails", "type": "classic", "vhost": "/foc" },
     { "arguments": { "x-queue-type": "classic" }, "auto_delete": false, "durable": true, "name": "password_reset_emails", "type": "classic", "vhost": "/foc" },
     { "arguments": {}, "auto_delete": false, "durable": true, "name": "credit-service.user-registered.v1", "type": "classic", "vhost": "/foc" },
+    { "arguments": {}, "auto_delete": false, "durable": true, "name": "credit-service.credit-reservation.v1", "type": "classic", "vhost": "/foc" },
+    { "arguments": {}, "auto_delete": false, "durable": true, "name": "credit-service.credit-reservation-adjustment.v1", "type": "classic", "vhost": "/foc" },
+    { "arguments": {}, "auto_delete": false, "durable": true, "name": "credit-service.order-errand-completed.v1", "type": "classic", "vhost": "/foc" },
+    { "arguments": {}, "auto_delete": false, "durable": true, "name": "credit-service.order-errand-cancelled.v1", "type": "classic", "vhost": "/foc" },
+    { "arguments": {}, "auto_delete": false, "durable": true, "name": "order-service.credit-reservation-success.v1", "type": "classic", "vhost": "/foc" },
+    { "arguments": {}, "auto_delete": false, "durable": true, "name": "order-service.credit-reservation-rejected.v1", "type": "classic", "vhost": "/foc" },
+    { "arguments": {}, "auto_delete": false, "durable": true, "name": "order-service.credit-reservation-adjustment-success.v1", "type": "classic", "vhost": "/foc" },
+    { "arguments": {}, "auto_delete": false, "durable": true, "name": "order-service.credit-reservation-adjustment-rejected.v1", "type": "classic", "vhost": "/foc" },
+    { "arguments": {}, "auto_delete": false, "durable": true, "name": "order-service.credit-transfer-succeeded.v1", "type": "classic", "vhost": "/foc" },
+    { "arguments": {}, "auto_delete": false, "durable": true, "name": "order-service.credit-transfer-rejected.v1", "type": "classic", "vhost": "/foc" },
+    { "arguments": {}, "auto_delete": false, "durable": true, "name": "order-service.credit-release-rejected.v1", "type": "classic", "vhost": "/foc" },
     {
       "arguments": {
         "x-queue-type": "classic",
@@ -160,6 +185,17 @@
     { "arguments": {}, "destination": "otp_emails", "destination_type": "queue", "routing_key": "otp.email", "source": "foc.events", "vhost": "/foc" },
     { "arguments": {}, "destination": "password_reset_emails", "destination_type": "queue", "routing_key": "password-reset.email", "source": "foc.events", "vhost": "/foc" },
     { "arguments": {}, "destination": "credit-service.user-registered.v1", "destination_type": "queue", "routing_key": "user.registered.v1", "source": "foc.events", "vhost": "/foc" },
+    { "arguments": {}, "destination": "credit-service.credit-reservation.v1", "destination_type": "queue", "routing_key": "credit.reservation.v1", "source": "foc.events", "vhost": "/foc" },
+    { "arguments": {}, "destination": "credit-service.credit-reservation-adjustment.v1", "destination_type": "queue", "routing_key": "credit.reservation-adjustment.v1", "source": "foc.events", "vhost": "/foc" },
+    { "arguments": {}, "destination": "credit-service.order-errand-completed.v1", "destination_type": "queue", "routing_key": "order.errand-completed.v1", "source": "foc.events", "vhost": "/foc" },
+    { "arguments": {}, "destination": "credit-service.order-errand-cancelled.v1", "destination_type": "queue", "routing_key": "order.errand-cancelled.v1", "source": "foc.events", "vhost": "/foc" },
+    { "arguments": {}, "destination": "order-service.credit-reservation-success.v1", "destination_type": "queue", "routing_key": "credit.reservation-success.v1", "source": "foc.events", "vhost": "/foc" },
+    { "arguments": {}, "destination": "order-service.credit-reservation-rejected.v1", "destination_type": "queue", "routing_key": "credit.reservation-rejected.v1", "source": "foc.events", "vhost": "/foc" },
+    { "arguments": {}, "destination": "order-service.credit-reservation-adjustment-success.v1", "destination_type": "queue", "routing_key": "credit.reservation-adjustment-success.v1", "source": "foc.events", "vhost": "/foc" },
+    { "arguments": {}, "destination": "order-service.credit-reservation-adjustment-rejected.v1", "destination_type": "queue", "routing_key": "credit.reservation-adjustment-rejected.v1", "source": "foc.events", "vhost": "/foc" },
+    { "arguments": {}, "destination": "order-service.credit-transfer-succeeded.v1", "destination_type": "queue", "routing_key": "credit.transfer-succeeded.v1", "source": "foc.events", "vhost": "/foc" },
+    { "arguments": {}, "destination": "order-service.credit-transfer-rejected.v1", "destination_type": "queue", "routing_key": "credit.transfer-rejected.v1", "source": "foc.events", "vhost": "/foc" },
+    { "arguments": {}, "destination": "order-service.credit-release-rejected.v1", "destination_type": "queue", "routing_key": "credit.release-rejected.v1", "source": "foc.events", "vhost": "/foc" },
     { "arguments": { "x-match": "all", "foc-delay": "60000" }, "destination": "email_retry_60s", "destination_type": "queue", "routing_key": "", "source": "foc.retry", "vhost": "/foc" },
     { "arguments": { "x-match": "all", "foc-delay": "120000" }, "destination": "email_retry_120s", "destination_type": "queue", "routing_key": "", "source": "foc.retry", "vhost": "/foc" },
     { "arguments": { "x-match": "all", "foc-delay": "240000" }, "destination": "email_retry_240s", "destination_type": "queue", "routing_key": "", "source": "foc.retry", "vhost": "/foc" },

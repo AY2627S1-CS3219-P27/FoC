@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { createObserveModule } from '@nestjs/observe';
 import { FocAuthModule } from '@foc/auth';
+import { OutboxEvent, OutboxModule } from '@foc/outbox';
 import { OtpModule } from './otp/otp.module.js';
 import { environmentSchema } from './config/environment.schema.js';
 import { AuthModule } from './auth/auth.module.js';
@@ -11,6 +12,24 @@ import { PasswordResetModule } from './password-reset/password-reset.module.js';
 import { SecretModule } from './secret/secret.module.js';
 import { SecretService } from './secret/secret.service.js';
 import { User } from './users/user.entity.js';
+import { UserUpdateAudit } from './users/user-update-audit.entity.js';
+import { RefreshToken } from './auth/refresh-token.entity.js';
+
+/** Builds the broker URL for the outbox without exposing the password. */
+function buildRabbitMqUrl(
+  config: ConfigService,
+  secrets: SecretService,
+): string {
+  const user = config.getOrThrow<string>('RABBITMQ_USER');
+  const host = config.getOrThrow<string>('RABBITMQ_HOST');
+  const port = config.getOrThrow<number>('RABBITMQ_PORT');
+  const vhost = config.getOrThrow<string>('RABBITMQ_VHOST');
+  return (
+    `amqp://${encodeURIComponent(user)}:` +
+    `${encodeURIComponent(secrets.getRabbitMqPassword())}@` +
+    `${host}:${port}/${encodeURIComponent(vhost)}`
+  );
+}
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -50,8 +69,17 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
         username: configService.get<string>('DB_USERNAME'),
         password: secretService.getDbPassword(),
         database: configService.get<string>('DB_DATABASE'),
-        entities: [User],
+        entities: [User, UserUpdateAudit, RefreshToken, OutboxEvent],
         synchronize: configService.get<boolean>('DB_SYNCHRONIZE'),
+      }),
+    }),
+    OutboxModule.forRootAsync({
+      imports: [SecretModule],
+      inject: [SecretService, ConfigService],
+      useFactory: (secrets: SecretService, config: ConfigService) => ({
+        exchange: 'foc.events',
+        appId: 'user-service',
+        rabbitMqUrl: buildRabbitMqUrl(config, secrets),
       }),
     }),
     OtpModule,

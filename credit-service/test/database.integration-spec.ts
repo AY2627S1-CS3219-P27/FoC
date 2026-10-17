@@ -4,6 +4,9 @@ import { createDatabaseOptions } from '../src/database/database-options.js';
 import {
   CreditAccount,
   CreditAllocation,
+  CreditOperation,
+  CreditReservation,
+  CreditTransaction,
   InboxEvent,
   OutboxEvent,
 } from '../src/database/entities/index.js';
@@ -36,7 +39,7 @@ describe('credit persistence migration', () => {
     }
   });
 
-  it('creates all tables, foreign keys, checks, indexes, and the allocation trigger', async () => {
+  it('creates all tables, foreign keys, checks, indexes, and immutability triggers', async () => {
     const tables = await dataSource.query<{ table_name: string }[]>(`
       SELECT table_name FROM information_schema.tables
       WHERE table_schema = 'public'
@@ -45,14 +48,32 @@ describe('credit persistence migration', () => {
       expect.arrayContaining([
         'credit_accounts',
         'credit_allocations',
+        'credit_operations',
+        'credit_reservations',
+        'credit_transactions',
         'inbox_events',
         'outbox_events',
       ]),
     );
 
+    const userIdColumns = await dataSource.query<
+      { table_name: string; data_type: string }[]
+    >(`
+      SELECT table_name, data_type FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name IN ('credit_accounts', 'credit_allocations')
+        AND column_name = 'user_id'
+      ORDER BY table_name
+    `);
+    expect(userIdColumns).toEqual([
+      { table_name: 'credit_accounts', data_type: 'uuid' },
+      { table_name: 'credit_allocations', data_type: 'uuid' },
+    ]);
+
     const constraints = await dataSource.query<{ conname: string }[]>(`
       SELECT conname FROM pg_constraint
       WHERE conname LIKE 'CHK_credit_%'
+         OR conname LIKE 'CHK_inbox_%'
          OR conname LIKE 'FK_credit_%'
          OR conname LIKE 'FK_inbox_%'
          OR conname = 'CHK_outbox_events_attempt_count'
@@ -62,9 +83,37 @@ describe('credit persistence migration', () => {
         'CHK_credit_accounts_credit_balance',
         'CHK_credit_accounts_reserved_balance',
         'CHK_credit_allocations_amount',
+        'CHK_credit_operations_amount',
+        'CHK_credit_operations_attempt_count',
+        'CHK_credit_operations_type',
+        'CHK_credit_operations_status',
+        'CHK_credit_operations_participants',
+        'CHK_credit_operations_requester',
+        'CHK_credit_operations_adjustment_command',
+        'CHK_credit_operations_claim',
+        'CHK_credit_operations_outcome',
+        'CHK_credit_reservations_reserved_amount',
+        'CHK_credit_reservations_status',
+        'CHK_credit_transactions_amount',
+        'CHK_credit_transactions_type',
+        'CHK_credit_transactions_origin_balance_type',
+        'CHK_credit_transactions_destination_balance_type',
+        'CHK_credit_transactions_distinct_balance_types',
+        'CHK_credit_transactions_user_relationship',
+        'CHK_credit_transactions_direction',
+        'CHK_inbox_events_has_outcome',
         'CHK_outbox_events_attempt_count',
         'FK_credit_allocations_user',
+        'FK_credit_operations_completion_transaction',
+        'FK_credit_operations_outcome_outbox',
+        'FK_credit_reservations_requester',
+        'FK_credit_reservations_latest_transaction',
+        'FK_credit_transactions_origin_user',
+        'FK_credit_transactions_destination_user',
         'FK_inbox_events_outcome',
+        'FK_inbox_events_outcome_operation',
+        'FK_inbox_events_outcome_transaction',
+        'FK_inbox_events_outcome_outbox',
       ]),
     );
 
@@ -74,6 +123,18 @@ describe('credit persistence migration', () => {
     expect(indexes.map(({ indexname }) => indexname)).toEqual(
       expect.arrayContaining([
         'UQ_credit_allocations_user',
+        'UQ_credit_operations_lifecycle_errand_type',
+        'UQ_credit_operations_adjustment_event',
+        'IDX_credit_operations_completion_transaction',
+        'UQ_credit_operations_outcome_outbox',
+        'IDX_credit_operations_pending_due',
+        'IDX_credit_operations_pending_claim_expiry',
+        'UQ_credit_reservations_errand',
+        'UQ_credit_reservations_latest_transaction',
+        'IDX_credit_reservations_active_requester',
+        'IDX_credit_transactions_errand_created_at_id',
+        'IDX_credit_transactions_origin_user_created_at_id',
+        'IDX_credit_transactions_destination_user_created_at_id',
         'IDX_outbox_events_unpublished_next_attempt_at_created_at',
       ]),
     );
@@ -86,12 +147,33 @@ describe('credit persistence migration', () => {
       'next_attempt_at',
     );
 
-    const triggers = await dataSource.query<{ trigger_name: string }[]>(`
-      SELECT trigger_name FROM information_schema.triggers
-      WHERE event_object_table = 'credit_allocations'
+    const [operationAmountColumn] = await dataSource.query<
+      { is_nullable: 'YES' | 'NO' }[]
+    >(`
+      SELECT is_nullable FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'credit_operations'
+        AND column_name = 'amount'
     `);
-    expect(triggers.map(({ trigger_name }) => trigger_name)).toContain(
-      'TRG_credit_allocations_immutable',
+    expect(operationAmountColumn).toEqual({ is_nullable: 'YES' });
+
+    const triggers = await dataSource.query<
+      { event_object_table: string; trigger_name: string }[]
+    >(`
+      SELECT event_object_table, trigger_name FROM information_schema.triggers
+      WHERE event_object_table IN ('credit_allocations', 'credit_transactions')
+    `);
+    expect(triggers).toEqual(
+      expect.arrayContaining([
+        {
+          event_object_table: 'credit_allocations',
+          trigger_name: 'TRG_credit_allocations_immutable',
+        },
+        {
+          event_object_table: 'credit_transactions',
+          trigger_name: 'TRG_credit_transactions_immutable',
+        },
+      ]),
     );
   });
 
@@ -162,6 +244,590 @@ describe('credit persistence migration', () => {
         [randomUUID()],
       ),
     ).rejects.toMatchObject({ code: '23514' });
+
+    await expect(
+      dataSource.query(
+        `INSERT INTO inbox_events
+         (event_id, event_type, payload_hash, processed_at)
+         VALUES ($1, 'CreditReservationRejected', $2, now())`,
+        [randomUUID(), 'c'.repeat(64)],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+  });
+
+  it('enforces reservation and transaction constraints', async () => {
+    const userId = randomUUID();
+    const otherUserId = randomUUID();
+    const errandId = randomUUID();
+    const transactionId = randomUUID();
+
+    await dataSource.query(
+      `INSERT INTO credit_accounts (user_id, credit_balance, reserved_balance)
+       VALUES ($1, 75, 25), ($2, 100, 0)`,
+      [userId, otherUserId],
+    );
+
+    await expect(
+      dataSource.query(
+        `INSERT INTO credit_transactions
+         (id, type, amount, origin_balance_type, destination_balance_type,
+          origin_user_id, destination_user_id, errand_id)
+         VALUES ($1, 'INITIAL_ALLOCATION', 25, 'CREDIT_BALANCE', 'RESERVED_BALANCE', $2, $2, $3)`,
+        [randomUUID(), userId, errandId],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      dataSource.query(
+        `INSERT INTO credit_transactions
+         (id, type, amount, origin_balance_type, destination_balance_type,
+          origin_user_id, destination_user_id, errand_id)
+         VALUES ($1, 'RESERVATION', 0, 'CREDIT_BALANCE', 'RESERVED_BALANCE', $2, $2, $3)`,
+        [randomUUID(), userId, errandId],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      dataSource.query(
+        `INSERT INTO credit_transactions
+         (id, type, amount, origin_balance_type, destination_balance_type,
+          origin_user_id, destination_user_id, errand_id)
+         VALUES ($1, 'RESERVATION', 25, 'RESERVED_BALANCE', 'CREDIT_BALANCE', $2, $2, $3)`,
+        [randomUUID(), userId, errandId],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      dataSource.query(
+        `INSERT INTO credit_transactions
+         (id, type, amount, origin_balance_type, destination_balance_type,
+          origin_user_id, destination_user_id, errand_id)
+         VALUES ($1, 'TRANSFER', 25, 'RESERVED_BALANCE', 'CREDIT_BALANCE', $2, $2, $3)`,
+        [randomUUID(), userId, errandId],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      dataSource.query(
+        `INSERT INTO credit_transactions
+         (id, type, amount, origin_balance_type, destination_balance_type,
+          origin_user_id, destination_user_id, errand_id)
+         VALUES ($1, 'RELEASE', 25, 'RESERVED_BALANCE', 'CREDIT_BALANCE', $2, $3, $4)`,
+        [randomUUID(), userId, otherUserId, errandId],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      dataSource.query(
+        `INSERT INTO credit_transactions
+         (id, type, amount, origin_balance_type, destination_balance_type,
+          origin_user_id, destination_user_id, errand_id)
+         VALUES ($1, 'RELEASE', 25, 'CREDIT_BALANCE', 'RESERVED_BALANCE', $2, $2, $3)`,
+        [randomUUID(), userId, errandId],
+      ),
+    ).rejects.toMatchObject({
+      code: '23514',
+      constraint: 'CHK_credit_transactions_direction',
+    });
+
+    await dataSource.query(
+      `INSERT INTO credit_transactions
+       (id, type, amount, origin_balance_type, destination_balance_type,
+        origin_user_id, destination_user_id, errand_id)
+       VALUES ($1, 'RESERVATION', 25, 'CREDIT_BALANCE', 'RESERVED_BALANCE', $2, $2, $3)`,
+      [transactionId, userId, errandId],
+    );
+    await dataSource.query(
+      `INSERT INTO credit_transactions
+       (id, type, amount, origin_balance_type, destination_balance_type,
+        origin_user_id, destination_user_id, errand_id)
+       VALUES
+         ($1, 'TRANSFER', 25, 'RESERVED_BALANCE', 'CREDIT_BALANCE', $3, $4, $2),
+         ($5, 'RELEASE', 10, 'RESERVED_BALANCE', 'CREDIT_BALANCE', $3, $3, $6)`,
+      [
+        randomUUID(),
+        randomUUID(),
+        userId,
+        otherUserId,
+        randomUUID(),
+        randomUUID(),
+      ],
+    );
+    await expect(
+      dataSource.query(
+        `INSERT INTO credit_reservations
+         (id, errand_id, requester_user_id, reserved_amount, status, latest_transaction_id)
+         VALUES ($1, $2, $3, 0, 'ACTIVE', $4)`,
+        [randomUUID(), errandId, userId, transactionId],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      dataSource.query(
+        `INSERT INTO credit_reservations
+         (id, errand_id, requester_user_id, reserved_amount, status, latest_transaction_id)
+         VALUES ($1, $2, $3, 25, 'UNKNOWN', $4)`,
+        [randomUUID(), errandId, userId, transactionId],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+
+    await dataSource.query(
+      `INSERT INTO credit_reservations
+       (id, errand_id, requester_user_id, reserved_amount, status, latest_transaction_id)
+       VALUES ($1, $2, $3, 25, 'ACTIVE', $4)`,
+      [randomUUID(), errandId, userId, transactionId],
+    );
+    await expect(
+      dataSource.query(
+        `INSERT INTO credit_reservations
+         (id, errand_id, requester_user_id, reserved_amount, status, latest_transaction_id)
+         VALUES ($1, $2, $3, 25, 'ACTIVE', $4)`,
+        [randomUUID(), errandId, userId, transactionId],
+      ),
+    ).rejects.toMatchObject({ code: '23505' });
+  });
+
+  it('enforces operation state, participant, claim, and outcome constraints', async () => {
+    const operations = dataSource.getRepository(CreditOperation);
+    const pending = operations.create({
+      id: randomUUID(),
+      errandId: randomUUID(),
+      operationType: 'RESERVE',
+      status: 'PENDING',
+      requesterUserId: randomUUID(),
+      courierUserId: null,
+      amount: 10,
+      expectedAmount: null,
+      commandEventId: null,
+      requestPayloadHash: 'a'.repeat(64),
+      attemptCount: 0,
+      nextAttemptAt: new Date(),
+      claimedBy: null,
+      claimedUntil: null,
+      lastError: null,
+      rejectionReason: null,
+      completionTransactionId: null,
+      outcomeOutboxEventId: null,
+    });
+    await operations.save(pending);
+
+    const unresolvedRelease = operations.create({
+      ...pending,
+      id: randomUUID(),
+      errandId: randomUUID(),
+      operationType: 'RELEASE',
+      requesterUserId: null,
+      amount: null,
+      requestPayloadHash: 'f'.repeat(64),
+    });
+    await operations.save(unresolvedRelease);
+    await expect(
+      operations.findOneByOrFail({ id: unresolvedRelease.id }),
+    ).resolves.toMatchObject({
+      operationType: 'RELEASE',
+      status: 'PENDING',
+      requesterUserId: null,
+      amount: null,
+    });
+
+    await expect(
+      operations.save(
+        operations.create({
+          ...pending,
+          id: randomUUID(),
+          errandId: randomUUID(),
+          operationType: 'TRANSFER',
+          courierUserId: randomUUID(),
+          amount: null,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      code: '23514',
+      constraint: 'CHK_credit_operations_amount',
+    });
+
+    const outbox = dataSource.getRepository(OutboxEvent);
+    const amountRejectionOutboxId = randomUUID();
+    const requesterRejectionOutboxId = randomUUID();
+    await outbox.save([
+      outbox.create({
+        eventId: amountRejectionOutboxId,
+        eventType: 'CreditReleaseRejected',
+        routingKey: 'credit.release-rejected.v1',
+        envelope: { eventId: amountRejectionOutboxId },
+        publishedAt: null,
+        attemptCount: 0,
+        lastError: null,
+        claimedBy: null,
+        claimedUntil: null,
+      }),
+      outbox.create({
+        eventId: requesterRejectionOutboxId,
+        eventType: 'CreditReleaseRejected',
+        routingKey: 'credit.release-rejected.v1',
+        envelope: { eventId: requesterRejectionOutboxId },
+        publishedAt: null,
+        attemptCount: 0,
+        lastError: null,
+        claimedBy: null,
+        claimedUntil: null,
+      }),
+    ]);
+
+    await expect(
+      operations.save(
+        operations.create({
+          ...unresolvedRelease,
+          id: randomUUID(),
+          errandId: randomUUID(),
+          status: 'REJECTED',
+          requesterUserId: randomUUID(),
+          rejectionReason: 'RESERVATION_NOT_FOUND',
+          outcomeOutboxEventId: amountRejectionOutboxId,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      code: '23514',
+      constraint: 'CHK_credit_operations_amount',
+    });
+
+    await expect(
+      operations.save(
+        operations.create({
+          ...unresolvedRelease,
+          id: randomUUID(),
+          errandId: randomUUID(),
+          status: 'REJECTED',
+          amount: 10,
+          rejectionReason: 'RESERVATION_NOT_FOUND',
+          outcomeOutboxEventId: requesterRejectionOutboxId,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      code: '23514',
+      constraint: 'CHK_credit_operations_requester',
+    });
+
+    await expect(
+      dataSource.query(
+        `INSERT INTO credit_operations
+         (id, errand_id, operation_type, status, requester_user_id, amount,
+          request_payload_hash, attempt_count, next_attempt_at, claimed_by)
+         VALUES ($1, $2, 'RESERVE', 'PENDING', $3, 10, $4, 0, now(), 'worker')`,
+        [randomUUID(), randomUUID(), randomUUID(), 'b'.repeat(64)],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      dataSource.query(
+        `INSERT INTO credit_operations
+         (id, errand_id, operation_type, status, requester_user_id,
+          courier_user_id, amount, request_payload_hash, next_attempt_at)
+         VALUES ($1, $2, 'RESERVE', 'PENDING', $3, $4, 10, $5, now())`,
+        [
+          randomUUID(),
+          randomUUID(),
+          randomUUID(),
+          randomUUID(),
+          'c'.repeat(64),
+        ],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      dataSource.query(
+        `INSERT INTO credit_operations
+         (id, errand_id, operation_type, status, requester_user_id, amount,
+          request_payload_hash, next_attempt_at)
+         VALUES ($1, $2, 'RESERVE', 'SUCCEEDED', $3, 10, $4, now())`,
+        [randomUUID(), randomUUID(), randomUUID(), 'd'.repeat(64)],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      operations.save(operations.create({ ...pending, id: randomUUID() })),
+    ).rejects.toMatchObject({ code: '23505' });
+
+    const adjustmentEventId = randomUUID();
+    const adjustment = operations.create({
+      ...pending,
+      id: randomUUID(),
+      errandId: pending.errandId,
+      operationType: 'ADJUST',
+      requesterUserId: null,
+      amount: 20,
+      expectedAmount: 10,
+      commandEventId: adjustmentEventId,
+    });
+    await operations.save(adjustment);
+    await operations.save(
+      operations.create({
+        ...adjustment,
+        id: randomUUID(),
+        commandEventId: randomUUID(),
+      }),
+    );
+    await expect(
+      operations.save(
+        operations.create({
+          ...adjustment,
+          id: randomUUID(),
+          commandEventId: adjustmentEventId,
+        }),
+      ),
+    ).rejects.toMatchObject({ code: '23505' });
+    await expect(
+      dataSource.query(
+        `INSERT INTO credit_operations
+         (id, errand_id, operation_type, status, amount, request_payload_hash,
+          command_event_id, next_attempt_at)
+         VALUES ($1, $2, 'ADJUST', 'PENDING', 20, $3, $4, now())`,
+        [randomUUID(), randomUUID(), 'e'.repeat(64), randomUUID()],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+  });
+
+  it('represents terminal release outcomes with intact settlement references', async () => {
+    const requesterUserId = randomUUID();
+    const successErrandId = randomUUID();
+    const rejectedErrandId = randomUUID();
+    const releaseTransactionId = randomUUID();
+    const successOutboxEventId = randomUUID();
+    const rejectedOutboxEventId = randomUUID();
+    const invalidTransactionOutboxEventId = randomUUID();
+    const invalidRejectedOutboxEventId = randomUUID();
+    const inboxEventId = randomUUID();
+    const accounts = dataSource.getRepository(CreditAccount);
+    const transactions = dataSource.getRepository(CreditTransaction);
+    const operations = dataSource.getRepository(CreditOperation);
+    const outbox = dataSource.getRepository(OutboxEvent);
+    const inbox = dataSource.getRepository(InboxEvent);
+
+    await accounts.save(
+      accounts.create({
+        userId: requesterUserId,
+        creditBalance: 100,
+        reservedBalance: 0,
+      }),
+    );
+    await transactions.save(
+      transactions.create({
+        id: releaseTransactionId,
+        type: 'RELEASE',
+        amount: 25,
+        originBalanceType: 'RESERVED_BALANCE',
+        destinationBalanceType: 'CREDIT_BALANCE',
+        originUserId: requesterUserId,
+        destinationUserId: requesterUserId,
+        errandId: successErrandId,
+      }),
+    );
+
+    const createOutbox = (
+      eventId: string,
+      eventType: 'CreditReleaseSuccess' | 'CreditReleaseRejected',
+      routingKey: 'credit.release-success.v1' | 'credit.release-rejected.v1',
+    ) =>
+      outbox.create({
+        eventId,
+        eventType,
+        routingKey,
+        envelope: { eventId },
+        publishedAt: null,
+        attemptCount: 0,
+        lastError: null,
+        claimedBy: null,
+        claimedUntil: null,
+      });
+
+    await outbox.save([
+      createOutbox(
+        successOutboxEventId,
+        'CreditReleaseSuccess',
+        'credit.release-success.v1',
+      ),
+      createOutbox(
+        rejectedOutboxEventId,
+        'CreditReleaseRejected',
+        'credit.release-rejected.v1',
+      ),
+      createOutbox(
+        invalidTransactionOutboxEventId,
+        'CreditReleaseSuccess',
+        'credit.release-success.v1',
+      ),
+      createOutbox(
+        invalidRejectedOutboxEventId,
+        'CreditReleaseRejected',
+        'credit.release-rejected.v1',
+      ),
+    ]);
+
+    const successfulRelease = operations.create({
+      id: randomUUID(),
+      errandId: successErrandId,
+      operationType: 'RELEASE',
+      status: 'SUCCEEDED',
+      requesterUserId,
+      courierUserId: null,
+      amount: 25,
+      expectedAmount: null,
+      commandEventId: null,
+      requestPayloadHash: '1'.repeat(64),
+      attemptCount: 0,
+      nextAttemptAt: new Date(),
+      claimedBy: null,
+      claimedUntil: null,
+      lastError: null,
+      rejectionReason: null,
+      completionTransactionId: releaseTransactionId,
+      outcomeOutboxEventId: successOutboxEventId,
+    });
+    const rejectedRelease = operations.create({
+      id: randomUUID(),
+      errandId: rejectedErrandId,
+      operationType: 'RELEASE',
+      status: 'REJECTED',
+      requesterUserId,
+      courierUserId: null,
+      amount: 15,
+      expectedAmount: null,
+      commandEventId: null,
+      requestPayloadHash: '2'.repeat(64),
+      attemptCount: 0,
+      nextAttemptAt: new Date(),
+      claimedBy: null,
+      claimedUntil: null,
+      lastError: null,
+      rejectionReason: 'RESERVATION_NOT_FOUND',
+      completionTransactionId: null,
+      outcomeOutboxEventId: rejectedOutboxEventId,
+    });
+    await operations.save([successfulRelease, rejectedRelease]);
+    await inbox.save(
+      inbox.create({
+        eventId: inboxEventId,
+        eventType: 'ErrandCancelled',
+        payloadHash: '3'.repeat(64),
+        processedAt: new Date(),
+        outcomeAllocationId: null,
+        outcomeOperationId: successfulRelease.id,
+        outcomeTransactionId: releaseTransactionId,
+        outcomeOutboxEventId: successOutboxEventId,
+      }),
+    );
+
+    await expect(
+      transactions.findOneByOrFail({ id: releaseTransactionId }),
+    ).resolves.toMatchObject({
+      type: 'RELEASE',
+      amount: 25,
+      originBalanceType: 'RESERVED_BALANCE',
+      destinationBalanceType: 'CREDIT_BALANCE',
+      originUserId: requesterUserId,
+      destinationUserId: requesterUserId,
+      errandId: successErrandId,
+    });
+    await expect(
+      operations.findOneByOrFail({ id: successfulRelease.id }),
+    ).resolves.toMatchObject({
+      operationType: 'RELEASE',
+      status: 'SUCCEEDED',
+      requesterUserId,
+      amount: 25,
+      completionTransactionId: releaseTransactionId,
+      outcomeOutboxEventId: successOutboxEventId,
+    });
+    await expect(
+      operations.findOneByOrFail({ id: rejectedRelease.id }),
+    ).resolves.toMatchObject({
+      operationType: 'RELEASE',
+      status: 'REJECTED',
+      requesterUserId,
+      amount: 15,
+      rejectionReason: 'RESERVATION_NOT_FOUND',
+      completionTransactionId: null,
+      outcomeOutboxEventId: rejectedOutboxEventId,
+    });
+    await expect(
+      inbox.findOneByOrFail({ eventId: inboxEventId }),
+    ).resolves.toMatchObject({
+      outcomeOperationId: successfulRelease.id,
+      outcomeTransactionId: releaseTransactionId,
+      outcomeOutboxEventId: successOutboxEventId,
+    });
+
+    await expect(
+      operations.save(
+        operations.create({
+          ...successfulRelease,
+          id: randomUUID(),
+          status: 'PENDING',
+          completionTransactionId: null,
+          outcomeOutboxEventId: null,
+        }),
+      ),
+    ).rejects.toMatchObject({ code: '23505' });
+
+    await expect(
+      operations.save(
+        operations.create({
+          ...successfulRelease,
+          id: randomUUID(),
+          errandId: randomUUID(),
+          completionTransactionId: randomUUID(),
+          outcomeOutboxEventId: invalidTransactionOutboxEventId,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      code: '23503',
+      constraint: 'FK_credit_operations_completion_transaction',
+    });
+    await expect(
+      operations.save(
+        operations.create({
+          ...successfulRelease,
+          id: randomUUID(),
+          errandId: randomUUID(),
+          outcomeOutboxEventId: randomUUID(),
+        }),
+      ),
+    ).rejects.toMatchObject({
+      code: '23503',
+      constraint: 'FK_credit_operations_outcome_outbox',
+    });
+    await expect(
+      operations.save(
+        operations.create({
+          ...rejectedRelease,
+          id: randomUUID(),
+          errandId: randomUUID(),
+          completionTransactionId: releaseTransactionId,
+          outcomeOutboxEventId: invalidRejectedOutboxEventId,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      code: '23514',
+      constraint: 'CHK_credit_operations_outcome',
+    });
+
+    for (const [column, missingId, constraint] of [
+      [
+        'outcome_operation_id',
+        randomUUID(),
+        'FK_inbox_events_outcome_operation',
+      ],
+      [
+        'outcome_transaction_id',
+        randomUUID(),
+        'FK_inbox_events_outcome_transaction',
+      ],
+      [
+        'outcome_outbox_event_id',
+        randomUUID(),
+        'FK_inbox_events_outcome_outbox',
+      ],
+    ] as const) {
+      await expect(
+        dataSource.query(
+          `INSERT INTO inbox_events
+           (event_id, event_type, payload_hash, processed_at, ${column})
+           VALUES ($1, 'ErrandCancelled', $2, now(), $3)`,
+          [randomUUID(), '4'.repeat(64), missingId],
+        ),
+      ).rejects.toMatchObject({ code: '23503', constraint });
+    }
   });
 
   it('rejects updates and deletes from immutable allocations', async () => {
@@ -177,6 +843,138 @@ describe('credit persistence migration', () => {
     await expect(
       dataSource.query('DELETE FROM credit_allocations WHERE id = $1', [id]),
     ).rejects.toThrow('credit_allocations is append-only');
+  });
+
+  it('rejects updates and deletes from immutable credit transactions', async () => {
+    const [{ id }] = await dataSource.query<{ id: string }[]>(
+      'SELECT id FROM credit_transactions LIMIT 1',
+    );
+    await expect(
+      dataSource.query(
+        'UPDATE credit_transactions SET amount = amount + 1 WHERE id = $1',
+        [id],
+      ),
+    ).rejects.toThrow('credit_transactions is append-only');
+    await expect(
+      dataSource.query('DELETE FROM credit_transactions WHERE id = $1', [id]),
+    ).rejects.toThrow('credit_transactions is append-only');
+  });
+
+  it('round-trips reservations, transactions, and generalized inbox outcomes', async () => {
+    const userId = randomUUID();
+    const courierUserId = randomUUID();
+    const errandId = randomUUID();
+    const transactionId = randomUUID();
+    const transferTransactionId = randomUUID();
+    const reservationId = randomUUID();
+    const outboxEventId = randomUUID();
+    const inboxEventId = randomUUID();
+    const accounts = dataSource.getRepository(CreditAccount);
+    const transactions = dataSource.getRepository(CreditTransaction);
+    const reservations = dataSource.getRepository(CreditReservation);
+    const outbox = dataSource.getRepository(OutboxEvent);
+    const inbox = dataSource.getRepository(InboxEvent);
+
+    await accounts.save([
+      accounts.create({ userId, creditBalance: 60, reservedBalance: 40 }),
+      accounts.create({
+        userId: courierUserId,
+        creditBalance: 100,
+        reservedBalance: 0,
+      }),
+    ]);
+    await transactions.save(
+      transactions.create({
+        id: transactionId,
+        type: 'RESERVATION',
+        amount: 40,
+        originBalanceType: 'CREDIT_BALANCE',
+        destinationBalanceType: 'RESERVED_BALANCE',
+        originUserId: userId,
+        destinationUserId: userId,
+        errandId,
+      }),
+    );
+    await transactions.save(
+      transactions.create({
+        id: transferTransactionId,
+        type: 'TRANSFER',
+        amount: 40,
+        originBalanceType: 'RESERVED_BALANCE',
+        destinationBalanceType: 'CREDIT_BALANCE',
+        originUserId: userId,
+        destinationUserId: courierUserId,
+        errandId: randomUUID(),
+      }),
+    );
+    await reservations.save(
+      reservations.create({
+        id: reservationId,
+        errandId,
+        requesterUserId: userId,
+        reservedAmount: 40,
+        status: 'ACTIVE',
+        latestTransactionId: transactionId,
+      }),
+    );
+    await outbox.save(
+      outbox.create({
+        eventId: outboxEventId,
+        eventType: 'CreditReservationSuccess',
+        routingKey: 'credit.reservation-success.v1',
+        envelope: { eventId: outboxEventId },
+        publishedAt: null,
+        attemptCount: 0,
+        lastError: null,
+        claimedBy: null,
+        claimedUntil: null,
+      }),
+    );
+    await inbox.save(
+      inbox.create({
+        eventId: inboxEventId,
+        eventType: 'CreditReservation',
+        payloadHash: 'd'.repeat(64),
+        processedAt: new Date(),
+        outcomeAllocationId: null,
+        outcomeTransactionId: transactionId,
+        outcomeOutboxEventId: outboxEventId,
+      }),
+    );
+
+    await expect(
+      transactions.findOneByOrFail({ id: transactionId }),
+    ).resolves.toMatchObject({
+      amount: 40,
+      originBalanceType: 'CREDIT_BALANCE',
+      destinationBalanceType: 'RESERVED_BALANCE',
+      originUserId: userId,
+      destinationUserId: userId,
+      errandId,
+    });
+    await expect(
+      transactions.findOneByOrFail({ id: transferTransactionId }),
+    ).resolves.toMatchObject({
+      type: 'TRANSFER',
+      originBalanceType: 'RESERVED_BALANCE',
+      destinationBalanceType: 'CREDIT_BALANCE',
+      originUserId: userId,
+      destinationUserId: courierUserId,
+    });
+    await expect(
+      reservations.findOneByOrFail({ id: reservationId }),
+    ).resolves.toMatchObject({
+      reservedAmount: 40,
+      status: 'ACTIVE',
+      latestTransactionId: transactionId,
+    });
+    await expect(
+      inbox.findOneByOrFail({ eventId: inboxEventId }),
+    ).resolves.toMatchObject({
+      outcomeAllocationId: null,
+      outcomeTransactionId: transactionId,
+      outcomeOutboxEventId: outboxEventId,
+    });
   });
 
   it('round-trips safe BIGINT and JSONB values through repositories', async () => {
@@ -235,14 +1033,80 @@ describe('credit persistence migration', () => {
     ).resolves.toMatchObject({ envelope });
   });
 
+  it('creates reservations with the CONSUMED terminal status', async () => {
+    const userId = randomUUID();
+    const errandId = randomUUID();
+    const transactionId = randomUUID();
+    await dataSource.query(
+      `INSERT INTO credit_accounts (user_id, credit_balance, reserved_balance)
+       VALUES ($1, 75, 25)`,
+      [userId],
+    );
+    await dataSource.query(
+      `INSERT INTO credit_transactions
+       (id, type, amount, origin_balance_type, destination_balance_type,
+        origin_user_id, destination_user_id, errand_id)
+       VALUES ($1, 'RESERVATION', 25, 'CREDIT_BALANCE', 'RESERVED_BALANCE', $2, $2, $3)`,
+      [transactionId, userId, errandId],
+    );
+    await dataSource.query(
+      `INSERT INTO credit_reservations
+       (id, errand_id, requester_user_id, reserved_amount, status, latest_transaction_id)
+       VALUES ($1, $2, $3, 25, 'CONSUMED', $4)`,
+      [randomUUID(), errandId, userId, transactionId],
+    );
+
+    const [reservation] = await dataSource.query<Array<{ status: string }>>(
+      'SELECT status FROM credit_reservations WHERE errand_id = $1',
+      [errandId],
+    );
+    expect(reservation.status).toBe('CONSUMED');
+  });
+
   it('reverts the schema cleanly', async () => {
+    await dataSource.query(
+      'TRUNCATE TABLE inbox_events, credit_operations, credit_reservations, credit_transactions, outbox_events, credit_allocations, credit_accounts',
+    );
     await dataSource.undoLastMigration({ transaction: 'all' });
+
+    const [originalAmountColumn] = await dataSource.query<
+      { is_nullable: 'YES' | 'NO' }[]
+    >(`
+      SELECT is_nullable FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'credit_operations'
+        AND column_name = 'amount'
+    `);
+    expect(originalAmountColumn).toEqual({ is_nullable: 'NO' });
+
+    await dataSource.runMigrations({ transaction: 'all' });
+    const [settlementAmountColumn] = await dataSource.query<
+      { is_nullable: 'YES' | 'NO' }[]
+    >(`
+      SELECT is_nullable FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'credit_operations'
+        AND column_name = 'amount'
+    `);
+    expect(settlementAmountColumn).toEqual({ is_nullable: 'YES' });
+
+    for (let index = 0; index < dataSource.migrations.length; index += 1) {
+      await dataSource.undoLastMigration({ transaction: 'all' });
+    }
     migrationReverted = true;
 
     const tables = await dataSource.query<{ table_name: string }[]>(`
       SELECT table_name FROM information_schema.tables
       WHERE table_schema = 'public'
-        AND table_name IN ('credit_accounts', 'credit_allocations', 'inbox_events', 'outbox_events')
+        AND table_name IN (
+          'credit_accounts',
+          'credit_allocations',
+          'credit_operations',
+          'credit_reservations',
+          'credit_transactions',
+          'inbox_events',
+          'outbox_events'
+        )
     `);
     expect(tables).toEqual([]);
   });

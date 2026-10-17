@@ -4,10 +4,15 @@ import type { DataSourceOptions } from 'typeorm';
 import {
   CreditAccount,
   CreditAllocation,
+  CreditOperation,
+  CreditReservation,
+  CreditTransaction,
   InboxEvent,
   OutboxEvent,
 } from './entities/index.js';
 import { InitialPersistence1735689600000 } from './migrations/1735689600000-initial-persistence.js';
+import { CreditReservations1735689601000 } from './migrations/1735689601000-credit-reservations.js';
+import { SettlementPersistence1735689602000 } from './migrations/1735689602000-settlement-persistence.js';
 
 export interface DatabaseEnvironment {
   DB_HOST: string;
@@ -20,6 +25,9 @@ export interface DatabaseEnvironment {
 export const databaseEntities = [
   CreditAccount,
   CreditAllocation,
+  CreditOperation,
+  CreditTransaction,
+  CreditReservation,
   InboxEvent,
   OutboxEvent,
 ];
@@ -53,7 +61,11 @@ export function createDatabaseOptions(
     password: readDatabasePassword(environment.DB_PASSWORD_FILE),
     database: environment.DB_DATABASE,
     entities: databaseEntities,
-    migrations: [InitialPersistence1735689600000],
+    migrations: [
+      InitialPersistence1735689600000,
+      CreditReservations1735689601000,
+      SettlementPersistence1735689602000,
+    ],
     migrationsTableName: 'credit_service_migrations',
     migrationsRun: false,
     migrationsTransactionMode: 'all',

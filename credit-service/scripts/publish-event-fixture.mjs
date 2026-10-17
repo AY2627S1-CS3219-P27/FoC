@@ -4,14 +4,68 @@ import { resolve } from 'node:path';
 import { connect } from 'amqplib';
 import 'dotenv/config';
 
-const fixturePath = resolve(
-  process.cwd(),
-  process.argv[2] ?? 'test/fixtures/user-registered.v1.json',
-);
+const fixtures = {
+  'user-registered': 'test/fixtures/user-registered.v1.json',
+  'user-registered-courier': 'test/fixtures/user-registered-courier.v1.json',
+  'credit-reservation': 'test/fixtures/credit-reservation.v1.json',
+  'credit-reservation-invalid':
+    'test/fixtures/credit-reservation.invalid.v1.json',
+  'credit-reservation-adjustment':
+    'test/fixtures/credit-reservation-adjustment.v1.json',
+  'credit-reservation-adjustment-invalid':
+    'test/fixtures/credit-reservation-adjustment.invalid.v1.json',
+  'errand-completed': 'test/fixtures/errand-completed.v1.json',
+  'errand-completed-participant-mismatch':
+    'test/fixtures/errand-completed-participant-mismatch.v1.json',
+  'errand-completed-invalid-amount':
+    'test/fixtures/errand-completed-invalid-amount.v1.json',
+  'errand-completed-malformed-envelope':
+    'test/fixtures/errand-completed-malformed-envelope.v1.json',
+  'errand-completed-unknown-field':
+    'test/fixtures/errand-completed-unknown-field.v1.json',
+  'errand-cancelled': 'test/fixtures/errand-cancelled.v1.json',
+  'errand-cancelled-invalid-uuid':
+    'test/fixtures/errand-cancelled-invalid-uuid.v1.json',
+  'errand-cancelled-malformed-envelope':
+    'test/fixtures/errand-cancelled-malformed-envelope.v1.json',
+  'errand-cancelled-wrong-publisher':
+    'test/fixtures/errand-cancelled-wrong-publisher.v1.json',
+  'errand-cancelled-unknown-field':
+    'test/fixtures/errand-cancelled-unknown-field.v1.json',
+};
+
+const routingKeys = {
+  UserRegistered: {
+    environment: 'RABBITMQ_USER_REGISTERED_ROUTING_KEY',
+    fallback: 'user.registered.v1',
+  },
+  CreditReservation: {
+    environment: 'RABBITMQ_CREDIT_RESERVATION_ROUTING_KEY',
+    fallback: 'credit.reservation.v1',
+  },
+  CreditReservationAdjustment: {
+    environment: 'RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_ROUTING_KEY',
+    fallback: 'credit.reservation-adjustment.v1',
+  },
+  ErrandCompleted: {
+    environment: 'RABBITMQ_ORDER_ERRAND_COMPLETED_ROUTING_KEY',
+    fallback: 'order.errand-completed.v1',
+  },
+  ErrandCancelled: {
+    environment: 'RABBITMQ_ORDER_ERRAND_CANCELLED_ROUTING_KEY',
+    fallback: 'order.errand-cancelled.v1',
+  },
+};
+
+const selection = process.argv[2] ?? 'user-registered';
+if (selection === '--list') {
+  console.log(Object.keys(fixtures).join('\n'));
+  process.exit(0);
+}
+
+const fixturePath = resolve(process.cwd(), fixtures[selection] ?? selection);
 const rabbitMqUrl = process.env.RABBITMQ_URL;
 const exchange = process.env.RABBITMQ_EXCHANGE ?? 'foc.events';
-const routingKey =
-  process.env.RABBITMQ_USER_REGISTERED_ROUTING_KEY ?? 'user.registered.v1';
 
 if (!rabbitMqUrl) {
   throw new Error('RABBITMQ_URL is required');
@@ -19,6 +73,13 @@ if (!rabbitMqUrl) {
 
 const body = await readFile(fixturePath);
 const event = JSON.parse(body.toString('utf8'));
+const route = routingKeys[event.eventType];
+if (!route) {
+  throw new Error(
+    `No routing key is configured for ${String(event.eventType)}`,
+  );
+}
+const routingKey = process.env[route.environment] ?? route.fallback;
 const connection = await connect(rabbitMqUrl);
 const channel = await connection.createConfirmChannel();
 

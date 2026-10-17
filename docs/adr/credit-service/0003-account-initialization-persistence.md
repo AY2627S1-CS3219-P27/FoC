@@ -28,6 +28,9 @@ credits held for a future transaction.
 
 ### Tables and constraints
 
+User identity follows User Service's UUID primary key. Event IDs and
+allocation IDs are also UUIDs.
+
 `credit_accounts` contains:
 
 - `user_id UUID PRIMARY KEY`

@@ -7,6 +7,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import request from 'supertest';
 import cookieParser from 'cookie-parser';
 import { ACCESS_TOKEN_COOKIE, ACCESS_TOKEN_ISSUER, Role } from '@foc/contracts';
+import { OutboxRelay } from '@foc/outbox';
 import { REDIS } from '../src/redis/redis.provider.js';
 import { SecretService } from '../src/secret/secret.service.js';
 import { User } from '../src/users/user.entity.js';
@@ -75,6 +76,10 @@ describe('user-service (e2e)', () => {
       .useValue({
         count: async () => 1,
       })
+      // HTTP smoke tests must not require a broker; the outbox relay owns the
+      // only RabbitMQ connection opened at bootstrap.
+      .overrideProvider(OutboxRelay)
+      .useValue({ start: vi.fn(), close: vi.fn() })
       // UsersService is faked so the guarded user endpoints can run without a
       // Postgres container
       .overrideProvider(UsersService)
@@ -89,10 +94,10 @@ describe('user-service (e2e)', () => {
         })),
         updateProfile: vi.fn(
           async (
-            id: number,
+            uuid: string,
             fields: { displayName?: string; profilePictureUrl?: string | null },
           ) => ({
-            id,
+            uuid,
             email: 'eve@example.com',
             displayName: fields.displayName ?? 'Eve',
             profilePictureUrl: fields.profilePictureUrl ?? null,
@@ -108,6 +113,32 @@ describe('user-service (e2e)', () => {
           roles,
           isAdmin: false,
         })),
+        archiveSelf: vi.fn(async (uuid: string) => ({
+          uuid,
+          email: 'eve@example.com',
+          displayName: 'Eve',
+          profilePictureUrl: null,
+          roles: [Role.Requester],
+          isAdmin: false,
+          isLocked: false,
+          isArchived: true,
+        })),
+        adminUpdateUser: vi.fn(
+          async (
+            _actorUuid: string,
+            targetUuid: string,
+            fields: { isAdmin?: boolean; isArchived?: boolean },
+          ) => ({
+            uuid: targetUuid,
+            email: 'mallory@example.com',
+            displayName: 'Mallory',
+            profilePictureUrl: null,
+            roles: [Role.Requester],
+            isAdmin: fields.isAdmin ?? false,
+            isLocked: false,
+            isArchived: fields.isArchived ?? false,
+          }),
+        ),
         countActiveAdmins: async () => 1,
       })
       .overrideProvider(SecretService)
@@ -195,6 +226,131 @@ describe('user-service (e2e)', () => {
 
       expect(response.body).toEqual({
         roles: [Role.Requester, Role.Courier],
+      });
+      expect(response.headers['set-cookie']).toBeDefined();
+    });
+  });
+
+  describe('admin user update endpoint', () => {
+    const TARGET_UUID = '22222222-2222-4222-8222-222222222222';
+
+    it('rejects an unauthenticated admin update with 401', async () => {
+      await request(app.getHttpServer())
+        .patch(`/users/${TARGET_UUID}`)
+        .send({ isAdmin: true })
+        .expect(401);
+    });
+
+    it('rejects a non-admin caller with 403', async () => {
+      await request(app.getHttpServer())
+        .patch(`/users/${TARGET_UUID}`)
+        .set('Authorization', `Bearer ${await signAccessToken()}`)
+        .send({ isAdmin: true })
+        .expect(403);
+    });
+
+    it('applies an admin update for an admin caller (F11)', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(`/users/${TARGET_UUID}`)
+        .set(
+          'Authorization',
+          `Bearer ${await signAccessToken({ isAdmin: true })}`,
+        )
+        .send({ isAdmin: true })
+        .expect(200);
+
+      expect(response.body).toEqual({
+        uuid: TARGET_UUID,
+        email: 'mallory@example.com',
+        displayName: 'Mallory',
+        profilePictureUrl: null,
+        roles: [Role.Requester],
+        isAdmin: true,
+        isLocked: false,
+        isArchived: false,
+      });
+    });
+
+    it('archives an account for an admin caller and reports the flag (F12.2)', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(`/users/${TARGET_UUID}`)
+        .set(
+          'Authorization',
+          `Bearer ${await signAccessToken({ isAdmin: true })}`,
+        )
+        .send({ isArchived: true })
+        .expect(200);
+
+      expect(response.body).toMatchObject({
+        uuid: TARGET_UUID,
+        isArchived: true,
+      });
+    });
+
+    it('un-archives an account for an admin caller (F12.3)', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(`/users/${TARGET_UUID}`)
+        .set(
+          'Authorization',
+          `Bearer ${await signAccessToken({ isAdmin: true })}`,
+        )
+        .send({ isArchived: false })
+        .expect(200);
+
+      expect(response.body).toMatchObject({
+        uuid: TARGET_UUID,
+        isArchived: false,
+      });
+    });
+
+    it('rejects a non-boolean Archival Status with 400', async () => {
+      await request(app.getHttpServer())
+        .patch(`/users/${TARGET_UUID}`)
+        .set(
+          'Authorization',
+          `Bearer ${await signAccessToken({ isAdmin: true })}`,
+        )
+        .send({ isArchived: 'true' })
+        .expect(400);
+    });
+
+    it('rejects a non-boolean Admin Status with 400 (F11.1.3)', async () => {
+      await request(app.getHttpServer())
+        .patch(`/users/${TARGET_UUID}`)
+        .set(
+          'Authorization',
+          `Bearer ${await signAccessToken({ isAdmin: true })}`,
+        )
+        .send({ isAdmin: 'true' })
+        .expect(400);
+    });
+
+    it('rejects a malformed target uuid with 400', async () => {
+      await request(app.getHttpServer())
+        .patch('/users/not-a-uuid')
+        .set(
+          'Authorization',
+          `Bearer ${await signAccessToken({ isAdmin: true })}`,
+        )
+        .send({ isAdmin: true })
+        .expect(400);
+    });
+  });
+
+  describe('self-archive endpoint', () => {
+    it('rejects an unauthenticated archive with 401', async () => {
+      await request(app.getHttpServer()).post('/users/me/archive').expect(401);
+    });
+
+    it('archives the caller and clears the session cookie (F12.1)', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/users/me/archive')
+        .set('Cookie', `${ACCESS_TOKEN_COOKIE}=${await signAccessToken()}`)
+        .expect(201);
+
+      expect(response.body).toEqual({
+        uuid: '11111111-1111-4111-8111-111111111111',
+        isArchived: true,
       });
       expect(response.headers['set-cookie']).toBeDefined();
     });

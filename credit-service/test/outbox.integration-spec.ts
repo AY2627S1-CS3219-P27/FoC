@@ -3,9 +3,11 @@ import type { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 import type { EnvironmentVariables } from '../src/config/environment.js';
 import { createDatabaseOptions } from '../src/database/database-options.js';
-import { OutboxRelay } from '../src/outbox/outbox.relay.js';
-import { OutboxStore } from '../src/outbox/outbox.store.js';
-import type { RabbitMqOutboxPublisher } from '../src/outbox/rabbitmq-outbox.publisher.js';
+import {
+  OutboxRelay,
+  OutboxStore,
+  type RabbitMqOutboxPublisher,
+} from '@foc/outbox';
 
 const ROUTING_KEY = 'credit.account-initialised.v1';
 
@@ -61,12 +63,14 @@ describe('Transactional outbox persistence', () => {
 
   beforeEach(async () => {
     await dataSource.query(
-      'TRUNCATE TABLE inbox_events, outbox_events, credit_allocations, credit_accounts',
+      'TRUNCATE TABLE inbox_events, credit_operations, credit_reservations, credit_transactions, outbox_events, credit_allocations, credit_accounts',
     );
   });
 
   afterAll(async () => {
     if (dataSource?.isInitialized) {
+      await dataSource.undoLastMigration({ transaction: 'all' });
+      await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.destroy();
     }

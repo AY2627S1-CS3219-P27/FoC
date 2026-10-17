@@ -1,24 +1,64 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import {
   ArrayContains,
+  DataSource,
+  EntityManager,
   EntityNotFoundError,
   FindOptionsWhere,
+  Not,
   QueryFailedError,
   Repository,
 } from 'typeorm';
 import { hashValue } from '../common/hash/hash.js';
 import { User } from './user.entity.js';
-import { MAX_PAGE_LIMIT, Role } from '@foc/contracts';
+import {
+  UserUpdateAudit,
+  UserUpdateAuditChangedField,
+} from './user-update-audit.entity.js';
+import {
+  AccountEventContractValidator,
+  MAX_PAGE_LIMIT,
+  Role,
+  USER_REGISTERED_V1_ROUTING_KEY,
+  type UserRegisteredEvent,
+} from '@foc/contracts';
+import { OutboxEvent } from '@foc/outbox';
 
 /** The PostgreSQL driver error code for a unique-constraint violation. */
 const UNIQUE_VIOLATION_CODE = '23505';
+
+/** The event publisher identity this service stamps on its outbox envelopes. */
+const PUBLISHER = 'user-service';
+
+const eventContractValidator = new AccountEventContractValidator();
+
+/**
+ * Advisory-lock key that serialises admin-privilege changes within the
+ * user-service database. Arbitrary but fixed; the user-service owns its own
+ * database, so it only has to be unique among the locks this service takes.
+ */
+const ADMIN_MUTATION_LOCK_KEY = 71_301_742_001;
 
 export class EmailAlreadyRegisteredError extends Error {
   constructor() {
     super('Email is already registered.');
     this.name = 'EmailAlreadyRegisteredError';
+  }
+}
+
+/** Raised when a constructed outbox envelope fails its own contract check. */
+export class OutboxEnvelopeError extends Error {
+  constructor() {
+    super('Failed to construct a valid outbox envelope.');
+    this.name = 'OutboxEnvelopeError';
   }
 }
 
@@ -76,6 +116,7 @@ async function generatePasswordHash(password: string) {
 export class UsersService {
   constructor(
     @InjectRepository(User) private userRepository: Repository<User>,
+    @InjectDataSource() private dataSource: DataSource,
   ) {}
 
   async provisionUser({
@@ -86,23 +127,44 @@ export class UsersService {
     isLocked = false,
   }: ProvisionUserParams): Promise<PublicUserInfo> {
     const { passwordSalt, passwordHash } = await generatePasswordHash(password);
+    const uuid = randomUUID();
 
     try {
-      const user = await this.userRepository.save(
-        this.userRepository.create({
-          email,
-          displayName,
-          uuid: randomUUID(),
-          passwordHash,
-          passwordSalt,
-          isArchived: false,
-          isAdmin,
-          isLocked,
-          roles: [],
-        }),
-      );
+      return await this.dataSource.transaction(async (manager) => {
+        const users = manager.getRepository(User);
+        const user = await users.save(
+          users.create({
+            email,
+            displayName,
+            uuid,
+            passwordHash,
+            passwordSalt,
+            isArchived: false,
+            isAdmin,
+            isLocked,
+            roles: [],
+          }),
+        );
 
-      return this.getPublicUserInfo(user);
+        const event = this.createUserRegisteredEvent(user);
+
+        const outbox = manager.getRepository(OutboxEvent);
+        await outbox.save(
+          outbox.create({
+            eventId: event.eventId,
+            eventType: event.eventType,
+            routingKey: USER_REGISTERED_V1_ROUTING_KEY,
+            envelope: event,
+            publishedAt: null,
+            attemptCount: 0,
+            lastError: null,
+            claimedBy: null,
+            claimedUntil: null,
+          }),
+        );
+
+        return this.getPublicUserInfo(user);
+      });
     } catch (error) {
       if (
         error instanceof QueryFailedError &&
@@ -113,6 +175,29 @@ export class UsersService {
       }
       throw error;
     }
+  }
+
+  private createUserRegisteredEvent(user: User): UserRegisteredEvent {
+    const event: UserRegisteredEvent = {
+      eventId: randomUUID(),
+      eventType: 'UserRegistered',
+      timestamp: new Date().toISOString(),
+      publisher: PUBLISHER,
+      payload: {
+        userId: user.uuid,
+        email: user.email,
+        displayName: user.displayName,
+      },
+    };
+    const validation = eventContractValidator.validate(
+      USER_REGISTERED_V1_ROUTING_KEY,
+      event,
+    );
+    if (!validation.valid) {
+      throw new OutboxEnvelopeError();
+    }
+
+    return event;
   }
 
   /**
@@ -192,12 +277,12 @@ export class UsersService {
    * updated public profile.
    */
   async updateProfile(
-    id: number,
+    uuid: string,
     fields: { displayName?: string; profilePictureUrl?: string | null },
   ): Promise<PublicUserInfo> {
     let user: User;
     try {
-      user = await this.userRepository.findOneByOrFail({ id });
+      user = await this.userRepository.findOneByOrFail({ uuid });
     } catch (error) {
       if (error instanceof EntityNotFoundError) {
         throw new UnauthorizedException();
@@ -214,6 +299,191 @@ export class UsersService {
 
     const saved = await this.userRepository.save(user);
     return this.getPublicUserInfo(saved);
+  }
+
+  /**
+   * Applies an admin-initiated update to a target account.
+   *
+   * Runs in one transaction so the audit entry is written if and
+   * only if the change commits. The acting admin is re-read from the database
+   * rather than trusted from the token claims.
+   *
+   * The transaction first takes a transaction-scoped advisory lock.
+   */
+  async adminUpdateUser(
+    actorUuid: string,
+    targetUuid: string,
+    fields: { isAdmin?: boolean; isArchived?: boolean },
+  ): Promise<User> {
+    return this.dataSource.transaction(async (manager) => {
+      await manager.query('SELECT pg_advisory_xact_lock($1::bigint)', [
+        ADMIN_MUTATION_LOCK_KEY,
+      ]);
+
+      const actor = await manager.findOneBy(User, { uuid: actorUuid });
+      if (
+        actor === null ||
+        !actor.isAdmin ||
+        actor.isLocked ||
+        actor.isArchived
+      ) {
+        throw new ForbiddenException('Admin privileges required');
+      }
+
+      const target = await manager.findOneBy(User, { uuid: targetUuid });
+      if (target === null) {
+        throw new NotFoundException('User not found');
+      }
+
+      // Audit record of changes
+      const changedFields: Record<string, UserUpdateAuditChangedField> = {};
+
+      const adminChange = await this.applyAdminStatusChange(
+        manager,
+        target,
+        fields.isAdmin,
+      );
+      if (adminChange !== undefined) changedFields.isAdmin = adminChange;
+
+      const archiveChange = await this.applyArchiveChange(
+        manager,
+        target,
+        fields.isArchived,
+      );
+      if (archiveChange !== undefined) changedFields.isArchived = archiveChange;
+
+      if (Object.keys(changedFields).length === 0) {
+        return target;
+      }
+
+      await manager.save(target);
+      await manager.save(
+        manager.create(UserUpdateAudit, {
+          actorUuid,
+          targetUuid,
+          changedFields,
+        }),
+      );
+
+      return target;
+    });
+  }
+
+  /**
+   * Archives the caller's own account
+   *
+   * Self-initiated, so no audit entry is written.
+   */
+  async archiveSelf(uuid: string): Promise<User> {
+    return this.dataSource.transaction(async (manager) => {
+      await manager.query('SELECT pg_advisory_xact_lock($1::bigint)', [
+        ADMIN_MUTATION_LOCK_KEY,
+      ]);
+
+      const user = await manager.findOneBy(User, { uuid });
+      if (user === null) {
+        throw new UnauthorizedException();
+      }
+
+      const archiveChange = await this.applyArchiveChange(manager, user, true);
+      if (archiveChange === undefined) {
+        return user;
+      }
+
+      await manager.save(user);
+      return user;
+    });
+  }
+
+  /**
+   * Applies an admin-status change to the target row, returning the audit
+   * entry when the value actually changed (and `undefined` otherwise).
+   */
+  private async applyAdminStatusChange(
+    manager: EntityManager,
+    target: User,
+    isAdmin: boolean | undefined,
+  ): Promise<UserUpdateAuditChangedField | undefined> {
+    if (isAdmin === undefined || isAdmin === target.isAdmin) {
+      return undefined;
+    }
+
+    const oldAdminStatus = target.isAdmin;
+
+    if (!isAdmin) {
+      await this.demoteAdmin(manager, target);
+    } else {
+      target.isAdmin = true; // no other checks needed for promotion
+    }
+
+    const change = { from: oldAdminStatus, to: isAdmin };
+    return change;
+  }
+
+  private async demoteAdmin(
+    manager: EntityManager,
+    target: User,
+  ): Promise<void> {
+    // Demoting an admin must leave at least one active admin; locked
+    // admins still count, mirroring countActiveAdmins.
+    // We don't need to do further checks if user is already archived;
+    // their count doesn't matter.
+    if (await this.isFinalActiveAdmin(manager, target)) {
+      throw new ConflictException(
+        'Cannot demote the last active admin account',
+      );
+    }
+
+    // TODO: Create admin block
+
+    target.isAdmin = false;
+  }
+
+  /**
+   * Checks if the provided user is the final non-archived admin in the
+   * application.
+   */
+  private async isFinalActiveAdmin(
+    manager: EntityManager,
+    target: User,
+  ): Promise<boolean> {
+    const otherAdminsCount = await manager.count(User, {
+      where: { isAdmin: true, isArchived: false, uuid: Not(target.uuid) },
+    });
+    if (target.isAdmin && !target.isArchived && otherAdminsCount == 0) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Applies an archival-status change to the target row, returning the audit
+   * entry when the value actually changed (and `undefined` otherwise).
+   */
+  private async applyArchiveChange(
+    manager: EntityManager,
+    target: User,
+    isArchived: boolean | undefined,
+  ): Promise<UserUpdateAuditChangedField | undefined> {
+    if (isArchived === undefined || isArchived === target.isArchived) {
+      return undefined;
+    }
+
+    if (isArchived) {
+      if (await this.isFinalActiveAdmin(manager, target)) {
+        throw new ConflictException(
+          'Cannot archive the last remaining active admin.',
+        );
+      }
+      // TODO: revoke every refresh token tied to this account.
+    } else {
+      // TODO: lift the order-service activity block when the
+      // account is un-archived.
+    }
+
+    const change = { from: target.isArchived, to: isArchived };
+    target.isArchived = isArchived;
+    return change;
   }
 
   /**

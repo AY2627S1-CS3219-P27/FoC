@@ -3,7 +3,10 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  Param,
+  ParseUUIDPipe,
   Patch,
+  Post,
   Query,
   Req,
   Res,
@@ -12,12 +15,13 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
-import { JwtAuthGuard } from '@foc/auth';
+import { AdminGuard, JwtAuthGuard } from '@foc/auth';
 import type { AuthenticatedRequest } from '@foc/auth';
 import type { Paginated } from '@foc/contracts';
 import { ACCESS_TOKEN_COOKIE } from '@foc/contracts';
 import { UpdateRolesDto } from './DTO/update-roles.dto.js';
 import { UpdateProfileDto } from './DTO/update-profile.dto.js';
+import { AdminUpdateUserDto } from './DTO/admin-update-user.dto.js';
 import { ListUsersQueryDto } from './DTO/list-users.query.dto.js';
 import { toUserInfoView, UserInfoView } from './user-info.view.js';
 import { UsersService } from './users.service.js';
@@ -147,5 +151,46 @@ export class UsersController {
     });
 
     return { roles: updated.roles };
+  }
+
+  /**
+   * Archives the authenticated user's own account.
+   */
+  @Post('me/archive')
+  async archiveMe(
+    @Req() request: AuthenticatedRequest,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const archived = await this.usersService.archiveSelf(request.user.sub);
+
+    res.clearCookie(ACCESS_TOKEN_COOKIE, {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      secure: this.configService.get('NODE_ENV') === 'production',
+    });
+
+    return { uuid: archived.uuid, isArchived: archived.isArchived };
+  }
+
+  /**
+   * Admin-only user update: admin status and archival state
+   * Returns the stored account projected as the admin view, so
+   * the caller can read back the flags their change produced.
+   */
+  @Patch(':uuid')
+  @UseGuards(AdminGuard)
+  async adminUpdateUser(
+    @Req() request: AuthenticatedRequest,
+    @Param('uuid', new ParseUUIDPipe()) uuid: string,
+    @Body() adminUpdateUserDto: AdminUpdateUserDto,
+  ) {
+    const updated = await this.usersService.adminUpdateUser(
+      request.user.sub,
+      uuid,
+      adminUpdateUserDto,
+    );
+
+    return toUserInfoView(updated, { includeAdminFlags: true });
   }
 }

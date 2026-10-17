@@ -82,4 +82,13 @@ describe('CreditAccountInitialised v1 contract', () => {
       ).toMatchObject({ valid: false, code: 'INVALID_PAYLOAD' });
     },
   );
+
+  it('rejects a numeric user ID', () => {
+    const input = copy();
+    (input.payload as Record<string, unknown>).userId = 7;
+
+    expect(
+      validator.validate(CREDIT_ACCOUNT_INITIALISED_V1_ROUTING_KEY, input),
+    ).toMatchObject({ valid: false, code: 'INVALID_PAYLOAD' });
+  });
 });

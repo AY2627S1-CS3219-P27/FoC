@@ -1,0 +1,11 @@
+{
+  "eventId": "b9dd1228-ced7-43c2-93e5-0b49e7605374",
+  "eventType": "CreditReservation",
+  "timestamp": "2026-10-08T08:01:00.000Z",
+  "publisher": "order-service",
+  "payload": {
+    "errandId": "eca291ff-58a9-44d2-814b-c02f441ee2bd",
+    "requesterUserId": "028af3d2-4f18-4077-aa22-9ab82b9ce457",
+    "amount": 0
+  }
+}

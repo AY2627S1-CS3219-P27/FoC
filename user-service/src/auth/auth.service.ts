@@ -11,10 +11,16 @@ import { registrationTokenRecordKey } from '../common/hash/token-keys.js';
 import { getRegisterUserScript } from '../scripts/retrieve-script.js';
 import {
   EmailAlreadyRegisteredError,
+  PublicUserInfo,
   UsersService,
 } from '../users/users.service.js';
 import { JwtService } from '@nestjs/jwt';
 import type { AccessTokenPayload } from '@foc/contracts';
+import { RefreshToken } from './refresh-token.entity.js';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { randomBytes } from 'node:crypto';
+import { hmacValue } from '../common/hash/hash.js';
 
 export const REGISTER_USER_SCRIPT = getRegisterUserScript();
 
@@ -28,6 +34,8 @@ export interface RegisteredUser {
 export class AuthService {
   constructor(
     @Inject(REDIS) private redis: RedisClientType,
+    @InjectRepository(RefreshToken)
+    private refreshTokenRepository: Repository<RefreshToken>,
     private secretService: SecretService,
     private usersService: UsersService,
     private jwtService: JwtService,
@@ -86,7 +94,7 @@ export class AuthService {
 
   /**
    * Checks whether the provided (email, password) pair matches, and if so,
-   * returns an object with an accessToken JWT.
+   * returns an object with an accessToken JWT & a refreshToken.
    */
   async checkCredentials(email: string, password: string) {
     // Check if password matches
@@ -94,10 +102,60 @@ export class AuthService {
       email,
       password,
     );
+    const refreshToken = await this.generateRefreshToken(user.uuid);
 
-    // create JWT. The access-token contract's iss/iat/exp claims are added
-    // by the signer (see AuthModule's signOptions); the identity claims below
-    // feed the rest of the verified payload.
+    return {
+      accessToken: await this.signAccessToken(user),
+      refreshToken,
+    };
+  }
+
+  /**
+   * Renews the short-lived access token of the session bound to a valid
+   * refresh token.
+   */
+  async refreshSession(token: string): Promise<{ accessToken: string }> {
+    const hashedToken = hmacValue(token, this.secretService.getServerSecret());
+    const record = await this.refreshTokenRepository.findOneBy({ hashedToken });
+
+    if (record === null || record.expiresAt < new Date()) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    const user = await this.usersService.getUserByUuid(record.userId);
+
+    if (user === null) {
+      // throw same error
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    return { accessToken: await this.signAccessToken(user) };
+  }
+
+  private async generateRefreshToken(userId: string) {
+    const token = randomBytes(32).toString('hex');
+
+    await this.refreshTokenRepository.save(
+      this.refreshTokenRepository.create({
+        hashedToken: hmacValue(token, this.secretService.getServerSecret()),
+        userId,
+      }),
+    );
+    return token;
+  }
+
+  /**
+   * Signs the access token shared by login and refresh. The iss/iat/exp claims
+   * are added by the signer (see AuthModule's signOptions); the identity
+   * claims below feed the rest of the verified payload (F5.3: identical
+   * fields whether minted on login or refresh).
+   */
+  private async signAccessToken(
+    user: Pick<
+      PublicUserInfo,
+      'uuid' | 'email' | 'displayName' | 'isAdmin' | 'roles'
+    >,
+  ): Promise<string> {
     const payload: Omit<AccessTokenPayload, 'iss' | 'iat' | 'exp'> = {
       sub: user.uuid,
       displayName: user.displayName,
@@ -105,8 +163,6 @@ export class AuthService {
       isAdmin: user.isAdmin,
       roles: user.roles,
     };
-    return {
-      accessToken: await this.jwtService.signAsync(payload),
-    };
+    return this.jwtService.signAsync(payload);
   }
 }

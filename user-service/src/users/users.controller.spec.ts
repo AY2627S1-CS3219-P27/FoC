@@ -12,6 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtAuthGuard } from '@foc/auth';
 import { UpdateProfileDto } from './DTO/update-profile.dto.js';
 import { UpdateRolesDto } from './DTO/update-roles.dto.js';
+import { AdminUpdateUserDto } from './DTO/admin-update-user.dto.js';
 import { ListUsersQueryDto } from './DTO/list-users.query.dto.js';
 import { ACCESS_TOKEN_COOKIE, Role } from '@foc/contracts';
 
@@ -21,6 +22,8 @@ describe('UsersController', () => {
     getUserByUuid: ReturnType<typeof vi.fn>;
     updateProfile: ReturnType<typeof vi.fn>;
     updateRoles: ReturnType<typeof vi.fn>;
+    archiveSelf: ReturnType<typeof vi.fn>;
+    adminUpdateUser: ReturnType<typeof vi.fn>;
     listUsers: ReturnType<typeof vi.fn>;
   };
   let configGet: ReturnType<typeof vi.fn>;
@@ -31,6 +34,8 @@ describe('UsersController', () => {
       getUserByUuid: vi.fn(),
       updateProfile: vi.fn(),
       updateRoles: vi.fn(),
+      archiveSelf: vi.fn(),
+      adminUpdateUser: vi.fn(),
       listUsers: vi.fn(),
     };
     configGet = vi.fn(() => 'development');
@@ -265,6 +270,101 @@ describe('UsersController', () => {
           res as never,
         ),
       ).resolves.toEqual({ roles: [Role.Requester] });
+    });
+  });
+
+  describe('archiveMe', () => {
+    it("delegates to the service to archive the caller's account (F12.1)", async () => {
+      usersService.archiveSelf.mockResolvedValue({
+        uuid: '11111111-1111-4111-8111-111111111111',
+        isArchived: true,
+      });
+
+      await expect(
+        controller.archiveMe(authenticatedRequest as never, res as never),
+      ).resolves.toEqual({
+        uuid: '11111111-1111-4111-8111-111111111111',
+        isArchived: true,
+      });
+
+      expect(usersService.archiveSelf).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111',
+      );
+    });
+
+    it('clears the access token cookie, ending the session', async () => {
+      usersService.archiveSelf.mockResolvedValue({
+        uuid: '11111111-1111-4111-8111-111111111111',
+        isArchived: true,
+      });
+
+      await controller.archiveMe(authenticatedRequest as never, res as never);
+
+      // Literal options pin the wire contract, mirroring the roles handler.
+      expect(res.clearCookie).toHaveBeenCalledWith('access_token', {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: false,
+      });
+    });
+
+    it('clears the cookie as secure in production', async () => {
+      configGet.mockReturnValue('production');
+      usersService.archiveSelf.mockResolvedValue({
+        uuid: '11111111-1111-4111-8111-111111111111',
+        isArchived: true,
+      });
+
+      await controller.archiveMe(authenticatedRequest as never, res as never);
+
+      expect(res.clearCookie).toHaveBeenCalledWith(
+        ACCESS_TOKEN_COOKIE,
+        expect.objectContaining({ secure: true }),
+      );
+    });
+  });
+
+  describe('adminUpdateUser', () => {
+    const adminRequest = {
+      user: { ...authenticatedRequest.user, isAdmin: true },
+    };
+
+    it('delegates to the service and projects the admin view of the result', async () => {
+      const storedRow = {
+        uuid: '22222222-2222-4222-8222-222222222222',
+        email: 'mallory@example.com',
+        displayName: 'Mallory',
+        profilePictureUrl: null,
+        roles: [] as Role[],
+        isAdmin: true,
+        isLocked: false,
+        isArchived: true,
+      };
+      usersService.adminUpdateUser.mockResolvedValue(storedRow);
+
+      await expect(
+        controller.adminUpdateUser(
+          adminRequest as never,
+          '22222222-2222-4222-8222-222222222222',
+          { isArchived: true } as never,
+        ),
+      ).resolves.toEqual({
+        uuid: '22222222-2222-4222-8222-222222222222',
+        email: 'mallory@example.com',
+        displayName: 'Mallory',
+        profilePictureUrl: null,
+        roles: [],
+        isAdmin: true,
+        isLocked: false,
+        isArchived: true,
+      });
+
+      expect(usersService.adminUpdateUser).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111',
+        '22222222-2222-4222-8222-222222222222',
+        { isArchived: true },
+      );
     });
   });
 
@@ -535,6 +635,86 @@ describe('update profile body validation', () => {
   it('rejects a non-string profile picture', async () => {
     await expect(
       pipe.transform({ profilePictureUrl: 42 }, bodyMetadata(UpdateProfileDto)),
+    ).rejects.toThrow(BadRequestException);
+  });
+});
+
+describe('admin update user body validation', () => {
+  const pipe = new ValidationPipe({ whitelist: true, transform: true });
+  const bodyMetadata = (metatype: Function) =>
+    ({ type: 'body', metatype }) as const;
+
+  it('accepts a true Admin Status (F11.1.3)', async () => {
+    const value = await pipe.transform(
+      { isAdmin: true },
+      bodyMetadata(AdminUpdateUserDto),
+    );
+    expect(value).toBeInstanceOf(AdminUpdateUserDto);
+    expect(value).toMatchObject({ isAdmin: true });
+  });
+
+  it('accepts a false Admin Status (F11.1.3)', async () => {
+    const value = await pipe.transform(
+      { isAdmin: false },
+      bodyMetadata(AdminUpdateUserDto),
+    );
+    expect(value.isAdmin).toBe(false);
+  });
+
+  it('accepts an empty body as a no-op update', async () => {
+    const value = await pipe.transform({}, bodyMetadata(AdminUpdateUserDto));
+    expect(value).toBeInstanceOf(AdminUpdateUserDto);
+  });
+
+  it('rejects a string instead of coercing it (F11.1.3)', async () => {
+    await expect(
+      pipe.transform({ isAdmin: 'true' }, bodyMetadata(AdminUpdateUserDto)),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a non-boolean garbage value (F11.1.3)', async () => {
+    await expect(
+      pipe.transform({ isAdmin: 'yes' }, bodyMetadata(AdminUpdateUserDto)),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a numeric value (F11.1.3)', async () => {
+    await expect(
+      pipe.transform({ isAdmin: 1 }, bodyMetadata(AdminUpdateUserDto)),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects null (F11.1.3)', async () => {
+    await expect(
+      pipe.transform({ isAdmin: null }, bodyMetadata(AdminUpdateUserDto)),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('accepts an Archival Status (F12.2/F12.3)', async () => {
+    const value = await pipe.transform(
+      { isArchived: true },
+      bodyMetadata(AdminUpdateUserDto),
+    );
+    expect(value.isArchived).toBe(true);
+  });
+
+  it('accepts admin and archival statuses together', async () => {
+    const value = await pipe.transform(
+      { isAdmin: false, isArchived: true },
+      bodyMetadata(AdminUpdateUserDto),
+    );
+    expect(value).toMatchObject({ isAdmin: false, isArchived: true });
+  });
+
+  it('rejects a non-boolean Archival Status instead of coercing it', async () => {
+    await expect(
+      pipe.transform({ isArchived: 'yes' }, bodyMetadata(AdminUpdateUserDto)),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a null Archival Status', async () => {
+    await expect(
+      pipe.transform({ isArchived: null }, bodyMetadata(AdminUpdateUserDto)),
     ).rejects.toThrow(BadRequestException);
   });
 });

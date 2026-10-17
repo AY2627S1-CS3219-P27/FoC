@@ -7,29 +7,46 @@ services:
     command: npm run start:dev
     restart: unless-stopped
     ports:
-      - '${CREDIT_SERVICE_HOST_PORT:-3003}:${PORT:-3000}'
+      - '${CREDIT_SERVICE_HOST_PORT:-3003}:${CREDIT_SERVICE_PORT:-3000}'
     depends_on:
       credit-db:
         condition: service_healthy
     environment:
       NODE_ENV: ${NODE_ENV:-development}
-      PORT: ${PORT:-3000}
-      LOG_LEVEL: ${LOG_LEVEL:-log}
-      DB_HOST: ${DB_HOST:-credit-db}
-      DB_PORT: ${DB_PORT:-5432}
-      DB_USERNAME: ${DB_USERNAME:-credit_service}
-      DB_DATABASE: ${DB_DATABASE:-credit_service}
+      PORT: ${CREDIT_SERVICE_PORT:-3000}
+      LOG_LEVEL: ${LOG_LEVEL}
+      DB_HOST: ${CREDIT_SERVICE_DB_HOST:-credit-db}
+      DB_PORT: ${CREDIT_SERVICE_DB_PORT:-5432}
+      DB_USERNAME: ${CREDIT_SERVICE_DB_USERNAME:-credit_service}
+      DB_DATABASE: ${CREDIT_SERVICE_DB_DATABASE:-credit_service}
       DB_PASSWORD_FILE: /run/secrets/credit_db_password
       INITIAL_CREDIT_BALANCE: ${INITIAL_CREDIT_BALANCE:-100}
-      RABBITMQ_USER: credit-service
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: 5672
-      RABBITMQ_VHOST: /foc
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key_credit_service
+      RABBITMQ_USER: ${CREDIT_SERVICE_RABBITMQ_USER:-credit-service}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/foc}
       RABBITMQ_PASSWORD_FILE: /run/secrets/rabbitmq_password_credit_service
       RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-foc.events}
-      RABBITMQ_USER_REGISTERED_QUEUE: credit-service.user-registered.v1
+      RABBITMQ_USER_REGISTERED_QUEUE: ${RABBITMQ_USER_REGISTERED_QUEUE:-credit-service.user-registered.v1}
       RABBITMQ_USER_REGISTERED_ROUTING_KEY: ${RABBITMQ_USER_REGISTERED_ROUTING_KEY:-user.registered.v1}
       RABBITMQ_CREDIT_ACCOUNT_INITIALISED_ROUTING_KEY: ${RABBITMQ_CREDIT_ACCOUNT_INITIALISED_ROUTING_KEY:-credit.account-initialised.v1}
+      RABBITMQ_CREDIT_RESERVATION_QUEUE: ${RABBITMQ_CREDIT_RESERVATION_QUEUE:-credit-service.credit-reservation.v1}
+      RABBITMQ_CREDIT_RESERVATION_ROUTING_KEY: ${RABBITMQ_CREDIT_RESERVATION_ROUTING_KEY:-credit.reservation.v1}
+      RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_QUEUE: ${RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_QUEUE:-credit-service.credit-reservation-adjustment.v1}
+      RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_ROUTING_KEY: ${RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_ROUTING_KEY:-credit.reservation-adjustment.v1}
+      RABBITMQ_CREDIT_RESERVATION_SUCCESS_ROUTING_KEY: ${RABBITMQ_CREDIT_RESERVATION_SUCCESS_ROUTING_KEY:-credit.reservation-success.v1}
+      RABBITMQ_CREDIT_RESERVATION_REJECTED_ROUTING_KEY: ${RABBITMQ_CREDIT_RESERVATION_REJECTED_ROUTING_KEY:-credit.reservation-rejected.v1}
+      RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_SUCCESS_ROUTING_KEY: ${RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_SUCCESS_ROUTING_KEY:-credit.reservation-adjustment-success.v1}
+      RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_REJECTED_ROUTING_KEY: ${RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_REJECTED_ROUTING_KEY:-credit.reservation-adjustment-rejected.v1}
+      RABBITMQ_ORDER_ERRAND_COMPLETED_QUEUE: ${RABBITMQ_ORDER_ERRAND_COMPLETED_QUEUE:-credit-service.order-errand-completed.v1}
+      RABBITMQ_ORDER_ERRAND_COMPLETED_ROUTING_KEY: ${RABBITMQ_ORDER_ERRAND_COMPLETED_ROUTING_KEY:-order.errand-completed.v1}
+      RABBITMQ_ORDER_ERRAND_CANCELLED_QUEUE: ${RABBITMQ_ORDER_ERRAND_CANCELLED_QUEUE:-credit-service.order-errand-cancelled.v1}
+      RABBITMQ_ORDER_ERRAND_CANCELLED_ROUTING_KEY: ${RABBITMQ_ORDER_ERRAND_CANCELLED_ROUTING_KEY:-order.errand-cancelled.v1}
+      RABBITMQ_CREDIT_TRANSFER_SUCCEEDED_ROUTING_KEY: ${RABBITMQ_CREDIT_TRANSFER_SUCCEEDED_ROUTING_KEY:-credit.transfer-succeeded.v1}
+      RABBITMQ_CREDIT_TRANSFER_REJECTED_ROUTING_KEY: ${RABBITMQ_CREDIT_TRANSFER_REJECTED_ROUTING_KEY:-credit.transfer-rejected.v1}
+      RABBITMQ_CREDIT_RELEASE_SUCCESS_ROUTING_KEY: ${RABBITMQ_CREDIT_RELEASE_SUCCESS_ROUTING_KEY:-credit.release-success.v1}
+      RABBITMQ_CREDIT_RELEASE_REJECTED_ROUTING_KEY: ${RABBITMQ_CREDIT_RELEASE_REJECTED_ROUTING_KEY:-credit.release-rejected.v1}
       RABBITMQ_RETRY_EXCHANGE: ${RABBITMQ_RETRY_EXCHANGE:-foc.credit.retry}
       RABBITMQ_RETRY_RETURN_EXCHANGE: ${RABBITMQ_RETRY_RETURN_EXCHANGE:-foc.credit.back}
       RABBITMQ_DEAD_LETTER_EXCHANGE: ${RABBITMQ_DEAD_LETTER_EXCHANGE:-foc.credit.dlx}
@@ -42,18 +59,23 @@ services:
       OUTBOX_RETRY_BASE_DELAY_MS: ${OUTBOX_RETRY_BASE_DELAY_MS:-1000}
       OUTBOX_RETRY_MAX_DELAY_MS: ${OUTBOX_RETRY_MAX_DELAY_MS:-60000}
       OUTBOX_UNPUBLISHED_WARNING_MS: ${OUTBOX_UNPUBLISHED_WARNING_MS:-60000}
+      CREDIT_OPERATION_CLAIM_LEASE_MS: ${CREDIT_OPERATION_CLAIM_LEASE_MS:-30000}
+      CREDIT_OPERATION_POLL_INTERVAL_MS: ${CREDIT_OPERATION_POLL_INTERVAL_MS:-1000}
+      CREDIT_OPERATION_MAX_BACKOFF_MS: ${CREDIT_OPERATION_MAX_BACKOFF_MS:-60000}
+      CREDIT_OPERATION_STUCK_AFTER_MS: ${CREDIT_OPERATION_STUCK_AFTER_MS:-60000}
     secrets:
       - credit_db_password
       - rabbitmq_password_credit_service
+      - jwt_public_key_credit_service
     healthcheck:
       test:
         [
           'CMD-SHELL',
-          'wget --no-verbose --tries=1 --spider "http://127.0.0.1:$${PORT:-3000}/"',
+          'wget --no-verbose --tries=1 --spider "http://127.0.0.1:$${PORT:-3000}/docs-json"',
         ]
       interval: 10s
       timeout: 3s
-      start_period: 10s
+      start_period: 60s
       retries: 3
     develop:
       watch:
@@ -84,15 +106,41 @@ services:
           path: ../packages/contracts/package.json
         - action: rebuild
           path: ../packages/contracts/package-lock.json
+        - action: sync+restart
+          path: ../packages/auth/src
+          target: /usr/src/packages/auth/src
+        - action: sync+restart
+          path: ../packages/auth/tsconfig.json
+          target: /usr/src/packages/auth/tsconfig.json
+        - action: sync+restart
+          path: ../packages/auth/tsconfig.build.json
+          target: /usr/src/packages/auth/tsconfig.build.json
+        - action: rebuild
+          path: ../packages/auth/package.json
+        - action: rebuild
+          path: ../packages/auth/package-lock.json
+        - action: sync+restart
+          path: ../packages/outbox/src
+          target: /usr/src/packages/outbox/src
+        - action: sync+restart
+          path: ../packages/outbox/tsconfig.json
+          target: /usr/src/packages/outbox/tsconfig.json
+        - action: sync+restart
+          path: ../packages/outbox/tsconfig.build.json
+          target: /usr/src/packages/outbox/tsconfig.build.json
+        - action: rebuild
+          path: ../packages/outbox/package.json
+        - action: rebuild
+          path: ../packages/outbox/package-lock.json
 
   credit-db:
     image: postgres:18-alpine
     restart: unless-stopped
     ports:
-      - '${DB_HOST_PORT:-5435}:5432'
+      - '${CREDIT_SERVICE_DB_HOST_PORT:-5435}:5432'
     environment:
-      POSTGRES_USER: ${DB_USERNAME:-credit_service}
-      POSTGRES_DB: ${DB_DATABASE:-credit_service}
+      POSTGRES_USER: ${CREDIT_SERVICE_DB_USERNAME:-credit_service}
+      POSTGRES_DB: ${CREDIT_SERVICE_DB_DATABASE:-credit_service}
       POSTGRES_PASSWORD_FILE: /run/secrets/credit_db_password
     volumes:
       - credit-db-data:/var/lib/postgresql
@@ -148,15 +196,14 @@ services:
   credit-rabbitmq:
     image: rabbitmq:4.3.6-management-alpine
     profiles: ['test']
-    restart: unless-stopped
     ports:
       - '${RABBITMQ_HOST_PORT:-5675}:5672'
       - '${RABBITMQ_MANAGEMENT_HOST_PORT:-15675}:15672'
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:?RABBITMQ_USERNAME must be set}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must be set}
-    volumes:
-      - credit-rabbitmq-data:/var/lib/rabbitmq
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-credit_service_test}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-replace-me}
+    tmpfs:
+      - /var/lib/rabbitmq
     healthcheck:
       test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
       interval: 5s
@@ -173,8 +220,8 @@ services:
       - '${RABBITMQ_RECOVERY_HOST_PORT:-5676}:5672'
       - '${RABBITMQ_RECOVERY_MANAGEMENT_HOST_PORT:-15676}:15672'
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:?RABBITMQ_USERNAME must be set}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must be set}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-credit_service_test}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-replace-me}
       RABBITMQ_ERLANG_COOKIE: credit-service-recovery-cookie
       RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: '+S 2:2'
       HOME: /var/lib/rabbitmq-recovery
@@ -189,10 +236,11 @@ services:
 
 volumes:
   credit-db-data:
-  credit-rabbitmq-data:
 
 secrets:
   credit_db_password:
     file: ./secrets/credit_db_password.secret
   rabbitmq_password_credit_service:
     file: ./secrets/rabbitmq_password.secret
+  jwt_public_key_credit_service:
+    file: ../user-service/secrets/jwt_public_key.secret

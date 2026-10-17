@@ -7,11 +7,14 @@ import { UsersModule } from '../users/users.module.js';
 import { JwtModule } from '@nestjs/jwt';
 import { SecretService } from '../secret/secret.service.js';
 import { JWT_EXPIRATION_IN_SECONDS } from '../common/constants.js';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { RefreshToken } from './refresh-token.entity.js';
 
 @Module({
   imports: [
     SecretModule,
     UsersModule,
+    TypeOrmModule.forFeature([RefreshToken]),
     JwtModule.registerAsync({
       global: true,
       imports: [SecretModule],

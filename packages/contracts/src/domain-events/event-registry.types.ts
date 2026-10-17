@@ -16,3 +16,22 @@ export type EventOf<TKey extends EventContractKey> = EventEnvelope<
 export type UserRegisteredEvent = EventOf<'user.registered.v1'>;
 export type CreditAccountInitialisedEvent =
   EventOf<'credit.account-initialised.v1'>;
+export type CreditReservationEvent = EventOf<'credit.reservation.v1'>;
+export type CreditReservationAdjustmentEvent =
+  EventOf<'credit.reservation-adjustment.v1'>;
+export type CreditReservationSuccessEvent =
+  EventOf<'credit.reservation-success.v1'>;
+export type CreditReservationRejectedEvent =
+  EventOf<'credit.reservation-rejected.v1'>;
+export type CreditReservationAdjustmentSuccessEvent =
+  EventOf<'credit.reservation-adjustment-success.v1'>;
+export type CreditReservationAdjustmentRejectedEvent =
+  EventOf<'credit.reservation-adjustment-rejected.v1'>;
+export type ErrandCompletedEvent = EventOf<'order.errand-completed.v1'>;
+export type ErrandCancelledEvent = EventOf<'order.errand-cancelled.v1'>;
+export type CreditTransferSucceededEvent =
+  EventOf<'credit.transfer-succeeded.v1'>;
+export type CreditTransferRejectedEvent =
+  EventOf<'credit.transfer-rejected.v1'>;
+export type CreditReleaseSuccessEvent = EventOf<'credit.release-success.v1'>;
+export type CreditReleaseRejectedEvent = EventOf<'credit.release-rejected.v1'>;

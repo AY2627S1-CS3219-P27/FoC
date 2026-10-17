@@ -3,25 +3,20 @@ import type { ConfigService } from '@nestjs/config';
 import { connect, type Channel, type ChannelModel } from 'amqplib';
 import 'dotenv/config';
 import type { EnvironmentVariables } from '../src/config/environment.js';
-import { RabbitMqOutboxPublisher } from '../src/outbox/rabbitmq-outbox.publisher.js';
+import { RabbitMqOutboxPublisher } from '@foc/outbox';
+import { buildRabbitMqTestUrl } from './support/rabbitmq-test-environment.js';
 
 describe('RabbitMqOutboxPublisher messaging integration', () => {
   const suffix = randomUUID().replaceAll('-', '');
   const exchange = `foc.events.outbox.test.${suffix}`;
   const queue = `credit-service.outbox.test.${suffix}`;
-  const routingKey = 'credit.account-initialised.v1';
-  const rabbitMqUrl = process.env.RABBITMQ_URL;
+  const routingKey = 'credit.reservation-success.v1';
+  const rabbitMqUrl = buildRabbitMqTestUrl();
   let connection: ChannelModel;
   let channel: Channel;
   let publisher: RabbitMqOutboxPublisher;
 
   beforeAll(async () => {
-    if (!rabbitMqUrl) {
-      throw new Error(
-        'RABBITMQ_URL is required; create credit-service/.env before running messaging tests',
-      );
-    }
-
     const values = {
       RABBITMQ_EXCHANGE: exchange,
       OUTBOX_CONFIRM_TIMEOUT_MS: 5_000,
@@ -38,7 +33,15 @@ describe('RabbitMqOutboxPublisher messaging integration', () => {
       autoDelete: true,
     });
     await channel.bindQueue(queue, exchange, routingKey);
-    publisher = new RabbitMqOutboxPublisher(config, rabbitMqUrl, connect);
+    publisher = new RabbitMqOutboxPublisher(
+      config,
+      {
+        exchange,
+        appId: 'credit-service',
+        rabbitMqUrl,
+      },
+      connect,
+    );
     await publisher.start();
   });
 
@@ -54,19 +57,20 @@ describe('RabbitMqOutboxPublisher messaging integration', () => {
     const eventId = randomUUID();
     const envelope = {
       eventId,
-      eventType: 'CreditAccountInitialised',
+      eventType: 'CreditReservationSuccess',
       timestamp: new Date().toISOString(),
       publisher: 'credit-service',
       payload: {
-        userId: randomUUID(),
-        creditAmountAllocated: 100,
-        creditAllocationId: randomUUID(),
+        errandId: randomUUID(),
+        requesterUserId: randomUUID(),
+        amount: 100,
+        transactionId: randomUUID(),
       },
     };
 
     await publisher.publish({
       eventId,
-      eventType: 'CreditAccountInitialised',
+      eventType: 'CreditReservationSuccess',
       routingKey,
       envelope,
     });
@@ -83,8 +87,33 @@ describe('RabbitMqOutboxPublisher messaging integration', () => {
       deliveryMode: 2,
       contentType: 'application/json',
       messageId: eventId,
-      type: 'CreditAccountInitialised',
+      type: 'CreditReservationSuccess',
       appId: 'credit-service',
     });
+  });
+
+  it('confirms release-success publication without a subscriber queue', async () => {
+    const eventId = randomUUID();
+    const envelope = {
+      eventId,
+      eventType: 'CreditReleaseSuccess',
+      timestamp: new Date().toISOString(),
+      publisher: 'credit-service',
+      payload: {
+        errandId: randomUUID(),
+        requesterUserId: randomUUID(),
+        releasedAmount: 25,
+        creditTransactionId: randomUUID(),
+      },
+    };
+
+    await expect(
+      publisher.publish({
+        eventId,
+        eventType: 'CreditReleaseSuccess',
+        routingKey: 'credit.release-success.v1',
+        envelope,
+      }),
+    ).resolves.toBeUndefined();
   });
 });

@@ -148,6 +148,7 @@ describe('AuthController login', () => {
   it('sets an httpOnly, same-site cookie with a millisecond maxAge', async () => {
     authService.checkCredentials.mockResolvedValue({
       accessToken: 'jwt-token',
+      refreshToken: 'opaque-token',
     });
 
     await controller.login(loginDto as never, res as never);
@@ -161,6 +162,41 @@ describe('AuthController login', () => {
       maxAge: 900_000,
       secure: false,
     });
+  });
+
+  it('sets the opaque refresh-token cookie alongside the access token', async () => {
+    authService.checkCredentials.mockResolvedValue({
+      accessToken: 'jwt-token',
+      refreshToken: 'opaque-token',
+    });
+
+    await controller.login(loginDto as never, res as never);
+
+    // The refresh token is a raw opaque value, not a JWT; its cookie outlives
+    // the access token (7 days, in milliseconds).
+    expect(res.cookie).toHaveBeenCalledWith('refresh_token', 'opaque-token', {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/auth/refresh',
+      maxAge: 604_800_000,
+      secure: false,
+    });
+  });
+
+  it('marks the refresh-token cookie secure in production', async () => {
+    authService.checkCredentials.mockResolvedValue({
+      accessToken: 'jwt-token',
+      refreshToken: 'opaque-token',
+    });
+    configGet.mockReturnValue('production');
+
+    await controller.login(loginDto as never, res as never);
+
+    expect(res.cookie).toHaveBeenCalledWith(
+      'refresh_token',
+      'opaque-token',
+      expect.objectContaining({ secure: true }),
+    );
   });
 
   it('marks the cookie secure in production', async () => {
@@ -195,6 +231,108 @@ describe('AuthController login', () => {
       controller.login(loginDto as never, res as never),
     ).rejects.toThrow(UnauthorizedException);
     expect(res.cookie).not.toHaveBeenCalled();
+  });
+});
+
+describe('AuthController refresh', () => {
+  let controller: AuthController;
+  let authService: { refreshSession: ReturnType<typeof vi.fn> };
+  let configGet: ReturnType<typeof vi.fn>;
+  let res: { cookie: ReturnType<typeof vi.fn> };
+
+  beforeEach(async () => {
+    authService = { refreshSession: vi.fn() };
+    configGet = vi.fn(() => 'development');
+    res = { cookie: vi.fn() };
+
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [AuthController],
+      providers: [
+        { provide: AuthService, useValue: authService },
+        { provide: ConfigService, useValue: { get: configGet } },
+      ],
+    }).compile();
+
+    controller = module.get<AuthController>(AuthController);
+  });
+
+  it('passes the refresh token cookie to the service', async () => {
+    authService.refreshSession.mockResolvedValue({ accessToken: 'jwt-token' });
+    const request = { cookies: { refresh_token: 'opaque-token' } };
+
+    await controller.refresh(request as never, res as never);
+
+    expect(authService.refreshSession).toHaveBeenCalledWith('opaque-token');
+  });
+
+  it('rejects a missing refresh token cookie', async () => {
+    const request = { cookies: {} };
+
+    await expect(
+      controller.refresh(request as never, res as never),
+    ).rejects.toThrow(UnauthorizedException);
+    expect(authService.refreshSession).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-string refresh token', async () => {
+    const request = {
+      cookies: { refresh_token: { dingus: 'bingus' } },
+    };
+
+    await expect(
+      controller.refresh(request as never, res as never),
+    ).rejects.toThrow(UnauthorizedException);
+    expect(authService.refreshSession).not.toHaveBeenCalled();
+  });
+
+  it('sets a fresh access-token cookie on success', async () => {
+    authService.refreshSession.mockResolvedValue({ accessToken: 'jwt-token' });
+    const request = { cookies: { refresh_token: 'opaque-token' } };
+
+    await controller.refresh(request as never, res as never);
+
+    // Same wire contract as login: the renewed access token lives 15 minutes,
+    // in milliseconds.
+    expect(res.cookie).toHaveBeenCalledWith('access_token', 'jwt-token', {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 900_000,
+      secure: false,
+    });
+  });
+
+  it('marks the renewed access-token cookie secure in production', async () => {
+    authService.refreshSession.mockResolvedValue({ accessToken: 'jwt-token' });
+    configGet.mockReturnValue('production');
+    const request = { cookies: { refresh_token: 'opaque-token' } };
+
+    await controller.refresh(request as never, res as never);
+
+    expect(res.cookie).toHaveBeenCalledWith(
+      'access_token',
+      'jwt-token',
+      expect.objectContaining({ secure: true }),
+    );
+  });
+
+  it('sets no cookie when the refresh token is invalid', async () => {
+    authService.refreshSession.mockRejectedValue(new UnauthorizedException());
+    const request = { cookies: { refresh_token: 'opaque-token' } };
+
+    await expect(
+      controller.refresh(request as never, res as never),
+    ).rejects.toThrow(UnauthorizedException);
+    expect(res.cookie).not.toHaveBeenCalled();
+  });
+
+  it('reports a successful renewal', async () => {
+    authService.refreshSession.mockResolvedValue({ accessToken: 'jwt-token' });
+    const request = { cookies: { refresh_token: 'opaque-token' } };
+
+    await expect(
+      controller.refresh(request as never, res as never),
+    ).resolves.toEqual({ message: 'Access token renewed.' });
   });
 });
 

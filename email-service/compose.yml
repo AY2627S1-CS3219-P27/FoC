@@ -6,13 +6,13 @@ services:
       - SMTP_PORT=${SMTP_PORT}
       - SMTP_SECURE=${SMTP_SECURE}
       - SMTP_USER=${SMTP_USER}
-      - SMTP_PASS_FILE=${SMTP_PASS_FILE}
+      - SMTP_PASS_FILE=/run/secrets/smtp_password
       - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL}
-      - RABBITMQ_USER=${RABBITMQ_USER}
+      - RABBITMQ_USER=${EMAIL_SERVICE_RABBITMQ_USER}
       - RABBITMQ_HOST=${RABBITMQ_HOST}
       - RABBITMQ_PORT=${RABBITMQ_PORT}
       - RABBITMQ_VHOST=${RABBITMQ_VHOST}
-      - RABBITMQ_PASSWORD_FILE=${RABBITMQ_PASSWORD_FILE}
+      - RABBITMQ_PASSWORD_FILE=/run/secrets/rabbitmq_email_password
       - REDIS_HOST=${REDIS_HOST}
       - REDIS_PORT=${REDIS_PORT}
       - REDIS_USERNAME=${REDIS_USERNAME}
@@ -27,7 +27,7 @@ services:
             - node_modules/
     secrets:
       - smtp_password
-      - rabbitmq_password_email_service
+      - rabbitmq_email_password
 
   papercut:
     image: changemakerstudiosus/papercut-smtp:latest
@@ -36,6 +36,6 @@ services:
       - '25:2525'
 secrets:
   smtp_password:
-    file: smtp_password.secret
-  rabbitmq_password_email_service:
-    file: rabbitmq_password.secret
+    file: secrets/smtp_password.secret
+  rabbitmq_email_password:
+    file: secrets/rabbitmq_email_password.secret
