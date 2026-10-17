@@ -6,7 +6,12 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import {
+  createHash,
+  randomBytes,
+  randomUUID,
+  timingSafeEqual,
+} from 'node:crypto';
 import {
   ArrayContains,
   DataSource,
@@ -27,6 +32,22 @@ import { MAX_PAGE_LIMIT, Role } from '@foc/contracts';
 
 /** The PostgreSQL driver error code for a unique-constraint violation. */
 const UNIQUE_VIOLATION_CODE = '23505';
+
+/**
+ * Consecutive failed-login attempts that lock an Active account.
+ * Reaching this threshold transitions the account Active -> Locked.
+ */
+const MAX_FAILED_LOGIN_ATTEMPTS = 10;
+
+/**
+ * Generates a stable numeric key used based on account UUID.
+ */
+function accountLockKey(uuid: string): number {
+  return Number.parseInt(
+    createHash('md5').update(uuid).digest('hex').slice(0, 13),
+    16,
+  );
+}
 
 /**
  * Advisory-lock key that serialises admin-privilege changes within the
@@ -165,6 +186,11 @@ export class UsersService {
       timingSafeEqual(userPasswordHashed, suppliedPasswordHashed);
 
     if (!passwordsMatch) {
+      // Only Active accounts accrue failed attempts; a locked
+      // or archived account is rejected without touching the counter.
+      if (!user.isLocked && !user.isArchived) {
+        await this.recordFailedLogin(user);
+      }
       throw new UnauthorizedException();
     }
 
@@ -172,7 +198,39 @@ export class UsersService {
       throw new UnauthorizedException();
     }
 
+    // A successful verification clears the consecutive-failure counter.
+    if (user.failedLoginAttempts !== 0) {
+      user.failedLoginAttempts = 0;
+      await this.userRepository.save(user);
+    }
+
     return this.getPublicUserInfo(user);
+  }
+
+  /**
+   * Records a failed-login attempt and, when the counter
+   * reaches the threshold, locks the account.
+   *
+   * Runs in one transaction behind a per-account advisory lock so concurrent
+   * attempts on the same account are serialised.
+   */
+  private async recordFailedLogin(user: User): Promise<void> {
+    await this.dataSource.transaction(async (manager) => {
+      await manager.query('SELECT pg_advisory_xact_lock($1::bigint)', [
+        accountLockKey(user.uuid),
+      ]);
+
+      const current = await manager.findOneBy(User, { uuid: user.uuid });
+      if (current === null || current.isLocked || current.isArchived) {
+        return;
+      }
+
+      current.failedLoginAttempts += 1;
+      if (current.failedLoginAttempts >= MAX_FAILED_LOGIN_ATTEMPTS) {
+        current.isLocked = true;
+      }
+      await manager.save(current);
+    });
   }
 
   /**
@@ -462,6 +520,7 @@ export class UsersService {
     user.passwordHash = passwordHash;
     user.passwordSalt = passwordSalt;
     user.isLocked = false;
+    user.failedLoginAttempts = 0;
     await this.userRepository.save(user);
   }
 

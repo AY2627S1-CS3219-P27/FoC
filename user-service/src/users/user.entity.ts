@@ -33,6 +33,9 @@ export class User {
   @Column({ default: false })
   isLocked: boolean;
 
+  @Column({ default: 0 })
+  failedLoginAttempts: number;
+
   @Column({ default: false })
   isArchived: boolean;
 
