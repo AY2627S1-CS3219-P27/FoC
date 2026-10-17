@@ -10,6 +10,8 @@ import type { Request } from 'express';
 import { ACCESS_TOKEN_COOKIE } from '@foc/contracts';
 import {
   JWT_EXPIRATION_IN_SECONDS,
+  REFRESH_TOKEN_EXPIRATION_IN_SECONDS,
+  REFRESH_TOKEN_COOKIE,
   REGISTRATION_TOKEN_COOKIE,
 } from '../common/constants.js';
 import { RegisterDto } from './DTO/register.dto.js';
@@ -49,10 +51,11 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     // login
-    const { accessToken } = await this.authService.checkCredentials(
-      loginDto.email,
-      loginDto.password,
-    );
+    const { accessToken, refreshToken } =
+      await this.authService.checkCredentials(
+        loginDto.email,
+        loginDto.password,
+      );
 
     res.cookie(ACCESS_TOKEN_COOKIE, accessToken, {
       httpOnly: true,
@@ -61,6 +64,42 @@ export class AuthController {
       maxAge: JWT_EXPIRATION_IN_SECONDS * 1000, // seconds -> milliseconds
       secure: this.configService.get('NODE_ENV') === 'production',
     });
+
+    res.cookie(REFRESH_TOKEN_COOKIE, refreshToken, {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/auth/refresh',
+      maxAge: REFRESH_TOKEN_EXPIRATION_IN_SECONDS * 1000, // seconds -> milliseconds
+      secure: this.configService.get('NODE_ENV') === 'production',
+    });
+
     return { message: 'Logged in.' };
+  }
+
+  @Post('refresh')
+  async refresh(
+    @Req() request: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    if (!(REFRESH_TOKEN_COOKIE in request.cookies)) {
+      throw new UnauthorizedException('Cookie not present.');
+    }
+
+    const token = request.cookies[REFRESH_TOKEN_COOKIE];
+    if (typeof token !== 'string' || token.length === 0) {
+      throw new UnauthorizedException('Missing refresh token');
+    }
+
+    const { accessToken } = await this.authService.refreshSession(token);
+
+    res.cookie(ACCESS_TOKEN_COOKIE, accessToken, {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: JWT_EXPIRATION_IN_SECONDS * 1000, // seconds -> milliseconds
+      secure: this.configService.get('NODE_ENV') === 'production',
+    });
+
+    return { message: 'Access token renewed.' };
   }
 }
