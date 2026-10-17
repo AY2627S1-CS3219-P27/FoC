@@ -13,6 +13,14 @@ interface UserProfile {
   isAdmin: boolean;
 }
 
+interface CreditBalance {
+  userId: string;
+  creditBalance: number;
+  reservedBalance: number;
+}
+
+type CreditBalanceStatus = "loading" | "ready" | "not-found" | "error";
+
 interface SupplierItem {
   id: string;
   name: string;
@@ -55,6 +63,9 @@ export default function HomePage() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [userLoading, setUserLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("suppliers");
+  const [creditBalance, setCreditBalance] = useState<CreditBalance | null>(null);
+  const [creditBalanceStatus, setCreditBalanceStatus] =
+    useState<CreditBalanceStatus>("loading");
 
   const [suppliers, setSuppliers] = useState<SupplierItem[]>([]);
   const [buildings, setBuildings] = useState<BuildingItem[]>([]);
@@ -77,6 +88,36 @@ export default function HomePage() {
   const [usersTotal, setUsersTotal] = useState(0);
   const [usersLoading, setUsersLoading] = useState(false);
 
+  const loadCreditBalance = useCallback(async () => {
+    setCreditBalanceStatus("loading");
+
+    try {
+      const res = await fetch("/api/credits/balance", {
+        credentials: "same-origin",
+      });
+
+      if (res.status === 401) {
+        router.push("/login");
+        return;
+      }
+
+      if (res.status === 404) {
+        setCreditBalance(null);
+        setCreditBalanceStatus("not-found");
+        return;
+      }
+
+      if (!res.ok) throw new Error("Credit balance request failed");
+
+      const data = (await res.json()) as CreditBalance;
+      setCreditBalance(data);
+      setCreditBalanceStatus("ready");
+    } catch {
+      setCreditBalance(null);
+      setCreditBalanceStatus("error");
+    }
+  }, [router]);
+
   useEffect(() => {
     fetch("/api/users/me")
       .then((res) => {
@@ -86,10 +127,11 @@ export default function HomePage() {
       .then((data: UserProfile) => {
         setUser(data);
         setSelectedRoles(data.roles);
+        void loadCreditBalance();
       })
       .catch(() => router.push("/login"))
       .finally(() => setUserLoading(false));
-  }, [router]);
+  }, [loadCreditBalance, router]);
 
   const loadSuppliers = useCallback(async () => {
     setSuppliersLoading(true);
@@ -349,6 +391,9 @@ export default function HomePage() {
               toggleRole={toggleRole}
               handleRoleUpdate={handleRoleUpdate}
               roleMsg={roleMsg}
+              creditBalance={creditBalance}
+              creditBalanceStatus={creditBalanceStatus}
+              loadCreditBalance={loadCreditBalance}
             />
           )}
         </div>
@@ -767,6 +812,9 @@ function ProfileTab({
   toggleRole,
   handleRoleUpdate,
   roleMsg,
+  creditBalance,
+  creditBalanceStatus,
+  loadCreditBalance,
 }: {
   user: UserProfile;
   editingProfile: boolean;
@@ -781,10 +829,19 @@ function ProfileTab({
   toggleRole: (role: string) => void;
   handleRoleUpdate: () => void;
   roleMsg: string;
+  creditBalance: CreditBalance | null;
+  creditBalanceStatus: CreditBalanceStatus;
+  loadCreditBalance: () => Promise<void>;
 }) {
   return (
     <div className="max-w-2xl">
       <h2 className="text-2xl font-bold mb-6">My Account</h2>
+
+      <CreditBalanceCard
+        balance={creditBalance}
+        status={creditBalanceStatus}
+        onRetry={loadCreditBalance}
+      />
 
       {/* Profile card */}
       <div className="rounded-2xl border border-border bg-surface p-6 mb-6 shadow-sm">
@@ -912,6 +969,92 @@ function ProfileTab({
           Reset password
         </Link>
       </div>
+    </div>
+  );
+}
+
+function CreditBalanceCard({
+  balance,
+  status,
+  onRetry,
+}: {
+  balance: CreditBalance | null;
+  status: CreditBalanceStatus;
+  onRetry: () => Promise<void>;
+}) {
+  return (
+    <section
+      aria-labelledby="credit-balance-heading"
+      className="rounded-2xl border border-border bg-surface p-6 mb-6 shadow-sm"
+    >
+      <h3 id="credit-balance-heading" className="text-lg font-semibold mb-4">
+        Credit Balance
+      </h3>
+
+      {status === "loading" && (
+        <p role="status" className="text-sm text-muted">
+          Loading credit balance...
+        </p>
+      )}
+
+      {status === "ready" && balance && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <BalanceValue
+            label="Available credits"
+            value={balance.creditBalance}
+          />
+          <BalanceValue
+            label="Reserved credits"
+            value={balance.reservedBalance}
+          />
+        </div>
+      )}
+
+      {status === "not-found" && (
+        <BalanceFailure
+          message="Your credit account is still being prepared."
+          onRetry={onRetry}
+        />
+      )}
+
+      {status === "error" && (
+        <BalanceFailure
+          message="Credit balance is temporarily unavailable."
+          onRetry={onRetry}
+        />
+      )}
+    </section>
+  );
+}
+
+function BalanceValue({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-xl bg-background p-4">
+      <span className="block text-sm text-muted">{label}</span>
+      <span className="mt-1 block text-2xl font-bold text-foreground">
+        {value.toLocaleString()}
+      </span>
+    </div>
+  );
+}
+
+function BalanceFailure({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => Promise<void>;
+}) {
+  return (
+    <div role="alert" className="flex flex-wrap items-center justify-between gap-3">
+      <p className="text-sm text-muted">{message}</p>
+      <button
+        type="button"
+        onClick={() => void onRetry()}
+        className="btn-press rounded-xl border border-border px-3 py-1.5 text-sm font-medium hover:bg-background transition-colors"
+      >
+        Retry
+      </button>
     </div>
   );
 }
