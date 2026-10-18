@@ -296,6 +296,7 @@ describe('supplier requests (real PostgreSQL)', () => {
 
       expect(status).toBe(409);
       expect(body.code).toBe('DUPLICATE_SUPPLIER');
+      expect(body.message).toContain('stays Pending');
       await expect(stored(filed.id)).resolves.toMatchObject({
         state: RequestState.Pending,
         resolvedBy: null,
@@ -309,7 +310,9 @@ describe('supplier requests (real PostgreSQL)', () => {
 
       const { status, body } = await failure(requests.approve(filed.id, ADMIN));
 
-      expect(status).toBe(400);
+      expect(status).toBe(409);
+      expect(body.code).toBe('REQUEST_NOT_APPLICABLE');
+      expect(body.message).toContain('deny it with a reason');
       expect(body.violations).toEqual([
         {
           field: 'buildingId',

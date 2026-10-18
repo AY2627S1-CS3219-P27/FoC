@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -216,7 +217,10 @@ export class SupplierRequestsService {
    * Approves a Pending request: applies its effect and records who approved
    * it and when, in one transaction; if the effect fails, neither is saved
    * and the request stays Pending (F6.8). A creation is re-checked against
-   * existing suppliers at this moment (F7.3.1).
+   * existing suppliers at this moment (F7.3.1). A request that can no longer
+   * be applied (a duplicate, a stale version, a building retired since) is
+   * refused with 409 saying why and stays Pending: the admin denies it with a
+   * reason, or the submitter withdraws it and files it again.
    */
   async approve(id: string, adminId: string): Promise<RequestView> {
     return this.dataSource.transaction(async (manager) => {
@@ -224,9 +228,8 @@ export class SupplierRequestsService {
 
       switch (request.type) {
         case RequestType.Create: {
-          const supplier = await this.suppliers.create(
-            request.payload,
-            manager,
+          const supplier = await whenApplicable(() =>
+            this.suppliers.create(request.payload, manager),
           );
           request.createdSupplierId = supplier.id;
           break;
@@ -234,11 +237,13 @@ export class SupplierRequestsService {
         case RequestType.Update:
           // Refused with VERSION_CONFLICT if the supplier changed since the
           // request was filed (F8.4.1).
-          await this.suppliers.update(
-            request.supplierId!,
-            request.supplierVersion!,
-            request.payload,
-            manager,
+          await whenApplicable(() =>
+            this.suppliers.update(
+              request.supplierId!,
+              request.supplierVersion!,
+              request.payload,
+              manager,
+            ),
           );
           break;
         default:
@@ -270,6 +275,42 @@ export class SupplierRequestsService {
       request.denialReason = reason;
       return toRequestView(await manager.save(request));
     });
+  }
+}
+
+const NOT_APPLICABLE_HINT =
+  'The request stays Pending: deny it with a reason, or ask the submitter to withdraw it and file it again.';
+
+/**
+ * Runs the effect of an approval. If the request can no longer be applied as
+ * filed, the error says so and what to do next, instead of leaving the admin
+ * with a bare duplicate or validation error for a request they never wrote.
+ * Conflicts keep their status, code and fields (DUPLICATE_SUPPLIER,
+ * VERSION_CONFLICT with currentVersion). Validation problems (a building or
+ * category retired since) become 409 REQUEST_NOT_APPLICABLE, keeping the
+ * violations: the admin sent a valid approval, so 400 would blame the wrong
+ * party.
+ */
+async function whenApplicable<T>(effect: () => Promise<T>): Promise<T> {
+  try {
+    return await effect();
+  } catch (error) {
+    if (error instanceof ConflictException) {
+      const response = error.getResponse() as { message?: string };
+      throw new ConflictException({
+        ...response,
+        message: `${response.message ?? 'Conflict.'} ${NOT_APPLICABLE_HINT}`,
+      });
+    }
+    if (error instanceof BadRequestException) {
+      const response = error.getResponse() as { violations?: unknown };
+      throw new ConflictException({
+        code: ErrorCode.RequestNotApplicable,
+        message: `The request no longer passes validation. ${NOT_APPLICABLE_HINT}`,
+        violations: response.violations,
+      });
+    }
+    throw error;
   }
 }
 

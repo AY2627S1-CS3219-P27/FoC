@@ -23,6 +23,8 @@ export const ErrorCode = {
   RequestNotFound: 'REQUEST_NOT_FOUND',
   /** The request is no longer Pending (F6.3). */
   RequestAlreadyResolved: 'REQUEST_ALREADY_RESOLVED',
+  /** The request can no longer be applied as filed; it stays Pending (F6.8). */
+  RequestNotApplicable: 'REQUEST_NOT_APPLICABLE',
   /** An identical request is already Pending (F7.2). */
   DuplicateRequest: 'DUPLICATE_REQUEST',
   PayloadTooLarge: 'PAYLOAD_TOO_LARGE',
