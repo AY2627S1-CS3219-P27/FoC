@@ -6,6 +6,7 @@ const REQUIRED = {
   DB_USERNAME: 'supplier_service',
   DB_DATABASE: 'supplier_service',
   DB_PASSWORD_FILE: '/run/secrets/supplier_db_password',
+  JWT_PUBLIC_KEY_FILE: '/run/secrets/supplier_jwt_public_key',
 };
 
 describe('environmentSchema', () => {
@@ -25,7 +26,17 @@ describe('environmentSchema', () => {
       CAMPUS_MAX_LONGITUDE: 103.79,
       SEED_ON_STARTUP: true,
       SEED_CSV_PATH: '/seed-data/supplier-seed-data.csv',
+      PLACEHOLDER_IMAGE_URL: '',
     });
+  });
+
+  it('rejects a minimum above the default maximum (review #605)', () => {
+    const { error } = environmentSchema.validate({
+      ...REQUIRED,
+      CAMPUS_MIN_LATITUDE: '1.5',
+    });
+
+    expect(error?.message).toContain('CAMPUS_MIN_LATITUDE');
   });
 
   it('rejects a campus box whose maximum is not above its minimum', () => {
@@ -49,6 +60,7 @@ describe('environmentSchema', () => {
         'DB_USERNAME',
         'DB_DATABASE',
         'DB_PASSWORD_FILE',
+        'JWT_PUBLIC_KEY_FILE',
       ]),
     );
   });
@@ -69,6 +81,22 @@ describe('environmentSchema', () => {
     });
 
     expect(error?.details[0].path).toEqual(['DB_PORT']);
+  });
+});
+
+describe('PLACEHOLDER_IMAGE_URL', () => {
+  it('accepts an http(s) URL and rejects anything else', () => {
+    const ok = environmentSchema.validate({
+      ...REQUIRED,
+      PLACEHOLDER_IMAGE_URL: 'https://example.com/no-photo.png',
+    });
+    const bad = environmentSchema.validate({
+      ...REQUIRED,
+      PLACEHOLDER_IMAGE_URL: 'no-photo.png',
+    });
+
+    expect(ok.error).toBeUndefined();
+    expect(bad.error?.details[0].path).toEqual(['PLACEHOLDER_IMAGE_URL']);
   });
 });
 

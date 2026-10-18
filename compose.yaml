@@ -1,6 +1,8 @@
 include:
   - path: supplier-service/compose.yml
-    env_file: supplier-service/.env
+    env_file:
+      - env/shared.env
+      - env/supplier-service.env
   - path: user-service/compose.yml
     env_file:
       - env/shared.env

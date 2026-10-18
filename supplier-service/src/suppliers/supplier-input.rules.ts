@@ -22,9 +22,29 @@ export type SupplierInputCheck =
  * F1.3.2), and the campus bounding box. Every violation is collected, never
  * only the first (F1.6.1).
  */
-export async function checkSupplierInput(
+export function checkSupplierInput(
   input: unknown,
   campus: CampusBox,
+): Promise<SupplierInputCheck> {
+  return check(input, campus, false);
+}
+
+/**
+ * The same rules for an admin edit (F8.1): only the supplied fields are
+ * checked, at least one must be supplied, and `photoUrl: null` removes the
+ * photo. A field sent as null that is mandatory is still rejected.
+ */
+export function checkSupplierPatch(
+  input: unknown,
+  campus: CampusBox,
+): Promise<SupplierInputCheck> {
+  return check(input, campus, true);
+}
+
+async function check(
+  input: unknown,
+  campus: CampusBox,
+  partial: boolean,
 ): Promise<SupplierInputCheck> {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
     return {
@@ -32,10 +52,28 @@ export async function checkSupplierInput(
       violations: [{ field: '', reason: 'supplier must be a JSON object' }],
     };
   }
+  if (partial && Object.keys(input).length === 0) {
+    return {
+      valid: false,
+      violations: [
+        { field: '', reason: 'at least one field must be supplied' },
+      ],
+    };
+  }
 
   const dto = plainToInstance(SupplierInputDto, input);
+  const supplied = new Set(Object.keys(input));
   const violations = toFieldViolations(
-    await validate(dto, { whitelist: true, forbidNonWhitelisted: true }),
+    await validate(dto, {
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      // Absent fields are left as they are; null is still validated.
+      skipUndefinedProperties: partial,
+    }),
+  ).filter(
+    // IsDefined runs even for skipped fields; in an edit, only the supplied
+    // fields can be wrong.
+    (violation) => !partial || supplied.has(violation.field.split('.')[0]),
   );
   violations.push(...campusViolations(dto, campus, violations));
 
@@ -56,6 +94,9 @@ function campusViolations(
         violation.field === 'coordinates' || violation.field === field,
     );
   const found: FieldViolation[] = [];
+  if (dto.coordinates === undefined) {
+    return found;
+  }
 
   if (
     !alreadyInvalid('coordinates.latitude') &&

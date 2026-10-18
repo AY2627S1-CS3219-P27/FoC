@@ -72,6 +72,20 @@ describe('AllExceptionsFilter', () => {
     });
   });
 
+  it('keeps the current version of a version conflict (F14.3.1)', () => {
+    const exception = new ConflictException({
+      code: 'VERSION_CONFLICT',
+      message: 'The supplier has changed since you loaded it.',
+      currentVersion: 4,
+    });
+
+    expect(filter.toBody(exception)).toMatchObject({
+      statusCode: 409,
+      code: 'VERSION_CONFLICT',
+      currentVersion: 4,
+    });
+  });
+
   it('turns an unreachable database into a retryable 503, never a 404', () => {
     const exception = new QueryFailedError(
       'SELECT',

@@ -1,6 +1,10 @@
-import 'dotenv/config';
+import { config } from 'dotenv';
 import { DataSource } from 'typeorm';
 import { createDatabaseOptions } from './database-options.js';
+
+// The TypeORM CLI runs from supplier-service/ and reads the same env file as
+// compose (every variable lives in env/supplier-service.env, see AGENTS.md).
+config({ path: '../env/supplier-service.env', quiet: true });
 
 // This entry point is loaded outside Nest by the TypeORM CLI. Keep its option
 // construction shared with DatabaseModule to prevent migration/runtime drift.

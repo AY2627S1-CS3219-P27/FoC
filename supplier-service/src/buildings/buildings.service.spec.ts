@@ -15,8 +15,10 @@ function setup(taken: BuildingNameKey[] = []) {
       work(manager),
     ),
   } as unknown as DataSource;
+  const findRetired = vi.fn(async () => [] as object[]);
   const buildings = {
     create: vi.fn((values: object) => ({ ...values })),
+    find: findRetired,
   } as unknown as Repository<Building>;
   const findNameKey = vi.fn();
   const nameKeys = {
@@ -27,6 +29,7 @@ function setup(taken: BuildingNameKey[] = []) {
     service: new BuildingsService(dataSource, buildings, nameKeys),
     manager,
     findNameKey,
+    findRetired,
   };
 }
 
@@ -81,5 +84,32 @@ describe('BuildingsService', () => {
     expect(findNameKey).toHaveBeenCalledWith(
       expect.objectContaining({ where: { key: 'com2' } }),
     );
+  });
+
+  it('finds an in-use building by its name key without scanning (findByAnyName)', async () => {
+    const { service, findNameKey, findRetired } = setup();
+    const building = { id: 'b1' };
+    findNameKey.mockResolvedValue({ key: 'com2', buildingId: 'b1', building });
+
+    await expect(service.findByAnyName('Com 2')).resolves.toBe(building);
+    expect(findRetired).not.toHaveBeenCalled();
+  });
+
+  it('falls back to retired buildings when no in-use one has the name', async () => {
+    const { service, findNameKey, findRetired } = setup();
+    const retired = {
+      id: 'old',
+      canonicalName: 'Old Block',
+      shortName: 'OB',
+      aliases: ['The Old Block'],
+      retiredAt: new Date(),
+    };
+    findNameKey.mockResolvedValue(null);
+    findRetired.mockResolvedValue([retired]);
+
+    await expect(service.findByAnyName(' the  old block ')).resolves.toBe(
+      retired,
+    );
+    await expect(service.findByAnyName('Nowhere')).resolves.toBeNull();
   });
 });

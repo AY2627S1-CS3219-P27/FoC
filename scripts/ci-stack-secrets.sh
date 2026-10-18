@@ -10,7 +10,6 @@ put() { mkdir -p "$(dirname "$1")"; printf %s "$2" > "$1"; }
 
 # Env files: the examples are complete; just drop the suffix.
 for f in env/*.env.example; do cp "$f" "${f%.example}"; done
-cp supplier-service/.env.example supplier-service/.env
 
 # Passwords with no external dependency.
 put user-service/secrets/db_password.secret "$(gen)"
