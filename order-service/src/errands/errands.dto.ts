@@ -48,7 +48,7 @@ export class CreateErrandDto {
   @IsInt()
   @Min(MIN_EXPIRY_MINUTES)
   @Max(MAX_EXPIRY_MINUTES)
-  expiryDurationMinutes?: number;
+  expiryDurationMinutes?: number | null; // @IsOptional lets null through; create() reads it as the default
 }
 
 // F7.4: the courier must say why. Same limits as the CourierWithdrew payload.

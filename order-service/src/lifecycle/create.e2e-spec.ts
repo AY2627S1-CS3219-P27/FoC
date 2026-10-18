@@ -81,6 +81,24 @@ describe('createErrand', () => {
     expect(await createErrand(t.db, input({ expiryDurationMinutes: 168 * 60 }))).toMatchObject({ ok: true });
   });
 
+  it('takes a null expiry duration as the default', async () => {
+    const res = await createErrand(t.db, input({ expiryDurationMinutes: null }));
+    if (!res.ok) throw new Error('expected ok');
+    expect((await events(res.errandId))[0].payload).toMatchObject({ expiryDurationMinutes: 60 });
+  });
+
+  it('replays a repeated key whether the expiry was left out or null', async () => {
+    const i = input({ idempotencyKey: `null-expiry-${randomUUID()}` });
+    const first = await createErrand(t.db, i);
+    if (!first.ok) throw new Error('expected ok');
+
+    expect(await createErrand(t.db, { ...i, expiryDurationMinutes: null })).toEqual({
+      ok: true,
+      errandId: first.errandId,
+      replayed: true,
+    });
+  });
+
   it('returns the original errand for a repeated key', async () => {
     const i = input({ idempotencyKey: 'k1' });
     const first = await createErrand(t.db, i);

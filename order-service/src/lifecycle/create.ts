@@ -10,7 +10,8 @@ export interface CreateRequestInputs {
   rewardCredits: number;
   pickupLocation?: string;
   description?: string;
-  expiryDurationMinutes?: number; // ADR 0007; default 60. expiresAt is set when the errand goes Open
+  // ADR 0007; default 60 when left out or null. expiresAt is set when the errand goes Open
+  expiryDurationMinutes?: number | null;
   idempotencyKey?: string; // scoped to the requester; no key = no dedupe
 }
 
@@ -26,7 +27,10 @@ export const MAX_EXPIRY_MINUTES = 168 * 60;
 // Not a transition: there is no from-status. Writes the errand and event 1
 // together, so the log starts at ErrandCreated.
 export function createErrand(db: Db, i: CreateRequestInputs): Promise<CreateResult> {
-  const { expiryDurationMinutes = DEFAULT_EXPIRY_MINUTES, ...columns } = i;
+  // A JSON client sends null for "not set", so null takes the default too
+  // (a destructuring default only covers undefined).
+  const { expiryDurationMinutes: asked, ...columns } = i;
+  const expiryDurationMinutes = asked ?? DEFAULT_EXPIRY_MINUTES;
   if (
     !Number.isInteger(expiryDurationMinutes) ||
     expiryDurationMinutes < MIN_EXPIRY_MINUTES ||
@@ -34,8 +38,7 @@ export function createErrand(db: Db, i: CreateRequestInputs): Promise<CreateResu
   ) {
     return Promise.resolve({ ok: false, reason: 'INVALID_FIELDS' });
   }
-  // What the requester asked for: event 1's payload, and what a repeated key
-  // is compared against.
+
   const request: Record<string, unknown> = {
     requesterId: i.requesterId,
     supplierId: i.supplierId,
@@ -82,9 +85,7 @@ export function createErrand(db: Db, i: CreateRequestInputs): Promise<CreateResu
           eq(errands.idempotencyKey, i.idempotencyKey!),
         ),
       );
-    // Same key, different request: refuse rather than hand back an errand the
-    // requester did not ask for this time. Event 1, not the row, because the
-    // row changes later (an adjust rewrites rewardCredits).
+      
     const [first] = await tx
       .select({ payload: errandEvents.payload })
       .from(errandEvents)

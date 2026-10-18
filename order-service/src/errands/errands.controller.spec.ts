@@ -92,6 +92,15 @@ describe('ErrandsController', () => {
       expect(lifecycle.create).not.toHaveBeenCalled();
     });
 
+    it('passes a null expiry on to create, which reads it as the default', async () => {
+      lifecycle.create.mockResolvedValue({ ok: true, errandId: 'e1' });
+
+      const res = await post({ ...validBody, expiryDurationMinutes: null }, await signAccessToken());
+
+      expect(res.status).toBe(201);
+      expect(lifecycle.create.mock.calls[0][0].expiryDurationMinutes).toBeNull();
+    });
+
     it('takes rewardCredits at the Postgres integer limit', async () => {
       lifecycle.create.mockResolvedValue({ ok: true, errandId: 'e1' });
       const res = await post({ ...validBody, rewardCredits: MAX_INT }, await signAccessToken());
