@@ -65,6 +65,11 @@ export class SuppliersService {
     return checked.valid ? [] : checked.violations;
   }
 
+  /** Whether any supplier exists at all, active or not. */
+  hasAny(): Promise<boolean> {
+    return this.dataSource.getRepository(Supplier).exists();
+  }
+
   /** Whether a supplier with this duplicate key (F1.5) already exists. */
   exists(
     name: string,

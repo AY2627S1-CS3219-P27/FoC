@@ -43,7 +43,9 @@ type RowOutcome = keyof SeedReport;
  * Runs after migrations, like user-service's admin bootstrap. Every row goes
  * through the same SuppliersService.create as the admin API (F12.3), so the
  * duplicate constraint makes re-running safe (F12.1), and a bad row is
- * skipped and reported without stopping the import (F12.4).
+ * skipped and reported without stopping the import (F12.4). The startup
+ * import only runs while there are no suppliers at all; importSeed() itself
+ * stays re-runnable for a deliberate import.
  */
 @Injectable()
 export class SupplierSeedService implements OnApplicationBootstrap {
@@ -59,6 +61,14 @@ export class SupplierSeedService implements OnApplicationBootstrap {
   async onApplicationBootstrap(): Promise<void> {
     if (!this.config.get('SEED_ON_STARTUP', { infer: true })) {
       this.logger.debug('Skipping seed import: SEED_ON_STARTUP is false.');
+      return;
+    }
+
+    // Only ever the first fill. "Already imported" is judged by name, so
+    // after an admin renames a seeded supplier the next start would create
+    // the original again. Once any supplier exists, the data is the admins'.
+    if (await this.suppliers.hasAny()) {
+      this.logger.log('Skipping seed import: suppliers already exist.');
       return;
     }
 

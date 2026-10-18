@@ -19,6 +19,8 @@ import { SuppliersService } from '../src/suppliers/suppliers.service.js';
 const SEED_FILE = readFileSync('../data/csv/supplier-seed-data.csv');
 
 const CONFIG: Record<string, unknown> = {
+  SEED_ON_STARTUP: true,
+  SEED_CSV_PATH: '../data/csv/supplier-seed-data.csv',
   CAMPUS_MIN_LATITUDE: 1.28,
   CAMPUS_MAX_LATITUDE: 1.31,
   CAMPUS_MIN_LONGITUDE: 103.74,
@@ -117,6 +119,27 @@ describe('seed import (real PostgreSQL)', () => {
     });
     expect(await dataSource.getRepository(Supplier).count()).toBe(21);
     expect(await dataSource.getRepository(Building).count()).toBe(14);
+  });
+
+  it('imports on startup only while there are no suppliers', async () => {
+    await seed.onApplicationBootstrap();
+    expect(await dataSource.getRepository(Supplier).count()).toBe(21);
+  });
+
+  it('does not bring back a renamed seed supplier on the next start', async () => {
+    await seed.importSeed(SEED_FILE);
+    const [first] = await dataSource.getRepository(Supplier).find();
+    const originalName = first!.name;
+    await dataSource
+      .getRepository(Supplier)
+      .update(first!.id, { name: 'Renamed Stall', nameKey: 'renamed stall' });
+
+    await seed.onApplicationBootstrap();
+
+    expect(await dataSource.getRepository(Supplier).count()).toBe(21);
+    expect(
+      await dataSource.getRepository(Supplier).countBy({ name: originalName }),
+    ).toBe(0);
   });
 
   it('is safe when two copies of the service seed at the same time', async () => {
