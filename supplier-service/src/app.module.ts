@@ -1,4 +1,5 @@
 import { FocAuthModule } from '@foc/auth';
+import { OutboxModule } from '@foc/outbox';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_PIPE } from '@nestjs/core';
@@ -13,9 +14,12 @@ import {
 } from './config/environment.schema.js';
 import { DatabaseModule } from './database/database.module.js';
 import { HealthController } from './health/health.controller.js';
+import { MessagingModule } from './messaging/messaging.module.js';
+import { RABBITMQ_CONNECTION_URL } from './messaging/rabbitmq-connection-url.provider.js';
 import { RequestsModule } from './requests/requests.module.js';
 import { SeedModule } from './seed/seed.module.js';
 import { SuppliersModule } from './suppliers/suppliers.module.js';
+import { ValidationModule } from './validation/validation.module.js';
 
 @Module({
   imports: [
@@ -41,6 +45,21 @@ import { SuppliersModule } from './suppliers/suppliers.module.js';
     SuppliersModule,
     RequestsModule,
     SeedModule,
+    // Answers Order Service's supplier-validation requests over RabbitMQ
+    // (F15.7); the outbox relay publishes the replies (F15.7.3).
+    ValidationModule,
+    OutboxModule.forRootAsync({
+      imports: [DatabaseModule, MessagingModule],
+      inject: [ConfigService, RABBITMQ_CONNECTION_URL],
+      useFactory: (
+        config: ConfigService<EnvironmentVariables, true>,
+        rabbitMqUrl: string,
+      ) => ({
+        exchange: config.getOrThrow('RABBITMQ_EXCHANGE'),
+        appId: 'supplier-service',
+        rabbitMqUrl,
+      }),
+    }),
   ],
   controllers: [HealthController],
   providers: [

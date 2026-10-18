@@ -541,7 +541,7 @@ Branches are few and large: one per area, each merged into `supplier-service` by
 | 10 | "Edit supplier" requests | F8.1-F8.4.1 | `crud` | ✅ built (F8.5 amend: after D2) |
 | 12 | My requests, withdraw | F6.5, F6.6, F13.6 | `crud` | ✅ built |
 | 11 | "Change status" requests | F9.3, F9.3.1, F9.3.2, F9.4 | `crud` | 🔜 after D2 |
-| 15b | Supplier validation for Order Service over RabbitMQ | F15.7-F15.7.8, F13.7 | `order-integration` (+ `contracts`, PR #642) | ✅ built and tested; switching on waits for the shared broker setup ([§11](#11-supplier-validation-for-order-service-rabbitmq)) |
+| 15b | Supplier validation for Order Service over RabbitMQ | F15.7-F15.7.8, F13.7 | `order-integration` (+ `contracts`, PR #642) | ✅ built and switched on ([§11](#11-supplier-validation-for-order-service-rabbitmq)); Order Service's side to come |
 
 ---
 
@@ -566,6 +566,8 @@ cp supplier-service/secrets/supplier_db_password.secret.example \
    supplier-service/secrets/supplier_db_password.secret   # then set a password
 cp env/supplier-service.env.example env/supplier-service.env  # loaded by compose.yaml
 cp env/shared.env.example env/shared.env                      # if not done yet
+cp supplier-service/secrets/rabbitmq_password.secret.example \
+   supplier-service/secrets/rabbitmq_password.secret   # the team's supplier-service broker password
 docker compose up
 ```
 
@@ -614,7 +616,7 @@ Pending migrations are applied automatically on startup (`DB_MIGRATIONS_RUN`, de
 
 ## 11. Supplier validation for Order Service (RabbitMQ)
 
-✅ built and tested (step 15b; F15.7–F15.7.8, F13.7). **Not yet switched on in the running service:** that needs Supplier Service's broker login and queues in the shared `rabbitmq/definitions.json`, which is still to be agreed with the team.
+✅ built, tested and switched on (step 15b; F15.7–F15.7.8, F13.7). Supplier Service has its own broker login in the shared `rabbitmq/definitions.json`, limited to its own `foc.supplier.*` exchanges and `supplier-service.*` queues. Its request queue and Order Service's reply queue are predeclared there, and `src/messaging/rabbitmq-topology.contract.spec.ts` checks all of it. Its password is the `supplier_rabbitmq_password` secret (`secrets/rabbitmq_password.secret`); CI generates its own. Order Service still has to publish the request and consume the reply on its side.
 
 **What it does.** A new errand waits in Order Service's `Pending-Supplier` state until Supplier Service confirms its supplier. Order Service **asks by message** and Supplier Service **answers by message**, through RabbitMQ: there's no direct API call. The two messages were agreed with the order-service owner ([ADR 0002](../docs/adr/supplier-service/0002-supplier-validation-messages.md)), and their schemas are in the shared contracts (`packages/contracts/src/domain-events/events/supplier-validation-{requested,completed}/v1/`).
 
@@ -668,11 +670,13 @@ sequenceDiagram
 | Handler, service, consumer start-up, module | `src/validation/` |
 | RabbitMQ consumer (copied from credit-service, as order-service did) | `src/messaging/` |
 | Contract validator module | `src/contracts/contracts.module.ts` |
+| Wired into the app | `src/app.module.ts` (`ValidationModule`, `OutboxModule.forRootAsync`); e2e specs replace the broker parts via `test/without-broker.ts` |
+| Broker setup | `rabbitmq/definitions.json` (login, permissions, queues, bindings), `scripts/ci-stack-secrets.sh` (CI password), root `compose.yaml` (starts after RabbitMQ is healthy) |
 | Tables | `inbox_events`, `outbox_events`: migration `1790985600000-create-inbox-and-outbox-events.ts` |
 | Settings | `RABBITMQ_*` and `OUTBOX_*` in `src/config/environment.schema.ts` and `env/supplier-service.env.example`. This service's own exchanges are `foc.supplier.retry` / `.back` / `.dlx`, and its queue is `supplier-service.order-supplier-validation-requested.v1` |
 
 **Tests:**
-- unit: the handler's outcomes and the consumer start-up
+- unit: the handler's outcomes, the consumer start-up, and the shared broker setup (`rabbitmq-topology.contract.spec.ts`)
 - integration, against real PostgreSQL: FOUND / Inactive / NOT_FOUND, a redelivery, two copies at once, a reused event id, a data-store failure that writes nothing
 - `test:messaging`, against a real throwaway RabbitMQ: one question → exactly one reply, a redelivery → one reply, malformed → dead-letter
 

@@ -8,6 +8,7 @@ import { DataSource } from 'typeorm';
 import { CategoriesService } from '../src/categories/categories.service.js';
 import { signAccessToken } from './access-token.js';
 import { seedTestEnvironment } from './test-env.js';
+import { withoutBroker } from './without-broker.js';
 
 /** In-memory stand-in so the guards are tested without a database. */
 function fakeCategoriesService() {
@@ -64,9 +65,11 @@ describe('authentication and roles (e2e)', () => {
     const { AppModule } = await import('../src/app.module.js');
     categories = fakeCategoriesService();
 
-    const moduleFixture = await Test.createTestingModule({
-      imports: [AppModule],
-    })
+    const moduleFixture = await withoutBroker(
+      Test.createTestingModule({
+        imports: [AppModule],
+      }),
+    )
       .overrideProvider(DataSource)
       .useValue({
         entityMetadatas: [],
