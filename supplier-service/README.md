@@ -561,7 +561,8 @@ Branches are few and large: one per area, each merged into `supplier-service` by
 ```sh
 cp supplier-service/secrets/supplier_db_password.secret.example \
    supplier-service/secrets/supplier_db_password.secret   # then set a password
-cp supplier-service/.env.example supplier-service/.env      # loaded by compose.yaml
+cp env/supplier-service.env.example env/supplier-service.env  # loaded by compose.yaml
+cp env/shared.env.example env/shared.env                      # if not done yet
 docker compose up
 ```
 
@@ -573,7 +574,7 @@ Supplier Service also needs user-service's JWT key pair, set up as part of user-
 | supplier-db | `localhost:5438` (`SUPPLIER_DB_HOST_PORT`) |
 | Test database | `localhost:5439` (`SUPPLIER_DB_TEST_HOST_PORT`), only with the `test` profile |
 
-Every setting has a default, so no `.env` file is needed to run it. All settings are listed in `supplier-service/.env.example`. The Docker-level ones use a `SUPPLIER_` prefix so they can't collide with other services' `DB_*` values, and `compose.yml` maps them onto the app's own names.
+Every setting has a default, so no env file is needed to run it. All settings are listed in `env/supplier-service.env.example`. The Docker-level ones use a `SUPPLIER_` prefix so they can't collide with other services' `DB_*` values, and `compose.yml` maps them onto the app's own names.
 
 **Campus bounding box** (F1.2.7): supplier coordinates must lie inside it. Defaults: latitude 1.28–1.31, longitude 103.74–103.79 (covers every seed supplier). Set with `SUPPLIER_CAMPUS_MIN_LATITUDE`, `…_MAX_LATITUDE`, `…_MIN_LONGITUDE`, `…_MAX_LONGITUDE` (the app reads them as `CAMPUS_*`).
 

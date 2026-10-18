@@ -59,7 +59,6 @@ services:
             - dist/
             - coverage/
             - test/
-            - .env
             - secrets/
         - action: rebuild
           path: package.json
