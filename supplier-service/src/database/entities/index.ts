@@ -11,6 +11,7 @@ export { BuildingNameKey } from './building-name-key.entity.js';
 export { Building } from './building.entity.js';
 export { Category } from './category.entity.js';
 export { InboxEvent } from './inbox-event.entity.js';
+export { OutboxEvent } from '@foc/outbox/outbox-event.entity';
 export { SupplierCategory } from './supplier-category.entity.js';
 export {
   RequestState,
