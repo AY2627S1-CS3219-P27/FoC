@@ -264,10 +264,47 @@ export class UsersService {
       throw error;
     }
 
-    // Convert to set-and-back to deduplicate
-    user.roles = [...new Set(roles)];
+    let wasRemoved = false;
+    for (const role of Object.values(Role)) {
+      if (role in user.roles && !(role in roles)) {
+        // Role got removed
+        await this.removeRole(user, role);
+        wasRemoved = true;
+      } else if (!(role in user.roles) && role in roles) {
+        // Role got added - no other logic needed
+        user.roles.push(role);
+      }
+    }
+
     const saved = await this.userRepository.save(user);
+
+    if (wasRemoved) {
+      // TODO: publish RoleRemoved event
+    }
     return this.getPublicUserInfo(saved);
+  }
+
+  private async removeRole(user: User, role: Role) {
+    const canRemove = await this.checkIfRemovable(user.uuid, role);
+    if (!canRemove) {
+      throw new ConflictException(
+        'Role cannot be removed whille the account has active items related to the role.',
+      );
+    }
+
+    // Find & delete role from user.
+    // If not present, silently continues.
+    const index = user.roles.indexOf(role);
+    if (index > -1) {
+      user.roles.splice(index, 1);
+    }
+  }
+
+  private async checkIfRemovable(userId: string, role: Role) {
+    // TODO: synchronous request to order service to check if removable
+    return new Promise<boolean>((resolve, reject) => {
+      resolve(true);
+    });
   }
 
   /**
