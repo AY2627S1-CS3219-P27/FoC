@@ -41,36 +41,48 @@ export class SupplierRequestsService {
    * exists, and is only listed, once an admin approves.
    */
   async submitCreation(input: unknown, userId: string): Promise<RequestView> {
-    const values = await this.suppliers.validateNew(input);
-    if (
-      await this.suppliers.exists(values.name, values.buildingId, values.floor)
-    ) {
-      throw new ConflictException({
-        code: ErrorCode.DuplicateSupplier,
-        message:
-          'A supplier with the same name already exists on this floor of this building.',
-      });
-    }
+    // One transaction, so the building and categories validated here stay
+    // locked until the request is saved and cannot be retired in between.
+    return withPendingDuplicateMapped(() =>
+      this.dataSource.transaction(async (manager) => {
+        const values = await this.suppliers.validateNew(input, manager);
+        if (
+          await this.suppliers.exists(
+            values.name,
+            values.buildingId,
+            values.floor,
+            manager,
+          )
+        ) {
+          throw new ConflictException({
+            code: ErrorCode.DuplicateSupplier,
+            message:
+              'A supplier with the same name already exists on this floor of this building.',
+          });
+        }
 
-    const request = this.dataSource.manager.create(SupplierRequest, {
-      id: randomUUID(),
-      type: RequestType.Create,
-      state: RequestState.Pending,
-      supplierId: null,
-      supplierVersion: null,
-      // The validated, normalised values, as plain JSON.
-      payload: JSON.parse(JSON.stringify(values)) as Record<string, unknown>,
-      nameKey: nameKey(values.name),
-      buildingId: values.buildingId,
-      floor: values.floor,
-      submittedBy: userId,
-      resolvedBy: null,
-      resolvedAt: null,
-      denialReason: null,
-      createdSupplierId: null,
-    });
-    return withPendingDuplicateMapped(async () =>
-      toRequestView(await this.dataSource.manager.save(request)),
+        const request = manager.create(SupplierRequest, {
+          id: randomUUID(),
+          type: RequestType.Create,
+          state: RequestState.Pending,
+          supplierId: null,
+          supplierVersion: null,
+          // The validated, normalised values, as plain JSON.
+          payload: JSON.parse(JSON.stringify(values)) as Record<
+            string,
+            unknown
+          >,
+          nameKey: nameKey(values.name),
+          buildingId: values.buildingId,
+          floor: values.floor,
+          submittedBy: userId,
+          resolvedBy: null,
+          resolvedAt: null,
+          denialReason: null,
+          createdSupplierId: null,
+        });
+        return toRequestView(await manager.save(request));
+      }),
     );
   }
 

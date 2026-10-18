@@ -66,8 +66,13 @@ export class SuppliersService {
   }
 
   /** Whether a supplier with this duplicate key (F1.5) already exists. */
-  exists(name: string, buildingId: string, floor: string): Promise<boolean> {
-    return this.dataSource.getRepository(Supplier).exists({
+  exists(
+    name: string,
+    buildingId: string,
+    floor: string,
+    within?: EntityManager,
+  ): Promise<boolean> {
+    return (within ?? this.dataSource.manager).exists(Supplier, {
       where: {
         nameKey: nameKey(name),
         buildingId,
@@ -80,11 +85,16 @@ export class SuppliersService {
    * Checks a proposed new supplier against every rule a create applies (field
    * rules, references, campus box), reporting every problem at once, without
    * saving anything. Returns the validated, normalised values. Used to file a
-   * creation request (F7.1).
+   * creation request (F7.1). Given a transaction, the building and category
+   * rows stay share-locked until it ends, so the caller can save the request
+   * before they could be retired.
    */
-  async validateNew(input: unknown): Promise<SupplierInputDto> {
+  async validateNew(
+    input: unknown,
+    within?: EntityManager,
+  ): Promise<SupplierInputDto> {
     const checked = await checkSupplierInput(input, this.campus);
-    return this.dataSource.transaction(async (manager) => {
+    return this.inTransaction(within, async (manager) => {
       const violations = checked.valid ? [] : [...checked.violations];
       violations.push(...(await referenceViolations(manager, input)));
       if (!checked.valid || violations.length > 0) {
