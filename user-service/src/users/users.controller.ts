@@ -25,6 +25,7 @@ import { AdminUpdateUserDto } from './DTO/admin-update-user.dto.js';
 import { ListUsersQueryDto } from './DTO/list-users.query.dto.js';
 import { toUserInfoView, UserInfoView } from './user-info.view.js';
 import { UsersService } from './users.service.js';
+import { AdminBlockGuard } from '../authorization/admin-block-guard/admin-block.guard.js';
 
 @Controller('users')
 @UseGuards(JwtAuthGuard)
@@ -179,7 +180,7 @@ export class UsersController {
    * the caller can read back the flags their change produced.
    */
   @Patch(':uuid')
-  @UseGuards(AdminGuard)
+  @UseGuards(AdminGuard, AdminBlockGuard)
   async adminUpdateUser(
     @Req() request: AuthenticatedRequest,
     @Param('uuid', new ParseUUIDPipe()) uuid: string,
