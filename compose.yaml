@@ -74,6 +74,11 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  supplier-service:
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
 volumes:
   rabbitmq_data:
   rabbitmq_log:

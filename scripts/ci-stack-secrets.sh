@@ -25,16 +25,17 @@ openssl pkey -in user-service/secrets/jwt_private_key.secret -pubout -out user-s
 
 # RabbitMQ: random password per broker user, written to the service secret and
 # to definitions.json as plaintext (RabbitMQ hashes it on import).
-user_pw=$(gen); email_pw=$(gen); order_pw=$(gen); credit_pw=$(gen); guest_pw=$(gen)
+user_pw=$(gen); email_pw=$(gen); order_pw=$(gen); credit_pw=$(gen); supplier_pw=$(gen); guest_pw=$(gen)
 put user-service/secrets/rabbitmq_user_password.secret "$user_pw"
 put email-service/secrets/rabbitmq_email_password.secret "$email_pw"
 put order-service/secrets/rabbitmq_password.secret "$order_pw"
 put credit-service/secrets/rabbitmq_password.secret "$credit_pw"
+put supplier-service/secrets/rabbitmq_password.secret "$supplier_pw"
 
-jq --arg u "$user_pw" --arg e "$email_pw" --arg o "$order_pw" --arg c "$credit_pw" --arg g "$guest_pw" '
+jq --arg u "$user_pw" --arg e "$email_pw" --arg o "$order_pw" --arg c "$credit_pw" --arg s "$supplier_pw" --arg g "$guest_pw" '
   .users |= map(
     del(.password_hash, .hashing_algorithm)
     | .password = ({"user-service":$u,"email-service":$e,"order-service":$o,
-                    "credit-service":$c,"guest":$g}[.name])
+                    "credit-service":$c,"supplier-service":$s,"guest":$g}[.name])
   )' rabbitmq/definitions.json > rabbitmq/definitions.json.tmp
 mv rabbitmq/definitions.json.tmp rabbitmq/definitions.json

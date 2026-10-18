@@ -34,8 +34,7 @@ services:
       JWT_PUBLIC_KEY_FILE: /run/secrets/supplier_jwt_public_key
       PLACEHOLDER_IMAGE_URL: ${SUPPLIER_PLACEHOLDER_IMAGE_URL:-}
       # The broker connection is shared (env/shared.env); the login is this
-      # service's own. The password secret is mounted once the broker user
-      # exists in rabbitmq/definitions.json.
+      # service's own broker user in rabbitmq/definitions.json (F13.7).
       RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
       RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
       RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/foc}
@@ -47,6 +46,7 @@ services:
     secrets:
       - supplier_db_password
       - supplier_jwt_public_key
+      - supplier_rabbitmq_password
     healthcheck:
       test:
         [
@@ -143,3 +143,6 @@ secrets:
   # services always use the same key pair. Override the path if it moves.
   supplier_jwt_public_key:
     file: ${SUPPLIER_JWT_PUBLIC_KEY_PATH:-../user-service/secrets/jwt_public_key.secret}
+  # This service's broker password; its hash is in rabbitmq/definitions.json.
+  supplier_rabbitmq_password:
+    file: ./secrets/rabbitmq_password.secret

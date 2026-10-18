@@ -29,6 +29,13 @@
       "user": "order-service",
       "vhost": "/foc",
       "write": "^(foc\\.events|foc\\.order\\.(retry|back|dlx)|order-service\\..+)$"
+    },
+    {
+      "configure": "^(foc\\.supplier\\.(retry|back|dlx)|supplier-service\\..+)$",
+      "read": "^(foc\\.events|foc\\.supplier\\.(retry|back|dlx)|supplier-service\\..+)$",
+      "user": "supplier-service",
+      "vhost": "/foc",
+      "write": "^(foc\\.events|foc\\.supplier\\.(retry|back|dlx)|supplier-service\\..+)$"
     }
   ],
   "rabbitmq_version": "4.3.6",
@@ -106,6 +113,13 @@
       "name": "order-service",
       "password_hash": "sUvxR6IwUJmDLu1plGwH4ef47h48RwF8jeDIAN5bXsnpa0i3",
       "tags": []
+    },
+    {
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "limits": {},
+      "name": "supplier-service",
+      "password_hash": "rTkSnNbZYg1Jtp5Ojf1MF/CyRaH7RONwDGlzemoaA4ro/DIr",
+      "tags": []
     }
   ],
   "global_parameters": [{ "name": "cluster_tags", "value": [] }],
@@ -130,6 +144,8 @@
     { "arguments": {}, "auto_delete": false, "durable": true, "name": "order-service.credit-transfer-succeeded.v1", "type": "classic", "vhost": "/foc" },
     { "arguments": {}, "auto_delete": false, "durable": true, "name": "order-service.credit-transfer-rejected.v1", "type": "classic", "vhost": "/foc" },
     { "arguments": {}, "auto_delete": false, "durable": true, "name": "order-service.credit-release-rejected.v1", "type": "classic", "vhost": "/foc" },
+    { "arguments": {}, "auto_delete": false, "durable": true, "name": "supplier-service.order-supplier-validation-requested.v1", "type": "classic", "vhost": "/foc" },
+    { "arguments": {}, "auto_delete": false, "durable": true, "name": "order-service.supplier-validation-completed.v1", "type": "classic", "vhost": "/foc" },
     {
       "arguments": {
         "x-queue-type": "classic",
@@ -196,6 +212,8 @@
     { "arguments": {}, "destination": "order-service.credit-transfer-succeeded.v1", "destination_type": "queue", "routing_key": "credit.transfer-succeeded.v1", "source": "foc.events", "vhost": "/foc" },
     { "arguments": {}, "destination": "order-service.credit-transfer-rejected.v1", "destination_type": "queue", "routing_key": "credit.transfer-rejected.v1", "source": "foc.events", "vhost": "/foc" },
     { "arguments": {}, "destination": "order-service.credit-release-rejected.v1", "destination_type": "queue", "routing_key": "credit.release-rejected.v1", "source": "foc.events", "vhost": "/foc" },
+    { "arguments": {}, "destination": "supplier-service.order-supplier-validation-requested.v1", "destination_type": "queue", "routing_key": "order.supplier-validation-requested.v1", "source": "foc.events", "vhost": "/foc" },
+    { "arguments": {}, "destination": "order-service.supplier-validation-completed.v1", "destination_type": "queue", "routing_key": "supplier.validation-completed.v1", "source": "foc.events", "vhost": "/foc" },
     { "arguments": { "x-match": "all", "foc-delay": "60000" }, "destination": "email_retry_60s", "destination_type": "queue", "routing_key": "", "source": "foc.retry", "vhost": "/foc" },
     { "arguments": { "x-match": "all", "foc-delay": "120000" }, "destination": "email_retry_120s", "destination_type": "queue", "routing_key": "", "source": "foc.retry", "vhost": "/foc" },
     { "arguments": { "x-match": "all", "foc-delay": "240000" }, "destination": "email_retry_240s", "destination_type": "queue", "routing_key": "", "source": "foc.retry", "vhost": "/foc" },
