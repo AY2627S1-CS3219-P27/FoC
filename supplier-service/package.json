@@ -42,6 +42,7 @@
     "test:integration": "vitest run --config ./vitest.config.integration.ts",
     "pretest:messaging": "npm run shared:prepare",
     "test:messaging": "vitest run --config ./vitest.config.messaging.ts",
+    "demo:validation": "npm run build && node scripts/demo-validation.mjs",
     "db:test:up": "docker compose --profile test up -d --wait supplier-db-test",
     "db:test:down": "docker compose --profile test rm -sfv supplier-db-test",
     "broker:test:up": "docker compose --profile test up -d --wait supplier-rabbitmq-test",
