@@ -7,6 +7,9 @@ import { configureHttp } from '../http/configure-http.js';
 import { LifecycleService } from '../lifecycle/lifecycle.service.js';
 import { ErrandsModule } from './errands.module.js';
 
+// Largest value a Postgres integer column holds.
+const MAX_INT = 2_147_483_647;
+
 // Real HTTP over ErrandsModule; only LifecycleService is faked, so no DB.
 describe('ErrandsController', () => {
   const lifecycle = {
@@ -82,10 +85,17 @@ describe('ErrandsController', () => {
       ['a blank deliveryLocation', { ...validBody, deliveryLocation: '   ' }],
       ['zero rewardCredits', { ...validBody, rewardCredits: 0 }],
       ['a string rewardCredits', { ...validBody, rewardCredits: '5' }],
+      ['rewardCredits past the Postgres integer limit', { ...validBody, rewardCredits: MAX_INT + 1 }],
       ['too short an expiry', { ...validBody, expiryDurationMinutes: 5 }],
     ])('rejects %s before reaching the lifecycle', async (_, body) => {
       expect((await post(body, await signAccessToken())).status).toBe(400);
       expect(lifecycle.create).not.toHaveBeenCalled();
+    });
+
+    it('takes rewardCredits at the Postgres integer limit', async () => {
+      lifecycle.create.mockResolvedValue({ ok: true, errandId: 'e1' });
+      const res = await post({ ...validBody, rewardCredits: MAX_INT }, await signAccessToken());
+      expect(res.status).toBe(201);
     });
 
     it('passes the Idempotency-Key header to create', async () => {
@@ -275,9 +285,16 @@ describe('ErrandsController', () => {
       ['adjust with no amount', 'adjust', {}],
       ['adjust with a zero amount', 'adjust', { newAmount: 0 }],
       ['adjust with a string amount', 'adjust', { newAmount: '9' }],
+      ['adjust past the Postgres integer limit', 'adjust', { newAmount: MAX_INT + 1 }],
     ])('rejects %s before reaching the lifecycle', async (_, action, body) => {
       expect((await act(errandId, action, body, await signAccessToken())).status).toBe(400);
       expect(lifecycle.transition).not.toHaveBeenCalled();
+    });
+
+    it('takes an adjust amount at the Postgres integer limit', async () => {
+      lifecycle.transition.mockResolvedValue({ ok: true, sequenceNumber: 2 });
+      const res = await act(errandId, 'adjust', { newAmount: MAX_INT }, await signAccessToken());
+      expect(res.status).toBe(200);
     });
 
     it('takes a reason of exactly 500 characters', async () => {

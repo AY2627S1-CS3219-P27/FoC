@@ -13,7 +13,9 @@ import { MAX_EXPIRY_MINUTES, MIN_EXPIRY_MINUTES } from '../lifecycle/create.js';
 
 const MAX_LOCATION_LENGTH = 200;
 const MAX_DESCRIPTION_LENGTH = 1000;
-const NOT_BLANK = /\S/; 
+const NOT_BLANK = /\S/;
+// reward_credits is a Postgres integer; a bigger amount would fail the write.
+const MAX_CREDITS = 2_147_483_647;
 
 // The body of POST /v1/errands. 
 
@@ -28,6 +30,7 @@ export class CreateErrandDto {
 
   @IsInt()
   @Min(1)
+  @Max(MAX_CREDITS)
   rewardCredits: number;
 
   @IsOptional()
@@ -59,5 +62,6 @@ export class WithdrawErrandDto {
 export class AdjustErrandDto {
   @IsInt()
   @Min(1)
+  @Max(MAX_CREDITS)
   newAmount: number;
 }
