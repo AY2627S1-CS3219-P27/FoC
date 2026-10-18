@@ -15,6 +15,7 @@ import { User } from './users/user.entity.js';
 import { UserUpdateAudit } from './users/user-update-audit.entity.js';
 import { RefreshToken } from './auth/refresh-token.entity.js';
 import { AuthorizationModule } from './authorization/authorization.module.js';
+import { HealthController } from './health/health.controller.js';
 
 /** Builds the broker URL for the outbox without exposing the password. */
 function buildRabbitMqUrl(
@@ -89,5 +90,6 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     PasswordResetModule,
     AuthorizationModule,
   ],
+  controllers: [HealthController],
 })
 export class AppModule {}
