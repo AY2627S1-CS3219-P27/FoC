@@ -74,22 +74,28 @@ export class BuildingsService {
 
   /**
    * The building known by this canonical name, short name or alias, retired
-   * or not, ignoring case, whitespace and apostrophe style; the in-use one
-   * first. Unlike resolve(), it also finds retired buildings, so the seed
-   * never creates again a building an admin retired.
+   * or not, ignoring case, whitespace and apostrophe style. Unlike resolve(),
+   * it also finds retired buildings, so the seed never creates again a
+   * building an admin retired. An in-use building wins, found by the indexed
+   * name key; only when there is none are the retired ones scanned.
    */
   async findByAnyName(name: string): Promise<Building | null> {
+    const inUse = await this.resolve(name);
+    if (inUse) {
+      return inUse;
+    }
+
     const key = buildingKey(name);
-    const all = await this.buildings.find({ order: { createdAt: 'DESC' } });
-    const matches = all.filter((building) =>
-      [building.canonicalName, building.shortName, ...building.aliases]
-        .map(buildingKey)
-        .includes(key),
-    );
+    const retired = await this.buildings.find({
+      where: { retiredAt: Not(IsNull()) },
+      order: { createdAt: 'DESC' },
+    });
     return (
-      matches.find((building) => building.retiredAt === null) ??
-      matches[0] ??
-      null
+      retired.find((building) =>
+        [building.canonicalName, building.shortName, ...building.aliases]
+          .map(buildingKey)
+          .includes(key),
+      ) ?? null
     );
   }
 
