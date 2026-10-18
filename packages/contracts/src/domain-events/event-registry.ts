@@ -51,6 +51,14 @@ import {
   creditReleaseSuccessV1Contract,
 } from './events/credit-release-success/v1/contract.js';
 import {
+  ORDER_SUPPLIER_VALIDATION_REQUESTED_V1_ROUTING_KEY,
+  supplierValidationRequestedV1Contract,
+} from './events/supplier-validation-requested/v1/contract.js';
+import {
+  SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY,
+  supplierValidationCompletedV1Contract,
+} from './events/supplier-validation-completed/v1/contract.js';
+import {
   USER_REGISTERED_V1_ROUTING_KEY,
   userRegisteredV1Contract,
 } from './events/user-registered/v1/contract.js';
@@ -77,4 +85,8 @@ export const eventRegistry = {
   [CREDIT_TRANSFER_REJECTED_V1_ROUTING_KEY]: creditTransferRejectedV1Contract,
   [CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY]: creditReleaseSuccessV1Contract,
   [CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY]: creditReleaseRejectedV1Contract,
+  [ORDER_SUPPLIER_VALIDATION_REQUESTED_V1_ROUTING_KEY]:
+    supplierValidationRequestedV1Contract,
+  [SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY]:
+    supplierValidationCompletedV1Contract,
 } as const;

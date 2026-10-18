@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://foc.local/schemas/supplier-validation-completed.v1.schema.json",
+  "title": "SupplierValidationCompletedV1",
+  "allOf": [
+    {
+      "$ref": "https://foc.local/schemas/event-envelope.v1.schema.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "const": "SupplierValidationCompleted"
+        },
+        "publisher": {
+          "const": "supplier-service"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["errandId", "supplierId", "outcome"],
+          "properties": {
+            "errandId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "supplierId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "outcome": {
+              "enum": ["FOUND", "NOT_FOUND"]
+            },
+            "supplier": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "version",
+                "name",
+                "displayName",
+                "building",
+                "floor",
+                "locationDescription",
+                "coordinates"
+              ],
+              "properties": {
+                "status": {
+                  "enum": ["Active", "Inactive"]
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                },
+                "displayName": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "building": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["id", "shortName", "canonicalName"],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "shortName": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "canonicalName": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                "floor": {
+                  "type": "string",
+                  "pattern": "^(B[1-9]|[1-9][0-9]?|M)$"
+                },
+                "locationDescription": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255
+                },
+                "coordinates": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["latitude", "longitude"],
+                  "properties": {
+                    "latitude": {
+                      "type": "number",
+                      "minimum": -90,
+                      "maximum": 90
+                    },
+                    "longitude": {
+                      "type": "number",
+                      "minimum": -180,
+                      "maximum": 180
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "if": {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "const": "FOUND"
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "supplier": true
+            },
+            "required": ["supplier"]
+          },
+          "else": {
+            "type": "object",
+            "not": {
+              "type": "object",
+              "properties": {
+                "supplier": true
+              },
+              "required": ["supplier"]
+            }
+          }
+        }
+      }
+    }
+  ]
+}

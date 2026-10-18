@@ -32,6 +32,8 @@ export type {
   EventContractKey,
   EventOf,
   EventType,
+  SupplierValidationCompletedEvent,
+  SupplierValidationRequestedEvent,
   UserRegisteredEvent,
 } from './domain-events/event-registry.types.js';
 export {
@@ -123,3 +125,17 @@ export {
   DEFAULT_PAGE_OFFSET,
   MAX_PAGE_LIMIT,
 } from './pagination/pagination.js';
+export {
+  ORDER_SUPPLIER_VALIDATION_REQUESTED_V1_ROUTING_KEY,
+  supplierValidationRequestedV1Contract,
+} from './domain-events/events/supplier-validation-requested/v1/contract.js';
+export type { SupplierValidationRequestedPayload } from './domain-events/events/supplier-validation-requested/v1/contract.js';
+export {
+  SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY,
+  supplierValidationCompletedV1Contract,
+} from './domain-events/events/supplier-validation-completed/v1/contract.js';
+export type {
+  SupplierValidationCompletedPayload,
+  SupplierValidationOutcome,
+  SupplierValidationSnapshot,
+} from './domain-events/events/supplier-validation-completed/v1/contract.js';
