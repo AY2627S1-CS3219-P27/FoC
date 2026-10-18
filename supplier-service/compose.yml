@@ -113,6 +113,26 @@ services:
       timeout: 3s
       retries: 15
 
+  # Throwaway RabbitMQ for the messaging tests (as credit-service's
+  # credit-rabbitmq): npm run broker:test:up / broker:test:down. Its login is
+  # test-only and the broker keeps nothing (tmpfs).
+  supplier-rabbitmq-test:
+    image: rabbitmq:4-management-alpine
+    profiles: ['test']
+    ports:
+      - '${SUPPLIER_RABBITMQ_TEST_HOST_PORT:-5677}:5672'
+      - '${SUPPLIER_RABBITMQ_TEST_MANAGEMENT_HOST_PORT:-15677}:15672'
+    environment:
+      RABBITMQ_DEFAULT_USER: supplier_service_test
+      RABBITMQ_DEFAULT_PASS: supplier_service_test
+    tmpfs:
+      - /var/lib/rabbitmq
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
 volumes:
   supplier-db-data:
 
