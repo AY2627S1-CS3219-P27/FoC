@@ -19,11 +19,9 @@ put credit-service/secrets/credit_db_password.secret "$(gen)"
 put supplier-service/secrets/supplier_db_password.secret "$(gen)"
 put email-service/secrets/smtp_password.secret "$(gen)"
 
-# RS256 keypair. credit-service/compose.yml reads the public key from
-# user-service/jwt_public_key.secret (not secrets/), so write both locations.
+# RS256 keypair. Every service reads the public key from user-service/secrets/.
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out user-service/secrets/jwt_private_key.secret 2>/dev/null
 openssl pkey -in user-service/secrets/jwt_private_key.secret -pubout -out user-service/secrets/jwt_public_key.secret
-cp user-service/secrets/jwt_public_key.secret user-service/jwt_public_key.secret
 
 # RabbitMQ: random password per broker user, written to the service secret and
 # to definitions.json as plaintext (RabbitMQ hashes it on import).

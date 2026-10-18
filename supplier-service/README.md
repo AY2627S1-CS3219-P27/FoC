@@ -357,7 +357,7 @@ Every error, from any endpoint, has one shape (✅ built in `src/common/errors/`
 1. The user logs in at user-service: `POST localhost:3000/auth/login`.
 2. user-service sets an httpOnly cookie `access_token`: a JWT signed with **RS256** using user-service's **private** key. It has issuer `user-service` and lasts 15 minutes.
 3. The browser (or Postman) sends that cookie to `localhost:3002` too, because cookies are matched by host, not port.
-4. Supplier Service **verifies the token itself** with user-service's **public** key, mounted as a Docker secret (`JWT_PUBLIC_KEY_FILE`). Compose reads it from user-service's own key file (`../user-service/jwt_public_key.secret`, overridable with `SUPPLIER_JWT_PUBLIC_KEY_PATH`), so both services always use the same key pair. No call to user-service is needed per request, and the private key never leaves user-service. `cookie-parser` (in `main.ts`, as in user-service) turns the Cookie header into `request.cookies` for the guard.
+4. Supplier Service **verifies the token itself** with user-service's **public** key, mounted as a Docker secret (`JWT_PUBLIC_KEY_FILE`). Compose reads it from user-service's own key file (`../user-service/secrets/jwt_public_key.secret`, overridable with `SUPPLIER_JWT_PUBLIC_KEY_PATH`), so both services always use the same key pair. No call to user-service is needed per request, and the private key never leaves user-service. `cookie-parser` (in `main.ts`, as in user-service) turns the Cookie header into `request.cookies` for the guard.
 5. It then checks the token's contents with `validateAccessTokenPayload` from `@foc/contracts`. The claims are `sub` (user id), `email`, `displayName`, `isAdmin`, `roles`, `iss`, `iat` and `exp`.
 6. **Admin = `isAdmin: true` in the token.** `roles` (requester/courier) are errand roles and don't change supplier permissions. The FRs only distinguish Basic vs Admin (F13.3, F13.4).
 7. Identity comes **only** from the verified token, never from the request body (F13.1).
@@ -567,7 +567,7 @@ cp env/shared.env.example env/shared.env                      # if not done yet
 docker compose up
 ```
 
-Supplier Service also needs user-service's JWT key pair, set up as part of user-service (`user-service/jwt_public_key.secret`). Supplier Service only reads the public key, from that file; point `SUPPLIER_JWT_PUBLIC_KEY_PATH` elsewhere if needed.
+Supplier Service also needs user-service's JWT key pair, set up as part of user-service (`user-service/secrets/jwt_public_key.secret`). Supplier Service only reads the public key, from that file; point `SUPPLIER_JWT_PUBLIC_KEY_PATH` elsewhere if needed.
 
 | What | Where |
 |---|---|

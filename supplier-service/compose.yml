@@ -122,4 +122,4 @@ secrets:
   # user-service's JWT public key: read from user-service's own file so both
   # services always use the same key pair. Override the path if it moves.
   supplier_jwt_public_key:
-    file: ${SUPPLIER_JWT_PUBLIC_KEY_PATH:-../user-service/jwt_public_key.secret}
+    file: ${SUPPLIER_JWT_PUBLIC_KEY_PATH:-../user-service/secrets/jwt_public_key.secret}
