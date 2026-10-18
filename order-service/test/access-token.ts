@@ -17,11 +17,13 @@ export const testKeys = rsaKeyPair();
 
 export const TEST_USER_ID = '11111111-1111-4111-8111-111111111111';
 
+// Both roles by default, so a route's role gate passes unless a test narrows it.
 export function signAccessToken({
   sub = TEST_USER_ID,
   privateKey = testKeys.privateKey,
   expiresIn = 900,
-}: { sub?: string; privateKey?: string; expiresIn?: number } = {}) {
+  roles = [Role.Requester, Role.Courier],
+}: { sub?: string; privateKey?: string; expiresIn?: number; roles?: Role[] } = {}) {
   return new JwtService({
     privateKey,
     signOptions: { algorithm: 'RS256', issuer: ACCESS_TOKEN_ISSUER, expiresIn },
@@ -30,6 +32,6 @@ export function signAccessToken({
     email: 'eve@example.com',
     displayName: 'Eve',
     isAdmin: false,
-    roles: [Role.Requester],
+    roles,
   });
 }

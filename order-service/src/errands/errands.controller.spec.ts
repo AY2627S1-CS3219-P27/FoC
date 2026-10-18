@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { FocAuthModule } from '@foc/auth';
+import { Role } from '@foc/contracts';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { signAccessToken, TEST_USER_ID, testKeys } from '../../test/access-token.js';
@@ -55,6 +56,17 @@ describe('ErrandsController', () => {
   describe('POST /v1/errands', () => {
     it('rejects a caller without a token', async () => {
       expect((await post(validBody)).status).toBe(401);
+      expect(lifecycle.create).not.toHaveBeenCalled();
+    });
+
+    it('lets a requester-only caller create', async () => {
+      lifecycle.create.mockResolvedValue({ ok: true, errandId: 'e1' });
+      const res = await post(validBody, await signAccessToken({ roles: [Role.Requester] }));
+      expect(res.status).toBe(201);
+    });
+
+    it('refuses a caller without the requester role', async () => {
+      expect((await post(validBody, await signAccessToken({ roles: [Role.Courier] }))).status).toBe(403);
       expect(lifecycle.create).not.toHaveBeenCalled();
     });
 
@@ -207,6 +219,42 @@ describe('ErrandsController', () => {
     it('rejects a caller without a token', async () => {
       expect((await act(errandId, 'accept')).status).toBe(401);
       expect(lifecycle.transition).not.toHaveBeenCalled();
+    });
+
+    describe('participant role', () => {
+      // action, a valid body, the role that takes its edge, the other role
+      const routes = [
+        ['accept', undefined, Role.Courier, Role.Requester],
+        ['pickup', undefined, Role.Courier, Role.Requester],
+        ['deliver', undefined, Role.Courier, Role.Requester],
+        ['withdraw', { reason: 'bike broke down' }, Role.Courier, Role.Requester],
+        ['confirm', undefined, Role.Requester, Role.Courier],
+        ['incomplete', undefined, Role.Requester, Role.Courier],
+        ['adjust', { newAmount: 9 }, Role.Requester, Role.Courier],
+        ['cancel', undefined, Role.Requester, Role.Courier],
+      ] as const;
+
+      it.each(routes)('lets %s through with only the %s role', async (action, body, role) => {
+        lifecycle.currentStatus.mockResolvedValue('Open');
+        lifecycle.transition.mockResolvedValue({ ok: true, sequenceNumber: 2 });
+
+        const res = await act(errandId, action, body, await signAccessToken({ roles: [role] }));
+
+        expect(res.status).toBe(200);
+      });
+
+      it.each(routes)('refuses %s to a caller without the role, before reading anything', async (action, body, _, other) => {
+        const res = await act(errandId, action, body, await signAccessToken({ roles: [other] }));
+
+        expect(res.status).toBe(403);
+        expect(lifecycle.currentStatus).not.toHaveBeenCalled();
+        expect(lifecycle.transition).not.toHaveBeenCalled();
+      });
+
+      it('refuses a caller with no participant role', async () => {
+        expect((await act(errandId, 'accept', undefined, await signAccessToken({ roles: [] }))).status).toBe(403);
+        expect(lifecycle.transition).not.toHaveBeenCalled();
+      });
     });
 
     describe('Idempotency-Key', () => {

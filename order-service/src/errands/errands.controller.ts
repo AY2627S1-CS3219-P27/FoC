@@ -1,4 +1,5 @@
-import { type AuthenticatedRequest, JwtAuthGuard } from '@foc/auth';
+import { type AuthenticatedRequest, JwtAuthGuard, Roles, RolesGuard } from '@foc/auth';
+import { Role } from '@foc/contracts';
 import {
   Body,
   Controller,
@@ -19,13 +20,16 @@ import { ACTIONS, type ActionContext, type ActionName } from './actions.js';
 import { IdempotencyKey } from './idempotency-key.js';
 import { isReplay, REPLAYED_HEADER, resultToHttp } from './result-to-http.js';
 
-// Every route needs a valid access token: none of them is public.
+// Every route needs a valid access token (none is public) and the participant
+// role that takes its edge. The role is a first gate only: transition() still
+// checks the caller is this errand's requester or courier.
 @Controller('v1/errands')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class ErrandsController {
   constructor(private readonly lifecycle: LifecycleService) {}
 
   @Post()
+  @Roles(Role.Requester)
   async create(
     @Body() body: CreateErrandDto,
     @Req() req: AuthenticatedRequest,
@@ -43,6 +47,7 @@ export class ErrandsController {
   }
 
   @Post(':id/accept')
+  @Roles(Role.Courier)
   @HttpCode(200)
   accept(
     @Param('id', ParseUUIDPipe) id: string,
@@ -54,6 +59,7 @@ export class ErrandsController {
   }
 
   @Post(':id/pickup')
+  @Roles(Role.Courier)
   @HttpCode(200)
   pickup(
     @Param('id', ParseUUIDPipe) id: string,
@@ -65,6 +71,7 @@ export class ErrandsController {
   }
 
   @Post(':id/deliver')
+  @Roles(Role.Courier)
   @HttpCode(200)
   deliver(
     @Param('id', ParseUUIDPipe) id: string,
@@ -76,6 +83,7 @@ export class ErrandsController {
   }
 
   @Post(':id/confirm')
+  @Roles(Role.Requester)
   @HttpCode(200)
   confirm(
     @Param('id', ParseUUIDPipe) id: string,
@@ -87,6 +95,7 @@ export class ErrandsController {
   }
 
   @Post(':id/incomplete')
+  @Roles(Role.Requester)
   @HttpCode(200)
   incomplete(
     @Param('id', ParseUUIDPipe) id: string,
@@ -98,6 +107,7 @@ export class ErrandsController {
   }
 
   @Post(':id/withdraw')
+  @Roles(Role.Courier)
   @HttpCode(200)
   withdraw(
     @Param('id', ParseUUIDPipe) id: string,
@@ -110,6 +120,7 @@ export class ErrandsController {
   }
 
   @Post(':id/adjust')
+  @Roles(Role.Requester)
   @HttpCode(200)
   adjust(
     @Param('id', ParseUUIDPipe) id: string,
@@ -122,6 +133,7 @@ export class ErrandsController {
   }
 
   @Post(':id/cancel')
+  @Roles(Role.Requester)
   @HttpCode(200)
   async cancel(
     @Param('id', ParseUUIDPipe) id: string,
