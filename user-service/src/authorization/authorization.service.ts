@@ -33,6 +33,21 @@ export class AuthorizationService {
     }
   }
 
+  /**
+   * Attempts to remove a block for the provided user.
+   *
+   * Best effort as above; ignores keys that are not present.
+   */
+  async removeAdminBlock(uuid: string) {
+    try {
+      await this.redis.DEL(adminBlockKey(uuid));
+    } catch (err) {
+      this.logger.error(
+        `Failed to remove admin block for ${uuid}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
   async checkIsAdminBlocked(uuid: string) {
     const val = await this.redis.get(adminBlockKey(uuid));
     return val !== null;

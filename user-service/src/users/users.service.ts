@@ -341,11 +341,13 @@ export class UsersService {
       // Audit record of changes
       const changedFields: Record<string, UserUpdateAuditChangedField> = {};
 
+      // Perform admin status change
       const { change: adminChange, isDemoted } =
         await this.applyAdminStatusChange(manager, target, fields.isAdmin);
       if (adminChange !== undefined) changedFields.isAdmin = adminChange;
-      demoted = isDemoted;
+      demoted = isDemoted; // update upper-scope demoted variable for post-transaction actions
 
+      // Perform archive status change
       const archiveChange = await this.applyArchiveChange(
         manager,
         target,
@@ -353,6 +355,7 @@ export class UsersService {
       );
       if (archiveChange !== undefined) changedFields.isArchived = archiveChange;
 
+      // No change; return early without saving
       if (Object.keys(changedFields).length === 0) {
         return target;
       }
@@ -369,9 +372,11 @@ export class UsersService {
       return target;
     });
 
-    // Record admin lock after transaction commits
-    if (demoted) {
+    // Post-transaction: create/remove admin block (redis)
+    if (demoted === true) {
       await this.authorizationService.createAdminBlock(targetUuid);
+    } else if (demoted === false) {
+      await this.authorizationService.removeAdminBlock(targetUuid);
     }
 
     return target;
@@ -413,9 +418,9 @@ export class UsersService {
     isAdmin: boolean | undefined,
   ): Promise<{
     change: UserUpdateAuditChangedField | undefined;
-    isDemoted: boolean;
+    isDemoted: boolean | undefined;
   }> {
-    let isDemoted = false;
+    let isDemoted;
     if (isAdmin === undefined || isAdmin === target.isAdmin) {
       return { change: undefined, isDemoted };
     }
@@ -427,6 +432,7 @@ export class UsersService {
       isDemoted = true;
     } else {
       target.isAdmin = true; // no other checks needed for promotion
+      isDemoted = false;
     }
 
     const change: UserUpdateAuditChangedField = {

@@ -10,6 +10,7 @@ describe('AuthorizationService', () => {
   let service: AuthorizationService;
   let redis: {
     set: ReturnType<typeof vi.fn>;
+    DEL: ReturnType<typeof vi.fn>;
     get: ReturnType<typeof vi.fn>;
   };
 
@@ -17,6 +18,7 @@ describe('AuthorizationService', () => {
     // Default: no block present, so the happy path stays unblocked.
     redis = {
       set: vi.fn(),
+      DEL: vi.fn(),
       get: vi.fn(async () => null),
     };
 
@@ -40,6 +42,26 @@ describe('AuthorizationService', () => {
       redis.set.mockRejectedValue(new Error('redis down'));
 
       await expect(service.createAdminBlock(UUID)).resolves.toBeUndefined();
+    });
+  });
+
+  describe('removeAdminBlock', () => {
+    it('deletes the block key', async () => {
+      await service.removeAdminBlock(UUID);
+
+      expect(redis.DEL).toHaveBeenCalledWith(adminBlockKey(UUID));
+    });
+
+    it('resolves even when the key is absent: DEL is a no-op in Redis', async () => {
+      redis.DEL.mockResolvedValue(0);
+
+      await expect(service.removeAdminBlock(UUID)).resolves.toBeUndefined();
+    });
+
+    it('swallows Redis errors: the promotion is already committed', async () => {
+      redis.DEL.mockRejectedValue(new Error('redis down'));
+
+      await expect(service.removeAdminBlock(UUID)).resolves.toBeUndefined();
     });
   });
 
