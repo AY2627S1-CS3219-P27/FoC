@@ -1,6 +1,7 @@
 services:
   email-service:
     build: .
+    image: ${FOC_IMAGE_PREFIX:-foc}/email-service:${EMAIL_SERVICE_IMAGE_TAG:-dev}
     environment:
       - SMTP_HOST=${SMTP_HOST}
       - SMTP_PORT=${SMTP_PORT}

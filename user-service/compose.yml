@@ -3,6 +3,7 @@ services:
     build:
       context: ..
       dockerfile: user-service/Dockerfile
+    image: ${FOC_IMAGE_PREFIX:-foc}/user-service:${USER_SERVICE_IMAGE_TAG:-dev}
     command: npm run start:dev
     ports:
       - '3000:3000'
