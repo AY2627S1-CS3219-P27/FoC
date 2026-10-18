@@ -33,6 +33,14 @@ services:
       SEED_CSV_PATH: /seed-data/supplier-seed-data.csv
       JWT_PUBLIC_KEY_FILE: /run/secrets/supplier_jwt_public_key
       PLACEHOLDER_IMAGE_URL: ${SUPPLIER_PLACEHOLDER_IMAGE_URL:-}
+      # The broker connection is shared (env/shared.env); the login is this
+      # service's own. The password secret is mounted once the broker user
+      # exists in rabbitmq/definitions.json.
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/foc}
+      RABBITMQ_USER: ${SUPPLIER_RABBITMQ_USER:-supplier-service}
+      RABBITMQ_PASSWORD_FILE: /run/secrets/supplier_rabbitmq_password
     volumes:
       # The template's seed file, read in place (never copied into the image).
       - ../data/csv:/seed-data:ro

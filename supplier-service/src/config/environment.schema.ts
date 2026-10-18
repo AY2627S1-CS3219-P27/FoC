@@ -1,3 +1,8 @@
+import {
+  outboxEnvironmentKeys,
+  validateOutboxTiming,
+  type OutboxEnvironmentVariables,
+} from '@foc/outbox';
 import Joi from 'joi';
 
 export const LOG_LEVELS = [
@@ -11,7 +16,7 @@ export const LOG_LEVELS = [
 
 export type LogLevelName = (typeof LOG_LEVELS)[number];
 
-export interface EnvironmentVariables {
+export interface EnvironmentVariables extends OutboxEnvironmentVariables {
   NODE_ENV: 'development' | 'test' | 'production';
   PORT: number;
   LOG_LEVEL: LogLevelName;
@@ -29,7 +34,44 @@ export interface EnvironmentVariables {
   SEED_CSV_PATH: string;
   JWT_PUBLIC_KEY_FILE: string;
   PLACEHOLDER_IMAGE_URL: string;
+  RABBITMQ_USER: string;
+  RABBITMQ_HOST: string;
+  RABBITMQ_PORT: number;
+  RABBITMQ_VHOST: string;
+  RABBITMQ_PASSWORD_FILE: string;
+  RABBITMQ_EXCHANGE: string;
+  RABBITMQ_RETRY_EXCHANGE: string;
+  RABBITMQ_RETRY_RETURN_EXCHANGE: string;
+  RABBITMQ_DEAD_LETTER_EXCHANGE: string;
+  RABBITMQ_PREFETCH: number;
+  RABBITMQ_RETRY_DELAYS_MS: number[];
 }
+
+const DEFAULT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000];
+
+/**
+ * Five strictly increasing delays, one per retry before a message is
+ * dead-lettered (F15.7.5), as in credit-service.
+ */
+const retryDelaysSchema = Joi.any()
+  .default(DEFAULT_RETRY_DELAYS_MS)
+  .custom((value: unknown, helpers) => {
+    if (typeof value !== 'string') {
+      return helpers.error('any.invalid');
+    }
+
+    const delays = value.split(',').map((delay) => Number(delay.trim()));
+
+    if (
+      delays.length !== 5 ||
+      delays.some((delay) => !Number.isSafeInteger(delay) || delay <= 0) ||
+      delays.some((delay, index) => index > 0 && delay <= delays[index - 1])
+    ) {
+      return helpers.error('any.invalid');
+    }
+
+    return delays;
+  }, 'RabbitMQ retry delays');
 
 /**
  * Validates the whole environment up front when the app boots.
@@ -81,6 +123,28 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
     .uri({ scheme: ['http', 'https'] })
     .allow('')
     .default(''),
+  // RabbitMQ, for Order Service's supplier-validation requests (F15.7). The
+  // connection comes from env/shared.env; the login is this service's own
+  // broker user (F13.7). The password is read from the file only on connect.
+  RABBITMQ_USER: Joi.string().min(1).required(),
+  RABBITMQ_HOST: Joi.string().hostname().required(),
+  RABBITMQ_PORT: Joi.number().integer().min(1).max(65_535).required(),
+  RABBITMQ_VHOST: Joi.string().min(1).required(),
+  RABBITMQ_PASSWORD_FILE: Joi.string().min(1).required(),
+  RABBITMQ_EXCHANGE: Joi.string().min(1).default('foc.events'),
+  // This service's own retry, return and dead-letter exchanges, named like
+  // credit-service's (foc.credit.*) and order-service's (foc.order.*).
+  RABBITMQ_RETRY_EXCHANGE: Joi.string().min(1).default('foc.supplier.retry'),
+  RABBITMQ_RETRY_RETURN_EXCHANGE: Joi.string()
+    .min(1)
+    .default('foc.supplier.back'),
+  RABBITMQ_DEAD_LETTER_EXCHANGE: Joi.string()
+    .min(1)
+    .default('foc.supplier.dlx'),
+  RABBITMQ_PREFETCH: Joi.number().integer().min(1).default(10),
+  RABBITMQ_RETRY_DELAYS_MS: retryDelaysSchema,
+  // The transactional outbox that publishes replies (F15.7.3).
+  ...outboxEnvironmentKeys,
 })
   .unknown(true)
   // Checked on the whole object, after defaults are applied: setting only a
@@ -99,6 +163,7 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
     }
     return env;
   })
+  .custom(validateOutboxTiming, 'outbox timing relationships')
   .prefs({ abortEarly: false, convert: true });
 
 /**
