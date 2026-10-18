@@ -39,6 +39,12 @@ describe('environmentSchema', () => {
       RABBITMQ_DEAD_LETTER_EXCHANGE: 'foc.supplier.dlx',
       RABBITMQ_PREFETCH: 10,
       RABBITMQ_RETRY_DELAYS_MS: [1000, 2000, 4000, 8000, 16000],
+      RABBITMQ_SUPPLIER_VALIDATION_QUEUE:
+        'supplier-service.order-supplier-validation-requested.v1',
+      RABBITMQ_SUPPLIER_VALIDATION_REQUESTED_ROUTING_KEY:
+        'order.supplier-validation-requested.v1',
+      RABBITMQ_SUPPLIER_VALIDATION_COMPLETED_ROUTING_KEY:
+        'supplier.validation-completed.v1',
       OUTBOX_POLL_INTERVAL_MS: 1000,
     });
   });

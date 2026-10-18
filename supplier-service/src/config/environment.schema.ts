@@ -3,6 +3,10 @@ import {
   validateOutboxTiming,
   type OutboxEnvironmentVariables,
 } from '@foc/outbox';
+import {
+  ORDER_SUPPLIER_VALIDATION_REQUESTED_V1_ROUTING_KEY,
+  SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY,
+} from '@foc/contracts';
 import Joi from 'joi';
 
 export const LOG_LEVELS = [
@@ -45,6 +49,9 @@ export interface EnvironmentVariables extends OutboxEnvironmentVariables {
   RABBITMQ_DEAD_LETTER_EXCHANGE: string;
   RABBITMQ_PREFETCH: number;
   RABBITMQ_RETRY_DELAYS_MS: number[];
+  RABBITMQ_SUPPLIER_VALIDATION_QUEUE: string;
+  RABBITMQ_SUPPLIER_VALIDATION_REQUESTED_ROUTING_KEY: typeof ORDER_SUPPLIER_VALIDATION_REQUESTED_V1_ROUTING_KEY;
+  RABBITMQ_SUPPLIER_VALIDATION_COMPLETED_ROUTING_KEY: typeof SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY;
 }
 
 const DEFAULT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000];
@@ -143,6 +150,17 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
     .default('foc.supplier.dlx'),
   RABBITMQ_PREFETCH: Joi.number().integer().min(1).default(10),
   RABBITMQ_RETRY_DELAYS_MS: retryDelaysSchema,
+  // Order Service's supplier-validation requests, and our replies (F15.7).
+  // The routing keys are pinned to the shared contracts, as in credit-service.
+  RABBITMQ_SUPPLIER_VALIDATION_QUEUE: Joi.string()
+    .min(1)
+    .default('supplier-service.order-supplier-validation-requested.v1'),
+  RABBITMQ_SUPPLIER_VALIDATION_REQUESTED_ROUTING_KEY: Joi.string()
+    .valid(ORDER_SUPPLIER_VALIDATION_REQUESTED_V1_ROUTING_KEY)
+    .default(ORDER_SUPPLIER_VALIDATION_REQUESTED_V1_ROUTING_KEY),
+  RABBITMQ_SUPPLIER_VALIDATION_COMPLETED_ROUTING_KEY: Joi.string()
+    .valid(SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY)
+    .default(SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY),
   // The transactional outbox that publishes replies (F15.7.3).
   ...outboxEnvironmentKeys,
 })

@@ -43,6 +43,12 @@ const configuration: EnvironmentVariables = {
   RABBITMQ_DEAD_LETTER_EXCHANGE: 'foc.supplier.dlx',
   RABBITMQ_PREFETCH: 10,
   RABBITMQ_RETRY_DELAYS_MS: [1_000, 2_000, 4_000, 8_000, 16_000],
+  RABBITMQ_SUPPLIER_VALIDATION_QUEUE:
+    'supplier-service.order-supplier-validation-requested.v1',
+  RABBITMQ_SUPPLIER_VALIDATION_REQUESTED_ROUTING_KEY:
+    'order.supplier-validation-requested.v1',
+  RABBITMQ_SUPPLIER_VALIDATION_COMPLETED_ROUTING_KEY:
+    'supplier.validation-completed.v1',
   OUTBOX_POLL_INTERVAL_MS: 1_000,
   OUTBOX_BATCH_SIZE: 100,
   OUTBOX_CONFIRM_TIMEOUT_MS: 20_000,
