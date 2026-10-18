@@ -2,6 +2,7 @@ import { OTP_PREFIX } from '../constants.js';
 import { hmacValue } from './hash.js';
 
 const REGISTRATION_TOKEN_PREFIX = 'regtoken';
+const ADMIN_BLOCK_TOKEN_PREFIX = 'adminblock';
 const REGISTRATION_HASH_LENGTH = 32;
 const OTP_HASH_LENGTH = 16;
 const RESET_TOKEN_PREFIX = 'resettoken';
@@ -48,4 +49,11 @@ export function resetTokenRecordKey(token: string, secret: string): string {
  */
 export function resetTokenCountKey(email: string): string {
   return `${RESET_TOKEN_PREFIX}:count:${email}`;
+}
+
+/**
+ * Simple key for admin-related block actions.
+ */
+export function adminBlockKey(uuid: string): string {
+  return `${ADMIN_BLOCK_TOKEN_PREFIX}:${uuid}`;
 }
