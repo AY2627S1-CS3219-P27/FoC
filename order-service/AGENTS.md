@@ -21,7 +21,7 @@ Run from `order-service/`:
 ## Rules
 
 - Only the Lifecycle module (`src/lifecycle/`) writes errand state. Every write, from a request, a notice reply or a sweep, goes through the one transition function (conditional `UPDATE … WHERE status = expected` + `INSERT errand_events` in one transaction).
-- Sweeps live in `src/sweeps/` and call `transition()` with `SYSTEM`; one advisory lock per tick covers all of them.
+- Sweeps live in `src/sweeps/` and call `transition()` with `SYSTEM`; one advisory lock per tick covers all of them. Resend bookkeeping (`supplier_validation_retries`) and outbox re-queues are the only other rows a sweep writes; never put it on `errands`.
 - Every `transition()` caller passes the actor explicitly: `user(id)` from an authenticated request, `SYSTEM` from message consumers and sweeps. Never default to `SYSTEM`. Callers must handle the refusals `FORBIDDEN`, `COURIER_BUSY` (not stored under an idempotency key, so retry-able), `EXPIRED` (accept only; the errand stays `Open` for the sweep to cancel) and `IDEMPOTENCY_KEY_REUSED`.
 - Cancellation reasons are tied to the actor: `REQUESTER_CANCELLED` is user-only, every other reason system-only (`USER_REASONS` in `edges.ts`). The set is also a DB CHECK.
 - Allowed transitions live in `src/lifecycle/status.ts` (`ALLOWED`); change them there and in `ARCHITECTURE.md` §2 together.

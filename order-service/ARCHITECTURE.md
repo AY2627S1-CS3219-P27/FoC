@@ -17,7 +17,7 @@ flowchart LR
     Read[Read side<br/>list / filter / sort, sub-state to Pending]
     Consumers[Notice consumers<br/>supplier + credit replies]
     Outbox[Outbox relay + publisher]
-    Sweeps[Sweeps<br/>expiry, pickup, auto-complete, credit timeouts]
+    Sweeps[Sweeps<br/>expiry, pickup, auto-complete, credit timeouts,<br/>supplier resend + hold]
   end
 
   subgraph PG[PostgreSQL]
@@ -173,21 +173,30 @@ sequenceDiagram
   O->>O: validate (F1.1, expiry time F1.7), not role-blocked
   O-->>R: 201 errand, status Pending
   Note over O: stored as Pending-Supplier, expiry duration kept (ADR 0007)
-  O-)S: supplier validation request
-  S--)O: success (Active) / failure
-  O->>O: Pending-Supplier to Reserving-Credit
-  O-)K: CreditReservation (once)
+  O-)S: SupplierValidationRequested (outbox, same transaction as create)
+  alt FOUND and Active
+    S--)O: SupplierValidationCompleted
+    O->>O: Pending-Supplier to Reserving-Credit, supplier_validated_at = reply time
+  else NOT_FOUND or Inactive
+    S--)O: SupplierValidationCompleted
+    O->>O: to Cancelled (SUPPLIER_UNAVAILABLE)
+  else no reply
+    O-)S: sweep re-sends the same eventId, backoff + jitter
+    O->>O: after the hold window, to Cancelled (SUPPLIER_VALIDATION_TIMEOUT)
+  end
+  O-)K: CreditReservation (once, Active branch only)
   K--)O: CreditReservationSuccess / Rejected
   O->>O: to Open (expiresAt = now + duration, ADR 0007) or Cancelled
 ```
 
-`createErrand()` takes `expiryDurationMinutes` (15 to 10080, default 60), kept only in the `ErrandCreated` payload; the `CreditReserved` edge sets `expires_at` and records it in its own payload (ADR 0007). Creation never blocks on the supplier or credit outcome (F1.4.2). If Supplier Service is unreachable the errand stays in `Pending-Supplier`; the supplier retry sweep is not built yet (no supplier contract).
+`createErrand()` takes `expiryDurationMinutes` (15 to 10080, default 60), kept only in the `ErrandCreated` payload; the `CreditReserved` edge sets `expires_at` and records it in its own payload (ADR 0007). Creation never blocks on the supplier or credit outcome (F1.4.2).
+
+Supplier validation (`src/supplier-replies/`, supplier ADR 0002): an Active supplier moves the errand on and the `SupplierValidated` event keeps the reply's supplier snapshot verbatim; a missing or Inactive one cancels it (F1.4.4); nothing is reserved yet, so no release is sent. If no reply comes (F1.5), a sweep re-queues the original request with the same `eventId`, so Supplier Service answers it at most once, with exponential backoff and jitter (`SUPPLIER_RETRY_BASE_MS`, `SUPPLIER_RETRY_MAX_MS`), tracking attempts in `supplier_validation_retries`. After `SUPPLIER_VALIDATION_HOLD_MS` from creation it cancels with `SUPPLIER_VALIDATION_TIMEOUT`; a reply arriving after that is acked and dropped.
 
 
 ## Remaining work before rollout
 
 Not needed to merge the lifecycle/sweeps work; needed before it is relied on:
 
-- **Cleanup (item 5):** per-type payload validation (L3, ADR 0005), the health route, the ADR 0002 amendment, the §2 diagram check, and the backlog issue edits.
-- **Verification (item 6):** a real-broker `test:messaging` case (at least that a sweep re-queued event id is re-delivered), a fixture script faking credit's replies, and the rollout-order check (credit's queues must be bound before order publishes; a direct exchange drops unbound messages silently).
-- **Not built:** the `Pending-Supplier` retry and hold-window sweep (no supplier contract); `supplier_validated_at` (ADR 0007).
+- **Cleanup (item 5):** the ADR 0002 amendment, the §2 diagram check, and the backlog issue edits.
+- **Verification (item 6):** a real-broker `test:messaging` case (at least that a sweep re-queued event id is re-delivered), a fixture script faking credit's and supplier's replies, and the rollout-order check (credit's queues must be bound before order publishes; a direct exchange drops unbound messages silently).
