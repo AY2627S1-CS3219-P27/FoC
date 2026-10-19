@@ -1,4 +1,6 @@
+import { Type } from 'class-transformer';
 import {
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -68,4 +70,47 @@ export class AdjustErrandDto {
   @Min(1)
   @Max(MAX_CREDITS)
   newAmount: number;
+}
+
+export const LIST_SORTS = ['expiring', 'newest', 'credits'] as const;
+export type ListSort = (typeof LIST_SORTS)[number];
+export const DEFAULT_LIMIT = 20;
+export const MAX_LIMIT = 50;
+
+// Query string of GET /v1/errands. Numbers arrive as strings, hence @Type.
+export class ListErrandsQuery {
+  @IsOptional()
+  @IsString()
+  @Length(1, MAX_LOCATION_LENGTH)
+  pickupBuilding?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, MAX_LOCATION_LENGTH)
+  deliveryBuilding?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(MAX_CREDITS)
+  minCredits?: number;
+
+  @IsOptional()
+  @IsIn(LIST_SORTS)
+  sort: ListSort = 'expiring';
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(MAX_LIMIT)
+  limit: number = DEFAULT_LIMIT;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(MAX_CREDITS)
+  offset: number = 0;
 }

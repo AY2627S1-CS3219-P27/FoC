@@ -3,17 +3,25 @@ import { Role } from '@foc/contracts';
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { LifecycleService } from '../lifecycle/lifecycle.service.js';
-import { WithdrawErrandDto, AdjustErrandDto, CreateErrandDto } from './errands.dto.js';
+import {
+  WithdrawErrandDto,
+  AdjustErrandDto,
+  CreateErrandDto,
+  ListErrandsQuery,
+} from './errands.dto.js';
+import { ErrandsQueryService } from './errands.query.js';
 import { requesterCanCancel } from '../lifecycle/edges.js';
 import { user } from '../lifecycle/transition.js';
 import { ACTIONS, type ActionContext, type ActionName } from './actions.js';
@@ -26,7 +34,17 @@ import { isReplay, REPLAYED_HEADER, resultToHttp } from './result-to-http.js';
 @Controller('v1/errands')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ErrandsController {
-  constructor(private readonly lifecycle: LifecycleService) {}
+  constructor(
+    private readonly lifecycle: LifecycleService,
+    private readonly queries: ErrandsQueryService,
+  ) {}
+
+  // Reads go to the query service, never through transition().
+  @Get()
+  @Roles(Role.Courier)
+  list(@Query() query: ListErrandsQuery, @Req() req: AuthenticatedRequest) {
+    return this.queries.list(req.user.sub, query);
+  }
 
   @Post()
   @Roles(Role.Requester)
