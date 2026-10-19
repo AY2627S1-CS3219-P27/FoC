@@ -64,6 +64,13 @@
       "when": 1792379843930,
       "tag": "0008_errand_collection_items",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792417747789,
+      "tag": "0009_role_blocks",
+      "breakpoints": true
     }
   ]
 }

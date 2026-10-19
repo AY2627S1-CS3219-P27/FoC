@@ -141,3 +141,15 @@ export const outboxEvents = pgTable(
       .where(sql`${t.publishedAt} IS NULL`),  
   ],
 );
+
+// Short-lived block on a participant role (F10): a stale access token may still
+// carry the role, so create/accept refuse while `expires_at` is in the future.
+export const roleBlocks = pgTable(
+  'role_blocks',
+  {
+    userId: uuid('user_id').notNull(),
+    role: text('role').notNull(),
+    expiresAt: ts('expires_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.role] })],
+);
