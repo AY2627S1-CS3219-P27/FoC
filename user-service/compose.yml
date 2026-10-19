@@ -1,6 +1,6 @@
 services:
   user-service:
-    restart: "on-failure: 3"
+    restart: on-failure:3
     build:
       context: ..
       dockerfile: user-service/Dockerfile
@@ -101,7 +101,7 @@ services:
 
   user-db:
     image: postgres:18-alpine
-    restart: "on-failure: 3"
+    restart: on-failure:3
     ports:
       - '${USER_SERVICE_DB_PORT}:5432'
     environment:
@@ -121,7 +121,7 @@ services:
 
   redis:
     image: redis:latest
-    restart: "on-failure: 3"
+    restart: on-failure:3
     ports:
       - '${REDIS_PORT}:6379'
     healthcheck:
