@@ -13,6 +13,7 @@ import { JwtAuthGuard } from '@foc/auth';
 import { UpdateProfileDto } from './DTO/update-profile.dto.js';
 import { UpdateRolesDto } from './DTO/update-roles.dto.js';
 import { AdminUpdateUserDto } from './DTO/admin-update-user.dto.js';
+import { AdminCreateUserDto } from './DTO/admin-create-user.dto.js';
 import { ListUsersQueryDto } from './DTO/list-users.query.dto.js';
 import { ACCESS_TOKEN_COOKIE, Role } from '@foc/contracts';
 
@@ -24,6 +25,7 @@ describe('UsersController', () => {
     updateRoles: ReturnType<typeof vi.fn>;
     archiveSelf: ReturnType<typeof vi.fn>;
     adminUpdateUser: ReturnType<typeof vi.fn>;
+    adminCreateUser: ReturnType<typeof vi.fn>;
     listUsers: ReturnType<typeof vi.fn>;
   };
   let configGet: ReturnType<typeof vi.fn>;
@@ -36,6 +38,7 @@ describe('UsersController', () => {
       updateRoles: vi.fn(),
       archiveSelf: vi.fn(),
       adminUpdateUser: vi.fn(),
+      adminCreateUser: vi.fn(),
       listUsers: vi.fn(),
     };
     configGet = vi.fn(() => 'development');
@@ -364,6 +367,51 @@ describe('UsersController', () => {
         '11111111-1111-4111-8111-111111111111',
         '22222222-2222-4222-8222-222222222222',
         { isArchived: true },
+      );
+    });
+  });
+
+  describe('adminCreateUser', () => {
+    const adminRequest = {
+      user: { ...authenticatedRequest.user, isAdmin: true },
+    };
+
+    const createdUser = {
+      uuid: '22222222-2222-4222-8222-222222222222',
+      email: 'mallory@example.com',
+      displayName: 'Mallory',
+      profilePictureUrl: null,
+      roles: [Role.Requester] as Role[],
+      isAdmin: false,
+      isLocked: true,
+      isArchived: false,
+    };
+
+    it('delegates to the service with the acting admin and body', async () => {
+      usersService.adminCreateUser.mockResolvedValue(createdUser);
+
+      const body = {
+        email: 'mallory@example.com',
+        displayName: 'Mallory',
+        roles: [Role.Requester],
+      };
+
+      await expect(
+        controller.adminCreateUser(adminRequest as never, body as never),
+      ).resolves.toEqual({
+        uuid: '22222222-2222-4222-8222-222222222222',
+        displayName: 'Mallory',
+        email: 'mallory@example.com',
+        roles: [Role.Requester],
+        profilePictureUrl: null,
+        isAdmin: false,
+        isLocked: true,
+        isArchived: false,
+      });
+
+      expect(usersService.adminCreateUser).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111',
+        body,
       );
     });
   });
@@ -715,6 +763,160 @@ describe('admin update user body validation', () => {
   it('rejects a null Archival Status', async () => {
     await expect(
       pipe.transform({ isArchived: null }, bodyMetadata(AdminUpdateUserDto)),
+    ).rejects.toThrow(BadRequestException);
+  });
+});
+
+describe('admin create user body validation', () => {
+  const pipe = new ValidationPipe({ whitelist: true, transform: true });
+  const bodyMetadata = (metatype: Function) =>
+    ({ type: 'body', metatype }) as const;
+
+  const validBody = {
+    email: 'staff@company.com',
+    displayName: 'Staff Member',
+    roles: [Role.Requester],
+    profilePictureUrl: 'https://example.com/avatar.png',
+    isAdmin: false,
+  };
+
+  it('accepts a full valid body', async () => {
+    const value = await pipe.transform(
+      validBody,
+      bodyMetadata(AdminCreateUserDto),
+    );
+    expect(value).toBeInstanceOf(AdminCreateUserDto);
+    expect(value).toMatchObject(validBody);
+  });
+
+  it('lowercases the email before validation', async () => {
+    const value = await pipe.transform(
+      { ...validBody, email: 'Staff@Company.com' },
+      bodyMetadata(AdminCreateUserDto),
+    );
+    expect(value.email).toBe('staff@company.com');
+  });
+
+  it('accepts a non-NUS email (F15.1.3)', async () => {
+    const value = await pipe.transform(
+      { ...validBody, email: 'contractor@external.io' },
+      bodyMetadata(AdminCreateUserDto),
+    );
+    expect(value.email).toBe('contractor@external.io');
+  });
+
+  it('accepts a body with only the required fields', async () => {
+    const value = await pipe.transform(
+      { email: 'staff@company.com', displayName: 'Staff Member' },
+      bodyMetadata(AdminCreateUserDto),
+    );
+    expect(value).toBeInstanceOf(AdminCreateUserDto);
+    expect(value.roles).toBeUndefined();
+    expect(value.isAdmin).toBeUndefined();
+  });
+
+  it('strips caller-supplied identity and credential fields (whitelist)', async () => {
+    const value = await pipe.transform(
+      {
+        ...validBody,
+        uuid: '11111111-1111-4111-8111-111111111111',
+        password: 'hunter2hunter2',
+        isLocked: false,
+      },
+      bodyMetadata(AdminCreateUserDto),
+    );
+    expect(value).not.toHaveProperty('uuid');
+    expect(value).not.toHaveProperty('password');
+    expect(value).not.toHaveProperty('isLocked');
+  });
+
+  it('rejects a missing email', async () => {
+    await expect(
+      pipe.transform(
+        { displayName: 'Staff' },
+        bodyMetadata(AdminCreateUserDto),
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a malformed email', async () => {
+    await expect(
+      pipe.transform(
+        { email: 'not-an-email', displayName: 'Staff' },
+        bodyMetadata(AdminCreateUserDto),
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a missing display name', async () => {
+    await expect(
+      pipe.transform(
+        { email: 'staff@company.com' },
+        bodyMetadata(AdminCreateUserDto),
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a display name that is too long', async () => {
+    await expect(
+      pipe.transform(
+        { email: 'staff@company.com', displayName: 'x'.repeat(256) },
+        bodyMetadata(AdminCreateUserDto),
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a whitespace-only display name', async () => {
+    await expect(
+      pipe.transform(
+        { email: 'staff@company.com', displayName: '   ' },
+        bodyMetadata(AdminCreateUserDto),
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a non-array roles body', async () => {
+    await expect(
+      pipe.transform(
+        { ...validBody, roles: 'requester' },
+        bodyMetadata(AdminCreateUserDto),
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a role that is not a participant role', async () => {
+    await expect(
+      pipe.transform(
+        { ...validBody, roles: ['admin'] },
+        bodyMetadata(AdminCreateUserDto),
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a profile picture that is not an http(s) URL', async () => {
+    await expect(
+      pipe.transform(
+        { ...validBody, profilePictureUrl: 'ftp://example.com/a.png' },
+        bodyMetadata(AdminCreateUserDto),
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a non-boolean Admin Status instead of coercing it', async () => {
+    await expect(
+      pipe.transform(
+        { ...validBody, isAdmin: 'true' },
+        bodyMetadata(AdminCreateUserDto),
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a null Admin Status', async () => {
+    await expect(
+      pipe.transform(
+        { ...validBody, isAdmin: null },
+        bodyMetadata(AdminCreateUserDto),
+      ),
     ).rejects.toThrow(BadRequestException);
   });
 });

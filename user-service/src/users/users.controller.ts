@@ -21,9 +21,14 @@ import type { Paginated } from '@foc/contracts';
 import { ACCESS_TOKEN_COOKIE } from '@foc/contracts';
 import { UpdateRolesDto } from './DTO/update-roles.dto.js';
 import { UpdateProfileDto } from './DTO/update-profile.dto.js';
+import { AdminCreateUserDto } from './DTO/admin-create-user.dto.js';
 import { AdminUpdateUserDto } from './DTO/admin-update-user.dto.js';
 import { ListUsersQueryDto } from './DTO/list-users.query.dto.js';
-import { toUserInfoView, UserInfoView } from './user-info.view.js';
+import {
+  AdminUserInfoView,
+  toUserInfoView,
+  UserInfoView,
+} from './user-info.view.js';
 import { UsersService } from './users.service.js';
 
 @Controller('users')
@@ -192,5 +197,27 @@ export class UsersController {
     );
 
     return toUserInfoView(updated, { includeAdminFlags: true });
+  }
+
+  /**
+   * Admin-only user creation. Provisions a locked account with a
+   * random discarded password that the end-user replaces through the
+   * password-reset flow. The caller is always an admin, so the returned view
+   * always includes the account-management flags.
+   */
+  @Post()
+  @UseGuards(AdminGuard)
+  async adminCreateUser(
+    @Req() request: AuthenticatedRequest,
+    @Body() adminCreateUserDto: AdminCreateUserDto,
+  ): Promise<AdminUserInfoView> {
+    const user = await this.usersService.adminCreateUser(
+      request.user.sub,
+      adminCreateUserDto,
+    );
+
+    return toUserInfoView(user, {
+      includeAdminFlags: true,
+    }) as AdminUserInfoView;
   }
 }

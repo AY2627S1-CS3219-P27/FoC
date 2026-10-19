@@ -139,6 +139,27 @@ describe('user-service (e2e)', () => {
             isArchived: fields.isArchived ?? false,
           }),
         ),
+        adminCreateUser: vi.fn(
+          async (
+            _actorUuid: string,
+            fields: {
+              email: string;
+              displayName: string;
+              roles?: Role[];
+              profilePictureUrl?: string | null;
+              isAdmin?: boolean;
+            },
+          ) => ({
+            uuid: '22222222-2222-4222-8222-222222222222',
+            email: fields.email,
+            displayName: fields.displayName,
+            profilePictureUrl: fields.profilePictureUrl ?? null,
+            roles: fields.roles ?? [],
+            isAdmin: fields.isAdmin ?? false,
+            isLocked: true,
+            isArchived: false,
+          }),
+        ),
         countActiveAdmins: async () => 1,
       })
       .overrideProvider(SecretService)
@@ -353,6 +374,114 @@ describe('user-service (e2e)', () => {
         isArchived: true,
       });
       expect(response.headers['set-cookie']).toBeDefined();
+    });
+  });
+  describe('admin user create endpoint', () => {
+    it('rejects an unauthenticated user creation with 401', async () => {
+      await request(app.getHttpServer())
+        .post('/users')
+        .send({ email: 'staff@company.com', displayName: 'Staff' })
+        .expect(401);
+    });
+
+    it('rejects a non-admin caller with 403', async () => {
+      await request(app.getHttpServer())
+        .post('/users')
+        .set('Authorization', `Bearer ${await signAccessToken()}`)
+        .send({ email: 'staff@company.com', displayName: 'Staff' })
+        .expect(403);
+    });
+
+    it('creates a locked user for an admin caller and returns the admin view (F15)', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/users')
+        .set(
+          'Authorization',
+          `Bearer ${await signAccessToken({ isAdmin: true })}`,
+        )
+        .send({
+          email: 'staff@company.com',
+          displayName: 'Staff Member',
+          roles: [Role.Requester],
+        })
+        .expect(201);
+
+      expect(response.body).toEqual({
+        uuid: '22222222-2222-4222-8222-222222222222',
+        displayName: 'Staff Member',
+        email: 'staff@company.com',
+        roles: [Role.Requester],
+        profilePictureUrl: null,
+        isAdmin: false,
+        isLocked: true,
+        isArchived: false,
+      });
+    });
+
+    it('accepts a non-NUS email from an admin (F15.1.3)', async () => {
+      await request(app.getHttpServer())
+        .post('/users')
+        .set(
+          'Authorization',
+          `Bearer ${await signAccessToken({ isAdmin: true })}`,
+        )
+        .send({
+          email: 'contractor@external.io',
+          displayName: 'Contractor',
+        })
+        .expect(201);
+    });
+
+    it('rejects a malformed email with 400', async () => {
+      await request(app.getHttpServer())
+        .post('/users')
+        .set(
+          'Authorization',
+          `Bearer ${await signAccessToken({ isAdmin: true })}`,
+        )
+        .send({ email: 'not-an-email', displayName: 'Staff' })
+        .expect(400);
+    });
+
+    it('rejects a missing display name with 400', async () => {
+      await request(app.getHttpServer())
+        .post('/users')
+        .set(
+          'Authorization',
+          `Bearer ${await signAccessToken({ isAdmin: true })}`,
+        )
+        .send({ email: 'staff@company.com' })
+        .expect(400);
+    });
+
+    it('rejects a non-boolean Admin Status with 400', async () => {
+      await request(app.getHttpServer())
+        .post('/users')
+        .set(
+          'Authorization',
+          `Bearer ${await signAccessToken({ isAdmin: true })}`,
+        )
+        .send({
+          email: 'staff@company.com',
+          displayName: 'Staff',
+          isAdmin: 'true',
+        })
+        .expect(400);
+    });
+
+    it('rejects a non-participant role with 400', async () => {
+      await request(app.getHttpServer())
+        .post('/users')
+        .set(
+          'Authorization',
+          `Bearer ${await signAccessToken({ isAdmin: true })}`,
+        )
+        .send({
+          email: 'staff@company.com',
+          displayName: 'Staff',
+          roles: ['admin'],
+        })
+        .expect(400);
     });
   });
 
