@@ -187,7 +187,7 @@ describe('AuthController login', () => {
     expect(res.cookie).toHaveBeenCalledWith('refresh_token', 'opaque-token', {
       httpOnly: true,
       sameSite: 'lax',
-      path: '/auth',
+      path: '/',
       maxAge: 604_800_000,
       secure: false,
     });
@@ -398,7 +398,7 @@ describe('AuthController logout', () => {
     expect(res.clearCookie).toHaveBeenCalledWith('refresh_token', {
       httpOnly: true,
       sameSite: 'lax',
-      path: '/auth',
+      path: '/',
       secure: false,
     });
   });

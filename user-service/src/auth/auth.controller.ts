@@ -68,10 +68,13 @@ export class AuthController {
       secure: this.configService.get('NODE_ENV') === 'production',
     });
 
+    // Unscoped: the browser-visible path may differ from this service's routes
+    // when a proxy rewrites the prefix (e.g. /api/auth -> /auth), so a scoped
+    // path would never match and the cookie would never be sent back.
     res.cookie(REFRESH_TOKEN_COOKIE, refreshToken, {
       httpOnly: true,
       sameSite: 'lax',
-      path: '/auth',
+      path: '/',
       maxAge: REFRESH_TOKEN_EXPIRATION_IN_SECONDS * 1000, // seconds -> milliseconds
       secure: this.configService.get('NODE_ENV') === 'production',
     });
@@ -119,7 +122,7 @@ export class AuthController {
     res.clearCookie(REFRESH_TOKEN_COOKIE, {
       httpOnly: true,
       sameSite: 'lax',
-      path: '/auth',
+      path: '/',
       secure: this.configService.get('NODE_ENV') === 'production',
     });
   }
