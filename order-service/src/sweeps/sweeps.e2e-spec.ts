@@ -132,20 +132,20 @@ describe('sweeps', () => {
     expect(await outboxFor(due)).toHaveLength(1);
   });
 
-  it('skips auto-complete after a rejected transfer', async () => {
+  it('leaves an errand alone after a rejected transfer (Incomplete)', async () => {
     const id = await seed('Delivered', { deliveredAt: ago(25 * HOUR) });
     await runSweeps(t.db, cfg); // -> Transferring-Credit
     await transition(t.db, {
       errandId: id,
       expected: 'Transferring-Credit',
-      to: 'Delivered',
+      to: 'Incomplete',
       actor: SYSTEM,
       payload: { creditEventId: randomUUID(), reason: 'INSUFFICIENT_FUNDS' },
     });
-    expect((await lastEvent(id)).type).toBe('CreditTransferFailed');
+    expect((await lastEvent(id)).type).toBe('CreditTransferRejected');
 
     await runSweeps(t.db, cfg);
-    expect((await row(id)).status).toBe('Delivered');
+    expect((await row(id)).status).toBe('Incomplete');
   });
 
   it('two concurrent ticks over the same errand act once', async () => {

@@ -79,11 +79,28 @@ describe('rebuildProjection', () => {
       set: { deliveredAt: new Date('2030-01-01T02:00:00.000Z') },
     });
     await step(id, 'Delivered', 'Transferring-Credit');
-    await step(id, 'Transferring-Credit', 'Delivered', { payload: transferFailed() }); // credit rejected
-    await step(id, 'Delivered', 'Transferring-Credit');
     await step(id, 'Transferring-Credit', 'Completed', {
       payload: { ...creditIds(), transferredAmount: 9 },
     });
+
+    expect(await rebuildProjection(t.db, id)).toEqual(await liveRow(id));
+  });
+
+  it('equals the live row when credit rejects the transfer', async () => {
+    const id = await create();
+    await step(id, 'Pending-Supplier', 'Reserving-Credit');
+    await step(id, 'Reserving-Credit', 'Open', { payload: creditReserved() });
+    await step(id, 'Open', 'Accepted', { actor: user(courier), set: { courierId: courier } });
+    await step(id, 'Accepted', 'Picked Up', {
+      actor: user(courier),
+      set: { pickedUpAt: new Date('2030-01-01T01:00:00.000Z') },
+    });
+    await step(id, 'Picked Up', 'Delivered', {
+      actor: user(courier),
+      set: { deliveredAt: new Date('2030-01-01T02:00:00.000Z') },
+    });
+    await step(id, 'Delivered', 'Transferring-Credit');
+    await step(id, 'Transferring-Credit', 'Incomplete', { payload: transferFailed() });
 
     expect(await rebuildProjection(t.db, id)).toEqual(await liveRow(id));
   });

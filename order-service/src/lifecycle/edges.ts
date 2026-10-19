@@ -139,8 +139,9 @@ export const EDGES: Partial<
     Incomplete: plain('ErrandIncomplete', ['requester']),
   },
   'Transferring-Credit': {
-    Completed: plain('ErrandCompleted', sys),
-    Delivered: plain('CreditTransferFailed', sys),
+    Completed: plain('CreditTransferSucceeded', sys),
+    // Credit rejected the transfer (terminal on its side too): park in Incomplete for dispute handling (not built).
+    Incomplete: plain('CreditTransferRejected', sys),
   },
 };
 

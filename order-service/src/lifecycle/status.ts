@@ -27,7 +27,7 @@ export const ALLOWED: Record<Status, Status[]> = {
   'Accepted': ['Picked Up', 'Open'],
   'Picked Up': ['Delivered', 'Cancelled'],
   'Delivered': ['Transferring-Credit', 'Incomplete'],
-  'Transferring-Credit': ['Completed', 'Delivered'],
+  'Transferring-Credit': ['Completed', 'Incomplete'],
   'Completed': [],
   'Cancelled': [],
   'Incomplete': [],

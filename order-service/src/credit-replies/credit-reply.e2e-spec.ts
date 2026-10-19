@@ -161,12 +161,12 @@ describe('credit replies against the database', () => {
       courierUserId: courier,
       rejectionReason: 'DESTINATION_ARCHIVED',
     });
-    expect((await row(failed)).status).toBe('Delivered');
+    expect((await row(failed)).status).toBe('Incomplete');
     expect((await events(failed))[0]).toMatchObject({
-      type: 'CreditTransferFailed',
+      type: 'CreditTransferRejected',
       payload: { reason: 'DESTINATION_ARCHIVED' },
     });
-    expect(await rebuildProjection(t.db, failed)).toMatchObject({ status: 'Delivered' });
+    expect(await rebuildProjection(t.db, failed)).toMatchObject({ status: 'Incomplete' });
   });
 
   it('a stale reply for the wrong status is acked and changes nothing', async () => {

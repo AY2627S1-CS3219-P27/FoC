@@ -73,7 +73,7 @@ describe('CreditReplyHandler', () => {
     ['credit.reservation-adjustment-success.v1', 'Adjusting-Credit', 'Open'],
     ['credit.reservation-adjustment-rejected.v1', 'Adjusting-Credit', 'Open'],
     ['credit.transfer-succeeded.v1', 'Transferring-Credit', 'Completed'],
-    ['credit.transfer-rejected.v1', 'Transferring-Credit', 'Delivered'],
+    ['credit.transfer-rejected.v1', 'Transferring-Credit', 'Incomplete'],
   ])('%s -> one SYSTEM transition keyed by the eventId', async (key, expected, to) => {
     const { handler, lifecycle } = setup(key);
     const body = envelope(key);
