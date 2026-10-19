@@ -399,7 +399,7 @@ describe('ErrandsController', () => {
           });
         };
 
-        it.each(['Open', 'Accepted'])(
+        it.each(['Open'])(
           'aims at the %s edge it was cancelled from, so a retry replays',
           async (fromStatus) => {
             cancelledFrom(fromStatus);

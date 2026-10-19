@@ -65,7 +65,7 @@ const plain = (type: string, who: Role[], notice?: NoticeBuilder): Edge => ({
 });
 const sys: Role[] = ['system'];
 
-// 18 edges in total
+// 17 edges in total
 export const EDGES: Partial<
   Record<Status, Partial<Record<Status, Edge | Edge[]>>>
 > = {
@@ -117,10 +117,8 @@ export const EDGES: Partial<
   },
   Accepted: {
     'Picked Up': { type: 'ErrandPickedUp', sets: ['pickedUpAt'], clears: [], who: ['courier'] },
+    // No Cancelled edge: the requester cannot cancel once accepted; the courier withdraws instead.
     Open: { type: 'CourierWithdrew', sets: [], clears: ['courierId'], who: ['courier'] },
-    // "If permitted" (F9.4 item 10): rule unspecified, requester only for now
-    // (REQUESTER_CANCELLED is a user reason; the courier withdraws instead).
-    Cancelled: cancel(['requester'], ['REQUESTER_CANCELLED']),
   },
   'Picked Up': {
     Delivered: { type: 'ErrandDelivered', sets: ['deliveredAt'], clears: [], who: ['courier'] },

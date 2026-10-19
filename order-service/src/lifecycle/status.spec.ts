@@ -11,9 +11,9 @@ describe('status transitions', () => {
     }
   }
 
-  // 18 edges (ADR 0006); the two Adjusting-Credit -> Open exits share one pair.
-  it('has exactly 17 distinct status pairs', () => {
-    expect(Object.values(ALLOWED).flat()).toHaveLength(17);
+  // 17 edges (ADR 0006); the two Adjusting-Credit -> Open exits share one pair.
+  it('has exactly 16 distinct status pairs', () => {
+    expect(Object.values(ALLOWED).flat()).toHaveLength(16);
   });
 });
 
@@ -31,9 +31,9 @@ describe('EDGES', () => {
     }
   });
 
-  it('has 18 edges; only Adjusting-Credit -> Open has two', () => {
+  it('has 17 edges; only Adjusting-Credit -> Open has two', () => {
     const edges = Object.values(EDGES).flatMap((m) => Object.values(m!)).flat();
-    expect(edges).toHaveLength(18);
+    expect(edges).toHaveLength(17);
     expect(findEdge('Adjusting-Credit', 'Open')).toBeUndefined(); // ambiguous without a type
     expect(findEdge('Adjusting-Credit', 'Open', 'CreditAdjusted')?.sets).toEqual(['rewardCredits']);
     expect(findEdge('Adjusting-Credit', 'Open', 'CreditAdjustmentFailed')?.sets).toEqual([]);
