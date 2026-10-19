@@ -13,6 +13,7 @@ afterAll(() => t.close());
 
 const requester = randomUUID();
 const withdrawal = { reason: 'bike broke down' }; // F7.4: a courier withdraw needs one
+const creditReserved = () => ({ creditEventId: randomUUID(), creditTransactionId: randomUUID(), reservedAmount: 5 });
 // Fresh per test: the one-active-errand-per-courier index forbids reuse.
 let courier: string;
 beforeEach(() => {
@@ -29,6 +30,7 @@ async function seed(status: Status) {
     courierId: status === 'Accepted' || status === 'Picked Up' ? courier : undefined,
     deliveryLocation: 'COM2',
     rewardCredits: 5,
+    collectionItems: 'bubble tea',
   });
   return id;
 }
@@ -349,6 +351,7 @@ describe('transition', () => {
         actor: SYSTEM, errandId: id,
         expected: 'Reserving-Credit',
         to: 'Open',
+        payload: creditReserved(),
       });
 
       expect(res).toEqual({
@@ -601,7 +604,7 @@ describe('transition', () => {
 
     it('refuses a user on a system-only edge', async () => {
       const id = await seed('Reserving-Credit');
-      const res = await transition(t.db, { errandId: id, expected: 'Reserving-Credit', to: 'Open', actor: user(requester) });
+      const res = await transition(t.db, { errandId: id, expected: 'Reserving-Credit', to: 'Open', actor: user(requester), payload: creditReserved() });
       expect(res).toEqual({ ok: false, reason: 'FORBIDDEN' });
     });
 

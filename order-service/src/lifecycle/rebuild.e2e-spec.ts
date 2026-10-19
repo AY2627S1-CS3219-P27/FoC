@@ -26,6 +26,10 @@ async function liveRow(id: string) {
   return rest;
 }
 
+const creditIds = () => ({ creditEventId: randomUUID(), creditTransactionId: randomUUID() });
+const creditReserved = () => ({ ...creditIds(), reservedAmount: 5 });
+const transferFailed = () => ({ creditEventId: randomUUID(), reason: 'INSUFFICIENT_FUNDS' });
+
 async function create(over = {}) {
   const res = await createErrand(t.db, {
     requesterId: requester,
@@ -56,10 +60,11 @@ describe('rebuildProjection', () => {
   it('equals the live row after a full lifecycle', async () => {
     const id = await create();
     await step(id, 'Pending-Supplier', 'Reserving-Credit');
-    await step(id, 'Reserving-Credit', 'Open');
+    await step(id, 'Reserving-Credit', 'Open', { payload: creditReserved() });
     await step(id, 'Open', 'Adjusting-Credit', { actor: user(requester), payload: { newAmount: 9 } });
     await step(id, 'Adjusting-Credit', 'Open', {
       type: 'CreditAdjusted',
+      payload: creditIds(),
       set: { rewardCredits: 9 },
     });
     await step(id, 'Open', 'Accepted', { actor: user(courier), set: { courierId: courier } });
@@ -74,9 +79,11 @@ describe('rebuildProjection', () => {
       set: { deliveredAt: new Date('2030-01-01T02:00:00.000Z') },
     });
     await step(id, 'Delivered', 'Transferring-Credit');
-    await step(id, 'Transferring-Credit', 'Delivered'); // credit rejected
+    await step(id, 'Transferring-Credit', 'Delivered', { payload: transferFailed() }); // credit rejected
     await step(id, 'Delivered', 'Transferring-Credit');
-    await step(id, 'Transferring-Credit', 'Completed');
+    await step(id, 'Transferring-Credit', 'Completed', {
+      payload: { ...creditIds(), transferredAmount: 9 },
+    });
 
     expect(await rebuildProjection(t.db, id)).toEqual(await liveRow(id));
   });

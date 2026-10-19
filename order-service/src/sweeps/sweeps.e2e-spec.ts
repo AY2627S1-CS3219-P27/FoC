@@ -34,6 +34,7 @@ async function seed(status: Status, over: Partial<typeof errands.$inferInsert> =
     courierId: status === 'Picked Up' || status === 'Delivered' ? randomUUID() : undefined,
     deliveryLocation: 'COM2',
     rewardCredits: 5,
+    collectionItems: 'bubble tea',
     ...over,
   });
   return id;
@@ -64,7 +65,11 @@ describe('expiresAt', () => {
       ['Pending-Supplier', 'Reserving-Credit'],
       ['Reserving-Credit', 'Open'],
     ] as const) {
-      const r = await transition(t.db, { errandId: res.errandId, expected, to, actor: SYSTEM });
+      const payload =
+        to === 'Open'
+          ? { creditEventId: randomUUID(), creditTransactionId: randomUUID(), reservedAmount: 5 }
+          : undefined;
+      const r = await transition(t.db, { errandId: res.errandId, expected, to, actor: SYSTEM, payload });
       expect(r.ok).toBe(true);
     }
     const open = await row(res.errandId);
@@ -135,6 +140,7 @@ describe('sweeps', () => {
       expected: 'Transferring-Credit',
       to: 'Delivered',
       actor: SYSTEM,
+      payload: { creditEventId: randomUUID(), reason: 'INSUFFICIENT_FUNDS' },
     });
     expect((await lastEvent(id)).type).toBe('CreditTransferFailed');
 

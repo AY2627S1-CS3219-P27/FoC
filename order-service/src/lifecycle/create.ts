@@ -52,6 +52,7 @@ export function createErrand(db: Db, i: CreateRequestInputs): Promise<CreateResu
       .insert(errands)
       .values({
         ...columns,
+        collectionItems,
         id: randomUUID(),
         status: 'Pending-Supplier',
         lastSequenceNumber: 1,
