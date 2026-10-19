@@ -282,6 +282,7 @@ describe('UsersService', () => {
     isActive: true,
     isAdmin: false,
     isLocked: false,
+    failedLoginAttempts: 0,
     isArchived: false,
     roles: [],
   };
@@ -365,16 +366,19 @@ describe('UsersService', () => {
       userRepository.findOneByOrFail.mockResolvedValue({
         ...registeredUser,
         isLocked: true,
+        failedLoginAttempts: 10,
       });
 
       await service.updatePassword(FIXED_UUID, 'NewStrongPassw0rd!');
 
       // The bootstrap admin is seated locked on a discarded password; the
-      // reset write must unseat it in the same save as the new hash.
+      // reset write must unseat it in the same save as the new hash, and the
+      // unlock also resets the failed-attempt counter (F6.3.1 → F8).
       expect(userRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({
           uuid: FIXED_UUID,
           isLocked: false,
+          failedLoginAttempts: 0,
         }),
       );
     });
@@ -426,11 +430,124 @@ describe('UsersService', () => {
 
     it('rejects a wrong password as unauthorized', async () => {
       userRepository.findOneByOrFail.mockResolvedValue(registeredUser);
+      manager.findOneBy.mockResolvedValue({ ...registeredUser });
       vi.mocked(hashValue).mockResolvedValueOnce('cd'.repeat(64));
 
       await expect(
         service.checkUserAndReturnInfo('eve@example.com', 'WrongPassw0rd!'),
       ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('records a failed attempt serialised per account (F6.1.1, F6.1.2)', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue(registeredUser);
+      manager.findOneBy.mockResolvedValue({ ...registeredUser });
+      vi.mocked(hashValue).mockResolvedValueOnce('cd'.repeat(64));
+
+      await expect(
+        service.checkUserAndReturnInfo('eve@example.com', 'WrongPassw0rd!'),
+      ).rejects.toThrow(UnauthorizedException);
+
+      // The increment runs behind a per-account advisory lock and re-reads the
+      // row inside the transaction before mutating it.
+      expect(manager.query).toHaveBeenCalledWith(
+        expect.stringContaining('pg_advisory_xact_lock'),
+        [expect.any(Number)],
+      );
+      expect(manager.findOneBy).toHaveBeenCalledWith(User, {
+        uuid: FIXED_UUID,
+      });
+      expect(manager.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          uuid: FIXED_UUID,
+          failedLoginAttempts: 1,
+          isLocked: false,
+        }),
+      );
+    });
+
+    it('locks the account when the counter reaches the threshold (F6.3)', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue(registeredUser);
+      manager.findOneBy.mockResolvedValue({
+        ...registeredUser,
+        failedLoginAttempts: 9,
+      });
+      vi.mocked(hashValue).mockResolvedValueOnce('cd'.repeat(64));
+
+      await expect(
+        service.checkUserAndReturnInfo('eve@example.com', 'WrongPassw0rd!'),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(manager.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          uuid: FIXED_UUID,
+          failedLoginAttempts: 10,
+          isLocked: true,
+        }),
+      );
+    });
+
+    it('does not record an attempt for a locked account (F6.1: increment before lockout check)', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue({
+        ...registeredUser,
+        isLocked: true,
+      });
+      vi.mocked(hashValue).mockResolvedValueOnce('cd'.repeat(64));
+
+      await expect(
+        service.checkUserAndReturnInfo('eve@example.com', 'WrongPassw0rd!'),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it('does not record an attempt for an archived account', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue({
+        ...registeredUser,
+        isArchived: true,
+      });
+      vi.mocked(hashValue).mockResolvedValueOnce('cd'.repeat(64));
+
+      await expect(
+        service.checkUserAndReturnInfo('eve@example.com', 'WrongPassw0rd!'),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it('clears the counter on a successful login (F6.1)', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue({
+        ...registeredUser,
+        failedLoginAttempts: 5,
+      });
+
+      await expect(
+        service.checkUserAndReturnInfo('eve@example.com', 'StrongPassw0rd!'),
+      ).resolves.toEqual({
+        uuid: FIXED_UUID,
+        email: 'eve@example.com',
+        displayName: 'Eve',
+        profilePictureUrl: null,
+        roles: [],
+        isAdmin: false,
+      });
+
+      expect(userRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          uuid: FIXED_UUID,
+          failedLoginAttempts: 0,
+        }),
+      );
+    });
+
+    it('does not write on a successful login with a clean counter', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue(registeredUser);
+
+      await service.checkUserAndReturnInfo(
+        'eve@example.com',
+        'StrongPassw0rd!',
+      );
+
+      expect(userRepository.save).not.toHaveBeenCalled();
     });
 
     it('rejects an unknown email as unauthorized, not a 500', async () => {
@@ -470,6 +587,7 @@ describe('UsersService', () => {
         ...registeredUser,
         passwordHash: 'ab',
       });
+      manager.findOneBy.mockResolvedValue({ ...registeredUser });
 
       await expect(
         service.checkUserAndReturnInfo('eve@example.com', 'StrongPassw0rd!'),
