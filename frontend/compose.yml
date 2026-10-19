@@ -2,6 +2,7 @@ services:
   frontend:
     build:
       context: .
+    image: ${FOC_IMAGE_PREFIX:-foc}/frontend:${FRONTEND_IMAGE_TAG:-dev}
     environment:
       - USER_SERVICE_URL=${USER_SERVICE_URL-http://user-service:3000}
       - SUPPLIER_SERVICE_URL=${SUPPLIER_SERVICE_URL-http://supplier-service:3000}

@@ -4,6 +4,7 @@ services:
       context: ..
       dockerfile: order-service/Dockerfile
       target: development
+    image: ${FOC_IMAGE_PREFIX:-foc}/order-service:${ORDER_SERVICE_IMAGE_TAG:-dev}
     command: npm run start:dev
     ports:
       - '${ORDER_SERVICE_HOST_PORT}:3000'

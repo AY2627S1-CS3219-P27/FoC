@@ -4,6 +4,7 @@ services:
       context: ..
       dockerfile: credit-service/Dockerfile
       target: development
+    image: ${FOC_IMAGE_PREFIX:-foc}/credit-service:${CREDIT_SERVICE_IMAGE_TAG:-dev}
     command: npm run start:dev
     restart: unless-stopped
     ports:

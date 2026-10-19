@@ -9,6 +9,7 @@ services:
       context: ..
       dockerfile: supplier-service/Dockerfile
       target: development
+    image: ${FOC_IMAGE_PREFIX:-foc}/supplier-service:${SUPPLIER_IMAGE_TAG:-dev}
     command: npm run start:dev
     ports:
       - '${SUPPLIER_SERVICE_HOST_PORT:-3002}:3000'

@@ -15,3 +15,7 @@ Agent-raised issues get one triage label (`needs-triage`, `needs-info`, `ready-f
 ### Domain docs
 
 Single-context; one folder per microservice. Read a service's `AGENTS.md` (and README, if non-empty) before touching it. All ADRs go in top-level `docs/adr/<service>/`, never inside a service folder. See `docs/agents/domain.md`.
+
+### Image versions
+
+Service images are tagged from each app's `package.json` version: `./scripts/build-images.sh` builds all six, and `./scripts/build-images.sh up -d --wait` runs that versioned stack. Plain `docker compose` uses the `dev` tag.
