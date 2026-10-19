@@ -190,3 +190,4 @@ Not needed to merge the lifecycle/sweeps work; needed before it is relied on:
 - **Cleanup (item 5):** the §2 diagram check and the backlog issue edits.
 - **Verification (item 6):** a real-broker `test:messaging` case (at least that a sweep re-queued event id is re-delivered), a fixture script faking credit's replies, and the rollout-order check (credit's queues must be bound before order publishes; a direct exchange drops unbound messages silently).
 - **Not built:** the `Pending-Supplier` retry and hold-window sweep (no supplier contract); `supplier_validated_at` (ADR 0007).
+- **Known gap (list filters, until supplier integration):** `pickupLocation` is free text and optional, so `GET /v1/errands` `pickupBuilding` never matches an errand with no pickup, and an empty `pickupBuilding=` / `deliveryBuilding=` is a 400 rather than ignored. Both are expected to change with the supplier integration (real building values, mandatory pickup).
