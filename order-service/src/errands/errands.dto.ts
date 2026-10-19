@@ -11,6 +11,7 @@ import {
   Min,
   Max,
 } from 'class-validator';
+import { API_STATUSES, type ApiStatus } from './api-status.js';
 import { MAX_EXPIRY_MINUTES, MIN_EXPIRY_MINUTES } from '../lifecycle/create.js';
 
 const MAX_LOCATION_LENGTH = 200;
@@ -76,9 +77,27 @@ export const LIST_SORTS = ['expiring', 'newest', 'credits'] as const;
 export type ListSort = (typeof LIST_SORTS)[number];
 export const DEFAULT_LIMIT = 20;
 export const MAX_LIMIT = 50;
+export const MAX_OFFSET = 2_147_483_647;
 
-// Query string of GET /v1/errands. Numbers arrive as strings, hence @Type.
-export class ListErrandsQuery {
+// Paging shared by the read routes. Numbers arrive as strings, hence @Type.
+export class PageQuery {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(MAX_LIMIT)
+  limit: number = DEFAULT_LIMIT;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(MAX_OFFSET)
+  offset: number = 0;
+}
+
+// Query string of GET /v1/errands.
+export class ListErrandsQuery extends PageQuery {
   @IsOptional()
   @IsString()
   @Length(1, MAX_LOCATION_LENGTH)
@@ -99,18 +118,11 @@ export class ListErrandsQuery {
   @IsOptional()
   @IsIn(LIST_SORTS)
   sort: ListSort = 'expiring';
+}
 
+// Query string of GET /v1/errands/mine. `status` takes API names only.
+export class MineErrandsQuery extends PageQuery {
   @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(MAX_LIMIT)
-  limit: number = DEFAULT_LIMIT;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(MAX_CREDITS)
-  offset: number = 0;
+  @IsIn(API_STATUSES)
+  status?: ApiStatus;
 }

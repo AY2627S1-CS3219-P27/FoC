@@ -5,6 +5,7 @@ import {
   Controller,
   Get,
   HttpCode,
+  NotFoundException,
   Param,
   ParseUUIDPipe,
   Post,
@@ -20,6 +21,7 @@ import {
   AdjustErrandDto,
   CreateErrandDto,
   ListErrandsQuery,
+  MineErrandsQuery,
 } from './errands.dto.js';
 import { ErrandsQueryService } from './errands.query.js';
 import { requesterCanCancel } from '../lifecycle/edges.js';
@@ -44,6 +46,21 @@ export class ErrandsController {
   @Roles(Role.Courier)
   list(@Query() query: ListErrandsQuery, @Req() req: AuthenticatedRequest) {
     return this.queries.list(req.user.sub, query);
+  }
+
+  // Declared before :id so 'mine' is not parsed as an id.
+  @Get('mine')
+  @Roles(Role.Requester, Role.Courier)
+  mine(@Query() query: MineErrandsQuery, @Req() req: AuthenticatedRequest) {
+    return this.queries.mine(req.user.sub, query);
+  }
+
+  @Get(':id')
+  @Roles(Role.Requester, Role.Courier)
+  async detail(@Param('id', ParseUUIDPipe) id: string, @Req() req: AuthenticatedRequest) {
+    const view = await this.queries.detail(req.user.sub, id);
+    if (!view) throw new NotFoundException('Errand not found.');
+    return view;
   }
 
   @Post()

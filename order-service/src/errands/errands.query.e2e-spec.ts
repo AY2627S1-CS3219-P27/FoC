@@ -56,7 +56,7 @@ const seed = async (over: Partial<typeof errands.$inferInsert> = {}) => {
 };
 
 const courier = randomUUID();
-const get = async (path = '', roles = [Role.Courier], sub = courier) =>
+const get = async (path = '', roles = [Role.Courier], sub: string = courier) =>
   fetch(`${base}${path}`, {
     headers: { authorization: `Bearer ${await signAccessToken({ sub, roles })}` },
   });
@@ -180,5 +180,112 @@ describe('GET /v1/errands', () => {
     ])('%s', async (query) => {
       expect((await list(query)).res.status).toBe(400);
     });
+  });
+});
+
+describe('GET /v1/errands/mine', () => {
+  const me = randomUUID();
+  const mine = async (query = '', roles = [Role.Requester]) => {
+    const res = await get(`/mine${query ? `?${query}` : ''}`, roles, me);
+    return { res, body: await res.json() };
+  };
+
+  it('rejects a missing token', async () => {
+    expect((await fetch(`${base}/mine`)).status).toBe(401);
+  });
+
+  it('rejects a token with no participant role', async () => {
+    expect((await get('/mine', [], me)).status).toBe(403);
+  });
+
+  it('returns errands where the caller is requester or courier, newest first, in any status', async () => {
+    const asRequester = await seed({ requesterId: me, status: 'Pending-Supplier', createdAt: inHours(-3) });
+    const asCourier = await seed({ courierId: me, status: 'Accepted', createdAt: inHours(-1) });
+    await seed({ createdAt: inHours(-2) });
+    const { res, body } = await mine('', [Role.Courier]);
+    expect(res.status).toBe(200);
+    expect(ids(body)).toEqual([asCourier.id, asRequester.id]);
+    expect(body.items.map((i: { status: string }) => i.status)).toEqual(['Accepted', 'Pending']);
+    expect(body).toMatchObject({ limit: 20, offset: 0 });
+  });
+
+  it('filters by API status, Pending matching both sub-states', async () => {
+    const a = await seed({ requesterId: me, status: 'Pending-Supplier' });
+    const b = await seed({ requesterId: me, status: 'Reserving-Credit' });
+    await seed({ requesterId: me, status: 'Open' });
+    expect(new Set(ids((await mine('status=Pending')).body))).toEqual(new Set([a.id, b.id]));
+  });
+
+  it('pages', async () => {
+    const rows = [];
+    for (let h = 3; h >= 1; h--) rows.push(await seed({ requesterId: me, createdAt: inHours(-h) }));
+    expect(ids((await mine('limit=1&offset=1')).body)).toEqual([rows[1]!.id]);
+  });
+
+  it.each(['status=Pending-Supplier', 'status=Adjusting-Credit', 'status=nope', 'limit=0'])(
+    '%s is a 400',
+    async (query) => {
+      expect((await mine(query)).res.status).toBe(400);
+    },
+  );
+});
+
+describe('GET /v1/errands/:id', () => {
+  const detail = async (id: string, sub: string, roles = [Role.Requester]) => {
+    const res = await get(`/${id}`, roles, sub);
+    return { res, body: await res.json() };
+  };
+
+  it('rejects a missing token and a malformed id', async () => {
+    expect((await fetch(`${base}/${randomUUID()}`)).status).toBe(401);
+    expect((await detail('nope', courier)).res.status).toBe(400);
+  });
+
+  it('rejects a token with no participant role', async () => {
+    const e = await seed();
+    expect((await detail(e.id, courier, [])).res.status).toBe(403);
+  });
+
+  it('shows the requester and courier ids to the requester', async () => {
+    const e = await seed({ status: 'Accepted', courierId: randomUUID() });
+    const { res, body } = await detail(e.id, e.requesterId);
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ id: e.id, status: 'Accepted', requesterId: e.requesterId, courierId: e.courierId });
+  });
+
+  it('shows the ids to the assigned courier', async () => {
+    const e = await seed({ status: 'Accepted', courierId: courier });
+    const { body } = await detail(e.id, courier, [Role.Courier]);
+    expect(body).toMatchObject({ requesterId: e.requesterId, courierId: courier });
+  });
+
+  it('shows an Open errand to any caller without the party ids, Adjusting-Credit as Open', async () => {
+    const open = await seed();
+    const adjusting = await seed({ status: 'Adjusting-Credit' });
+    const a = await detail(open.id, courier, [Role.Courier]);
+    expect(a.res.status).toBe(200);
+    expect(a.body).not.toHaveProperty('requesterId');
+    expect(a.body).not.toHaveProperty('courierId');
+    expect(a.body).not.toHaveProperty('idempotencyKey');
+    expect((await detail(adjusting.id, courier, [Role.Courier])).body.status).toBe('Open');
+  });
+
+  it('hides an expired Open errand from non-parties but not from its requester', async () => {
+    const e = await seed({ expiresAt: inHours(-1) });
+    expect((await detail(e.id, courier, [Role.Courier])).res.status).toBe(404);
+    const { res, body } = await detail(e.id, e.requesterId);
+    expect(res.status).toBe(200);
+    expect(body.expiresAt).toBe(e.expiresAt!.toISOString());
+  });
+
+  it('is a 404 for a non-party on a non-Open errand, and for an unknown id', async () => {
+    const e = await seed({ status: 'Accepted', courierId: randomUUID() });
+    expect((await detail(e.id, courier, [Role.Courier])).res.status).toBe(404);
+    expect((await detail(randomUUID(), courier)).res.status).toBe(404);
+  });
+
+  it('maps Transferring-Credit to Completed', async () => {
+    const e = await seed({ status: 'Transferring-Credit', courierId: courier });
+    expect((await detail(e.id, courier, [Role.Courier])).body.status).toBe('Completed');
   });
 });
