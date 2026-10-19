@@ -36,6 +36,7 @@ import {
   type UserRegisteredEvent,
 } from '@foc/contracts';
 import { OutboxEvent } from '@foc/outbox';
+import { AuthorizationService } from '../authorization/authorization.service.js';
 
 /** The PostgreSQL driver error code for a unique-constraint violation. */
 const UNIQUE_VIOLATION_CODE = '23505';
@@ -146,6 +147,7 @@ export class UsersService {
   constructor(
     @InjectRepository(User) private userRepository: Repository<User>,
     @InjectDataSource() private dataSource: DataSource,
+    private authorizationService: AuthorizationService,
   ) {}
 
   async provisionUser({
@@ -381,7 +383,8 @@ export class UsersService {
     targetUuid: string,
     fields: { isAdmin?: boolean; isArchived?: boolean },
   ): Promise<User> {
-    return this.dataSource.transaction(async (manager) => {
+    let demoted;
+    const target = await this.dataSource.transaction(async (manager) => {
       await manager.query('SELECT pg_advisory_xact_lock($1::bigint)', [
         ADMIN_MUTATION_LOCK_KEY,
       ]);
@@ -396,13 +399,13 @@ export class UsersService {
       // Audit record of changes
       const changedFields: Record<string, UserUpdateAuditChangedField> = {};
 
-      const adminChange = await this.applyAdminStatusChange(
-        manager,
-        target,
-        fields.isAdmin,
-      );
+      // Perform admin status change
+      const { change: adminChange, isDemoted } =
+        await this.applyAdminStatusChange(manager, target, fields.isAdmin);
       if (adminChange !== undefined) changedFields.isAdmin = adminChange;
+      demoted = isDemoted; // update upper-scope demoted variable for post-transaction actions
 
+      // Perform archive status change
       const archiveChange = await this.applyArchiveChange(
         manager,
         target,
@@ -410,6 +413,7 @@ export class UsersService {
       );
       if (archiveChange !== undefined) changedFields.isArchived = archiveChange;
 
+      // No change; return early without saving
       if (Object.keys(changedFields).length === 0) {
         return target;
       }
@@ -425,6 +429,15 @@ export class UsersService {
 
       return target;
     });
+
+    // Post-transaction: create/remove admin block (redis)
+    if (demoted === true) {
+      await this.authorizationService.createAdminBlock(targetUuid);
+    } else if (demoted === false) {
+      await this.authorizationService.removeAdminBlock(targetUuid);
+    }
+
+    return target;
   }
 
   /**
@@ -461,21 +474,30 @@ export class UsersService {
     manager: EntityManager,
     target: User,
     isAdmin: boolean | undefined,
-  ): Promise<UserUpdateAuditChangedField | undefined> {
+  ): Promise<{
+    change: UserUpdateAuditChangedField | undefined;
+    isDemoted: boolean | undefined;
+  }> {
+    let isDemoted;
     if (isAdmin === undefined || isAdmin === target.isAdmin) {
-      return undefined;
+      return { change: undefined, isDemoted };
     }
 
     const oldAdminStatus = target.isAdmin;
 
     if (!isAdmin) {
       await this.demoteAdmin(manager, target);
+      isDemoted = true;
     } else {
       target.isAdmin = true; // no other checks needed for promotion
+      isDemoted = false;
     }
 
-    const change = { from: oldAdminStatus, to: isAdmin };
-    return change;
+    const change: UserUpdateAuditChangedField = {
+      from: oldAdminStatus,
+      to: isAdmin,
+    };
+    return { change, isDemoted };
   }
 
   private async checkIsAdmin(manager: EntityManager, actorUuid: string) {
@@ -503,8 +525,6 @@ export class UsersService {
         'Cannot demote the last active admin account',
       );
     }
-
-    // TODO: Create admin block
 
     target.isAdmin = false;
   }

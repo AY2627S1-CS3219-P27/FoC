@@ -10,6 +10,7 @@ import { UsersController } from './users.controller.js';
 import { UsersService } from './users.service.js';
 import { ConfigService } from '@nestjs/config';
 import { JwtAuthGuard } from '@foc/auth';
+import { AdminBlockGuard } from '../authorization/admin-block-guard/admin-block.guard.js';
 import { UpdateProfileDto } from './DTO/update-profile.dto.js';
 import { UpdateRolesDto } from './DTO/update-roles.dto.js';
 import { AdminUpdateUserDto } from './DTO/admin-update-user.dto.js';
@@ -55,6 +56,11 @@ describe('UsersController', () => {
       // the module-level guard is a passthrough so the controller's own
       // behaviour under an authenticated request can be asserted directly.
       .overrideGuard(JwtAuthGuard)
+      .useValue({ canActivate: () => true })
+      // The Redis-backed block check is covered by AdminBlockGuard's own
+      // spec; here it is a passthrough so the controller's behaviour under an
+      // otherwise-authorized admin request can be asserted directly.
+      .overrideGuard(AdminBlockGuard)
       .useValue({ canActivate: () => true })
       .compile();
 

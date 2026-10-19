@@ -18,6 +18,7 @@ import { OutboxEvent } from '@foc/outbox';
 import { User } from './user.entity.js';
 import { UserUpdateAudit } from './user-update-audit.entity.js';
 import { EmailAlreadyRegisteredError, UsersService } from './users.service.js';
+import { AuthorizationService } from '../authorization/authorization.service.js';
 
 vi.mock('../common/hash/hash.js', () => ({
   hashValue: vi.fn(async () => 'ab'.repeat(64)),
@@ -59,6 +60,11 @@ describe('UsersService', () => {
     save: ReturnType<typeof vi.fn>;
   };
   let dataSource: { transaction: ReturnType<typeof vi.fn> };
+  let authorizationService: {
+    createAdminBlock: ReturnType<typeof vi.fn>;
+    removeAdminBlock: ReturnType<typeof vi.fn>;
+    checkIsAdminBlocked: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(async () => {
     userRepository = {
@@ -95,11 +101,18 @@ describe('UsersService', () => {
       ),
     };
 
+    authorizationService = {
+      createAdminBlock: vi.fn(async () => undefined),
+      removeAdminBlock: vi.fn(async () => undefined),
+      checkIsAdminBlocked: vi.fn(async () => false),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsersService,
         { provide: getRepositoryToken(User), useValue: userRepository },
         { provide: DataSource, useValue: dataSource },
+        { provide: AuthorizationService, useValue: authorizationService },
       ],
     }).compile();
 
@@ -1096,6 +1109,183 @@ describe('UsersService', () => {
 
       expect(manager.save).not.toHaveBeenCalled();
       expect(manager.create).not.toHaveBeenCalled();
+    });
+
+    it('records an admin block once the demotion has committed', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser, isAdmin: true });
+      manager.count.mockResolvedValue(2);
+
+      await service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, {
+        isAdmin: false,
+      });
+
+      expect(authorizationService.createAdminBlock).toHaveBeenCalledTimes(1);
+      expect(authorizationService.createAdminBlock).toHaveBeenCalledWith(
+        TARGET_UUID,
+      );
+
+      // The block is written only after the in-transaction writes, i.e.
+      // after the demotion has committed.
+      expect(
+        authorizationService.createAdminBlock.mock.invocationCallOrder[0],
+      ).toBeGreaterThan(manager.save.mock.invocationCallOrder[0]);
+    });
+
+    it('clears the admin block on promotion', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser });
+
+      await service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, {
+        isAdmin: true,
+      });
+
+      // A demoted-then-re-promoted admin must not stay blocked, so the
+      // block key is removed (a no-op in redis when absent).
+      expect(authorizationService.removeAdminBlock).toHaveBeenCalledTimes(1);
+      expect(authorizationService.removeAdminBlock).toHaveBeenCalledWith(
+        TARGET_UUID,
+      );
+      expect(authorizationService.createAdminBlock).not.toHaveBeenCalled();
+    });
+
+    it('does not block when the requested demotion is a no-op', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser });
+
+      await service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, {
+        isAdmin: false,
+      });
+
+      expect(authorizationService.createAdminBlock).not.toHaveBeenCalled();
+    });
+
+    it('does not block when archiving only, even an admin', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser, isAdmin: true });
+      manager.count.mockResolvedValue(2);
+
+      await service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, {
+        isArchived: true,
+      });
+
+      expect(authorizationService.createAdminBlock).not.toHaveBeenCalled();
+    });
+
+    it('does not block when the demotion never commits (last active admin rejected)', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser, isAdmin: true });
+      manager.count.mockResolvedValue(0);
+
+      await expect(
+        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: false }),
+      ).rejects.toThrow(ConflictException);
+
+      expect(authorizationService.createAdminBlock).not.toHaveBeenCalled();
+    });
+
+    it('does not block when the transaction rolls back after applying the demotion', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser, isAdmin: true });
+      manager.count.mockResolvedValue(2);
+
+      // Models a commit failure: the callback applied the demotion, but the
+      // transaction never committed, so the block must not be recorded.
+      dataSource.transaction.mockImplementation(
+        async (callback: (m: typeof manager) => Promise<unknown>) => {
+          await callback(manager);
+          throw new Error('commit failed');
+        },
+      );
+
+      await expect(
+        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: false }),
+      ).rejects.toThrow('commit failed');
+
+      expect(authorizationService.createAdminBlock).not.toHaveBeenCalled();
+    });
+
+    it('removes the admin block only after the promotion has committed', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser });
+
+      await service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, {
+        isAdmin: true,
+      });
+
+      // The block is removed only after the in-transaction writes, i.e.
+      // after the promotion has committed.
+      expect(
+        authorizationService.removeAdminBlock.mock.invocationCallOrder[0],
+      ).toBeGreaterThan(manager.save.mock.invocationCallOrder[0]);
+    });
+
+    it('does not remove the block when the promotion request is a no-op', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser, isAdmin: true });
+
+      await service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, {
+        isAdmin: true,
+      });
+
+      expect(authorizationService.removeAdminBlock).not.toHaveBeenCalled();
+      expect(authorizationService.createAdminBlock).not.toHaveBeenCalled();
+    });
+
+    it('does not remove the block when archiving only, even an admin', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser, isAdmin: true });
+      manager.count.mockResolvedValue(2);
+
+      await service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, {
+        isArchived: true,
+      });
+
+      expect(authorizationService.removeAdminBlock).not.toHaveBeenCalled();
+      expect(authorizationService.createAdminBlock).not.toHaveBeenCalled();
+    });
+
+    it('does not remove the block when the promotion never applies (actor no longer admin)', async () => {
+      manager.findOneBy.mockResolvedValueOnce({
+        ...adminActor,
+        isAdmin: false,
+      });
+
+      await expect(
+        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: true }),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(authorizationService.removeAdminBlock).not.toHaveBeenCalled();
+    });
+
+    it('does not remove the block when the transaction rolls back after applying the promotion', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser });
+
+      // Models a commit failure: the callback applied the promotion, but the
+      // transaction never committed, so the block must not be removed.
+      dataSource.transaction.mockImplementation(
+        async (callback: (m: typeof manager) => Promise<unknown>) => {
+          await callback(manager);
+          throw new Error('commit failed');
+        },
+      );
+
+      await expect(
+        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: true }),
+      ).rejects.toThrow('commit failed');
+
+      expect(authorizationService.removeAdminBlock).not.toHaveBeenCalled();
     });
   });
 
