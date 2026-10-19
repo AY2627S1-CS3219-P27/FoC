@@ -41,6 +41,8 @@ describe('ErrandsController', () => {
     supplierId: randomUUID(),
     deliveryLocation: 'COM2',
     rewardCredits: 5,
+    expiryDurationMinutes: 60,
+    collectionItems: 'bubble tea',
   };
   const post = async (body: unknown, token?: string, headers: Record<string, string> = {}) =>
     fetch(base, {
@@ -99,18 +101,15 @@ describe('ErrandsController', () => {
       ['a string rewardCredits', { ...validBody, rewardCredits: '5' }],
       ['rewardCredits past the Postgres integer limit', { ...validBody, rewardCredits: MAX_INT + 1 }],
       ['too short an expiry', { ...validBody, expiryDurationMinutes: 5 }],
+      ['a missing expiry', { ...validBody, expiryDurationMinutes: undefined }],
+      ['a null expiry', { ...validBody, expiryDurationMinutes: null }],
+      ['missing collectionItems', { ...validBody, collectionItems: undefined }],
+      ['blank collectionItems', { ...validBody, collectionItems: '' }],
+      ['whitespace-only collectionItems', { ...validBody, collectionItems: '  ' }],
+      ['non-string collectionItems', { ...validBody, collectionItems: 1 }],
     ])('rejects %s before reaching the lifecycle', async (_, body) => {
       expect((await post(body, await signAccessToken())).status).toBe(400);
       expect(lifecycle.create).not.toHaveBeenCalled();
-    });
-
-    it('passes a null expiry on to create, which reads it as the default', async () => {
-      lifecycle.create.mockResolvedValue({ ok: true, errandId: 'e1' });
-
-      const res = await post({ ...validBody, expiryDurationMinutes: null }, await signAccessToken());
-
-      expect(res.status).toBe(201);
-      expect(lifecycle.create.mock.calls[0][0].expiryDurationMinutes).toBeNull();
     });
 
     it('takes rewardCredits at the Postgres integer limit', async () => {

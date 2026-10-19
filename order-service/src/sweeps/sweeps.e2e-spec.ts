@@ -55,6 +55,7 @@ describe('expiresAt', () => {
       deliveryLocation: 'COM2',
       rewardCredits: 5,
       expiryDurationMinutes: 120,
+      collectionItems: 'bubble tea',
     });
     if (!res.ok) throw new Error('expected ok');
     expect((await row(res.errandId)).expiresAt).toBeNull();

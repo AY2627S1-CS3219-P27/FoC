@@ -35,6 +35,7 @@ async function create(over = {}) {
     pickupLocation: 'Frontier',
     description: 'no onions',
     expiryDurationMinutes: 90,
+    collectionItems: 'bubble tea',
     ...over,
   });
   if (!res.ok) throw new Error(res.reason);
@@ -81,7 +82,7 @@ describe('rebuildProjection', () => {
   });
 
   it('equals the live row for a cancelled errand', async () => {
-    const id = await create({ pickupLocation: undefined, description: undefined, expiryDurationMinutes: undefined });
+    const id = await create({ pickupLocation: undefined, description: undefined });
     await step(id, 'Pending-Supplier', 'Cancelled', {
       set: { cancellationReason: 'SUPPLIER_UNAVAILABLE' },
     });
