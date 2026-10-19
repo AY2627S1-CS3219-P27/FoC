@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-// Valid `payload` / `set` for the system edges that need them (payloads.ts),
-// shaped like what the reply handlers send. Spread into a transition() input.
+// Valid `payload` / `set` for system edges, spread into a transition() input.
 
 export const supplierSnapshot = {
   status: 'Active',

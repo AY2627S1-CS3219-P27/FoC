@@ -71,7 +71,6 @@ export const EDGES: Partial<
   Record<Status, Partial<Record<Status, Edge | Edge[]>>>
 > = {
   'Pending-Supplier': {
-    // F1.4.3: an Active supplier. Records when it was validated (F1.4.5).
     'Reserving-Credit': {
       ...plain('SupplierValidated', sys, (c) => ({
         key: 'credit.reservation.v1',

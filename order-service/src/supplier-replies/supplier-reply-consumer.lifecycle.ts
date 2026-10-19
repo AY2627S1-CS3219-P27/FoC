@@ -5,7 +5,6 @@ import { LifecycleService } from '../lifecycle/lifecycle.service.js';
 import { RabbitMqConsumerTransport } from '../messaging/rabbitmq-consumer.transport.js';
 import { SUPPLIER_REPLY_SPECS } from './supplier-replies.js';
 
-/** Subscribes the supplier validation reply; same handler as the credit replies. */
 @Injectable()
 export class SupplierReplyConsumerLifecycle implements OnApplicationBootstrap {
   constructor(

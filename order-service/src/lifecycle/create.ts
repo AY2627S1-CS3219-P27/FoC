@@ -73,8 +73,6 @@ export function createErrand(db: Db, i: CreateRequestInputs): Promise<CreateResu
         payload: request,
         actorId: i.requesterId,
       });
-      // F1.4.2: ask Supplier Service in the same transaction (ADR 0008), so
-      // the errand never exists without its request. The reply moves it on.
       await enqueueNotice(tx, {
         key: 'order.supplier-validation-requested.v1',
         payload: { errandId: row.id, supplierId: i.supplierId },

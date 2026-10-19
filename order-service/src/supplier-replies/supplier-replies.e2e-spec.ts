@@ -34,7 +34,6 @@ async function create() {
   return { id: res.errandId, supplierId };
 }
 
-// Feeds a supplier reply to the handler as the broker would.
 function deliver(payload: object, eventId = randomUUID()) {
   const body = {
     eventId,

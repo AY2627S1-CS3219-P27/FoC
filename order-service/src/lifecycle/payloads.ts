@@ -11,16 +11,14 @@ const reason = Joi.string().max(100).required(); // credit's rejection reason, a
 const none = Joi.object({});
 
 export const PAYLOADS: Record<string, Joi.ObjectSchema> = {
-  // Supplier Service's snapshot, kept verbatim with its version (F15.1). Its
-  // shape is already checked against the @foc/contracts schema on receipt.
+  // Snapshot is already contract-checked on receipt.
   SupplierValidated: Joi.object({ supplierEventId: uuid, supplier: Joi.object().required() }),
   CreditReserved: Joi.object({
     creditEventId: uuid,
     creditTransactionId: uuid,
     reservedAmount: amount.required(),
   }),
-  // A credit or supplier rejection carries that service's event; a requester
-  // or sweep cancel carries nothing.
+  // A credit or supplier rejection carries that service's event; other cancels nothing.
   ErrandCancelled: Joi.object({
     creditEventId: Joi.string().uuid(),
     requestedAmount: amount,
