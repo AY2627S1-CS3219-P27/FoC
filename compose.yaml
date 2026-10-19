@@ -74,6 +74,17 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  frontend:
+    depends_on:
+      user-service:
+        condition: service_started
+      order-service:
+        condition: service_started
+      credit-service:
+        condition: service_started
+      supplier-service:
+        condition: service_started
+
 volumes:
   rabbitmq_data:
   rabbitmq_log:
