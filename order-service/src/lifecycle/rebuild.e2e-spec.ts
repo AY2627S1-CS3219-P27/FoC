@@ -1,6 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { createTestDb } from '../../test/db.js';
+import {
+  creditAdjusted,
+  creditReserved,
+  creditTransferFailed,
+  creditTransferred,
+  supplierValidated,
+} from '../../test/payloads.js';
 import { errands } from '../db/schema.js';
 import { createErrand } from './create.js';
 import { rebuildProjection } from './rebuild.js';
@@ -54,11 +61,11 @@ async function step(
 describe('rebuildProjection', () => {
   it('equals the live row after a full lifecycle', async () => {
     const id = await create();
-    await step(id, 'Pending-Supplier', 'Reserving-Credit');
-    await step(id, 'Reserving-Credit', 'Open');
+    await step(id, 'Pending-Supplier', 'Reserving-Credit', supplierValidated());
+    await step(id, 'Reserving-Credit', 'Open', creditReserved());
     await step(id, 'Open', 'Adjusting-Credit', { actor: user(requester), payload: { newAmount: 9 } });
     await step(id, 'Adjusting-Credit', 'Open', {
-      type: 'CreditAdjusted',
+      ...creditAdjusted(),
       set: { rewardCredits: 9 },
     });
     await step(id, 'Open', 'Accepted', { actor: user(courier), set: { courierId: courier } });
@@ -73,9 +80,9 @@ describe('rebuildProjection', () => {
       set: { deliveredAt: new Date('2030-01-01T02:00:00.000Z') },
     });
     await step(id, 'Delivered', 'Transferring-Credit');
-    await step(id, 'Transferring-Credit', 'Delivered'); // credit rejected
+    await step(id, 'Transferring-Credit', 'Delivered', creditTransferFailed()); // credit rejected
     await step(id, 'Delivered', 'Transferring-Credit');
-    await step(id, 'Transferring-Credit', 'Completed');
+    await step(id, 'Transferring-Credit', 'Completed', creditTransferred(9));
 
     expect(await rebuildProjection(t.db, id)).toEqual(await liveRow(id));
   });

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
 import { createTestDb } from '../../test/db.js';
+import { supplierValidated } from '../../test/payloads.js';
 import { DB } from '../db/db.module.js';
 import { LifecycleModule } from './lifecycle.module.js';
 import { LifecycleService } from './lifecycle.service.js';
@@ -31,6 +32,7 @@ it('creates and transitions through the injected service', async () => {
       actor: SYSTEM, errandId: created.errandId,
       expected: 'Pending-Supplier',
       to: 'Reserving-Credit',
+      ...supplierValidated(),
     }),
   ).toMatchObject({ ok: true, sequenceNumber: 2 });
 });

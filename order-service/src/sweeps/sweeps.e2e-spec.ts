@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { eq, sql } from 'drizzle-orm';
 import { createTestDb } from '../../test/db.js';
+import { creditReserved, creditTransferFailed, supplierValidated } from '../../test/payloads.js';
 import { errandEvents, errands, idempotencyKeys, outboxEvents } from '../db/schema.js';
 import { createErrand } from '../lifecycle/create.js';
 import type { Status } from '../lifecycle/status.js';
@@ -59,11 +60,11 @@ describe('expiresAt', () => {
     if (!res.ok) throw new Error('expected ok');
     expect((await row(res.errandId)).expiresAt).toBeNull();
 
-    for (const [expected, to] of [
-      ['Pending-Supplier', 'Reserving-Credit'],
-      ['Reserving-Credit', 'Open'],
+    for (const [expected, to, extra] of [
+      ['Pending-Supplier', 'Reserving-Credit', supplierValidated()],
+      ['Reserving-Credit', 'Open', creditReserved()],
     ] as const) {
-      const r = await transition(t.db, { errandId: res.errandId, expected, to, actor: SYSTEM });
+      const r = await transition(t.db, { errandId: res.errandId, expected, to, actor: SYSTEM, ...extra });
       expect(r.ok).toBe(true);
     }
     const open = await row(res.errandId);
@@ -134,6 +135,7 @@ describe('sweeps', () => {
       expected: 'Transferring-Credit',
       to: 'Delivered',
       actor: SYSTEM,
+      ...creditTransferFailed(),
     });
     expect((await lastEvent(id)).type).toBe('CreditTransferFailed');
 

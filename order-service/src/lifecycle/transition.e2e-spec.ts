@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { createTestDb } from '../../test/db.js';
+import { creditReserved } from '../../test/payloads.js';
 import { errandEvents, errands } from '../db/schema.js';
 import type { Status } from './status.js';
 import { SYSTEM, transition, user, type Actor } from './transition.js';
@@ -349,6 +350,7 @@ describe('transition', () => {
         actor: SYSTEM, errandId: id,
         expected: 'Reserving-Credit',
         to: 'Open',
+        ...creditReserved(),
       });
 
       expect(res).toEqual({
@@ -522,11 +524,11 @@ describe('transition', () => {
     });
 
     it('writes an empty payload for an edge with no columns', async () => {
-      const id = await seed('Pending-Supplier');
+      const id = await seed('Delivered');
       await transition(t.db, {
-        actor: SYSTEM, errandId: id,
-        expected: 'Pending-Supplier',
-        to: 'Reserving-Credit',
+        actor: user(requester), errandId: id,
+        expected: 'Delivered',
+        to: 'Incomplete',
       });
       expect(await lastPayload(id)).toEqual({});
     });
@@ -592,6 +594,7 @@ describe('transition', () => {
           expected: 'Reserving-Credit',
           to: 'Open',
           actor: actor as never,
+          ...creditReserved(),
         });
         expect(res).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
       }
@@ -601,7 +604,7 @@ describe('transition', () => {
 
     it('refuses a user on a system-only edge', async () => {
       const id = await seed('Reserving-Credit');
-      const res = await transition(t.db, { errandId: id, expected: 'Reserving-Credit', to: 'Open', actor: user(requester) });
+      const res = await transition(t.db, { errandId: id, expected: 'Reserving-Credit', to: 'Open', actor: user(requester), ...creditReserved() });
       expect(res).toEqual({ ok: false, reason: 'FORBIDDEN' });
     });
 

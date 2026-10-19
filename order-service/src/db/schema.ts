@@ -34,6 +34,8 @@ export const errands = pgTable(
     //columns here are to allow for sorting and filtering
     courierId: uuid('courier_id'),
     supplierId: uuid('supplier_id').notNull(),
+    // F1.4.5: when Supplier Service confirmed it (the reply's timestamp); null until then.
+    supplierValidatedAt: ts('supplier_validated_at'),
     description: text('description'), // optional delivery instructions
     pickupLocation: text('pickup_location'),
     deliveryLocation: text('delivery_location').notNull(),
