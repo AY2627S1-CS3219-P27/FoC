@@ -23,7 +23,8 @@ export function signAccessToken({
   privateKey = testKeys.privateKey,
   expiresIn = 900,
   roles = [Role.Requester, Role.Courier],
-}: { sub?: string; privateKey?: string; expiresIn?: number; roles?: Role[] } = {}) {
+  isAdmin = false,
+}: { sub?: string; privateKey?: string; expiresIn?: number; roles?: Role[]; isAdmin?: boolean } = {}) {
   return new JwtService({
     privateKey,
     signOptions: { algorithm: 'RS256', issuer: ACCESS_TOKEN_ISSUER, expiresIn },
@@ -31,7 +32,7 @@ export function signAccessToken({
     sub,
     email: 'eve@example.com',
     displayName: 'Eve',
-    isAdmin: false,
+    isAdmin,
     roles,
   });
 }
