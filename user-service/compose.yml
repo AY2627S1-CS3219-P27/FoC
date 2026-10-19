@@ -1,5 +1,6 @@
 services:
   user-service:
+    restart: unless-stopped
     build:
       context: ..
       dockerfile: user-service/Dockerfile
@@ -12,7 +13,7 @@ services:
       user-db:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     environment:
       - NODE_ENV=${NODE_ENV:-development}
       - DB_HOST=${USER_SERVICE_DB_HOST}
@@ -121,6 +122,12 @@ services:
     image: redis:latest
     ports:
       - '${REDIS_PORT}:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
 volumes:
   user-db-data:
