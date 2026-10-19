@@ -253,6 +253,16 @@ describe('GET /v1/errands/:id', () => {
     expect(body).toMatchObject({ id: e.id, status: 'Accepted', requesterId: e.requesterId, courierId: e.courierId });
   });
 
+  it('shows the cancellation reason to a party, never on the list', async () => {
+    const e = await seed({ status: 'Cancelled', cancellationReason: 'REQUESTER_CANCELLED' });
+    expect((await detail(e.id, e.requesterId)).body.cancellationReason).toBe('REQUESTER_CANCELLED');
+    const mine = await (await get('/mine', [Role.Requester], e.requesterId)).json();
+    expect(mine.items[0].cancellationReason).toBe('REQUESTER_CANCELLED');
+    const open = await seed();
+    expect((await list()).body.items[0]).not.toHaveProperty('cancellationReason');
+    expect((await detail(open.id, courier, [Role.Courier])).body).not.toHaveProperty('cancellationReason');
+  });
+
   it('shows the ids to the assigned courier', async () => {
     const e = await seed({ status: 'Accepted', courierId: courier });
     const { body } = await detail(e.id, courier, [Role.Courier]);

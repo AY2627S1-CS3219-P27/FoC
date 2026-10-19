@@ -12,8 +12,8 @@ const ORDER: Record<ListSort, () => ReturnType<typeof asc>[]> = {
   credits: () => [desc(errands.rewardCredits)],
 };
 
-// The response allowlist: never idempotencyKey, lastSequenceNumber or
-// cancellationReason. The parties' ids are added only for the parties.
+// The response allowlist: never idempotencyKey or lastSequenceNumber.
+// The parties' ids and the cancellation reason are added only for the parties.
 const toView = (r: typeof errands.$inferSelect, callerId?: string) => ({
   id: r.id,
   status: toApiStatus(r.status),
@@ -26,7 +26,7 @@ const toView = (r: typeof errands.$inferSelect, callerId?: string) => ({
   expiresAt: r.expiresAt,
   createdAt: r.createdAt,
   ...(callerId !== undefined && (callerId === r.requesterId || callerId === r.courierId)
-    ? { requesterId: r.requesterId, courierId: r.courierId }
+    ? { requesterId: r.requesterId, courierId: r.courierId, cancellationReason: r.cancellationReason }
     : {}),
 });
 
