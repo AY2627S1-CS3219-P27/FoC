@@ -55,7 +55,7 @@ services:
       rabbitmq:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       papercut: # dev-only SMTP sink; prod points SMTP_* at a real provider
         condition: service_started
 

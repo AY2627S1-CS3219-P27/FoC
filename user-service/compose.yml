@@ -1,8 +1,10 @@
 services:
   user-service:
+    restart: on-failure:3
     build:
       context: ..
       dockerfile: user-service/Dockerfile
+      target: development
     image: ${FOC_IMAGE_PREFIX:-foc}/user-service:${USER_SERVICE_IMAGE_TAG:-dev}
     command: npm run start:dev
     ports:
@@ -11,7 +13,7 @@ services:
       user-db:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     environment:
       - NODE_ENV=${NODE_ENV:-development}
       - DB_HOST=${USER_SERVICE_DB_HOST}
@@ -57,9 +59,49 @@ services:
             - '*.secret'
         - action: rebuild
           path: package.json
+        - action: sync+restart
+          path: ../packages/contracts/src
+          target: /usr/src/packages/contracts/src
+        - action: sync+restart
+          path: ../packages/contracts/tsconfig.json
+          target: /usr/src/packages/contracts/tsconfig.json
+        - action: sync+restart
+          path: ../packages/contracts/tsconfig.build.json
+          target: /usr/src/packages/contracts/tsconfig.build.json
+        - action: rebuild
+          path: ../packages/contracts/package.json
+        - action: rebuild
+          path: ../packages/contracts/package-lock.json
+        - action: sync+restart
+          path: ../packages/auth/src
+          target: /usr/src/packages/auth/src
+        - action: sync+restart
+          path: ../packages/auth/tsconfig.json
+          target: /usr/src/packages/auth/tsconfig.json
+        - action: sync+restart
+          path: ../packages/auth/tsconfig.build.json
+          target: /usr/src/packages/auth/tsconfig.build.json
+        - action: rebuild
+          path: ../packages/auth/package.json
+        - action: rebuild
+          path: ../packages/auth/package-lock.json
+        - action: sync+restart
+          path: ../packages/outbox/src
+          target: /usr/src/packages/outbox/src
+        - action: sync+restart
+          path: ../packages/outbox/tsconfig.json
+          target: /usr/src/packages/outbox/tsconfig.json
+        - action: sync+restart
+          path: ../packages/outbox/tsconfig.build.json
+          target: /usr/src/packages/outbox/tsconfig.build.json
+        - action: rebuild
+          path: ../packages/outbox/package.json
+        - action: rebuild
+          path: ../packages/outbox/package-lock.json
 
   user-db:
     image: postgres:18-alpine
+    restart: on-failure:3
     ports:
       - '${USER_SERVICE_DB_PORT}:5432'
     environment:
@@ -79,8 +121,15 @@ services:
 
   redis:
     image: redis:latest
+    restart: on-failure:3
     ports:
       - '${REDIS_PORT}:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
 volumes:
   user-db-data:

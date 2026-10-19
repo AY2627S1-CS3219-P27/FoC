@@ -1,5 +1,6 @@
 services:
   email-service:
+    restart: on-failure:3
     build: .
     image: ${FOC_IMAGE_PREFIX:-foc}/email-service:${EMAIL_SERVICE_IMAGE_TAG:-dev}
     environment:
