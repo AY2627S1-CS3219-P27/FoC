@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { errandEvents, errands } from '../db/schema.js';
+import { enqueueNotice } from './notice.js';
 import type { Db } from './transition.js';
 
 export interface CreateRequestInputs {
@@ -71,6 +72,12 @@ export function createErrand(db: Db, i: CreateRequestInputs): Promise<CreateResu
         toStatus: 'Pending-Supplier',
         payload: request,
         actorId: i.requesterId,
+      });
+      // F1.4.2: ask Supplier Service in the same transaction (ADR 0008), so
+      // the errand never exists without its request. The reply moves it on.
+      await enqueueNotice(tx, {
+        key: 'order.supplier-validation-requested.v1',
+        payload: { errandId: row.id, supplierId: i.supplierId },
       });
       return { ok: true, errandId: row.id };
     }
