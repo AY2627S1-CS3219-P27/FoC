@@ -63,6 +63,8 @@ export const environmentSchema = Joi.object({
   CREDIT_REPLY_TIMEOUT_MS: Joi.number().integer().min(1).default(120_000),
   CREDIT_RESEND_MAX: Joi.number().integer().min(0).default(3),
   IDEMPOTENCY_KEY_TTL_MS: Joi.number().integer().min(1).default(604_800_000), // 7 days
+  // Must be at least user-service's access-token lifetime (15 min) plus skew; not checkable across services.
+  ROLE_BLOCK_TTL_MS: Joi.number().integer().min(1).default(960_000),
 })
   // The lease must outlast the confirm timeout, or a slow publish loses its claim.
   .custom((env, helpers) => {

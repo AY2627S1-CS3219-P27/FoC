@@ -44,6 +44,7 @@ services:
       - CREDIT_REPLY_TIMEOUT_MS=${CREDIT_REPLY_TIMEOUT_MS:-120000}
       - CREDIT_RESEND_MAX=${CREDIT_RESEND_MAX:-3}
       - IDEMPOTENCY_KEY_TTL_MS=${IDEMPOTENCY_KEY_TTL_MS:-604800000}
+      - ROLE_BLOCK_TTL_MS=${ROLE_BLOCK_TTL_MS:-960000}
     secrets:
       - order_db_password
       - rabbitmq_password_order_service
