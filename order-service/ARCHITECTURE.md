@@ -181,7 +181,7 @@ sequenceDiagram
   O->>O: to Open (expiresAt = now + duration, ADR 0007) or Cancelled
 ```
 
-`createErrand()` takes `expiryDurationMinutes` (15 to 10080, default 60), kept only in the `ErrandCreated` payload; the `CreditReserved` edge sets `expires_at` and records it in its own payload (ADR 0007). Creation never blocks on the supplier or credit outcome (F1.4.2). If Supplier Service is unreachable the errand stays in `Pending-Supplier`; the supplier retry sweep is not built yet (no supplier contract).
+`createErrand()` requires `expiryDurationMinutes` (15 to 10080) and a non-empty `collectionItems` list, both kept only in the `ErrandCreated` payload; the `CreditReserved` edge sets `expires_at` and records it in its own payload (ADR 0007). Creation never blocks on the supplier or credit outcome (F1.4.2). If Supplier Service is unreachable the errand stays in `Pending-Supplier`; the supplier retry sweep is not built yet (no supplier contract).
 
 
 ## Remaining work before rollout
