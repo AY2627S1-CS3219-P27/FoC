@@ -4,7 +4,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DataSource, type EntityTarget, In } from 'typeorm';
+import {
+  DataSource,
+  type EntityManager,
+  type EntityTarget,
+  In,
+} from 'typeorm';
 import {
   ErrorCode,
   type FieldViolation,
@@ -157,9 +162,16 @@ export class SupplierQueriesService {
     };
   }
 
-  /** One supplier, Active or Inactive (F5.7); unknown id → 404 (F5.9.1). */
-  async get(id: string): Promise<SupplierDetail> {
-    const supplier = await this.dataSource.manager.findOne(Supplier, {
+  /**
+   * One supplier, Active or Inactive (F5.7); unknown id → 404 (F5.9.1).
+   * A caller inside a transaction passes its manager, so the read uses that
+   * transaction's connection rather than a second one from the pool.
+   */
+  async get(
+    id: string,
+    manager: EntityManager = this.dataSource.manager,
+  ): Promise<SupplierDetail> {
+    const supplier = await manager.findOne(Supplier, {
       where: { id },
       relations: { building: true },
     });
@@ -169,7 +181,7 @@ export class SupplierQueriesService {
         message: `Supplier ${id} does not exist.`,
       });
     }
-    const categories = await this.categoriesOf([id]);
+    const categories = await this.categoriesOf([id], manager);
     return toDetail(supplier, categories.get(id) ?? [], this.placeholder);
   }
 
@@ -203,12 +215,13 @@ export class SupplierQueriesService {
   /** Categories per supplier, in one query for a whole page. */
   private async categoriesOf(
     supplierIds: string[],
+    manager: EntityManager = this.dataSource.manager,
   ): Promise<Map<string, Category[]>> {
     const bySupplier = new Map<string, Category[]>();
     if (supplierIds.length === 0) {
       return bySupplier;
     }
-    const links = await this.dataSource.manager.find(SupplierCategory, {
+    const links = await manager.find(SupplierCategory, {
       where: { supplierId: In(supplierIds) },
       relations: { category: true },
     });

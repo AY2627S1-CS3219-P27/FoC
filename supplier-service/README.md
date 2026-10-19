@@ -7,7 +7,7 @@ Other services use it like this:
 - **Users** browse and search suppliers when creating an errand.
 - **Users** ask for a missing supplier to be added, or for a wrong one to be corrected; an admin approves or denies the request.
 - **Admins** add, edit and deactivate suppliers, and manage categories and buildings.
-- **Order Service** checks a supplier's current details and status when an errand references it.
+- **Order Service** checks a supplier's current details and status when an errand references it, by asking over RabbitMQ (see [§11](#11-supplier-validation-for-order-service-rabbitmq)).
 
 **Contents**:
 
@@ -21,6 +21,7 @@ Other services use it like this:
 8. [Build plan](#8-build-plan)
 9. [Dependencies and risks](#9-dependencies-and-risks)
 10. [Running and testing](#10-running-and-testing)
+11. [Supplier validation for Order Service (RabbitMQ)](#11-supplier-validation-for-order-service-rabbitmq)
 
 ---
 
@@ -357,7 +358,7 @@ Every error, from any endpoint, has one shape (✅ built in `src/common/errors/`
 1. The user logs in at user-service: `POST localhost:3000/auth/login`.
 2. user-service sets an httpOnly cookie `access_token`: a JWT signed with **RS256** using user-service's **private** key. It has issuer `user-service` and lasts 15 minutes.
 3. The browser (or Postman) sends that cookie to `localhost:3002` too, because cookies are matched by host, not port.
-4. Supplier Service **verifies the token itself** with user-service's **public** key, mounted as a Docker secret (`JWT_PUBLIC_KEY_FILE`). Compose reads it from user-service's own key file (`../user-service/jwt_public_key.secret`, overridable with `SUPPLIER_JWT_PUBLIC_KEY_PATH`), so both services always use the same key pair. No call to user-service is needed per request, and the private key never leaves user-service. `cookie-parser` (in `main.ts`, as in user-service) turns the Cookie header into `request.cookies` for the guard.
+4. Supplier Service **verifies the token itself** with user-service's **public** key, mounted as a Docker secret (`JWT_PUBLIC_KEY_FILE`). Compose reads it from user-service's own key file (`../user-service/secrets/jwt_public_key.secret`, overridable with `SUPPLIER_JWT_PUBLIC_KEY_PATH`), so both services always use the same key pair. No call to user-service is needed per request, and the private key never leaves user-service. `cookie-parser` (in `main.ts`, as in user-service) turns the Cookie header into `request.cookies` for the guard.
 5. It then checks the token's contents with `validateAccessTokenPayload` from `@foc/contracts`. The claims are `sub` (user id), `email`, `displayName`, `isAdmin`, `roles`, `iss`, `iat` and `exp`.
 6. **Admin = `isAdmin: true` in the token.** `roles` (requester/courier) are errand roles and don't change supplier permissions. The FRs only distinguish Basic vs Admin (F13.3, F13.4).
 7. Identity comes **only** from the verified token, never from the request body (F13.1).
@@ -540,6 +541,7 @@ Branches are few and large: one per area, each merged into `supplier-service` by
 | 10 | "Edit supplier" requests | F8.1-F8.4.1 | `crud` | ✅ built (F8.5 amend: after D2) |
 | 12 | My requests, withdraw | F6.5, F6.6, F13.6 | `crud` | ✅ built |
 | 11 | "Change status" requests | F9.3, F9.3.1, F9.3.2, F9.4 | `crud` | 🔜 after D2 |
+| 15b | Supplier validation for Order Service over RabbitMQ | F15.7-F15.7.8, F13.7 | `order-integration` (+ `contracts`, PR #642) | ✅ built and switched on ([§11](#11-supplier-validation-for-order-service-rabbitmq)); Order Service's side to come |
 
 ---
 
@@ -564,16 +566,19 @@ cp supplier-service/secrets/supplier_db_password.secret.example \
    supplier-service/secrets/supplier_db_password.secret   # then set a password
 cp env/supplier-service.env.example env/supplier-service.env  # loaded by compose.yaml
 cp env/shared.env.example env/shared.env                      # if not done yet
+cp supplier-service/secrets/rabbitmq_password.secret.example \
+   supplier-service/secrets/rabbitmq_password.secret   # the team's supplier-service broker password
 docker compose up
 ```
 
-Supplier Service also needs user-service's JWT key pair, set up as part of user-service (`user-service/jwt_public_key.secret`). Supplier Service only reads the public key, from that file; point `SUPPLIER_JWT_PUBLIC_KEY_PATH` elsewhere if needed.
+Supplier Service also needs user-service's JWT key pair, set up as part of user-service (`user-service/secrets/jwt_public_key.secret`). Supplier Service only reads the public key, from that file; point `SUPPLIER_JWT_PUBLIC_KEY_PATH` elsewhere if needed.
 
 | What | Where |
 |---|---|
 | Supplier Service | `http://localhost:3002` (`SUPPLIER_SERVICE_HOST_PORT`) |
 | supplier-db | `localhost:5438` (`SUPPLIER_DB_HOST_PORT`) |
 | Test database | `localhost:5439` (`SUPPLIER_DB_TEST_HOST_PORT`), only with the `test` profile |
+| Test RabbitMQ | `localhost:5677`, web page `http://localhost:15677` (`supplier_service_test` / `supplier_service_test`), only with the `test` profile |
 
 Every setting has a default, so no env file is needed to run it. All settings are listed in `env/supplier-service.env.example`. The Docker-level ones use a `SUPPLIER_` prefix so they can't collide with other services' `DB_*` values, and `compose.yml` maps them onto the app's own names.
 
@@ -589,6 +594,10 @@ npm test                   # unit tests
 npm run test:e2e           # end-to-end tests (database faked)
 npm run db:test:up         # start the throwaway test database (port 5439; needs Docker)
 npm run test:integration   # tests against that real PostgreSQL: constraints, races, no schema drift
+npm run broker:test:up     # start the throwaway test RabbitMQ (port 5677; needs Docker)
+npm run test:messaging     # supplier validation through that broker and database (§11)
+npm run demo:validation    # the D3 demo transcript (§11)
+npm run broker:test:down
 npm run db:test:down
 npm run build
 ```
@@ -602,3 +611,89 @@ npm run migration:show
 npm run migration:revert
 ```
 Pending migrations are applied automatically on startup (`DB_MIGRATIONS_RUN`, default `true`).
+
+---
+
+## 11. Supplier validation for Order Service (RabbitMQ)
+
+✅ built, tested and switched on (step 15b; F15.7–F15.7.8, F13.7). Supplier Service has its own broker login in the shared `rabbitmq/definitions.json`, limited to its own `foc.supplier.*` exchanges and `supplier-service.*` queues. Its request queue and Order Service's reply queue are predeclared there, and `src/messaging/rabbitmq-topology.contract.spec.ts` checks all of it. Its password is the `supplier_rabbitmq_password` secret (`secrets/rabbitmq_password.secret`); CI generates its own. Order Service still has to publish the request and consume the reply on its side.
+
+**What it does.** A new errand waits in Order Service's `Pending-Supplier` state until Supplier Service confirms its supplier. Order Service **asks by message** and Supplier Service **answers by message**, through RabbitMQ: there's no direct API call. The two messages were agreed with the order-service owner ([ADR 0002](../docs/adr/supplier-service/0002-supplier-validation-messages.md)), and their schemas are in the shared contracts (`packages/contracts/src/domain-events/events/supplier-validation-{requested,completed}/v1/`).
+
+| Message | Routing key | Sent by | Contents |
+|---|---|---|---|
+| The question | `order.supplier-validation-requested.v1` | order-service | `errandId`, `supplierId` |
+| The answer | `supplier.validation-completed.v1` | supplier-service | `errandId`, `supplierId`, `outcome`: `FOUND` with the supplier's status, version, name, display name, building, floor, location description and coordinates, or `NOT_FOUND` |
+
+**Why messages, not an API call:**
+- Order Service already waits in `Pending-Supplier`.
+- No service-to-service login is needed (each service has its own broker login, F13.7).
+- Errands keep being created if Supplier Service is down: questions wait in its queue.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant OS as Order Service
+    participant MQ as RabbitMQ (foc.events)
+    participant C as Consumer + handler
+    participant DB as supplier-db
+    participant R as Outbox relay
+
+    OS->>MQ: order.supplier-validation-requested.v1
+    MQ->>C: deliver from supplier-service.order-supplier-validation-requested.v1
+    C->>C: check against the contract (and publisher = order-service)
+    alt malformed or wrong publisher
+        C->>MQ: dead-letter (…requested.v1.dlq), no retry
+    else valid
+        C->>DB: one transaction: lock event id, inbox already has it? → skip
+        C->>DB: look up supplier → build FOUND / NOT_FOUND reply, check it against its contract
+        C->>DB: insert reply into outbox_events + request into inbox_events, commit
+        C->>MQ: acknowledge (only after the commit)
+        R->>DB: claim unpublished replies
+        R->>MQ: publish supplier.validation-completed.v1 (publisher confirms)
+        MQ->>OS: deliver to order-service.supplier-validation-completed.v1
+    end
+    Note over C,MQ: database unreachable → nothing committed, retried after 1, 2, 4, 8, 16 s, then dead-lettered; never NOT_FOUND
+```
+
+**The rules:**
+- **Facts only.** An Inactive supplier is `FOUND` with `status: "Inactive"`; Order Service decides what that means for the errand (F15.2).
+- **Exactly one answer per question.** `inbox_events` records each answered request, keyed by its event id, with the reply it produced, in the same transaction as the reply in `outbox_events` (F15.7.3). A redelivery is acknowledged without a second reply (F15.7.4); an event id reused for different content is dead-lettered.
+- **`NOT_FOUND` means "does not exist"**, never "couldn't read the database" (F15.7.5).
+- **Bad questions aren't retried:** missing or unknown fields, or not from `order-service`, go straight to the dead-letter queue and are logged (F15.7.6, F13.7).
+- **Acknowledged only after the reply is committed** to the outbox (F15.7.8). The relay publishes it with broker confirmation (`@foc/outbox`).
+
+**Where it lives:**
+
+| Part | Files |
+|---|---|
+| Handler, service, consumer start-up, module | `src/validation/` |
+| RabbitMQ consumer (copied from credit-service, as order-service did) | `src/messaging/` |
+| Contract validator module | `src/contracts/contracts.module.ts` |
+| Wired into the app | `src/app.module.ts` (`ValidationModule`, `OutboxModule.forRootAsync`); e2e specs replace the broker parts via `test/without-broker.ts` |
+| Broker setup | `rabbitmq/definitions.json` (login, permissions, queues, bindings), `scripts/ci-stack-secrets.sh` (CI password), root `compose.yaml` (starts after RabbitMQ is healthy) |
+| Tables | `inbox_events`, `outbox_events`: migration `1790985600000-create-inbox-and-outbox-events.ts` |
+| Settings | `RABBITMQ_*` and `OUTBOX_*` in `src/config/environment.schema.ts` and `env/supplier-service.env.example`. This service's own exchanges are `foc.supplier.retry` / `.back` / `.dlx`, and its queue is `supplier-service.order-supplier-validation-requested.v1` |
+
+**Tests:**
+- unit: the handler's outcomes, the consumer start-up, and the shared broker setup (`rabbitmq-topology.contract.spec.ts`)
+- integration, against real PostgreSQL: FOUND / Inactive / NOT_FOUND, a redelivery, two copies at once, a reused event id, a data-store failure that writes nothing
+- `test:messaging`, against a real throwaway RabbitMQ: one question → exactly one reply, a redelivery → one reply, malformed → dead-letter
+
+**Demo (D3):** `npm run db:test:up && npm run broker:test:up && npm run demo:validation`. It runs the real consumer, handler, outbox and relay against the test broker and test database, plays Order Service's part, and prints:
+
+```
+1. An Active supplier
+  → Order Service asks (event a3d37432): is supplier 07ea8c47 OK?
+  ← Supplier Service answers: FOUND: Cool Spot @ COM2, Active, version 1, floor 1
+2. An Inactive supplier (Order Service decides what that means)
+  ← Supplier Service answers: FOUND: Old Kiosk @ COM2, Inactive, version 2, floor 2
+3. A supplier that does not exist
+  ← Supplier Service answers: NOT_FOUND
+4. The same question delivered twice
+  → … no second answer: it was already in the inbox
+5. A malformed question
+  ✗ moved to the dead-letter queue …requested.v1.dlq, no answer, no retry
+```
+
+Watch the queues on the test broker's web page while it runs: `http://localhost:15677`.

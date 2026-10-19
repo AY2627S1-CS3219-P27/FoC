@@ -1,6 +1,8 @@
+import { OutboxEvent } from '@foc/outbox/outbox-event.entity';
 import { BuildingNameKey } from './building-name-key.entity.js';
 import { Building } from './building.entity.js';
 import { Category } from './category.entity.js';
+import { InboxEvent } from './inbox-event.entity.js';
 import { SupplierCategory } from './supplier-category.entity.js';
 import { SupplierRequest } from './supplier-request.entity.js';
 import { Supplier } from './supplier.entity.js';
@@ -8,6 +10,8 @@ import { Supplier } from './supplier.entity.js';
 export { BuildingNameKey } from './building-name-key.entity.js';
 export { Building } from './building.entity.js';
 export { Category } from './category.entity.js';
+export { InboxEvent } from './inbox-event.entity.js';
+export { OutboxEvent } from '@foc/outbox/outbox-event.entity';
 export { SupplierCategory } from './supplier-category.entity.js';
 export {
   RequestState,
@@ -16,7 +20,8 @@ export {
 } from './supplier-request.entity.js';
 export { Supplier, SupplierKind, SupplierStatus } from './supplier.entity.js';
 
-// Every TypeORM entity of the supplier schema.
+// Every TypeORM entity of the supplier schema, plus the outbox table that
+// @foc/outbox reads.
 export const databaseEntities: Function[] = [
   Building,
   BuildingNameKey,
@@ -24,4 +29,6 @@ export const databaseEntities: Function[] = [
   Supplier,
   SupplierCategory,
   SupplierRequest,
+  InboxEvent,
+  OutboxEvent,
 ];

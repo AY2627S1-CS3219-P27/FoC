@@ -8,6 +8,7 @@ import { DataSource } from 'typeorm';
 import { SupplierRequestsService } from '../src/requests/supplier-requests.service.js';
 import { signAccessToken, TEST_USER_ID } from './access-token.js';
 import { seedTestEnvironment } from './test-env.js';
+import { withoutBroker } from './without-broker.js';
 
 const REQUEST_ID = randomUUID();
 
@@ -52,9 +53,11 @@ describe('supplier request endpoints (e2e)', () => {
     const { AppModule } = await import('../src/app.module.js');
     stub = fakes();
 
-    const moduleFixture = await Test.createTestingModule({
-      imports: [AppModule],
-    })
+    const moduleFixture = await withoutBroker(
+      Test.createTestingModule({
+        imports: [AppModule],
+      }),
+    )
       .overrideProvider(DataSource)
       .useValue({
         entityMetadatas: [],
