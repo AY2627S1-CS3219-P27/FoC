@@ -10,13 +10,14 @@ export interface CreateRequestInputs {
   rewardCredits: number;
   pickupLocation?: string;
   description?: string;
-  expiryDurationMinutes?: number; // ADR 0007; default 60. expiresAt is set when the errand goes Open
+  // ADR 0007; default 60 when left out or null. expiresAt is set when the errand goes Open
+  expiryDurationMinutes?: number | null;
   idempotencyKey?: string; // scoped to the requester; no key = no dedupe
 }
 
 export type CreateResult =
   | { ok: true; errandId: string; replayed?: true }
-  | { ok: false; reason: 'INVALID_FIELDS' };
+  | { ok: false; reason: 'INVALID_FIELDS' | 'IDEMPOTENCY_KEY_REUSED' };
 
 // F1.7.2: 15 minutes to 168 hours.
 export const DEFAULT_EXPIRY_MINUTES = 60;
@@ -26,7 +27,10 @@ export const MAX_EXPIRY_MINUTES = 168 * 60;
 // Not a transition: there is no from-status. Writes the errand and event 1
 // together, so the log starts at ErrandCreated.
 export function createErrand(db: Db, i: CreateRequestInputs): Promise<CreateResult> {
-  const { expiryDurationMinutes = DEFAULT_EXPIRY_MINUTES, ...columns } = i;
+  // A JSON client sends null for "not set", so null takes the default too
+  // (a destructuring default only covers undefined).
+  const { expiryDurationMinutes: asked, ...columns } = i;
+  const expiryDurationMinutes = asked ?? DEFAULT_EXPIRY_MINUTES;
   if (
     !Number.isInteger(expiryDurationMinutes) ||
     expiryDurationMinutes < MIN_EXPIRY_MINUTES ||
@@ -34,6 +38,16 @@ export function createErrand(db: Db, i: CreateRequestInputs): Promise<CreateResu
   ) {
     return Promise.resolve({ ok: false, reason: 'INVALID_FIELDS' });
   }
+
+  const request: Record<string, unknown> = {
+    requesterId: i.requesterId,
+    supplierId: i.supplierId,
+    deliveryLocation: i.deliveryLocation,
+    rewardCredits: i.rewardCredits,
+    pickupLocation: i.pickupLocation ?? null,
+    description: i.description ?? null,
+    expiryDurationMinutes, // the Reserving-Credit -> Open edge turns this into expiresAt
+  };
   return db.transaction(async (tx): Promise<CreateResult> => {
     const [row] = await tx
       .insert(errands)
@@ -55,15 +69,7 @@ export function createErrand(db: Db, i: CreateRequestInputs): Promise<CreateResu
         type: 'ErrandCreated',
         fromStatus: null,
         toStatus: 'Pending-Supplier',
-        payload: {
-          requesterId: i.requesterId,
-          supplierId: i.supplierId,
-          deliveryLocation: i.deliveryLocation,
-          rewardCredits: i.rewardCredits,
-          pickupLocation: i.pickupLocation ?? null,
-          description: i.description ?? null,
-          expiryDurationMinutes, // the Reserving-Credit -> Open edge turns this into expiresAt
-        },
+        payload: request,
         actorId: i.requesterId,
       });
       return { ok: true, errandId: row.id };
@@ -79,6 +85,17 @@ export function createErrand(db: Db, i: CreateRequestInputs): Promise<CreateResu
           eq(errands.idempotencyKey, i.idempotencyKey!),
         ),
       );
+      
+    const [first] = await tx
+      .select({ payload: errandEvents.payload })
+      .from(errandEvents)
+      .where(
+        and(eq(errandEvents.errandId, prior.id), eq(errandEvents.sequenceNumber, 1)),
+      );
+    const asked = first.payload as Record<string, unknown>;
+    if (Object.keys(request).some((k) => request[k] !== asked[k])) {
+      return { ok: false, reason: 'IDEMPOTENCY_KEY_REUSED' };
+    }
     return { ok: true, errandId: prior.id, replayed: true };
   });
 }

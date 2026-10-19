@@ -11,7 +11,7 @@
     "contracts:install": "npm install --no-audit --no-fund --prefix ../packages/contracts",
     "auth:deps": "npm install --no-audit --no-fund --prefix ../packages/auth",
     "auth:build": "npm run build --prefix ../packages/auth",
-    "auth:link": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('node_modules/@foc/auth', { recursive: true, force: true })\" && npm install --install-links --no-audit --no-fund ../packages/auth",
+    "auth:link": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('node_modules/@foc/auth', { recursive: true, force: true })\" && npm install --install-links --no-save --no-audit --no-fund ../packages/auth",
     "postinstall": "npm run contracts:install && npm run auth:deps",
     "prebuild": "npm run contracts:build && npm run auth:build && npm run auth:link",
     "build": "nest build",

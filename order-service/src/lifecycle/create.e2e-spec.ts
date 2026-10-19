@@ -81,6 +81,24 @@ describe('createErrand', () => {
     expect(await createErrand(t.db, input({ expiryDurationMinutes: 168 * 60 }))).toMatchObject({ ok: true });
   });
 
+  it('takes a null expiry duration as the default', async () => {
+    const res = await createErrand(t.db, input({ expiryDurationMinutes: null }));
+    if (!res.ok) throw new Error('expected ok');
+    expect((await events(res.errandId))[0].payload).toMatchObject({ expiryDurationMinutes: 60 });
+  });
+
+  it('replays a repeated key whether the expiry was left out or null', async () => {
+    const i = input({ idempotencyKey: `null-expiry-${randomUUID()}` });
+    const first = await createErrand(t.db, i);
+    if (!first.ok) throw new Error('expected ok');
+
+    expect(await createErrand(t.db, { ...i, expiryDurationMinutes: null })).toEqual({
+      ok: true,
+      errandId: first.errandId,
+      replayed: true,
+    });
+  });
+
   it('returns the original errand for a repeated key', async () => {
     const i = input({ idempotencyKey: 'k1' });
     const first = await createErrand(t.db, i);
@@ -93,6 +111,37 @@ describe('createErrand', () => {
     expect(await events((first as { errandId: string }).errandId)).toHaveLength(
       1,
     );
+  });
+
+  it.each([
+    ['a different reward', { rewardCredits: 9 }],
+    ['a different delivery location', { deliveryLocation: 'UTown' }],
+    ['an added optional field', { description: 'no onions' }],
+    ['a different expiry', { expiryDurationMinutes: 120 }],
+  ])('refuses a repeated key with %s, writing nothing', async (_, change) => {
+    const i = input({ idempotencyKey: `changed-${randomUUID()}` });
+    const first = await createErrand(t.db, i);
+    if (!first.ok) throw new Error('expected ok');
+
+    expect(await createErrand(t.db, { ...i, ...change })).toEqual({
+      ok: false,
+      reason: 'IDEMPOTENCY_KEY_REUSED',
+    });
+    expect(await events(first.errandId)).toHaveLength(1);
+  });
+
+  it('still replays a repeated key after the errand has changed', async () => {
+    const i = input({ idempotencyKey: `adjusted-${randomUUID()}` });
+    const first = await createErrand(t.db, i);
+    if (!first.ok) throw new Error('expected ok');
+    // The row moves on (e.g. an adjust); the request it came from does not.
+    await t.db.update(errands).set({ rewardCredits: 9 }).where(eq(errands.id, first.errandId));
+
+    expect(await createErrand(t.db, i)).toEqual({
+      ok: true,
+      errandId: first.errandId,
+      replayed: true,
+    });
   });
 
   it('creates one errand when the same key races', async () => {
