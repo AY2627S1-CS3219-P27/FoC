@@ -123,6 +123,32 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
   const outbox = () => dataSource.getRepository(OutboxEvent).find();
   const inbox = () => dataSource.getRepository(InboxEvent).find();
 
+  it('answers on the transaction\'s own connection, so one pooled connection is enough', async () => {
+    const { id } = await coolSpot();
+    // A pool of one: a lookup on a second connection would wait for the
+    // transaction's connection, and fail after the acquire timeout.
+    const single = new DataSource({
+      ...dataSource.options,
+      poolSize: 1,
+      connectTimeoutMS: 2_000,
+    } as typeof dataSource.options);
+    await single.initialize();
+    try {
+      const singleValidation = new SupplierValidationService(
+        single,
+        new SupplierQueriesService(single, config),
+        contracts,
+        config,
+      );
+
+      const result = await singleValidation.process(request(id));
+
+      expect(result).toMatchObject({ status: 'answered', outcome: 'FOUND' });
+    } finally {
+      await single.destroy();
+    }
+  });
+
   it('answers FOUND with the supplier snapshot, recording request and reply together (F15.7.2, F15.7.3)', async () => {
     const { id } = await coolSpot();
     const question = request(id);

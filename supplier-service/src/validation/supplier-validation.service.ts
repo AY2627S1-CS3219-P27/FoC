@@ -9,7 +9,7 @@ import {
 } from '@foc/contracts';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DataSource } from 'typeorm';
+import { DataSource, type EntityManager } from 'typeorm';
 import type { EnvironmentVariables } from '../config/environment.schema.js';
 import { InboxEvent, OutboxEvent } from '../database/entities/index.js';
 import { SupplierQueriesService } from '../suppliers/supplier-queries.service.js';
@@ -110,7 +110,10 @@ export class SupplierValidationService {
           : { status: 'event-id-conflict', eventId: event.eventId };
       }
 
-      const supplier = await this.lookUp(event.payload.supplierId);
+      // Read on this transaction's connection: the reply then reflects the
+      // same transaction that records it, and each message holds only one
+      // pooled connection, so a full prefetch cannot exhaust the pool.
+      const supplier = await this.lookUp(event.payload.supplierId, manager);
       const reply = this.reply(event, supplier);
       if (
         !this.contracts.validate(
@@ -156,9 +159,12 @@ export class SupplierValidationService {
   }
 
   /** The supplier, or null only when it does not exist; other errors throw. */
-  private async lookUp(id: string): Promise<SupplierDetail | null> {
+  private async lookUp(
+    id: string,
+    manager: EntityManager,
+  ): Promise<SupplierDetail | null> {
     try {
-      return await this.suppliers.get(id);
+      return await this.suppliers.get(id, manager);
     } catch (error) {
       if (error instanceof NotFoundException) {
         return null;
