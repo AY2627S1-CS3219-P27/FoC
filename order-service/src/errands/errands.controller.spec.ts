@@ -215,6 +215,15 @@ describe('ErrandsController', () => {
       expect(lifecycle.transition).toHaveBeenCalledWith({ errandId, actor, ...edge });
     });
 
+    it('answers a lost accept race with a distinct ERRAND_UNAVAILABLE 409', async () => {
+      lifecycle.transition.mockResolvedValue({ ok: false, reason: 'STATE_MISMATCH', currentStatus: 'Accepted' });
+
+      const res = await act(errandId, 'accept', undefined, await signAccessToken());
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ code: 'ERRAND_UNAVAILABLE' });
+    });
+
     it('rejects a caller without a token', async () => {
       expect((await act(errandId, 'accept')).status).toBe(401);
       expect(lifecycle.transition).not.toHaveBeenCalled();
