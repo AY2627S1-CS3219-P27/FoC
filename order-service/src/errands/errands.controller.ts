@@ -189,6 +189,10 @@ export class ErrandsController {
       idempotencyKey,
     });
 
+    // Losing a concurrent accept: someone else moved the errand off Open first.
+    if (action === 'accept' && !result.ok && result.reason === 'STATE_MISMATCH') {
+      return resultToHttp({ ok: false, reason: 'ERRAND_UNAVAILABLE' });
+    }
     return this.answer(result, res);
   }
 

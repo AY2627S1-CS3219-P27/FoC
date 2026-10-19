@@ -141,17 +141,9 @@ export async function runSweeps(db: Db, cfg: SweepConfig) {
       db, 'Picked Up', lte(errands.pickedUpAt, ago(DAY_MS)), 'PICKUP_TIME_EXCEEDED')),
     creditTimedOut: await safe('reserving', () => cancelAll(
       db, 'Reserving-Credit', lte(errands.updatedAt, ago(cfg.reservingTimeoutMs)), 'CREDIT_TIMEOUT')),
-    // A rejected transfer reverts to Delivered; leave it for an admin (ADR 0006).
     autoCompleted: await safe('auto-complete', () => move(
       db,
-      and(
-        eq(errands.status, 'Delivered'),
-        lte(errands.deliveredAt, ago(DAY_MS)),
-        sql`NOT EXISTS (SELECT 1 FROM errand_events e
-              WHERE e.errand_id = ${errands.id}
-                AND e.sequence_number = ${errands.lastSequenceNumber}
-                AND e.type = 'CreditTransferFailed')`,
-      ),
+      and(eq(errands.status, 'Delivered'), lte(errands.deliveredAt, ago(DAY_MS))),
       { expected: 'Delivered', to: 'Transferring-Credit' },
     )),
     resent: await safe('credit-reply', () => resendOrAlert(db, cfg)),

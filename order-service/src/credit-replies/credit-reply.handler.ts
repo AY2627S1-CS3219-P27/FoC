@@ -104,11 +104,11 @@ export const REPLY_SPECS: ReplySpec[] = [
       transferredAmount: e.payload.transferredAmount,
     },
   })),
-  // Back to Delivered (ADR 0006); the auto-complete sweep is meant to skip it from then on.
+  // Credit's rejection is terminal (a repeat confirm would replay it), so go to Incomplete (ADR 0006).
   reply('credit.transfer-rejected.v1', (e) => ({
     errandId: e.payload.errandId,
     expected: 'Transferring-Credit',
-    to: 'Delivered',
+    to: 'Incomplete',
     payload: { creditEventId: e.eventId, reason: e.payload.rejectionReason },
   })),
   // Release is fire-and-forget (ADR 0006): nothing to revert, only an alert.

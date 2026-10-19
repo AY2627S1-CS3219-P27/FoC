@@ -38,6 +38,7 @@ export const errands = pgTable(
     pickupLocation: text('pickup_location'),
     deliveryLocation: text('delivery_location').notNull(),
     rewardCredits: integer('reward_credits').notNull(),
+    collectionItems: text('collection_items').notNull(), // read-only; never filtered or sorted
 
     // ADR 0007: set on Reserving-Credit -> Open as that time + the requester's
     // duration (F1.7.3, kept in the ErrandCreated payload); null until then.
