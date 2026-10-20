@@ -11,6 +11,7 @@ import { HealthController } from './health/health.controller.js';
 import { LifecycleModule } from './lifecycle/lifecycle.module.js';
 import { MessagingModule } from './messaging/messaging.module.js';
 import { OutboxModule } from './outbox/outbox.module.js';
+import { SupplierRepliesModule } from './supplier-replies/supplier-replies.module.js';
 import { SweepsModule } from './sweeps/sweeps.module.js';
 
 @Module({
@@ -34,6 +35,7 @@ import { SweepsModule } from './sweeps/sweeps.module.js';
     LifecycleModule,
     MessagingModule,
     OutboxModule,
+    SupplierRepliesModule,
     SweepsModule,
   ],
   controllers: [HealthController],

@@ -34,6 +34,7 @@ export const errands = pgTable(
     //columns here are to allow for sorting and filtering
     courierId: uuid('courier_id'),
     supplierId: uuid('supplier_id').notNull(),
+    supplierValidatedAt: ts('supplier_validated_at'),
     description: text('description'), // optional delivery instructions
     pickupLocation: text('pickup_location'),
     deliveryLocation: text('delivery_location').notNull(),
@@ -114,6 +115,17 @@ export const idempotencyKeys = pgTable(
     primaryKey({ columns: [t.errandId, t.key] }),
     index().on(t.createdAt), // the retention sweep deletes oldest first
   ],
+);
+
+// Owned by the sweep; kept off `errands` so only transition() writes the projection.
+export const supplierValidationRetries = pgTable(
+  'supplier_validation_retries',
+  {
+    errandId: uuid('errand_id').primaryKey(),
+    attempts: integer('attempts').notNull().default(0),
+    nextRetryAt: ts('next_retry_at').notNull(),
+  },
+  (t) => [index().on(t.nextRetryAt)],
 );
 
 // Transactional outbox (credit ADR 0004): notices are inserted in the same

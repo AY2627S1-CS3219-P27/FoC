@@ -32,6 +32,9 @@ export class SweepsLifecycle
       replyTimeoutMs: config.getOrThrow('CREDIT_REPLY_TIMEOUT_MS'),
       resendMax: config.getOrThrow('CREDIT_RESEND_MAX'),
       keyTtlMs: config.getOrThrow('IDEMPOTENCY_KEY_TTL_MS'),
+      supplierRetryBaseMs: config.getOrThrow('SUPPLIER_RETRY_BASE_MS'),
+      supplierRetryMaxMs: config.getOrThrow('SUPPLIER_RETRY_MAX_MS'),
+      supplierHoldMs: config.getOrThrow('SUPPLIER_VALIDATION_HOLD_MS'),
     };
   }
 

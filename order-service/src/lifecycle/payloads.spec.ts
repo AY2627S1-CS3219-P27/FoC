@@ -47,6 +47,29 @@ describe('payloadValid', () => {
     expect(payloadValid('CourierWithdrew', { reason: 'x'.repeat(501) })).toBe(false);
   });
 
+  it('keeps the supplier snapshot on SupplierValidated, with the reply it came from', () => {
+    const supplier = { status: 'Active', version: 3, name: 'Cool Spot' };
+    expect(payloadValid('SupplierValidated', { supplierEventId: randomUUID(), supplier })).toBe(true);
+    expect(payloadValid('SupplierValidated', { supplierEventId: randomUUID() })).toBe(false);
+    expect(payloadValid('SupplierValidated', { supplier })).toBe(false);
+  });
+
+  it('takes a supplier cancel with both its details, never mixed with credit ones', () => {
+    const supplierEventId = randomUUID();
+    expect(payloadValid('ErrandCancelled', { supplierEventId, supplierOutcome: 'NOT_FOUND' })).toBe(true);
+    expect(payloadValid('ErrandCancelled', { supplierEventId, supplierOutcome: 'INACTIVE' })).toBe(true);
+    expect(payloadValid('ErrandCancelled', { supplierEventId })).toBe(false);
+    expect(payloadValid('ErrandCancelled', { supplierEventId, supplierOutcome: 'GONE' })).toBe(false);
+    expect(
+      payloadValid('ErrandCancelled', {
+        supplierEventId,
+        supplierOutcome: 'NOT_FOUND',
+        creditEventId: randomUUID(),
+        requestedAmount: 5,
+      }),
+    ).toBe(false);
+  });
+
   it('takes a cancel with or without credit details, never half of them', () => {
     expect(payloadValid('ErrandCancelled', {})).toBe(true);
     expect(
