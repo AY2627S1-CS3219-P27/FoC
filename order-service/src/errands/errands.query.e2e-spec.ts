@@ -310,3 +310,57 @@ describe('GET /v1/errands/:id', () => {
     expect((await detail(e.id, courier, [Role.Courier])).body.status).toBe('Completed');
   });
 });
+
+describe('GET /v1/admin/users/:userId/errands', () => {
+  const target = randomUUID();
+  // base is set in beforeAll, so build the admin root lazily.
+  const adminUrl = (path: string) => `${base.replace('/v1/errands', '/v1/admin')}${path}`;
+  const admin = async (path: string, isAdmin = true) =>
+    fetch(adminUrl(path), {
+      headers: {
+        authorization: `Bearer ${await signAccessToken({ sub: randomUUID(), roles: [], isAdmin })}`,
+      },
+    });
+  const userErrands = async (query = '') => {
+    const res = await admin(`/users/${target}/errands${query ? `?${query}` : ''}`);
+    return { res, body: await res.json() };
+  };
+
+  it('rejects a missing token and a non-admin, whatever their roles', async () => {
+    expect((await fetch(adminUrl(`/users/${target}/errands`))).status).toBe(401);
+    expect((await admin(`/users/${target}/errands`, false)).status).toBe(403);
+  });
+
+  it('rejects a malformed user id', async () => {
+    expect((await admin('/users/nope/errands')).status).toBe(400);
+  });
+
+  it("lists the user's errands on both sides with the internal sub-state and party fields", async () => {
+    const asRequester = await seed({ requesterId: target, status: 'Reserving-Credit', createdAt: inHours(-2) });
+    const asCourier = await seed({ courierId: target, status: 'Transferring-Credit', createdAt: inHours(-1) });
+    await seed();
+    const { res, body } = await userErrands();
+    expect(res.status).toBe(200);
+    expect(ids(body)).toEqual([asCourier.id, asRequester.id]);
+    expect(body.items[0]).toMatchObject({
+      status: 'Completed',
+      internalStatus: 'Transferring-Credit',
+      requesterId: asCourier.requesterId,
+      courierId: target,
+    });
+    expect(body.items[1]).toMatchObject({ status: 'Pending', internalStatus: 'Reserving-Credit' });
+    expect(body.items[0]).not.toHaveProperty('idempotencyKey');
+    expect(body.items[0]).not.toHaveProperty('lastSequenceNumber');
+  });
+
+  it('applies role and status like /mine', async () => {
+    const asRequester = await seed({ requesterId: target, status: 'Open' });
+    await seed({ courierId: target, status: 'Accepted' });
+    expect(ids((await userErrands('role=requester')).body)).toEqual([asRequester.id]);
+    expect(ids((await userErrands('status=Open')).body)).toEqual([asRequester.id]);
+  });
+
+  it('is an empty list for a user with no errands', async () => {
+    expect((await userErrands()).body).toEqual({ items: [], limit: 20, offset: 0 });
+  });
+});

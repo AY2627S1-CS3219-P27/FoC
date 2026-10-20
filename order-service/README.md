@@ -12,3 +12,9 @@ Errand lifecycle, state model and expiry. See `AGENTS.md` and `ARCHITECTURE.md`.
 | `POST /` | Requester | Create |
 | `POST /:id/accept`, `pickup`, `deliver`, `withdraw` | Courier | Courier actions |
 | `POST /:id/confirm`, `incomplete`, `adjust`, `cancel` | Requester | Requester actions |
+
+## Admin routes (`/v1/admin`, JWT with `isAdmin`)
+
+| Route | Purpose |
+|---|---|
+| `GET /users/:userId/errands` | A user's errands as requester or courier, with the internal sub-state (`role`, `status`, `limit`, `offset`) |

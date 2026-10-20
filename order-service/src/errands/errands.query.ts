@@ -31,6 +31,17 @@ const toView = (r: typeof errands.$inferSelect, callerId?: string) => ({
     : {}),
 });
 
+// Admin allowlist: the parties' view plus the internal sub-state, labelled as
+// internal (F9.3.3), and the lifecycle timestamps. Still never idempotencyKey
+// or lastSequenceNumber.
+const toAdminView = (r: typeof errands.$inferSelect) => ({
+  ...toView(r, r.requesterId),
+  internalStatus: r.status,
+  pickedUpAt: r.pickedUpAt,
+  deliveredAt: r.deliveredAt,
+  updatedAt: r.updatedAt,
+});
+
 // The read side. Owns every errand SELECT; never writes (Lifecycle stays the
 // only writer) and never calls transition().
 @Injectable()
@@ -63,13 +74,24 @@ export class ErrandsQueryService {
   // The caller's errands, as requester or courier (or only one side, by
   // `role`), newest first.
   async mine(callerId: string, q: MineErrandsQuery) {
-    const asRequester = eq(errands.requesterId, callerId);
-    const asCourier = eq(errands.courierId, callerId);
+    const rows = await this.partyRows(callerId, q);
+    return { items: rows.map((r) => toView(r, callerId)), limit: q.limit, offset: q.offset };
+  }
+
+  // Admin (F9.3.3): the same list for any user, with the internal sub-state.
+  async ofUserForAdmin(userId: string, q: MineErrandsQuery) {
+    const rows = await this.partyRows(userId, q);
+    return { items: rows.map(toAdminView), limit: q.limit, offset: q.offset };
+  }
+
+  private partyRows(userId: string, q: MineErrandsQuery) {
+    const asRequester = eq(errands.requesterId, userId);
+    const asCourier = eq(errands.courierId, userId);
     const side =
       q.role === Role.Requester ? asRequester
       : q.role === Role.Courier ? asCourier
       : or(asRequester, asCourier);
-    const rows = await this.db
+    return this.db
       .select()
       .from(errands)
       .where(
@@ -81,7 +103,6 @@ export class ErrandsQueryService {
       .orderBy(desc(errands.createdAt), asc(errands.id))
       .limit(q.limit)
       .offset(q.offset);
-    return { items: rows.map((r) => toView(r, callerId)), limit: q.limit, offset: q.offset };
   }
 
   // Parties see any status, expired or not (expiresAt tells the app); everyone
