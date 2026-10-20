@@ -24,6 +24,7 @@ export interface Errand {
   status: ErrandStatus;
   supplierId: string;
   pickupLocation: string | null;
+  pickupDescription: string | null;
   deliveryLocation: string;
   collectionItems: string;
   description: string | null;

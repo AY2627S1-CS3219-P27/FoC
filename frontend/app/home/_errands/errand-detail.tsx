@@ -136,6 +136,9 @@ export function ErrandDetail({
               <dd>
                 {supplier?.displayName ?? shortId(errand.supplierId)}
                 {errand.pickupLocation ? ` · ${errand.pickupLocation}` : ""}
+                {errand.pickupDescription && (
+                  <span className="block text-xs text-muted">{errand.pickupDescription}</span>
+                )}
               </dd>
               <dt className="text-muted">Deliver to</dt>
               <dd>{errand.deliveryLocation}</dd>

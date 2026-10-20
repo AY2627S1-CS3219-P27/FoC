@@ -52,7 +52,11 @@ describe('supplier validation reply', () => {
       errandId,
       expected: 'Pending-Supplier',
       to: 'Reserving-Credit',
-      set: { supplierValidatedAt: new Date(timestamp) },
+      set: {
+        supplierValidatedAt: new Date(timestamp),
+        pickupLocation: 'COM2',
+        pickupDescription: 'Floor 1 · Next to LT19',
+      },
       payload: { supplierEventId: body.eventId, supplier: { ...supplierSnapshot, status: 'Active' } },
       actor: SYSTEM,
       idempotencyKey: body.eventId,

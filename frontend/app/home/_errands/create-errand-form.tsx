@@ -42,8 +42,6 @@ export function CreateErrandForm({
       idempotencyKey: crypto.randomUUID(),
       body: {
         supplierId,
-        // The open list filters pickup by building name, so send the supplier's building.
-        pickupLocation: supplier?.building?.shortName,
         deliveryLocation,
         collectionItems,
         description: description.trim() || undefined,

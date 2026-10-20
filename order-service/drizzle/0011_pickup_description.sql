@@ -1,0 +1,1 @@
+ALTER TABLE "errands" ADD COLUMN "pickup_description" text;

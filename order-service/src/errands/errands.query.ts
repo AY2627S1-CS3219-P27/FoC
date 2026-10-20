@@ -20,6 +20,7 @@ const toView = (r: typeof errands.$inferSelect, callerId?: string) => ({
   status: toApiStatus(r.status),
   supplierId: r.supplierId,
   pickupLocation: r.pickupLocation,
+  pickupDescription: r.pickupDescription,
   deliveryLocation: r.deliveryLocation,
   collectionItems: r.collectionItems,
   description: r.description,

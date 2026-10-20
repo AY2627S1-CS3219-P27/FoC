@@ -81,6 +81,8 @@ describe('supplier validation reply against the database', () => {
     expect(await row(id)).toMatchObject({
       status: 'Reserving-Credit',
       supplierValidatedAt: new Date(timestamp),
+      pickupLocation: 'COM2',
+      pickupDescription: 'Floor 1 · Next to LT19',
     });
     const evs = await events(id);
     expect(evs).toHaveLength(2);

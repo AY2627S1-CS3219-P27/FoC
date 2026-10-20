@@ -39,12 +39,6 @@ export class CreateErrandDto {
 
   @IsOptional()
   @IsString()
-  @Length(1, MAX_LOCATION_LENGTH)
-  @Matches(NOT_BLANK)
-  pickupLocation?: string;
-
-  @IsOptional()
-  @IsString()
   @MaxLength(MAX_DESCRIPTION_LENGTH)
   description?: string;
 

@@ -14,7 +14,7 @@ We need one rule for what an existing errand sees when that happens.
 - **Users: ids only.** `requester_id` and `courier_id` hold the user's UUID (the token's `sub`). Order-service stores no names or profile data; clients look them up live from user-service. A profile change therefore never touches an errand.
 - **Supplier: id plus a snapshot taken at validation.**
   - `supplier.validation-completed.v1` carries a supplier snapshot that includes its `version`. The `SupplierValidated` event payload keeps that snapshot verbatim.
-  - The `Pending-Supplier` → `Reserving-Credit` edge sets `supplier_validated_at` and also sets `pickupLocation` from the snapshot's building and `locationDescription`.
+  - The `Pending-Supplier` → `Reserving-Credit` edge sets three columns: `supplier_validated_at`, `pickup_location` (the building's `shortName`) and `pickup_description` (floor and `locationDescription`, e.g. `Floor 1 · Next to LT19`). The client no longer sends a pickup location; until validation it is null.
   - From then on the errand is fixed against that version. Later supplier edits do not rewrite existing errands: the courier goes where the errand says.
 - **Supplier status is checked once, at validation.**
   - A supplier that goes `Inactive` afterwards blocks new errands only. An existing `Open` errand carries on, and its requester can still cancel it.
@@ -35,7 +35,6 @@ Copying user data would duplicate personal data, and every rename would need an 
 
 ## Not built yet
 
-- Setting `pickupLocation` from the snapshot. This needs supplier integration (PR #649) to land first; until then `pickupLocation` is optional client text.
 - The F10 check-and-lock endpoint (#355–#368), which user-service #121–#147 wait on.
 - The supplier usage endpoint that supplier-service needs for hard delete (F5.3.1, #211).
 - Admin resolution of `Incomplete` errands. See ARCHITECTURE §6.
