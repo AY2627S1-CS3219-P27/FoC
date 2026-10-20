@@ -72,3 +72,19 @@ export const enqueueRelease = (db: Db, errandId: string, replyEventId: string) =
     { key: 'order.errand-cancelled.v1', payload: { errandId } },
     derivedUuid(`release:${replyEventId}`),
   );
+
+// Each attempt is a new question to Supplier Service, so a lost reply still gets answered.
+export const supplierRequestId = (errandId: string, attempt: number) =>
+  derivedUuid(`supplier-validation:${errandId}:${attempt}`);
+
+export const enqueueSupplierRequest = (
+  db: Db,
+  errandId: string,
+  supplierId: string,
+  attempt: number,
+) =>
+  enqueueNotice(
+    db,
+    { key: 'order.supplier-validation-requested.v1', payload: { errandId, supplierId } },
+    supplierRequestId(errandId, attempt),
+  );
