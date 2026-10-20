@@ -111,7 +111,7 @@
       "hashing_algorithm": "rabbit_password_hashing_sha256",
       "limits": {},
       "name": "order-service",
-      "password_hash": "sUvxR6IwUJmDLu1plGwH4ef47h48RwF8jeDIAN5bXsnpa0i3",
+      "password_hash": "SitwROyDvGR53NyzdEZn+qw1eEPPyzPSs2aV6jg0kpgH782H",
       "tags": []
     },
     {
