@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { createTestDb } from '../../test/db.js';
-import { creditReserved } from '../../test/payloads.js';
 import { errandEvents, errands } from '../db/schema.js';
 import type { Status } from './status.js';
 import { SYSTEM, transition, user, type Actor } from './transition.js';
@@ -14,6 +13,7 @@ afterAll(() => t.close());
 
 const requester = randomUUID();
 const withdrawal = { reason: 'bike broke down' }; // F7.4: a courier withdraw needs one
+const creditReserved = () => ({ creditEventId: randomUUID(), creditTransactionId: randomUUID(), reservedAmount: 5 });
 // Fresh per test: the one-active-errand-per-courier index forbids reuse.
 let courier: string;
 beforeEach(() => {
@@ -30,6 +30,7 @@ async function seed(status: Status) {
     courierId: status === 'Accepted' || status === 'Picked Up' ? courier : undefined,
     deliveryLocation: 'COM2',
     rewardCredits: 5,
+    collectionItems: 'bubble tea',
   });
   return id;
 }
@@ -350,7 +351,7 @@ describe('transition', () => {
         actor: SYSTEM, errandId: id,
         expected: 'Reserving-Credit',
         to: 'Open',
-        ...creditReserved(),
+        payload: creditReserved(),
       });
 
       expect(res).toEqual({
@@ -594,7 +595,7 @@ describe('transition', () => {
           expected: 'Reserving-Credit',
           to: 'Open',
           actor: actor as never,
-          ...creditReserved(),
+          payload: creditReserved(),
         });
         expect(res).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
       }
@@ -604,7 +605,7 @@ describe('transition', () => {
 
     it('refuses a user on a system-only edge', async () => {
       const id = await seed('Reserving-Credit');
-      const res = await transition(t.db, { errandId: id, expected: 'Reserving-Credit', to: 'Open', actor: user(requester), ...creditReserved() });
+      const res = await transition(t.db, { errandId: id, expected: 'Reserving-Credit', to: 'Open', actor: user(requester), payload: creditReserved() });
       expect(res).toEqual({ ok: false, reason: 'FORBIDDEN' });
     });
 

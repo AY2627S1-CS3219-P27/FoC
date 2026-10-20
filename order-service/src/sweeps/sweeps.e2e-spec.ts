@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { eq, sql } from 'drizzle-orm';
 import { createTestDb } from '../../test/db.js';
-import { creditReserved, creditTransferFailed, supplierValidated } from '../../test/payloads.js';
+import { creditReserved, supplierValidated } from '../../test/payloads.js';
 import {
   errandEvents,
   errands,
@@ -45,6 +45,7 @@ async function seed(status: Status, over: Partial<typeof errands.$inferInsert> =
     courierId: status === 'Picked Up' || status === 'Delivered' ? randomUUID() : undefined,
     deliveryLocation: 'COM2',
     rewardCredits: 5,
+    collectionItems: 'bubble tea',
     ...over,
   });
   return id;
@@ -66,6 +67,7 @@ describe('expiresAt', () => {
       deliveryLocation: 'COM2',
       rewardCredits: 5,
       expiryDurationMinutes: 120,
+      collectionItems: 'bubble tea',
     });
     if (!res.ok) throw new Error('expected ok');
     expect((await row(res.errandId)).expiresAt).toBeNull();
@@ -137,20 +139,20 @@ describe('sweeps', () => {
     expect(await outboxFor(due)).toHaveLength(1);
   });
 
-  it('skips auto-complete after a rejected transfer', async () => {
+  it('leaves an errand alone after a rejected transfer (Incomplete)', async () => {
     const id = await seed('Delivered', { deliveredAt: ago(25 * HOUR) });
     await runSweeps(t.db, cfg); // -> Transferring-Credit
     await transition(t.db, {
       errandId: id,
       expected: 'Transferring-Credit',
-      to: 'Delivered',
+      to: 'Incomplete',
       actor: SYSTEM,
-      ...creditTransferFailed(),
+      payload: { creditEventId: randomUUID(), reason: 'INSUFFICIENT_FUNDS' },
     });
-    expect((await lastEvent(id)).type).toBe('CreditTransferFailed');
+    expect((await lastEvent(id)).type).toBe('CreditTransferRejected');
 
     await runSweeps(t.db, cfg);
-    expect((await row(id)).status).toBe('Delivered');
+    expect((await row(id)).status).toBe('Incomplete');
   });
 
   it('two concurrent ticks over the same errand act once', async () => {
@@ -241,6 +243,8 @@ describe('Pending-Supplier', () => {
       supplierId: randomUUID(),
       deliveryLocation: 'COM2',
       rewardCredits: 5,
+      expiryDurationMinutes: 60,
+      collectionItems: 'bubble tea',
     });
     if (!res.ok) throw new Error(res.reason);
     const id = res.errandId;

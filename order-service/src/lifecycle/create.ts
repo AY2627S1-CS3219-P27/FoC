@@ -11,8 +11,8 @@ export interface CreateRequestInputs {
   rewardCredits: number;
   pickupLocation?: string;
   description?: string;
-  // ADR 0007; default 60 when left out or null. expiresAt is set when the errand goes Open
-  expiryDurationMinutes?: number | null;
+  expiryDurationMinutes: number; // ADR 0007; expiresAt is set when the errand goes Open
+  collectionItems: string; // what the courier collects; kept in the ErrandCreated payload only
   idempotencyKey?: string; // scoped to the requester; no key = no dedupe
 }
 
@@ -21,21 +21,19 @@ export type CreateResult =
   | { ok: false; reason: 'INVALID_FIELDS' | 'IDEMPOTENCY_KEY_REUSED' };
 
 // F1.7.2: 15 minutes to 168 hours.
-export const DEFAULT_EXPIRY_MINUTES = 60;
 export const MIN_EXPIRY_MINUTES = 15;
 export const MAX_EXPIRY_MINUTES = 168 * 60;
 
 // Not a transition: there is no from-status. Writes the errand and event 1
 // together, so the log starts at ErrandCreated.
 export function createErrand(db: Db, i: CreateRequestInputs): Promise<CreateResult> {
-  // A JSON client sends null for "not set", so null takes the default too
-  // (a destructuring default only covers undefined).
-  const { expiryDurationMinutes: asked, ...columns } = i;
-  const expiryDurationMinutes = asked ?? DEFAULT_EXPIRY_MINUTES;
+  const { expiryDurationMinutes, collectionItems, ...columns } = i;
   if (
     !Number.isInteger(expiryDurationMinutes) ||
     expiryDurationMinutes < MIN_EXPIRY_MINUTES ||
-    expiryDurationMinutes > MAX_EXPIRY_MINUTES
+    expiryDurationMinutes > MAX_EXPIRY_MINUTES ||
+    typeof collectionItems !== 'string' ||
+    !collectionItems.trim()
   ) {
     return Promise.resolve({ ok: false, reason: 'INVALID_FIELDS' });
   }
@@ -48,12 +46,14 @@ export function createErrand(db: Db, i: CreateRequestInputs): Promise<CreateResu
     pickupLocation: i.pickupLocation ?? null,
     description: i.description ?? null,
     expiryDurationMinutes, // the Reserving-Credit -> Open edge turns this into expiresAt
+    collectionItems,
   };
   return db.transaction(async (tx): Promise<CreateResult> => {
     const [row] = await tx
       .insert(errands)
       .values({
         ...columns,
+        collectionItems,
         id: randomUUID(),
         status: 'Pending-Supplier',
         lastSequenceNumber: 1,

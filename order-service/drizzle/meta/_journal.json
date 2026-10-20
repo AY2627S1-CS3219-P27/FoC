@@ -61,15 +61,22 @@
     {
       "idx": 8,
       "version": "7",
-      "when": 1792414061671,
-      "tag": "0008_supplier_validated_at",
+      "when": 1792379843930,
+      "tag": "0008_errand_collection_items",
       "breakpoints": true
     },
     {
       "idx": 9,
       "version": "7",
-      "when": 1792424403594,
-      "tag": "0009_supplier_validation_retries",
+      "when": 1792426836537,
+      "tag": "0009_supplier_validated_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792426837119,
+      "tag": "0010_supplier_validation_retries",
       "breakpoints": true
     }
   ]

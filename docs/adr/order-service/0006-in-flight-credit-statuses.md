@@ -15,7 +15,7 @@ into a visible one, so users never see a "pending" state appear.
 | Credit activity | In-flight status | Success | Explicit rejection | Shown as |
 | --- | --- | --- | --- | --- |
 | Reserve | `Reserving-Credit` (renamed from `Pending-Credit`) | `Open` | `Cancelled`, with the credit reason (nothing earlier to revert to) | `Pending` |
-| Transfer (`Delivered` → `Completed`) | `Transferring-Credit` | `Completed` | back to `Delivered`, then an admin | `Completed` |
+| Transfer (`Delivered` → `Completed`) | `Transferring-Credit` | `Completed` | `Incomplete` (awaiting dispute handling, not built) | `Completed` |
 | Adjust (edit an `Open` errand, F2) | `Adjusting-Credit` | `Open` with the new `rewardCredits` | `Open`, amount unchanged | `Open` |
 
 **Release is fire-and-forget.** Every cancellation (requester cancel, expiry,
@@ -34,10 +34,13 @@ reply timeout order re-sends the same notice (credit dedups on
 `errandId`/`eventId`), and after a retry cap leaves the errand in its in-flight
 status and raises an admin alert.
 
-**A rejected transfer is not retried by the sweep.** The auto-complete sweep
-skips an errand whose latest event is the `Transferring-Credit` → `Delivered`
-revert (read from the log; no new column), and the errand goes to an admin. A
-requester confirming again still works.
+**A rejected transfer is terminal.** Credit-service records a rejected
+`(errand, TRANSFER)` operation as final and replays the same rejection to any
+later completion notice (credit ADR 0007), and it changes no balance or
+reservation. Going back to `Delivered` would only loop, so
+`Transferring-Credit` → `Incomplete`, like `Delivered` → `Incomplete`, parks the
+errand with the reserved credits still held until dispute handling is
+designed. No release notice is sent.
 
 `Reserving-Credit` → `Cancelled` has two cases. An explicit rejection
 (`INSUFFICIENT_CREDITS`, `MISSING_BALANCE`) cancels with that reason and sends
@@ -51,11 +54,11 @@ held until dispute handling is designed.
 
 **Edges: 13 become 18.** `Delivered` → `Completed` is replaced by `Delivered` →
 `Transferring-Credit`, `Transferring-Credit` → `Completed` and
-`Transferring-Credit` → `Delivered`. Adjust adds `Open` → `Adjusting-Credit`
+`Transferring-Credit` → `Incomplete`. Adjust adds `Open` → `Adjusting-Credit`
 and two exits back to `Open` (success, rejected). `ALLOWED`, `EDGES`,
 `status.spec.ts` and `ARCHITECTURE.md` §2 changed together (migration `0003`).
 Event types: `ErrandConfirmed` (`Delivered` → `Transferring-Credit`),
-`ErrandCompleted` (→ `Completed`), `CreditTransferFailed` (revert),
+`CreditTransferSucceeded` (→ `Completed`), `CreditTransferRejected` (→ `Incomplete`),
 `AdjustmentRequested`, `CreditAdjusted`, `CreditAdjustmentFailed`.
 
 ## Rationale
@@ -77,10 +80,10 @@ cancel, not at the moment of cancel, and backlog F3.1.4 / #278 (cancel waits
 for `CreditReleaseSuccess`) no longer holds.
 
 Reverting on a timeout would risk the two services disagreeing: a
-`CreditTransferSucceeded` arriving after the errand returned to `Delivered`
+`CreditTransferSucceeded` arriving after the errand left `Transferring-Credit`
 means funds moved for an errand that is not `Completed`.
 
-The reason for a failure goes in the revert event's private payload
+The reason for a rejection goes in the `CreditTransferRejected` event's private payload
 ([ADR 0005](./0005-errand-event-record-shape.md)), not a projection column:
 the `errands` row holds current state that is sorted and filtered, and "last
 credit failure" is history that nothing queries by. A column would need a

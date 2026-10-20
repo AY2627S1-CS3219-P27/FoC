@@ -29,6 +29,8 @@ async function create() {
     supplierId,
     deliveryLocation: 'COM2',
     rewardCredits: 5,
+    expiryDurationMinutes: 60,
+    collectionItems: 'bubble tea',
   });
   if (!res.ok) throw new Error(res.reason);
   return { id: res.errandId, supplierId };

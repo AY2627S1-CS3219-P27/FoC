@@ -44,11 +44,15 @@ export class CreateErrandDto {
   @MaxLength(MAX_DESCRIPTION_LENGTH)
   description?: string;
 
-  @IsOptional()
   @IsInt()
   @Min(MIN_EXPIRY_MINUTES)
   @Max(MAX_EXPIRY_MINUTES)
-  expiryDurationMinutes?: number | null; // @IsOptional lets null through; create() reads it as the default
+  expiryDurationMinutes: number;
+
+  @IsString()
+  @MaxLength(MAX_DESCRIPTION_LENGTH)
+  @Matches(NOT_BLANK)
+  collectionItems: string;
 }
 
 // F7.4: the courier must say why. Same limits as the CourierWithdrew payload.

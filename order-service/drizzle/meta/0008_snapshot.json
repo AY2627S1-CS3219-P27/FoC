@@ -1,5 +1,5 @@
 {
-  "id": "9d8b3caf-95e6-497f-8a9b-93d99c43220b",
+  "id": "78ac4e18-3a68-4964-8ef9-647a1da7f0e1",
   "prevId": "18039941-bafb-499f-b905-efba32d93eca",
   "version": "7",
   "dialect": "postgresql",
@@ -145,12 +145,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "supplier_validated_at": {
-          "name": "supplier_validated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
         "description": {
           "name": "description",
           "type": "text",
@@ -172,6 +166,12 @@
         "reward_credits": {
           "name": "reward_credits",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "collection_items": {
+          "name": "collection_items",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },

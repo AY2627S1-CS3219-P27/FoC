@@ -22,15 +22,3 @@ export const creditReserved = (reservedAmount = 5) => ({
   payload: { creditEventId: randomUUID(), creditTransactionId: randomUUID(), reservedAmount },
 });
 
-export const creditAdjusted = () => ({
-  type: 'CreditAdjusted',
-  payload: { creditEventId: randomUUID(), creditTransactionId: randomUUID() },
-});
-
-export const creditTransferFailed = () => ({
-  payload: { creditEventId: randomUUID(), reason: 'DESTINATION_ARCHIVED' },
-});
-
-export const creditTransferred = (transferredAmount = 5) => ({
-  payload: { creditEventId: randomUUID(), creditTransactionId: randomUUID(), transferredAmount },
-});

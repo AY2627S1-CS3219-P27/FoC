@@ -1,13 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { createTestDb } from '../../test/db.js';
-import {
-  creditAdjusted,
-  creditReserved,
-  creditTransferFailed,
-  creditTransferred,
-  supplierValidated,
-} from '../../test/payloads.js';
+import { supplierValidated } from '../../test/payloads.js';
 import { errands } from '../db/schema.js';
 import { createErrand } from './create.js';
 import { rebuildProjection } from './rebuild.js';
@@ -33,6 +27,10 @@ async function liveRow(id: string) {
   return rest;
 }
 
+const creditIds = () => ({ creditEventId: randomUUID(), creditTransactionId: randomUUID() });
+const creditReserved = () => ({ ...creditIds(), reservedAmount: 5 });
+const transferFailed = () => ({ creditEventId: randomUUID(), reason: 'INSUFFICIENT_FUNDS' });
+
 async function create(over = {}) {
   const res = await createErrand(t.db, {
     requesterId: requester,
@@ -42,6 +40,7 @@ async function create(over = {}) {
     pickupLocation: 'Frontier',
     description: 'no onions',
     expiryDurationMinutes: 90,
+    collectionItems: 'bubble tea',
     ...over,
   });
   if (!res.ok) throw new Error(res.reason);
@@ -62,10 +61,11 @@ describe('rebuildProjection', () => {
   it('equals the live row after a full lifecycle', async () => {
     const id = await create();
     await step(id, 'Pending-Supplier', 'Reserving-Credit', supplierValidated());
-    await step(id, 'Reserving-Credit', 'Open', creditReserved());
+    await step(id, 'Reserving-Credit', 'Open', { payload: creditReserved() });
     await step(id, 'Open', 'Adjusting-Credit', { actor: user(requester), payload: { newAmount: 9 } });
     await step(id, 'Adjusting-Credit', 'Open', {
-      ...creditAdjusted(),
+      type: 'CreditAdjusted',
+      payload: creditIds(),
       set: { rewardCredits: 9 },
     });
     await step(id, 'Open', 'Accepted', { actor: user(courier), set: { courierId: courier } });
@@ -80,15 +80,34 @@ describe('rebuildProjection', () => {
       set: { deliveredAt: new Date('2030-01-01T02:00:00.000Z') },
     });
     await step(id, 'Delivered', 'Transferring-Credit');
-    await step(id, 'Transferring-Credit', 'Delivered', creditTransferFailed()); // credit rejected
+    await step(id, 'Transferring-Credit', 'Completed', {
+      payload: { ...creditIds(), transferredAmount: 9 },
+    });
+
+    expect(await rebuildProjection(t.db, id)).toEqual(await liveRow(id));
+  });
+
+  it('equals the live row when credit rejects the transfer', async () => {
+    const id = await create();
+    await step(id, 'Pending-Supplier', 'Reserving-Credit', supplierValidated());
+    await step(id, 'Reserving-Credit', 'Open', { payload: creditReserved() });
+    await step(id, 'Open', 'Accepted', { actor: user(courier), set: { courierId: courier } });
+    await step(id, 'Accepted', 'Picked Up', {
+      actor: user(courier),
+      set: { pickedUpAt: new Date('2030-01-01T01:00:00.000Z') },
+    });
+    await step(id, 'Picked Up', 'Delivered', {
+      actor: user(courier),
+      set: { deliveredAt: new Date('2030-01-01T02:00:00.000Z') },
+    });
     await step(id, 'Delivered', 'Transferring-Credit');
-    await step(id, 'Transferring-Credit', 'Completed', creditTransferred(9));
+    await step(id, 'Transferring-Credit', 'Incomplete', { payload: transferFailed() });
 
     expect(await rebuildProjection(t.db, id)).toEqual(await liveRow(id));
   });
 
   it('equals the live row for a cancelled errand', async () => {
-    const id = await create({ pickupLocation: undefined, description: undefined, expiryDurationMinutes: undefined });
+    const id = await create({ pickupLocation: undefined, description: undefined });
     await step(id, 'Pending-Supplier', 'Cancelled', {
       set: { cancellationReason: 'SUPPLIER_UNAVAILABLE' },
     });

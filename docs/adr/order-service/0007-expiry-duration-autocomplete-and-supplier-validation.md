@@ -26,7 +26,7 @@ Decided 2026-09-28 / 2026-09-29. Expiry duration implemented as of 2026-10-11. S
 
   *Amended 2026-10-19.* This first left the time to the event's `occurred_at`
   with no column. F1.4.5 asks for it on the errand, so it became a column
-  (migration `0008`) when the supplier flow was built.
+  (migration `0009`) when the supplier flow was built.
 
 ## Rationale
 
