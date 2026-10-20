@@ -1,6 +1,6 @@
 # order-service architecture
 
-Diagrams are Mermaid (render on GitHub / VS Code). Decisions behind them: ADRs [0001](../docs/adr/order-service/0001-hand-rolled-event-sourcing-on-postgres.md)–[0007](../docs/adr/order-service/0007-expiry-duration-autocomplete-and-supplier-validation.md), [0008](../docs/adr/order-service/0008-transactional-outbox-and-broker-access.md). Terms: [`CONTEXT.md`](./CONTEXT.md).
+Diagrams are Mermaid (render on GitHub / VS Code). Decisions behind them: ADRs [0001](../docs/adr/order-service/0001-hand-rolled-event-sourcing-on-postgres.md)–[0007](../docs/adr/order-service/0007-expiry-duration-autocomplete-and-supplier-validation.md), [0008](../docs/adr/order-service/0008-transactional-outbox-and-broker-access.md), [0009](../docs/adr/order-service/0009-role-block-with-ttl.md). Terms: [`CONTEXT.md`](./CONTEXT.md).
 
 ## 1. Components
 
@@ -12,7 +12,7 @@ flowchart LR
   Credit[credit-service]
 
   subgraph OS[order-service NestJS]
-    API[HTTP controllers<br/>create, edit, cancel, list, accept,<br/>pickup, deliver, confirm, role-check]
+    API[HTTP controllers<br/>create, edit, cancel, list, accept,<br/>pickup, deliver, confirm, role-block]
     Life[Lifecycle module<br/>state machine + transition function]
     Read[Read side<br/>list / filter / sort, sub-state to Pending]
     Consumers[Notice consumers<br/>supplier + credit replies]
@@ -25,16 +25,19 @@ flowchart LR
     Events[errand_events<br/>append-only log]
     OutboxT[outbox_events<br/>unpublished notices]
     Locks[advisory locks]
+    Blocks[role_blocks<br/>user, role, expires_at]
   end
 
   MQ{{RabbitMQ foc.events}}
 
   Client --> API
-  User -- "role check / block (F10)" --> API
+  User -- "role check + block / unblock (F10, ADR 0009)" --> API
   Supplier -- "hard-delete usage query (F5.3.1)" --> API
   API --> Life
   API --> Read
   Read --> Errands
+  API -->|"per-user lock, check, upsert"| Blocks
+  Life -->|"create / accept: per-user lock, is blocked?"| Blocks
   Life -->|"one transaction: conditional UPDATE + INSERT"| Errands
   Life --> Events
   Sweeps --> Locks
@@ -48,7 +51,9 @@ flowchart LR
   MQ <--> Credit
 ```
 
-Only the Lifecycle module writes. Every write, from a request, a notice reply or a sweep, goes through the same transition function.
+Only the Lifecycle module writes errands. Every write, from a request, a notice reply or a sweep, goes through the same transition function.
+
+Role blocks (F10, [ADR 0009](../docs/adr/order-service/0009-role-block-with-ttl.md)): user-service calls `POST v1/role-blocks` before removing a role or archiving a user. In one transaction order-service checks the user has no ongoing errands for each named role (requester: any non-terminal errand; courier: `Accepted` or `Picked Up`) and upserts a `role_blocks` row per role that expires after `ROLE_BLOCK_TTL_MS`. Any role in use: `409 ROLE_IN_USE`, nothing blocked. `DELETE v1/role-blocks` removes blocks early. While a block is live, create (requester) and accept (courier) refuse with `403 ROLE_BLOCKED`, so a stale access token cannot start new work. Block, unblock, create and accept each take a per-user `pg_advisory_xact_lock` first, so a block and a concurrent create or accept never both succeed. The block service writes only `role_blocks`.
 
 ## 2. State model (F9.4, ADR 0006)
 
