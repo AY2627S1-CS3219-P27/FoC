@@ -38,12 +38,12 @@ export const PAYLOADS: Record<string, Joi.ObjectSchema> = {
   ErrandDelivered: none,
   ErrandConfirmed: none,
   ErrandIncomplete: none,
-  ErrandCompleted: Joi.object({
+  CreditTransferSucceeded: Joi.object({
     creditEventId: uuid,
     creditTransactionId: uuid,
     transferredAmount: amount.required(),
   }),
-  CreditTransferFailed: Joi.object({ creditEventId: uuid, reason }),
+  CreditTransferRejected: Joi.object({ creditEventId: uuid, reason }),
 };
 
 // An event type without a schema is refused, so a new edge needs one. No

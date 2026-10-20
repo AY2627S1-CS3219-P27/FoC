@@ -4,6 +4,7 @@ import { IsString, Length } from 'class-validator';
 import request from 'supertest';
 import { DataSource, QueryFailedError } from 'typeorm';
 import { seedTestEnvironment } from './test-env.js';
+import { withoutBroker } from './without-broker.js';
 
 class ProbeDto {
   @IsString()
@@ -46,10 +47,12 @@ describe('supplier-service (e2e)', () => {
     seedTestEnvironment();
     const { AppModule } = await import('../src/app.module.js');
 
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-      controllers: [ProbeController],
-    })
+    const moduleFixture: TestingModule = await withoutBroker(
+      Test.createTestingModule({
+        imports: [AppModule],
+        controllers: [ProbeController],
+      }),
+    )
       // The TypeORM DataSource factory would otherwise try to reach Postgres
       // during app.init().
       .overrideProvider(DataSource)

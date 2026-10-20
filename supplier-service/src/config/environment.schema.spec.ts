@@ -7,6 +7,11 @@ const REQUIRED = {
   DB_DATABASE: 'supplier_service',
   DB_PASSWORD_FILE: '/run/secrets/supplier_db_password',
   JWT_PUBLIC_KEY_FILE: '/run/secrets/supplier_jwt_public_key',
+  RABBITMQ_USER: 'supplier-service',
+  RABBITMQ_HOST: 'rabbitmq',
+  RABBITMQ_PORT: '5672',
+  RABBITMQ_VHOST: '/foc',
+  RABBITMQ_PASSWORD_FILE: '/run/secrets/supplier_rabbitmq_password',
 };
 
 describe('environmentSchema', () => {
@@ -27,7 +32,52 @@ describe('environmentSchema', () => {
       SEED_ON_STARTUP: true,
       SEED_CSV_PATH: '/seed-data/supplier-seed-data.csv',
       PLACEHOLDER_IMAGE_URL: '',
+      RABBITMQ_PORT: 5672,
+      RABBITMQ_EXCHANGE: 'foc.events',
+      RABBITMQ_RETRY_EXCHANGE: 'foc.supplier.retry',
+      RABBITMQ_RETRY_RETURN_EXCHANGE: 'foc.supplier.back',
+      RABBITMQ_DEAD_LETTER_EXCHANGE: 'foc.supplier.dlx',
+      RABBITMQ_PREFETCH: 10,
+      RABBITMQ_RETRY_DELAYS_MS: [1000, 2000, 4000, 8000, 16000],
+      RABBITMQ_SUPPLIER_VALIDATION_QUEUE:
+        'supplier-service.order-supplier-validation-requested.v1',
+      RABBITMQ_SUPPLIER_VALIDATION_REQUESTED_ROUTING_KEY:
+        'order.supplier-validation-requested.v1',
+      RABBITMQ_SUPPLIER_VALIDATION_COMPLETED_ROUTING_KEY:
+        'supplier.validation-completed.v1',
+      OUTBOX_POLL_INTERVAL_MS: 1000,
     });
+  });
+
+  it('reads five increasing retry delays, and rejects anything else (F15.7.5)', () => {
+    expect(
+      environmentSchema.validate({
+        ...REQUIRED,
+        RABBITMQ_RETRY_DELAYS_MS: '500, 1000, 2000, 4000, 8000',
+      }).value.RABBITMQ_RETRY_DELAYS_MS,
+    ).toEqual([500, 1000, 2000, 4000, 8000]);
+
+    for (const delays of [
+      '1000,2000,4000,8000',
+      '1000,1000,2000,4000,8000',
+      '1000,x,2,3,4',
+    ]) {
+      const { error } = environmentSchema.validate({
+        ...REQUIRED,
+        RABBITMQ_RETRY_DELAYS_MS: delays,
+      });
+      expect(error?.details[0].path).toEqual(['RABBITMQ_RETRY_DELAYS_MS']);
+    }
+  });
+
+  it('applies the outbox timing check', () => {
+    const { error } = environmentSchema.validate({
+      ...REQUIRED,
+      OUTBOX_RETRY_BASE_DELAY_MS: '5000',
+      OUTBOX_RETRY_MAX_DELAY_MS: '1000',
+    });
+
+    expect(error).toBeDefined();
   });
 
   it('rejects a minimum above the default maximum (review #605)', () => {
@@ -61,6 +111,11 @@ describe('environmentSchema', () => {
         'DB_DATABASE',
         'DB_PASSWORD_FILE',
         'JWT_PUBLIC_KEY_FILE',
+        'RABBITMQ_USER',
+        'RABBITMQ_HOST',
+        'RABBITMQ_PORT',
+        'RABBITMQ_VHOST',
+        'RABBITMQ_PASSWORD_FILE',
       ]),
     );
   });

@@ -24,6 +24,7 @@ async function seed(status: Status) {
     courierId: status === 'Delivered' ? courier : undefined,
     deliveryLocation: 'COM2',
     rewardCredits: 5,
+    collectionItems: 'bubble tea',
   });
   return id;
 }

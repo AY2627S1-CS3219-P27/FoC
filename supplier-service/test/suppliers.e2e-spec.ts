@@ -10,6 +10,7 @@ import { SupplierQueriesService } from '../src/suppliers/supplier-queries.servic
 import { SuppliersService } from '../src/suppliers/suppliers.service.js';
 import { signAccessToken } from './access-token.js';
 import { seedTestEnvironment } from './test-env.js';
+import { withoutBroker } from './without-broker.js';
 
 const SUPPLIER_ID = randomUUID();
 
@@ -65,9 +66,11 @@ describe('supplier and building endpoints (e2e)', () => {
     const { AppModule } = await import('../src/app.module.js');
     stubs = fakes();
 
-    const moduleFixture = await Test.createTestingModule({
-      imports: [AppModule],
-    })
+    const moduleFixture = await withoutBroker(
+      Test.createTestingModule({
+        imports: [AppModule],
+      }),
+    )
       .overrideProvider(DataSource)
       .useValue({
         entityMetadatas: [],

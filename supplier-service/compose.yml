@@ -35,12 +35,36 @@ services:
       SEED_CSV_PATH: /seed-data/supplier-seed-data.csv
       JWT_PUBLIC_KEY_FILE: /run/secrets/supplier_jwt_public_key
       PLACEHOLDER_IMAGE_URL: ${SUPPLIER_PLACEHOLDER_IMAGE_URL:-}
+      # The broker connection is shared (env/shared.env); the login is this
+      # service's own broker user in rabbitmq/definitions.json (F13.7).
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/foc}
+      RABBITMQ_USER: ${SUPPLIER_RABBITMQ_USER:-supplier-service}
+      RABBITMQ_PASSWORD_FILE: /run/secrets/supplier_rabbitmq_password
+      RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-foc.events}
+      RABBITMQ_RETRY_EXCHANGE: ${RABBITMQ_RETRY_EXCHANGE:-foc.supplier.retry}
+      RABBITMQ_RETRY_RETURN_EXCHANGE: ${RABBITMQ_RETRY_RETURN_EXCHANGE:-foc.supplier.back}
+      RABBITMQ_DEAD_LETTER_EXCHANGE: ${RABBITMQ_DEAD_LETTER_EXCHANGE:-foc.supplier.dlx}
+      RABBITMQ_PREFETCH: ${RABBITMQ_PREFETCH:-10}
+      RABBITMQ_RETRY_DELAYS_MS: ${RABBITMQ_RETRY_DELAYS_MS:-1000,2000,4000,8000,16000}
+      RABBITMQ_SUPPLIER_VALIDATION_QUEUE: ${RABBITMQ_SUPPLIER_VALIDATION_QUEUE:-supplier-service.order-supplier-validation-requested.v1}
+      RABBITMQ_SUPPLIER_VALIDATION_REQUESTED_ROUTING_KEY: ${RABBITMQ_SUPPLIER_VALIDATION_REQUESTED_ROUTING_KEY:-order.supplier-validation-requested.v1}
+      RABBITMQ_SUPPLIER_VALIDATION_COMPLETED_ROUTING_KEY: ${RABBITMQ_SUPPLIER_VALIDATION_COMPLETED_ROUTING_KEY:-supplier.validation-completed.v1}
+      OUTBOX_POLL_INTERVAL_MS: ${OUTBOX_POLL_INTERVAL_MS:-1000}
+      OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-100}
+      OUTBOX_CONFIRM_TIMEOUT_MS: ${OUTBOX_CONFIRM_TIMEOUT_MS:-20000}
+      OUTBOX_CLAIM_LEASE_MS: ${OUTBOX_CLAIM_LEASE_MS:-30000}
+      OUTBOX_RETRY_BASE_DELAY_MS: ${OUTBOX_RETRY_BASE_DELAY_MS:-1000}
+      OUTBOX_RETRY_MAX_DELAY_MS: ${OUTBOX_RETRY_MAX_DELAY_MS:-60000}
+      OUTBOX_UNPUBLISHED_WARNING_MS: ${OUTBOX_UNPUBLISHED_WARNING_MS:-60000}
     volumes:
       # The template's seed file, read in place (never copied into the image).
       - ../data/csv:/seed-data:ro
     secrets:
       - supplier_db_password
       - supplier_jwt_public_key
+      - supplier_rabbitmq_password
     healthcheck:
       test:
         [
@@ -108,6 +132,26 @@ services:
       timeout: 3s
       retries: 15
 
+  # Throwaway RabbitMQ for the messaging tests (as credit-service's
+  # credit-rabbitmq): npm run broker:test:up / broker:test:down. Its login is
+  # test-only and the broker keeps nothing (tmpfs).
+  supplier-rabbitmq-test:
+    image: rabbitmq:4-management-alpine
+    profiles: ['test']
+    ports:
+      - '${SUPPLIER_RABBITMQ_TEST_HOST_PORT:-5677}:5672'
+      - '${SUPPLIER_RABBITMQ_TEST_MANAGEMENT_HOST_PORT:-15677}:15672'
+    environment:
+      RABBITMQ_DEFAULT_USER: supplier_service_test
+      RABBITMQ_DEFAULT_PASS: supplier_service_test
+    tmpfs:
+      - /var/lib/rabbitmq
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
 volumes:
   supplier-db-data:
 
@@ -117,4 +161,7 @@ secrets:
   # user-service's JWT public key: read from user-service's own file so both
   # services always use the same key pair. Override the path if it moves.
   supplier_jwt_public_key:
-    file: ${SUPPLIER_JWT_PUBLIC_KEY_PATH:-../user-service/jwt_public_key.secret}
+    file: ${SUPPLIER_JWT_PUBLIC_KEY_PATH:-../user-service/secrets/jwt_public_key.secret}
+  # This service's broker password; its hash is in rabbitmq/definitions.json.
+  supplier_rabbitmq_password:
+    file: ./secrets/rabbitmq_password.secret

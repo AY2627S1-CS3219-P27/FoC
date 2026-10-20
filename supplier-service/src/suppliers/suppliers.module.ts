@@ -9,6 +9,6 @@ import { SuppliersService } from './suppliers.service.js';
   imports: [TypeOrmModule.forFeature([Supplier, SupplierCategory])],
   controllers: [SuppliersController],
   providers: [SuppliersService, SupplierQueriesService],
-  exports: [SuppliersService],
+  exports: [SuppliersService, SupplierQueriesService],
 })
 export class SuppliersModule {}

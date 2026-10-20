@@ -60,7 +60,7 @@ describe('supplier schema (real PostgreSQL)', () => {
 
   beforeEach(async () => {
     await dataSource.query(`
-      TRUNCATE supplier_requests, supplier_categories, suppliers, categories,
+      TRUNCATE inbox_events, outbox_events, supplier_requests, supplier_categories, suppliers, categories,
                building_name_keys, buildings
     `);
   });
@@ -107,12 +107,48 @@ describe('supplier schema (real PostgreSQL)', () => {
           'CHK_suppliers_floor',
           'FK_suppliers_building',
           'FK_supplier_categories_category',
+          'PK_inbox_events',
+          'FK_inbox_events_reply',
+          'PK_outbox_events',
+          'CHK_outbox_events_attempt_count',
         ]),
       );
     });
   });
 
   describe('database rules (checked below the service)', () => {
+    it('records an answered request only together with its reply (F15.7.3)', async () => {
+      const reply = '9b2e4f6a-1c3d-4e5f-8a7b-2c4d6e8f0a1b';
+      const answer = (eventId: string, replyId: string) =>
+        dataSource.query(
+          `INSERT INTO inbox_events
+             (event_id, event_type, payload_hash, processed_at, reply_event_id)
+           VALUES ($1, 'SupplierValidationRequested', repeat('a', 64), now(), $2)`,
+          [eventId, replyId],
+        );
+
+      // No reply in the outbox yet: refused.
+      await expect(
+        answer('6f1c2a4e-8b3d-4c5e-9f7a-1b2c3d4e5f60', reply),
+      ).rejects.toMatchObject({
+        driverError: { code: '23503', constraint: 'FK_inbox_events_reply' },
+      });
+
+      await dataSource.query(
+        `INSERT INTO outbox_events (event_id, event_type, routing_key, envelope)
+         VALUES ($1, 'SupplierValidationCompleted', 'supplier.validation-completed.v1', '{}')`,
+        [reply],
+      );
+      await answer('6f1c2a4e-8b3d-4c5e-9f7a-1b2c3d4e5f60', reply);
+
+      // The same request id again: refused, so it is never answered twice.
+      await expect(
+        answer('6f1c2a4e-8b3d-4c5e-9f7a-1b2c3d4e5f60', reply),
+      ).rejects.toMatchObject({
+        driverError: { code: '23505', constraint: 'PK_inbox_events' },
+      });
+    });
+
     it('rejects a malformed floor and out-of-range coordinates', async () => {
       const building = await com3();
       const insert = (floor: string, latitude: number) =>

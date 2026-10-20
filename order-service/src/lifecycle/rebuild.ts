@@ -21,6 +21,7 @@ const COLUMNS = [
   'supplierId',
   'deliveryLocation',
   'rewardCredits',
+  'collectionItems',
   'pickupLocation',
   'description',
   'expiresAt',

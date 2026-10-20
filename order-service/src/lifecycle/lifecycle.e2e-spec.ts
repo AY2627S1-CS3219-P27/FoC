@@ -23,6 +23,8 @@ it('creates and transitions through the injected service', async () => {
     supplierId: randomUUID(),
     deliveryLocation: 'COM2',
     rewardCredits: 5,
+    expiryDurationMinutes: 60,
+    collectionItems: 'bubble tea',
   });
   if (!created.ok) throw new Error('expected ok');
 
@@ -46,6 +48,8 @@ it('reads the current status, and undefined for an unknown errand', async () => 
     supplierId: randomUUID(),
     deliveryLocation: 'COM2',
     rewardCredits: 5,
+    expiryDurationMinutes: 60,
+    collectionItems: 'bubble tea',
   });
   if (!created.ok) throw new Error('expected ok');
 
@@ -64,6 +68,8 @@ it('reads the latest event, and undefined for an unknown errand', async () => {
     supplierId: randomUUID(),
     deliveryLocation: 'COM2',
     rewardCredits: 5,
+    expiryDurationMinutes: 60,
+    collectionItems: 'bubble tea',
   });
   if (!created.ok) throw new Error('expected ok');
   expect(await svc.lastEvent(created.errandId)).toEqual({

@@ -73,6 +73,11 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
+  
+  supplier-service:
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
 
   frontend:
     depends_on:

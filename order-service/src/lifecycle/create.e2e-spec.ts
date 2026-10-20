@@ -15,6 +15,8 @@ const input = (over = {}) => ({
   supplierId: randomUUID(),
   deliveryLocation: 'COM2',
   rewardCredits: 5,
+  expiryDurationMinutes: 60,
+  collectionItems: 'bubble tea',
   ...over,
 });
 const events = (id: string) =>
@@ -50,6 +52,7 @@ describe('createErrand', () => {
           pickupLocation: null,
           description: null,
           expiryDurationMinutes: 60,
+          collectionItems: 'bubble tea',
         },
       },
     ]);
@@ -81,22 +84,15 @@ describe('createErrand', () => {
     expect(await createErrand(t.db, input({ expiryDurationMinutes: 168 * 60 }))).toMatchObject({ ok: true });
   });
 
-  it('takes a null expiry duration as the default', async () => {
-    const res = await createErrand(t.db, input({ expiryDurationMinutes: null }));
-    if (!res.ok) throw new Error('expected ok');
-    expect((await events(res.errandId))[0].payload).toMatchObject({ expiryDurationMinutes: 60 });
-  });
-
-  it('replays a repeated key whether the expiry was left out or null', async () => {
-    const i = input({ idempotencyKey: `null-expiry-${randomUUID()}` });
-    const first = await createErrand(t.db, i);
-    if (!first.ok) throw new Error('expected ok');
-
-    expect(await createErrand(t.db, { ...i, expiryDurationMinutes: null })).toEqual({
-      ok: true,
-      errandId: first.errandId,
-      replayed: true,
-    });
+  it('refuses a missing expiry duration or missing/blank collectionItems', async () => {
+    for (const over of [
+      { expiryDurationMinutes: undefined },
+      { expiryDurationMinutes: null },
+      { collectionItems: undefined },
+      { collectionItems: '' },
+    ]) {
+      expect(await createErrand(t.db, input(over))).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
+    }
   });
 
   it('returns the original errand for a repeated key', async () => {
@@ -118,6 +114,7 @@ describe('createErrand', () => {
     ['a different delivery location', { deliveryLocation: 'UTown' }],
     ['an added optional field', { description: 'no onions' }],
     ['a different expiry', { expiryDurationMinutes: 120 }],
+    ['different collectionItems', { collectionItems: 'coffee' }],
   ])('refuses a repeated key with %s, writing nothing', async (_, change) => {
     const i = input({ idempotencyKey: `changed-${randomUUID()}` });
     const first = await createErrand(t.db, i);

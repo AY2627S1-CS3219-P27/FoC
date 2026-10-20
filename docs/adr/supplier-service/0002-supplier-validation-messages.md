@@ -1,6 +1,6 @@
 # Supplier validation messages between Order Service and Supplier Service
 
-Status: Proposed (for review by the order-service owner)
+Status: Accepted (agreed with the order-service owner, 2026-10-18)
 
 ## What this is for
 
@@ -11,9 +11,10 @@ message through RabbitMQ, and Supplier Service answers with another
 message.** It defines the two messages, so both services can be built
 against the same format.
 
-Once the format is agreed, it is written into the shared contracts in
-`packages/contracts` (as JSON Schemas), and both services validate every
-message against it (Supplier FR v2 F15.7.7).
+The format is written into the shared contracts as JSON Schemas, and both
+services validate every message against it (Supplier FR v2 F15.7.7):
+`packages/contracts/src/domain-events/events/supplier-validation-requested/v1/`
+and `…/supplier-validation-completed/v1/`, registered in `event-registry.ts`.
 
 ## Why messages (async) instead of a direct API call
 
@@ -150,8 +151,8 @@ already created (F15.5).
 | Handles the answer: moves the errand on, or cancels it (e.g. `SUPPLIER_UNAVAILABLE`) | Looks up the supplier and sends exactly one answer |
 | Applies its own timeout (`SUPPLIER_VALIDATION_TIMEOUT`) if no answer arrives | Retries when its database is down, then dead-letters |
 
-Both messages' schemas are added to `packages/contracts` once this proposal
-is agreed.
+Both messages' schemas are in `packages/contracts`, so either side can
+validate against them with `AccountEventContractValidator`.
 
 ## Questions for the order-service owner
 

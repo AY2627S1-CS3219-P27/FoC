@@ -31,6 +31,8 @@ export function seedTestEnvironment(): TestEnvironment {
   });
   const publicKeyFile = join(secretDir, 'jwt_public_key');
   writeFileSync(publicKeyFile, publicKey);
+  const rabbitPasswordFile = join(secretDir, 'rabbitmq_password');
+  writeFileSync(rabbitPasswordFile, 'test-rabbitmq-password\n');
 
   process.env.NODE_ENV = 'test';
   process.env.DB_HOST = 'localhost';
@@ -42,6 +44,12 @@ export function seedTestEnvironment(): TestEnvironment {
   // The database is stubbed in e2e specs, so there is nothing to seed into.
   process.env.SEED_ON_STARTUP = 'false';
   process.env.JWT_PUBLIC_KEY_FILE = publicKeyFile;
+  // Required at startup; no e2e spec connects to a broker.
+  process.env.RABBITMQ_USER = 'supplier-service';
+  process.env.RABBITMQ_HOST = 'localhost';
+  process.env.RABBITMQ_PORT = '5672';
+  process.env.RABBITMQ_VHOST = '/foc';
+  process.env.RABBITMQ_PASSWORD_FILE = rabbitPasswordFile;
 
   return { privateKey };
 }
