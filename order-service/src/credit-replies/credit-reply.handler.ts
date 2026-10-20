@@ -26,7 +26,7 @@ export interface ReplySpec {
 }
 
 // Typed per key; the payload and event id feed the event's private payload.
-const reply = <K extends EventContractKey>(
+export const reply = <K extends EventContractKey>(
   key: K,
   plan: (e: EventOf<K>) => Plan,
   releaseIfCancelled?: true,

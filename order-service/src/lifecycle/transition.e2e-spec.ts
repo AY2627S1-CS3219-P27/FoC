@@ -525,11 +525,11 @@ describe('transition', () => {
     });
 
     it('writes an empty payload for an edge with no columns', async () => {
-      const id = await seed('Pending-Supplier');
+      const id = await seed('Delivered');
       await transition(t.db, {
-        actor: SYSTEM, errandId: id,
-        expected: 'Pending-Supplier',
-        to: 'Reserving-Credit',
+        actor: user(requester), errandId: id,
+        expected: 'Delivered',
+        to: 'Incomplete',
       });
       expect(await lastPayload(id)).toEqual({});
     });
@@ -595,6 +595,7 @@ describe('transition', () => {
           expected: 'Reserving-Credit',
           to: 'Open',
           actor: actor as never,
+          payload: creditReserved(),
         });
         expect(res).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
       }

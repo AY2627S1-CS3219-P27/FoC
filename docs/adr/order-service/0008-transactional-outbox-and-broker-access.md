@@ -23,8 +23,8 @@ a shared package yet; revisit when supplier-service becomes the third user).
 - **Same-transaction insert.** `enqueueOutbox(tx, event)` inserts a row using the
   caller's transaction, so the notice commits or rolls back with the state
   change. `transition()` calls it through `enqueueNotice` (`src/lifecycle/notice.ts`)
-  for every edge with a `notice` builder. `createErrand()` does not call it yet:
-  the supplier validation request has no contract.
+  for every edge with a `notice` builder, and `createErrand()` calls it for the
+  supplier validation request (`order.supplier-validation-requested.v1`).
 - **Relay.** `OutboxRelay` polls every `OUTBOX_POLL_INTERVAL_MS`.
   `OutboxStore.claim` selects due rows with `FOR UPDATE SKIP LOCKED` and sets a
   lease (`claimed_by`, `claimed_until`), so several instances never take the same

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { createTestDb } from '../../test/db.js';
-import { errandEvents, errands } from '../db/schema.js';
+import { errandEvents, errands, outboxEvents } from '../db/schema.js';
 import { createErrand } from './create.js';
 
 let t: Awaited<ReturnType<typeof createTestDb>>;
@@ -21,6 +21,8 @@ const input = (over = {}) => ({
 });
 const events = (id: string) =>
   t.db.select().from(errandEvents).where(eq(errandEvents.errandId, id));
+const outboxFor = (id: string) =>
+  t.db.select().from(outboxEvents).where(sql`envelope->'payload'->>'errandId' = ${id}`);
 
 describe('createErrand', () => {
   it('writes a Pending-Supplier errand and ErrandCreated as event 1', async () => {
@@ -107,6 +109,24 @@ describe('createErrand', () => {
     expect(await events((first as { errandId: string }).errandId)).toHaveLength(
       1,
     );
+  });
+
+  it('asks Supplier Service once through the outbox; a replay does not ask again', async () => {
+    const i = input({ idempotencyKey: `supplier-${randomUUID()}` });
+    const first = await createErrand(t.db, i);
+    if (!first.ok) throw new Error('expected ok');
+    await createErrand(t.db, i); // replay
+
+    const rows = await outboxFor(first.errandId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      routingKey: 'order.supplier-validation-requested.v1',
+      envelope: {
+        eventType: 'SupplierValidationRequested',
+        publisher: 'order-service',
+        payload: { errandId: first.errandId, supplierId: i.supplierId },
+      },
+    });
   });
 
   it.each([

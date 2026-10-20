@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { eq, sql } from 'drizzle-orm';
 import { createTestDb } from '../../test/db.js';
-import { errandEvents, errands, idempotencyKeys, outboxEvents } from '../db/schema.js';
+import { creditReserved, supplierValidated } from '../../test/payloads.js';
+import {
+  errandEvents,
+  errands,
+  idempotencyKeys,
+  outboxEvents,
+  supplierValidationRetries,
+} from '../db/schema.js';
 import { createErrand } from '../lifecycle/create.js';
 import type { Status } from '../lifecycle/status.js';
 import { SYSTEM, transition } from '../lifecycle/transition.js';
@@ -21,6 +28,10 @@ const cfg: SweepConfig = {
   replyTimeoutMs: 2 * MIN,
   resendMax: 2,
   keyTtlMs: 7 * 24 * HOUR,
+  supplierRetryBaseMs: MIN,
+  supplierRetryMaxMs: 5 * MIN,
+  supplierHoldMs: 30 * MIN,
+  random: () => 0.5,
 };
 const ago = (ms: number) => new Date(Date.now() - ms);
 
@@ -61,15 +72,11 @@ describe('expiresAt', () => {
     if (!res.ok) throw new Error('expected ok');
     expect((await row(res.errandId)).expiresAt).toBeNull();
 
-    for (const [expected, to] of [
-      ['Pending-Supplier', 'Reserving-Credit'],
-      ['Reserving-Credit', 'Open'],
+    for (const [expected, to, extra] of [
+      ['Pending-Supplier', 'Reserving-Credit', supplierValidated()],
+      ['Reserving-Credit', 'Open', creditReserved()],
     ] as const) {
-      const payload =
-        to === 'Open'
-          ? { creditEventId: randomUUID(), creditTransactionId: randomUUID(), reservedAmount: 5 }
-          : undefined;
-      const r = await transition(t.db, { errandId: res.errandId, expected, to, actor: SYSTEM, payload });
+      const r = await transition(t.db, { errandId: res.errandId, expected, to, actor: SYSTEM, ...extra });
       expect(r.ok).toBe(true);
     }
     const open = await row(res.errandId);
@@ -226,6 +233,91 @@ describe('idempotency key retention', () => {
       .from(idempotencyKeys)
       .where(eq(idempotencyKeys.errandId, id));
     expect(left).toEqual([{ key: 'new' }]);
+  });
+});
+
+describe('Pending-Supplier', () => {
+  async function waiting(ageMs: number, published = true) {
+    const res = await createErrand(t.db, {
+      requesterId: randomUUID(),
+      supplierId: randomUUID(),
+      deliveryLocation: 'COM2',
+      rewardCredits: 5,
+      expiryDurationMinutes: 60,
+      collectionItems: 'bubble tea',
+    });
+    if (!res.ok) throw new Error(res.reason);
+    const id = res.errandId;
+    await t.db.update(errands).set({ createdAt: ago(ageMs) }).where(eq(errands.id, id));
+    if (published) {
+      await t.db
+        .update(outboxEvents)
+        .set({ publishedAt: ago(ageMs) })
+        .where(sql`envelope->'payload'->>'errandId' = ${id}`);
+    }
+    return id;
+  }
+  const retry = async (id: string) =>
+    (await t.db.select().from(supplierValidationRetries).where(eq(supplierValidationRetries.errandId, id)))[0];
+
+  it('cancels an errand past the hold window with SUPPLIER_VALIDATION_TIMEOUT', async () => {
+    const id = await waiting(31 * MIN);
+    await runSweeps(t.db, cfg);
+    expect(await row(id)).toMatchObject({
+      status: 'Cancelled',
+      cancellationReason: 'SUPPLIER_VALIDATION_TIMEOUT',
+    });
+  });
+
+  it('re-queues the original request when due and backs off the next one', async () => {
+    const id = await waiting(2 * MIN);
+    const [before] = await outboxFor(id);
+
+    await runSweeps(t.db, cfg);
+
+    const [after] = await outboxFor(id);
+    expect(after.eventId).toBe(before.eventId);
+    expect(after.publishedAt).toBeNull();
+    expect((await row(id)).status).toBe('Pending-Supplier');
+    const r = await retry(id);
+    expect(r.attempts).toBe(1);
+    // backoffDelay(2) with random 0.5 = 0.5 * min(5 min, 2 * 1 min) = 1 min
+    const wait = r.nextRetryAt.getTime() - Date.now();
+    expect(wait).toBeGreaterThan(0.9 * MIN);
+    expect(wait).toBeLessThanOrEqual(MIN);
+
+    await runSweeps(t.db, cfg); // not due again yet
+    expect((await retry(id)).attempts).toBe(1);
+  });
+
+  it('leaves a recent errand alone', async () => {
+    const id = await waiting(10_000);
+    await runSweeps(t.db, cfg);
+    expect((await outboxFor(id))[0].publishedAt).not.toBeNull();
+    expect(await retry(id)).toBeUndefined();
+  });
+
+  it('does not re-queue a request the relay has not sent, but still moves the schedule on', async () => {
+    const id = await waiting(2 * MIN, false);
+    await runSweeps(t.db, cfg);
+    expect((await outboxFor(id))[0].publishedAt).toBeNull();
+    expect((await retry(id)).attempts).toBe(1);
+  });
+
+  it('drops the bookkeeping once the errand moves on', async () => {
+    const id = await waiting(2 * MIN);
+    await runSweeps(t.db, cfg);
+    expect(await retry(id)).toBeDefined();
+
+    await transition(t.db, {
+      errandId: id,
+      expected: 'Pending-Supplier',
+      to: 'Reserving-Credit',
+      actor: SYSTEM,
+      ...supplierValidated(),
+    });
+    await runSweeps(t.db, cfg);
+    expect(await retry(id)).toBeUndefined();
   });
 });
 

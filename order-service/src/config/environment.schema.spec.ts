@@ -49,6 +49,23 @@ describe('consumer env', () => {
   });
 });
 
+describe('supplier sweep env', () => {
+  it('defaults the resend backoff and hold window, and refuses a cap below the base', () => {
+    expect(environmentSchema.validate(base).value).toMatchObject({
+      SUPPLIER_RETRY_BASE_MS: 1_000,
+      SUPPLIER_RETRY_MAX_MS: 300_000,
+      SUPPLIER_VALIDATION_HOLD_MS: 1_800_000,
+    });
+    expect(
+      environmentSchema.validate({
+        ...base,
+        SUPPLIER_RETRY_BASE_MS: '5000',
+        SUPPLIER_RETRY_MAX_MS: '1000',
+      }).error,
+    ).toBeDefined();
+  });
+});
+
 describe('auth env', () => {
   it('requires the JWT public key file', () => {
     const { JWT_PUBLIC_KEY_FILE: _, ...withoutKey } = base;

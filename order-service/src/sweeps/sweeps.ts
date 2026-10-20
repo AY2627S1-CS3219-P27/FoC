@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { and, eq, gt, lte, sql, type SQL } from 'drizzle-orm';
 import { errands } from '../db/schema.js';
+import { backoffDelay } from '../retry/backoff.js';
 import type { Status } from '../lifecycle/status.js';
 import {
   SYSTEM,
@@ -14,6 +15,10 @@ export interface SweepConfig {
   replyTimeoutMs: number; // in-flight credit status: re-send once per window
   resendMax: number; // windows of re-sending before the admin alert
   keyTtlMs: number; // idempotency keys older than this are deleted (ADR 0005)
+  supplierRetryBaseMs: number;
+  supplierRetryMaxMs: number;
+  supplierHoldMs: number;
+  random?: () => number; // jitter source; tests pin it
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000; // pickup and auto-complete windows (ADR 0007, F6.5)
@@ -109,6 +114,57 @@ async function resendOrAlert(db: Db, cfg: SweepConfig): Promise<number> {
   return resent;
 }
 
+const after = (ms: number) => sql`now() + (${ms}::bigint * interval '1 millisecond')`;
+
+// Same eventId, so Supplier Service answers it at most once. No retry row yet = due at created_at + base.
+async function resendSupplierRequests(db: Db, cfg: SweepConfig): Promise<number> {
+  const due = await db.execute<{ id: string; attempts: number }>(sql`
+    SELECT e.id, coalesce(r.attempts, 0) AS attempts
+    FROM errands e LEFT JOIN supplier_validation_retries r ON r.errand_id = e.id
+    WHERE e.status = 'Pending-Supplier'
+      AND e.created_at > ${ago(cfg.supplierHoldMs)}
+      AND coalesce(r.next_retry_at, e.created_at + (${cfg.supplierRetryBaseMs}::bigint * interval '1 millisecond')) <= now()
+    LIMIT ${BATCH}`);
+
+  let resent = 0;
+  for (const { id, attempts } of due.rows) {
+    const attempt = Number(attempts) + 1;
+    const wait = backoffDelay(attempt + 1, {
+      baseMs: cfg.supplierRetryBaseMs,
+      maxMs: cfg.supplierRetryMaxMs,
+      random: cfg.random,
+    });
+    await db.transaction(async (tx) => {
+      // Unpublished = the relay has not sent it yet, so there is nothing to resend.
+      const res = await tx.execute(sql`
+        UPDATE outbox_events
+        SET published_at = NULL, claimed_by = NULL, claimed_until = NULL,
+            next_attempt_at = clock_timestamp()
+        WHERE event_id = (
+            SELECT event_id FROM outbox_events
+            WHERE routing_key = 'order.supplier-validation-requested.v1'
+              AND envelope->'payload'->>'errandId' = ${id}
+            ORDER BY created_at DESC LIMIT 1)
+          AND published_at IS NOT NULL`);
+      resent += res.rowCount ?? 0;
+      await tx.execute(sql`
+        INSERT INTO supplier_validation_retries (errand_id, attempts, next_retry_at)
+        VALUES (${id}, ${attempt}, ${after(wait)})
+        ON CONFLICT (errand_id) DO UPDATE
+        SET attempts = EXCLUDED.attempts, next_retry_at = EXCLUDED.next_retry_at`);
+    });
+  }
+
+  await db.execute(sql`
+    DELETE FROM supplier_validation_retries
+    WHERE errand_id IN (
+      SELECT r.errand_id FROM supplier_validation_retries r
+      JOIN errands e ON e.id = r.errand_id
+      WHERE e.status <> 'Pending-Supplier'
+      LIMIT ${BATCH})`);
+  return resent;
+}
+
 // Retention (ADR 0005). A duplicate arriving after its key is gone still meets
 // the status guard, so it fails with STATE_MISMATCH or is caught as a keyless
 // repeat; the window only needs to outlast broker and client retries.
@@ -123,7 +179,6 @@ async function pruneKeys(db: Db, cfg: SweepConfig): Promise<number> {
 }
 
 // One pass of every sweep. Caller holds the advisory lock (sweep-lock.ts).
-// Not built: the Pending-Supplier retry and hold window (no supplier contract yet).
 export async function runSweeps(db: Db, cfg: SweepConfig) {
   // One failing sweep must not skip the rest of the tick.
   const safe = async (name: string, run: () => Promise<number>) => {
@@ -135,6 +190,10 @@ export async function runSweeps(db: Db, cfg: SweepConfig) {
     }
   };
   return {
+    // Hold window first, so a resend never goes to an errand about to time out.
+    supplierTimedOut: await safe('supplier hold', () => cancelAll(
+      db, 'Pending-Supplier', lte(errands.createdAt, ago(cfg.supplierHoldMs)), 'SUPPLIER_VALIDATION_TIMEOUT')),
+    supplierResent: await safe('supplier resend', () => resendSupplierRequests(db, cfg)),
     expired: await safe('expiry', () => cancelAll(
       db, 'Open', lte(errands.expiresAt, sql`now()`), 'ERRAND_EXPIRED')),
     pickupExceeded: await safe('pickup', () => cancelAll(
