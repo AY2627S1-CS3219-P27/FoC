@@ -73,7 +73,11 @@ describe('expiresAt', () => {
       expect(r.ok).toBe(true);
     }
     const open = await row(res.errandId);
-    const ms = open.expiresAt!.getTime() - Date.now();
+    // Measured on the DB clock that set expires_at; Node's clock can drift from it.
+    const { rows } = await t.db.execute<{ ms: string }>(
+      sql`SELECT extract(epoch FROM expires_at - now()) * 1000 AS ms FROM errands WHERE id = ${res.errandId}`,
+    );
+    const ms = Number(rows[0].ms);
     expect(ms).toBeGreaterThan(119 * MIN);
     expect(ms).toBeLessThanOrEqual(120 * MIN);
     // the event carries it, so rebuild replays the same value
