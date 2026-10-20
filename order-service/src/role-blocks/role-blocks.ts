@@ -15,8 +15,11 @@ export type BlockResult =
   | { ok: false; reason: 'ROLE_IN_USE'; inUse: BlockableRole[] };
 
 // Serializes block, unblock, create and accept for one user. Held to commit.
+// Lowercased: the key hashes text, but uuid columns compare case-insensitively.
 export async function lockUser(tx: Tx, userId: string): Promise<void> {
-  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${userId}, 0))`);
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtextextended(${userId.toLowerCase()}, 0))`,
+  );
 }
 
 // The one rule for "is blocked": a row exists that has not expired.

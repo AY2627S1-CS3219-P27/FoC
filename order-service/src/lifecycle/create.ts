@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
+import { Role } from '@foc/contracts';
 import { errandEvents, errands } from '../db/schema.js';
+import { isRoleBlocked, lockUser } from '../role-blocks/role-blocks.js';
 import type { Db } from './transition.js';
 
 export interface CreateRequestInputs {
@@ -17,7 +19,7 @@ export interface CreateRequestInputs {
 
 export type CreateResult =
   | { ok: true; errandId: string; replayed?: true }
-  | { ok: false; reason: 'INVALID_FIELDS' | 'IDEMPOTENCY_KEY_REUSED' };
+  | { ok: false; reason: 'INVALID_FIELDS' | 'IDEMPOTENCY_KEY_REUSED' | 'ROLE_BLOCKED' };
 
 // F1.7.2: 15 minutes to 168 hours.
 export const MIN_EXPIRY_MINUTES = 15;
@@ -48,6 +50,12 @@ export function createErrand(db: Db, i: CreateRequestInputs): Promise<CreateResu
     collectionItems,
   };
   return db.transaction(async (tx): Promise<CreateResult> => {
+    // Checked before the insert, so a refusal never takes the idempotency key.
+    await lockUser(tx, i.requesterId);
+    if (await isRoleBlocked(tx, i.requesterId, Role.Requester)) {
+      return { ok: false, reason: 'ROLE_BLOCKED' };
+    }
+
     const [row] = await tx
       .insert(errands)
       .values({
