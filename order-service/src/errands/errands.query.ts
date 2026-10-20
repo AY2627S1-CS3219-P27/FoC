@@ -1,3 +1,4 @@
+import { Role } from '@foc/contracts';
 import { Inject, Injectable } from '@nestjs/common';
 import { type AnyColumn, and, asc, desc, eq, gt, inArray, ne, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module.js';
@@ -59,14 +60,21 @@ export class ErrandsQueryService {
     return { items: rows.map((r) => toView(r)), limit: q.limit, offset: q.offset };
   }
 
-  // The caller's errands, as requester or courier, newest first.
+  // The caller's errands, as requester or courier (or only one side, by
+  // `role`), newest first.
   async mine(callerId: string, q: MineErrandsQuery) {
+    const asRequester = eq(errands.requesterId, callerId);
+    const asCourier = eq(errands.courierId, callerId);
+    const side =
+      q.role === Role.Requester ? asRequester
+      : q.role === Role.Courier ? asCourier
+      : or(asRequester, asCourier);
     const rows = await this.db
       .select()
       .from(errands)
       .where(
         and(
-          or(eq(errands.requesterId, callerId), eq(errands.courierId, callerId)),
+          side,
           q.status ? inArray(errands.status, [...INTERNAL_STATUSES_OF[q.status]]) : undefined,
         ),
       )

@@ -1,3 +1,4 @@
+import { Role } from '@foc/contracts';
 import { Type } from 'class-transformer';
 import {
   IsIn,
@@ -120,9 +121,14 @@ export class ListErrandsQuery extends PageQuery {
   sort: ListSort = 'expiring';
 }
 
-// Query string of GET /v1/errands/mine. `status` takes API names only.
+// Query string of GET /v1/errands/mine. `status` takes API names only;
+// `role` keeps only the errands where the caller is on that side.
 export class MineErrandsQuery extends PageQuery {
   @IsOptional()
   @IsIn(API_STATUSES)
   status?: ApiStatus;
+
+  @IsOptional()
+  @IsIn(Object.values(Role))
+  role?: Role;
 }

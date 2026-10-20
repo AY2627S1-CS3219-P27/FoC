@@ -216,13 +216,24 @@ describe('GET /v1/errands/mine', () => {
     expect(new Set(ids((await mine('status=Pending')).body))).toEqual(new Set([a.id, b.id]));
   });
 
+  it('narrows to one side with role, combined with status', async () => {
+    const asRequester = await seed({ requesterId: me, status: 'Open' });
+    const asCourier = await seed({ courierId: me, status: 'Accepted' });
+    const doneAsCourier = await seed({ courierId: me, status: 'Completed' });
+    expect(ids((await mine('role=requester')).body)).toEqual([asRequester.id]);
+    expect(new Set(ids((await mine('role=courier')).body))).toEqual(
+      new Set([asCourier.id, doneAsCourier.id]),
+    );
+    expect(ids((await mine('role=courier&status=Accepted')).body)).toEqual([asCourier.id]);
+  });
+
   it('pages', async () => {
     const rows = [];
     for (let h = 3; h >= 1; h--) rows.push(await seed({ requesterId: me, createdAt: inHours(-h) }));
     expect(ids((await mine('limit=1&offset=1')).body)).toEqual([rows[1]!.id]);
   });
 
-  it.each(['status=Pending-Supplier', 'status=Adjusting-Credit', 'status=nope', 'limit=0'])(
+  it.each(['status=Pending-Supplier', 'status=Adjusting-Credit', 'status=nope', 'limit=0', 'role=admin', 'role='])(
     '%s is a 400',
     async (query) => {
       expect((await mine(query)).res.status).toBe(400);
