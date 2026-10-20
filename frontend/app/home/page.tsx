@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AdminUserErrands } from "./_errands/admin-user-errands";
 import { ApiLogPanel } from "./_errands/api-log-panel";
 import { ErrandsTab } from "./_errands/errands-tab";
 
@@ -686,6 +687,7 @@ function UsersTab({
   total: number;
   loading: boolean;
 }) {
+  const [errandsOf, setErrandsOf] = useState<UserListItem | null>(null);
   return (
     <div>
       <div className="mb-6">
@@ -713,6 +715,7 @@ function UsersTab({
                   <th className="px-4 py-3 font-medium">Email</th>
                   <th className="px-4 py-3 font-medium">Roles</th>
                   <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 font-medium">Errands</th>
                 </tr>
               </thead>
               <tbody>
@@ -757,12 +760,23 @@ function UsersTab({
                         <span className="text-xs text-success font-medium">Active</span>
                       )}
                     </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => setErrandsOf(u)}
+                        className="btn-press text-sm text-nus-blue hover:underline"
+                      >
+                        View errands
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         </div>
+      )}
+      {errandsOf && (
+        <AdminUserErrands user={errandsOf} onClose={() => setErrandsOf(null)} />
       )}
     </div>
   );
