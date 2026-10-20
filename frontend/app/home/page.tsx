@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ApiLogPanel } from "./_errands/api-log-panel";
+import { ErrandsTab } from "./_errands/errands-tab";
 
 interface UserProfile {
   uuid: string;
@@ -56,13 +58,13 @@ interface UserListItem {
   isArchived?: boolean;
 }
 
-type Tab = "suppliers" | "profile" | "users";
+type Tab = "errands" | "suppliers" | "profile" | "users";
 
 export default function HomePage() {
   const router = useRouter();
   const [user, setUser] = useState<UserProfile | null>(null);
   const [userLoading, setUserLoading] = useState(true);
-  const [tab, setTab] = useState<Tab>("suppliers");
+  const [tab, setTab] = useState<Tab>("errands");
   const [creditBalance, setCreditBalance] = useState<CreditBalance | null>(null);
   const [creditBalanceStatus, setCreditBalanceStatus] =
     useState<CreditBalanceStatus>("loading");
@@ -273,6 +275,16 @@ export default function HomePage() {
             </Link>
             <nav className="hidden sm:flex gap-1">
               <button
+                onClick={() => setTab("errands")}
+                className={`btn-press px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  tab === "errands"
+                    ? "bg-white/20 text-white"
+                    : "text-white/70 hover:text-white hover:bg-white/10"
+                }`}
+              >
+                Errands
+              </button>
+              <button
                 onClick={() => setTab("suppliers")}
                 className={`btn-press px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   tab === "suppliers"
@@ -327,6 +339,12 @@ export default function HomePage() {
         {/* Mobile tabs */}
         <div className="sm:hidden flex border-t border-white/10">
           <button
+            onClick={() => setTab("errands")}
+            className={`btn-press flex-1 py-2.5 text-sm font-medium transition-colors ${tab === "errands" ? "bg-white/15 text-white" : "text-white/60"}`}
+          >
+            Errands
+          </button>
+          <button
             onClick={() => setTab("suppliers")}
             className={`btn-press flex-1 py-2.5 text-sm font-medium transition-colors ${tab === "suppliers" ? "bg-white/15 text-white" : "text-white/60"}`}
           >
@@ -351,6 +369,10 @@ export default function HomePage() {
 
       <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6">
         <div key={tab} className="fade-in">
+          {tab === "errands" && user && (
+            <ErrandsTab me={user.uuid} roles={user.roles} buildings={buildings} />
+          )}
+
           {tab === "suppliers" && (
             <SuppliersTab
               suppliers={suppliers}
@@ -398,6 +420,7 @@ export default function HomePage() {
           )}
         </div>
       </main>
+      <ApiLogPanel />
     </div>
   );
 }
