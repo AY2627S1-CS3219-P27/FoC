@@ -56,8 +56,7 @@ export const REPLY_SPECS: ReplySpec[] = [
   ),
   reply('credit.reservation-rejected.v1', (e) => {
     const reason = e.payload.rejectionReason;
-    // RESERVATION_CONFLICT is not a cancellation reason: credit may hold a
-    // reservation, so a person decides. The (planned) credit timeout sweep then cancels and releases.
+    // Credit may hold a reservation, so no cancel here; the CREDIT_TIMEOUT sweep cancels and releases.
     if (reason === 'RESERVATION_CONFLICT') {
       return { deadLetter: 'RESERVATION_CONFLICT needs manual handling' };
     }

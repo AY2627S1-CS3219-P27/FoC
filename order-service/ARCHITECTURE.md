@@ -1,6 +1,6 @@
 # order-service architecture
 
-Diagrams are Mermaid (render on GitHub / VS Code). Decisions behind them: ADRs [0001](../docs/adr/order-service/0001-hand-rolled-event-sourcing-on-postgres.md)–[0007](../docs/adr/order-service/0007-expiry-duration-autocomplete-and-supplier-validation.md), [0008](../docs/adr/order-service/0008-transactional-outbox-and-broker-access.md). Terms: [`CONTEXT.md`](./CONTEXT.md).
+Diagrams are Mermaid (render on GitHub / VS Code). Decisions behind them: ADRs [0001](../docs/adr/order-service/0001-hand-rolled-event-sourcing-on-postgres.md)–[0007](../docs/adr/order-service/0007-expiry-duration-autocomplete-and-supplier-validation.md), [0008](../docs/adr/order-service/0008-transactional-outbox-and-broker-access.md), [0009](../docs/adr/order-service/0009-referenced-data-ids-and-supplier-snapshot.md). Terms: [`CONTEXT.md`](./CONTEXT.md).
 
 ## 1. Components
 
@@ -223,6 +223,38 @@ sequenceDiagram
 | `GET /v1/admin/users/:userId/errands` | Admin (`AdminGuard`, the token's `isAdmin`) | The same list as `mine` for any user, same `role` / `status` / paging. Each item also carries `internalStatus` (the sub-state, labelled internal per F9.3.3), the party ids, `cancellationReason`, `pickedUpAt`, `deliveredAt` and `updatedAt` (`toAdminView`) |
 
 Lists page with `limit` (default 20, max 50) and `offset`, and answer `{ items, limit, offset }` with no total. `mine` is declared before `:id` in the controller. The response is an allowlist (`toView`): never `idempotencyKey` or `lastSequenceNumber`.
+
+## 6. Failures across services
+
+Order-service and credit-service never share a transaction. Order changes its own row and writes the notice to the outbox in one transaction. Credit acts on the notice and replies. Every gap between those steps is either impossible by construction, or is noticed and resolved as below.
+
+| Failure | How it is detected | How it is resolved |
+|---|---|---|
+| Credits reserved but errand creation fails | Cannot happen: the reservation is only requested by edge 1's notice, written in the same transaction as the errand's move | — |
+| Errand saved but its notice not published (broker down, process crash) | The outbox row stays unpublished; a warning is logged after `OUTBOX_UNPUBLISHED_WARNING_MS` | The relay retries with backoff until the broker confirms. The `eventId` is stable, so credit deduplicates a double publish |
+| Credit-service down or slow while reserving | Errand stays in `Reserving-Credit` | The request waits in its durable queue. After `RESERVING_CREDIT_TIMEOUT_MS` the sweep cancels with `CREDIT_TIMEOUT` and sends a release. A reservation that lands later is released again (a late success on a cancelled errand triggers another release) |
+| Errand completed but credit transfer unavailable | Errand stays in `Transferring-Credit` (shown as `Completed`) past `CREDIT_REPLY_TIMEOUT_MS` | The sweep re-sends the same outbox row (same `eventId`) once per window, up to `CREDIT_RESEND_MAX` times, then logs `ADMIN ALERT` every tick. It never reverts: credit may still apply it. Reward adjustments (`Adjusting-Credit`) are handled the same way |
+| A reply is lost | Same as the row above for the errand's in-flight status | Same re-send; credit answers a repeated `eventId` with its original outcome |
+| The same reply is delivered twice | The reply's `eventId` is the transition's idempotency key | Replayed: nothing new is written or published |
+| A reply arrives after the errand moved on | `STATE_MISMATCH` | Acked and logged as stale |
+| Malformed reply, or `IDEMPOTENCY_KEY_REUSED` | Contract check fails, or the key's fingerprint differs | Dead-lettered to the queue's `.dlq` for inspection |
+| Handler throws (DB down, bug) | Exception | Retry queues at 1/2/4/8/16 s, then dead-lettered |
+| Reservation rejected with `RESERVATION_CONFLICT` | Rejection reason | Dead-lettered. The errand stays in `Reserving-Credit`, and the timeout row above cancels it and releases |
+| Credit rejects a release | `credit.release-rejected.v1` | Logged as an error only: the errand is already `Cancelled` |
+| Credit rejects a transfer (e.g. `DESTINATION_ARCHIVED`) | `credit.transfer-rejected.v1` | Edge 16 to `Incomplete`. The credits stay held (see "Planned" below) |
+| Supplier-service down during validation | Errand stays in `Pending-Supplier` | With PR #649: re-sent with backoff by the sweep, then cancelled with `SUPPLIER_VALIDATION_TIMEOUT` after the hold window. A late reply is dropped. Nothing is reserved yet, so nothing is released |
+| Order DB down | `/health` answers 503; requests fail | Nothing is lost: writes and notices share that DB, so neither happened |
+
+**Ordering.** Global message order is not needed:
+- An errand has at most one request to credit outstanding, because in-flight statuses accept nothing but their own reply or timeout.
+- Each reply names the status it expects, so one arriving out of order is stale (`STATE_MISMATCH`) and does no harm.
+- The one overlap is a timeout release racing its reservation. Credit holds a release that arrives before its reservation and retries it (credit ADR 0008).
+
+**Planned, not built.** These are documented gaps, not current behaviour:
+- **Credits held in `Incomplete` (S3, #584).** Releasing or transferring them is a dispute decision. Planned: an admin queue (`Incomplete` errands with their latest event and reason, e.g. `CreditTransferRejected / DESTINATION_ARCHIVED`), then admin release and transfer actions.
+- **Telling the user a credit step failed (S6).** The reason is already in the revert event's payload. A notice will be added on those edges once notification-service defines its event contract.
+- **"You may resubmit" after `SUPPLIER_VALIDATION_TIMEOUT` (F1.5.3).** Today the requester sees `Cancelled` and the reason on the detail endpoint.
+- **The `ADMIN ALERT` repeats every tick.** Windows are counted from `updated_at`, with no stored attempt count.
 
 ## Remaining work before rollout
 
