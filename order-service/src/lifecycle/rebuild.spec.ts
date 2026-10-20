@@ -37,6 +37,7 @@ describe('foldEvents', () => {
       description: null,
       expiresAt: null,
       courierId: null,
+      supplierValidatedAt: null,
       pickedUpAt: null,
       deliveredAt: null,
       cancellationReason: null,
@@ -46,6 +47,12 @@ describe('foldEvents', () => {
   it('takes status and sequence number from the last event', () => {
     const out = foldEvents([created, ev(2, 'Reserving-Credit', {})]);
     expect(out).toMatchObject({ status: 'Reserving-Credit', lastSequenceNumber: 2 });
+  });
+
+  it('records when the supplier was validated', () => {
+    const at = '2030-01-01T00:00:00.000Z';
+    const out = foldEvents([created, ev(2, 'Reserving-Credit', { supplierValidatedAt: at })]);
+    expect(out?.supplierValidatedAt).toEqual(new Date(at));
   });
 
   it('resets a column a later event cleared', () => {

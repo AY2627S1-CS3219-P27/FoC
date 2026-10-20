@@ -7,7 +7,8 @@ export type Col =
   | 'pickedUpAt'
   | 'deliveredAt'
   | 'cancellationReason'
-  | 'rewardCredits';
+  | 'rewardCredits'
+  | 'supplierValidatedAt';
 
 // Who may take an edge. `other` = any user who is not the requester.
 export type UserRole = 'requester' | 'courier' | 'other';
@@ -70,14 +71,17 @@ export const EDGES: Partial<
   Record<Status, Partial<Record<Status, Edge | Edge[]>>>
 > = {
   'Pending-Supplier': {
-    'Reserving-Credit': plain('SupplierValidated', sys, (c) => ({
-      key: 'credit.reservation.v1',
-      payload: {
-        errandId: c.errandId,
-        requesterUserId: c.requesterId,
-        amount: c.rewardCredits,
-      },
-    })),
+    'Reserving-Credit': {
+      ...plain('SupplierValidated', sys, (c) => ({
+        key: 'credit.reservation.v1',
+        payload: {
+          errandId: c.errandId,
+          requesterUserId: c.requesterId,
+          amount: c.rewardCredits,
+        },
+      })),
+      sets: ['supplierValidatedAt'],
+    },
     // Nothing reserved yet, so nothing to release.
     Cancelled: cancel(sys, ['SUPPLIER_UNAVAILABLE', 'SUPPLIER_VALIDATION_TIMEOUT'], null),
   },

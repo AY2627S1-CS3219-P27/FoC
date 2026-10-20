@@ -12,6 +12,7 @@ import { LifecycleModule } from './lifecycle/lifecycle.module.js';
 import { MessagingModule } from './messaging/messaging.module.js';
 import { OutboxModule } from './outbox/outbox.module.js';
 import { RoleBlocksModule } from './role-blocks/role-blocks.module.js';
+import { SupplierRepliesModule } from './supplier-replies/supplier-replies.module.js';
 import { SweepsModule } from './sweeps/sweeps.module.js';
 
 @Module({
@@ -36,6 +37,7 @@ import { SweepsModule } from './sweeps/sweeps.module.js';
     MessagingModule,
     OutboxModule,
     RoleBlocksModule,
+    SupplierRepliesModule,
     SweepsModule,
   ],
   controllers: [HealthController],

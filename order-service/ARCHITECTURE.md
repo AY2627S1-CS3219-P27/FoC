@@ -17,7 +17,7 @@ flowchart LR
     Read[Read side<br/>list / filter / sort, sub-state to Pending]
     Consumers[Notice consumers<br/>supplier + credit replies]
     Outbox[Outbox relay + publisher]
-    Sweeps[Sweeps<br/>expiry, pickup, auto-complete, credit timeouts]
+    Sweeps[Sweeps<br/>expiry, pickup, auto-complete, credit timeouts,<br/>supplier resend + hold]
   end
 
   subgraph PG[PostgreSQL]
@@ -144,7 +144,7 @@ sequenceDiagram
   end
 ```
 
-Publishing after commit would lose a notice if the process dies between commit and publish, so notices go through a transactional outbox ([ADR 0008](../docs/adr/order-service/0008-transactional-outbox-and-broker-access.md)): the notice is inserted into `outbox_events` in the same transaction as the event, and a relay (`src/outbox/`) publishes it to `foc.events` with confirms. `transition()` calls `enqueueNotice` (`src/lifecycle/notice.ts`) right after the event insert, using the `notice` builder on the edge it took; the envelope is validated against its `@foc/contracts` schema first, and a failure throws and rolls the whole transition back. A replayed transition returns early and writes nothing. `createErrand()` emits nothing yet (the supplier request has no contract). Delivery is at least once, so consumers dedupe on `eventId`.
+Publishing after commit would lose a notice if the process dies between commit and publish, so notices go through a transactional outbox ([ADR 0008](../docs/adr/order-service/0008-transactional-outbox-and-broker-access.md)): the notice is inserted into `outbox_events` in the same transaction as the event, and a relay (`src/outbox/`) publishes it to `foc.events` with confirms. `transition()` calls `enqueueNotice` (`src/lifecycle/notice.ts`) right after the event insert, using the `notice` builder on the edge it took; the envelope is validated against its `@foc/contracts` schema first, and a failure throws and rolls the whole transition back. A replayed transition returns early and writes nothing. `createErrand()` writes the supplier validation request (`order.supplier-validation-requested.v1`) the same way, in the transaction that inserts the errand. Delivery is at least once, so consumers dedupe on `eventId`.
 
 Concurrent accepts, late credit replies and sweep ticks all lose safely at the `WHERE status = expected` check. The losing accept gets `409 ERRAND_UNAVAILABLE` ("no longer available", F5.3.2); the client should refresh its listing. No Redis or RabbitMQ is involved in the race.
 
@@ -172,16 +172,38 @@ sequenceDiagram
   O->>O: validate (F1.1, expiry time F1.7), not role-blocked
   O-->>R: 201 errand, status Pending
   Note over O: stored as Pending-Supplier, expiry duration kept (ADR 0007)
-  O-)S: supplier validation request
-  S--)O: success (Active) / failure
-  O->>O: Pending-Supplier to Reserving-Credit
-  O-)K: CreditReservation (once)
+  O-)S: SupplierValidationRequested (outbox, same transaction as create)
+  alt FOUND and Active
+    S--)O: SupplierValidationCompleted
+    O->>O: Pending-Supplier to Reserving-Credit, supplier_validated_at = reply time
+  else NOT_FOUND or Inactive
+    S--)O: SupplierValidationCompleted
+    O->>O: to Cancelled (SUPPLIER_UNAVAILABLE)
+  else no reply
+    O-)S: sweep re-sends the same eventId, backoff + jitter
+    O->>O: after the hold window, to Cancelled (SUPPLIER_VALIDATION_TIMEOUT)
+  end
+  O-)K: CreditReservation (once, Active branch only)
   K--)O: CreditReservationSuccess / Rejected
   O->>O: to Open (expiresAt = now + duration, ADR 0007) or Cancelled
 ```
 
-`createErrand()` requires `expiryDurationMinutes` (15 to 10080) and a non-blank `collectionItems` string. The duration stays in the `ErrandCreated` payload only; `collectionItems` is also an `errands` column (read-only, not filtered); the `CreditReserved` edge sets `expires_at` and records it in its own payload (ADR 0007). Creation never blocks on the supplier or credit outcome (F1.4.2). If Supplier Service is unreachable the errand stays in `Pending-Supplier`; the supplier retry sweep is not built yet (no supplier contract).
+`createErrand()` requires `expiryDurationMinutes` (15 to 10080) and a non-blank `collectionItems` string. The duration stays in the `ErrandCreated` payload only; `collectionItems` is also an `errands` column (read-only, not filtered); the `CreditReserved` edge sets `expires_at` and records it in its own payload (ADR 0007). Creation never blocks on the supplier or credit outcome (F1.4.2).
 
+Supplier validation (`src/supplier-replies/`, supplier ADR 0002): an Active supplier moves the errand on and the `SupplierValidated` event keeps the reply's supplier snapshot verbatim; a missing or Inactive one cancels it (F1.4.4); nothing is reserved yet, so no release is sent. If no reply comes (F1.5), a sweep sends a new request with its own `eventId` (derived from the errand and attempt number). Supplier Service answers each `eventId` only once, so reusing the original would never recover a lost reply. Extra replies hit the `Pending-Supplier` guard and are acked. The sweep skips a resend while the relay has not yet published the previous request, and uses exponential backoff and jitter (`SUPPLIER_RETRY_BASE_MS`, `SUPPLIER_RETRY_MAX_MS`), tracking attempts in `supplier_validation_retries`. After `SUPPLIER_VALIDATION_HOLD_MS` from creation it cancels with `SUPPLIER_VALIDATION_TIMEOUT`; a reply arriving after that is acked and dropped.
+
+
+## 5. Read side
+
+`ErrandsQueryService` (`src/errands/errands.query.ts`) owns every errand SELECT. It never writes and never calls `transition()`. One table (`api-status.ts`) feeds both the response `status` and the `status` filter, so sub-states are never exposed; an internal name in a filter is a 400.
+
+| Route | Who | Returns |
+|---|---|---|
+| `GET /v1/errands` | Courier | `Open` / `Adjusting-Credit` errands with `expires_at > now()`, minus the caller's own. Filters `pickupBuilding`, `deliveryBuilding`, `minCredits`; `sort=expiring\|newest\|credits` (default `expiring`, `id` tie-break) |
+| `GET /v1/errands/mine` | Requester or Courier | Errands where the caller is requester or courier, newest first, optional `status` (API name) |
+| `GET /v1/errands/:id` | Requester or Courier | The requester and assigned courier see it in any status; anyone else only while it is `Open` and unexpired, else 404. A party still sees an expired errand, with `expiresAt` (the sweep, not the read, cancels). `requesterId`, `courierId` and `cancellationReason` appear only for the two parties |
+
+Lists page with `limit` (default 20, max 50) and `offset`, and answer `{ items, limit, offset }` with no total. `mine` is declared before `:id` in the controller. The response is an allowlist (`toView`): never `idempotencyKey` or `lastSequenceNumber`.
 
 ## Remaining work before rollout
 
@@ -190,3 +212,4 @@ Not needed to merge the lifecycle/sweeps work; needed before it is relied on:
 - **Cleanup (item 5):** the §2 diagram check and the backlog issue edits.
 - **Verification (item 6):** a real-broker `test:messaging` case (at least that a sweep re-queued event id is re-delivered), a fixture script faking credit's replies, and the rollout-order check (credit's queues must be bound before order publishes; a direct exchange drops unbound messages silently).
 - **Not built:** the `Pending-Supplier` retry and hold-window sweep (no supplier contract); `supplier_validated_at` (ADR 0007).
+- **Known gap (list filters, until supplier integration):** `pickupLocation` is free text and optional, so `GET /v1/errands` `pickupBuilding` never matches an errand with no pickup, and an empty `pickupBuilding=` / `deliveryBuilding=` is a 400 rather than ignored. Both are expected to change with the supplier integration (real building values, mandatory pickup).

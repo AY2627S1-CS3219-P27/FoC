@@ -68,8 +68,15 @@
     {
       "idx": 9,
       "version": "7",
-      "when": 1792417747789,
-      "tag": "0009_role_blocks",
+      "when": 1792426836537,
+      "tag": "0009_supplier_validated_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792426837119,
+      "tag": "0010_supplier_validation_retries",
       "breakpoints": true
     }
   ]

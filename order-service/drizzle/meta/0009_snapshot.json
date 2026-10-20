@@ -1,5 +1,5 @@
 {
-  "id": "be15ac87-e241-4ec5-8f95-648c5757413b",
+  "id": "6dbd295b-1300-4133-a04a-c79146312f59",
   "prevId": "78ac4e18-3a68-4964-8ef9-647a1da7f0e1",
   "version": "7",
   "dialect": "postgresql",
@@ -144,6 +144,12 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
+        },
+        "supplier_validated_at": {
+          "name": "supplier_validated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "description": {
           "name": "description",
@@ -540,45 +546,6 @@
           "value": "\"outbox_events\".\"attempt_count\" >= 0"
         }
       },
-      "isRLSEnabled": false
-    },
-    "public.role_blocks": {
-      "name": "role_blocks",
-      "schema": "",
-      "columns": {
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "role": {
-          "name": "role",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "role_blocks_user_id_role_pk": {
-          "name": "role_blocks_user_id_role_pk",
-          "columns": [
-            "user_id",
-            "role"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
       "isRLSEnabled": false
     }
   },
