@@ -13,7 +13,9 @@ import type {
   RabbitMqMessageHandler,
 } from '../messaging/rabbitmq-message.types.js';
 
-type Step = Omit<TransitionInput, 'actor' | 'idempotencyKey'>;
+type Step = Omit<TransitionInput, 'actor' | 'idempotencyKey'> & {
+  supplierId?: string; // when set, the errand must reference this supplier
+};
 // What a valid reply asks for: a transition, a log line only, or a refusal.
 type Plan = Step | { log: string } | { deadLetter: string };
 
@@ -135,7 +137,7 @@ export class CreditReplyHandler implements RabbitMqMessageHandler {
     private readonly spec: ReplySpec,
     private readonly lifecycle: Pick<
       LifecycleService,
-      'transition' | 'releaseCredit'
+      'transition' | 'releaseCredit' | 'supplierIdOf'
     >,
     private readonly contracts: AccountEventContractValidator,
   ) {}
@@ -166,8 +168,21 @@ export class CreditReplyHandler implements RabbitMqMessageHandler {
       };
     }
 
+    const { supplierId, ...step } = plan;
+    if (supplierId !== undefined) {
+      const actual = await this.lifecycle.supplierIdOf(step.errandId);
+      if (actual !== undefined && actual !== supplierId.toLowerCase()) {
+        return {
+          outcome: 'dead-letter',
+          eventId: event.eventId,
+          category: 'INVALID_PAYLOAD',
+          reason: `supplierId ${supplierId} does not match errand ${step.errandId}`,
+        };
+      }
+    }
+
     const result = await this.lifecycle.transition({
-      ...plan,
+      ...step,
       actor: SYSTEM,
       idempotencyKey: event.eventId,
     });

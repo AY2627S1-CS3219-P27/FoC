@@ -6,6 +6,7 @@ export const SUPPLIER_REPLY_SPECS: ReplySpec[] = [
     if (p.outcome === 'FOUND' && p.supplier.status === 'Active') {
       return {
         errandId: p.errandId,
+        supplierId: p.supplierId,
         expected: 'Pending-Supplier',
         to: 'Reserving-Credit',
         set: { supplierValidatedAt: new Date(e.timestamp) }, // supplier's time, stable on redelivery
@@ -15,6 +16,7 @@ export const SUPPLIER_REPLY_SPECS: ReplySpec[] = [
     // Nothing reserved yet, so no release.
     return {
       errandId: p.errandId,
+      supplierId: p.supplierId,
       expected: 'Pending-Supplier',
       to: 'Cancelled',
       set: { cancellationReason: 'SUPPLIER_UNAVAILABLE' },

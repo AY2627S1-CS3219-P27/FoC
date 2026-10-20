@@ -63,6 +63,13 @@ const outbox = async (id: string) =>
   );
 
 describe('supplier validation reply against the database', () => {
+  it('dead-letters a reply for another supplier and leaves the errand pending', async () => {
+    const { id } = await create();
+    const res = await deliver({ errandId: id, supplierId: randomUUID(), outcome: 'NOT_FOUND' });
+    expect(res).toMatchObject({ outcome: 'dead-letter', category: 'INVALID_PAYLOAD' });
+    expect((await row(id))!.status).toBe('Pending-Supplier');
+  });
+
   it('moves an Active supplier on to the credit reservation, once', async () => {
     const { id, supplierId } = await create();
     const eventId = randomUUID();

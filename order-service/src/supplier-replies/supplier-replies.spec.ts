@@ -28,10 +28,11 @@ const message = (body: { eventId: string }): IncomingDomainMessage => ({
   retryCount: 0,
 });
 
-function setup(result: unknown = { ok: true, sequenceNumber: 2 }) {
+function setup(result: unknown = { ok: true, sequenceNumber: 2 }, errandSupplier: string | undefined = supplierId) {
   const lifecycle = {
     transition: vi.fn().mockResolvedValue(result),
     releaseCredit: vi.fn().mockResolvedValue(undefined),
+    supplierIdOf: vi.fn().mockResolvedValue(errandSupplier),
   };
   return { lifecycle, handler: new CreditReplyHandler(SUPPLIER_REPLY_SPECS[0], lifecycle, contracts) };
 }
@@ -78,6 +79,19 @@ describe('supplier validation reply', () => {
     const { lifecycle, handler } = setup({ ok: false, reason: 'STATE_MISMATCH', currentStatus: 'Cancelled' });
     expect(await handler.handle(message(found('Active')))).toEqual({ outcome: 'ack' });
     expect(lifecycle.releaseCredit).not.toHaveBeenCalled();
+  });
+
+  it('dead-letters a reply naming a supplier the errand does not reference', async () => {
+    const { lifecycle, handler } = setup(undefined, randomUUID());
+    const res = await handler.handle(message(found('Active')));
+    expect(res).toMatchObject({ outcome: 'dead-letter', category: 'INVALID_PAYLOAD' });
+    expect(lifecycle.transition).not.toHaveBeenCalled();
+  });
+
+  it('leaves an unknown errand to the transition, which acks it as NOT_FOUND', async () => {
+    const { lifecycle, handler } = setup({ ok: false, reason: 'NOT_FOUND' }, undefined);
+    expect(await handler.handle(message(found('Active')))).toEqual({ outcome: 'ack' });
+    expect(lifecycle.transition).toHaveBeenCalledOnce();
   });
 
   it('dead-letters a reply that is not from Supplier Service', async () => {

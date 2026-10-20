@@ -218,7 +218,7 @@ sequenceDiagram
 
 `createErrand()` requires `expiryDurationMinutes` (15 to 10080) and a non-blank `collectionItems` string. The duration stays in the `ErrandCreated` payload only; `collectionItems` is also an `errands` column (read-only, not filtered); the `CreditReserved` edge sets `expires_at` and records it in its own payload (ADR 0007). Creation never blocks on the supplier or credit outcome (F1.4.2).
 
-Supplier validation (`src/supplier-replies/`, supplier ADR 0002): an Active supplier moves the errand on and the `SupplierValidated` event keeps the reply's supplier snapshot verbatim; a missing or Inactive one cancels it (F1.4.4); nothing is reserved yet, so no release is sent. If no reply comes (F1.5), a sweep re-queues the original request with the same `eventId`, so Supplier Service answers it at most once, with exponential backoff and jitter (`SUPPLIER_RETRY_BASE_MS`, `SUPPLIER_RETRY_MAX_MS`), tracking attempts in `supplier_validation_retries`. After `SUPPLIER_VALIDATION_HOLD_MS` from creation it cancels with `SUPPLIER_VALIDATION_TIMEOUT`; a reply arriving after that is acked and dropped.
+Supplier validation (`src/supplier-replies/`, supplier ADR 0002): an Active supplier moves the errand on and the `SupplierValidated` event keeps the reply's supplier snapshot verbatim; a missing or Inactive one cancels it (F1.4.4); nothing is reserved yet, so no release is sent. A reply whose `supplierId` is not the errand's is dead-lettered, and the errand stays in `Pending-Supplier`. If no reply comes (F1.5), a sweep re-queues the original request with the same `eventId`, so Supplier Service answers it at most once, with exponential backoff and jitter (`SUPPLIER_RETRY_BASE_MS`, `SUPPLIER_RETRY_MAX_MS`), tracking attempts in `supplier_validation_retries`. After `SUPPLIER_VALIDATION_HOLD_MS` from creation it cancels with `SUPPLIER_VALIDATION_TIMEOUT`; a reply arriving after that is acked and dropped.
 
 
 ## 5. Read side
@@ -247,12 +247,12 @@ Order-service and credit-service never share a transaction. Order changes its ow
 | A reply is lost | Same as the row above for the errand's in-flight status | Same re-send; credit answers a repeated `eventId` with its original outcome |
 | The same reply is delivered twice | The reply's `eventId` is the transition's idempotency key | Replayed: nothing new is written or published |
 | A reply arrives after the errand moved on | `STATE_MISMATCH` | Acked and logged as stale |
-| Malformed reply, or `IDEMPOTENCY_KEY_REUSED` | Contract check fails, or the key's fingerprint differs | Dead-lettered to the queue's `.dlq` for inspection |
+| Malformed reply, `IDEMPOTENCY_KEY_REUSED`, or a supplier reply for another supplier | Contract check fails, the key's fingerprint differs, or `supplierId` is not the errand's | Dead-lettered to the queue's `.dlq` for inspection |
 | Handler throws (DB down, bug) | Exception | Retry queues at 1/2/4/8/16 s, then dead-lettered |
 | Reservation rejected with `RESERVATION_CONFLICT` | Rejection reason | Dead-lettered. The errand stays in `Reserving-Credit`, and the timeout row above cancels it and releases |
 | Credit rejects a release | `credit.release-rejected.v1` | Logged as an error only: the errand is already `Cancelled` |
 | Credit rejects a transfer (e.g. `DESTINATION_ARCHIVED`) | `credit.transfer-rejected.v1` | Edge 16 to `Incomplete`. The credits stay held (see "Planned" below) |
-| Supplier-service down during validation | Errand stays in `Pending-Supplier` | With PR #649: re-sent with backoff by the sweep, then cancelled with `SUPPLIER_VALIDATION_TIMEOUT` after the hold window. A late reply is dropped. Nothing is reserved yet, so nothing is released |
+| Supplier-service down during validation | Errand stays in `Pending-Supplier` | Re-sent with backoff by the sweep, then cancelled with `SUPPLIER_VALIDATION_TIMEOUT` after the hold window. A late reply is dropped. Nothing is reserved yet, so nothing is released |
 | Order DB down | `/health` answers 503; requests fail | Nothing is lost: writes and notices share that DB, so neither happened |
 
 **Ordering.** Global message order is not needed:
@@ -272,5 +272,4 @@ Not needed to merge the lifecycle/sweeps work; needed before it is relied on:
 
 - **Cleanup (item 5):** the §2 diagram check and the backlog issue edits.
 - **Verification (item 6):** a real-broker `test:messaging` case (at least that a sweep re-queued event id is re-delivered), a fixture script faking credit's replies, and the rollout-order check (credit's queues must be bound before order publishes; a direct exchange drops unbound messages silently).
-- **Not built:** the `Pending-Supplier` retry and hold-window sweep (no supplier contract); `supplier_validated_at` (ADR 0007).
 - **Known gap (list filters, until supplier integration):** `pickupLocation` is free text and optional, so `GET /v1/errands` `pickupBuilding` never matches an errand with no pickup, and an empty `pickupBuilding=` / `deliveryBuilding=` is a 400 rather than ignored. Both are expected to change with the supplier integration (real building values, mandatory pickup).
