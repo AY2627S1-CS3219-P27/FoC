@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { and, eq, gt, lte, sql, type SQL } from 'drizzle-orm';
-import { errands } from '../db/schema.js';
+import { errands, outboxEvents } from '../db/schema.js';
+import { enqueueSupplierRequest, supplierRequestId } from '../lifecycle/notice.js';
 import { backoffDelay } from '../retry/backoff.js';
 import type { Status } from '../lifecycle/status.js';
 import {
@@ -116,10 +117,10 @@ async function resendOrAlert(db: Db, cfg: SweepConfig): Promise<number> {
 
 const after = (ms: number) => sql`now() + (${ms}::bigint * interval '1 millisecond')`;
 
-// Same eventId, so Supplier Service answers it at most once. No retry row yet = due at created_at + base.
+// No retry row yet = due at created_at + base.
 async function resendSupplierRequests(db: Db, cfg: SweepConfig): Promise<number> {
-  const due = await db.execute<{ id: string; attempts: number }>(sql`
-    SELECT e.id, coalesce(r.attempts, 0) AS attempts
+  const due = await db.execute<{ id: string; supplier_id: string; attempts: number }>(sql`
+    SELECT e.id, e.supplier_id, coalesce(r.attempts, 0) AS attempts
     FROM errands e LEFT JOIN supplier_validation_retries r ON r.errand_id = e.id
     WHERE e.status = 'Pending-Supplier'
       AND e.created_at > ${ago(cfg.supplierHoldMs)}
@@ -127,29 +128,27 @@ async function resendSupplierRequests(db: Db, cfg: SweepConfig): Promise<number>
     LIMIT ${BATCH}`);
 
   let resent = 0;
-  for (const { id, attempts } of due.rows) {
-    const attempt = Number(attempts) + 1;
-    const wait = backoffDelay(attempt + 1, {
+  for (const { id, supplier_id, attempts } of due.rows) {
+    const sent = Number(attempts);
+    const wait = backoffDelay(sent + 2, {
       baseMs: cfg.supplierRetryBaseMs,
       maxMs: cfg.supplierRetryMaxMs,
       random: cfg.random,
     });
     await db.transaction(async (tx) => {
-      // Unpublished = the relay has not sent it yet, so there is nothing to resend.
-      const res = await tx.execute(sql`
-        UPDATE outbox_events
-        SET published_at = NULL, claimed_by = NULL, claimed_until = NULL,
-            next_attempt_at = clock_timestamp()
-        WHERE event_id = (
-            SELECT event_id FROM outbox_events
-            WHERE routing_key = 'order.supplier-validation-requested.v1'
-              AND envelope->'payload'->>'errandId' = ${id}
-            ORDER BY created_at DESC LIMIT 1)
-          AND published_at IS NOT NULL`);
-      resent += res.rowCount ?? 0;
+      const [last] = await tx
+        .select({ publishedAt: outboxEvents.publishedAt })
+        .from(outboxEvents)
+        .where(eq(outboxEvents.eventId, supplierRequestId(id, sent)));
+      // Still unpublished: the relay has not sent the last one, so a new one would only queue behind it.
+      const send = !last || last.publishedAt !== null;
+      if (send) {
+        await enqueueSupplierRequest(tx, id, supplier_id, sent + 1);
+        resent++;
+      }
       await tx.execute(sql`
         INSERT INTO supplier_validation_retries (errand_id, attempts, next_retry_at)
-        VALUES (${id}, ${attempt}, ${after(wait)})
+        VALUES (${id}, ${send ? sent + 1 : sent}, ${after(wait)})
         ON CONFLICT (errand_id) DO UPDATE
         SET attempts = EXCLUDED.attempts, next_retry_at = EXCLUDED.next_retry_at`);
     });

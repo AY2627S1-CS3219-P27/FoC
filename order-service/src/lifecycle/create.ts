@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { errandEvents, errands } from '../db/schema.js';
-import { enqueueNotice } from './notice.js';
+import { enqueueSupplierRequest } from './notice.js';
 import type { Db } from './transition.js';
 
 export interface CreateRequestInputs {
@@ -73,10 +73,7 @@ export function createErrand(db: Db, i: CreateRequestInputs): Promise<CreateResu
         payload: request,
         actorId: i.requesterId,
       });
-      await enqueueNotice(tx, {
-        key: 'order.supplier-validation-requested.v1',
-        payload: { errandId: row.id, supplierId: i.supplierId },
-      });
+      await enqueueSupplierRequest(tx, row.id, i.supplierId, 0);
       return { ok: true, errandId: row.id };
     }
 

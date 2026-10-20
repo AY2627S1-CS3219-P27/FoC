@@ -10,6 +10,7 @@ import {
   supplierValidationRetries,
 } from '../db/schema.js';
 import { createErrand } from '../lifecycle/create.js';
+import { supplierRequestId } from '../lifecycle/notice.js';
 import type { Status } from '../lifecycle/status.js';
 import { SYSTEM, transition } from '../lifecycle/transition.js';
 import { withAdvisoryLock } from './sweep-lock.js';
@@ -269,15 +270,18 @@ describe('Pending-Supplier', () => {
     });
   });
 
-  it('re-queues the original request when due and backs off the next one', async () => {
+  it('sends a new request when due and backs off the next one', async () => {
     const id = await waiting(2 * MIN);
     const [before] = await outboxFor(id);
 
     await runSweeps(t.db, cfg);
 
-    const [after] = await outboxFor(id);
-    expect(after.eventId).toBe(before.eventId);
-    expect(after.publishedAt).toBeNull();
+    const rows = await outboxFor(id);
+    expect(rows).toHaveLength(2);
+    const resent = rows.find((r) => r.eventId !== before.eventId)!;
+    expect(resent.eventId).toBe(supplierRequestId(id, 1));
+    expect(resent.publishedAt).toBeNull();
+    expect(resent.envelope).toMatchObject({ payload: before.envelope.payload });
     expect((await row(id)).status).toBe('Pending-Supplier');
     const r = await retry(id);
     expect(r.attempts).toBe(1);
@@ -290,6 +294,24 @@ describe('Pending-Supplier', () => {
     expect((await retry(id)).attempts).toBe(1);
   });
 
+  it('sends the next request once the last one went out', async () => {
+    const id = await waiting(2 * MIN);
+    await runSweeps(t.db, cfg);
+    await t.db
+      .update(outboxEvents)
+      .set({ publishedAt: ago(MIN) })
+      .where(eq(outboxEvents.eventId, supplierRequestId(id, 1)));
+    await t.db
+      .update(supplierValidationRetries)
+      .set({ nextRetryAt: ago(1000) })
+      .where(eq(supplierValidationRetries.errandId, id));
+
+    await runSweeps(t.db, cfg);
+
+    expect((await outboxFor(id)).map((r) => r.eventId)).toContain(supplierRequestId(id, 2));
+    expect((await retry(id)).attempts).toBe(2);
+  });
+
   it('leaves a recent errand alone', async () => {
     const id = await waiting(10_000);
     await runSweeps(t.db, cfg);
@@ -297,11 +319,13 @@ describe('Pending-Supplier', () => {
     expect(await retry(id)).toBeUndefined();
   });
 
-  it('does not re-queue a request the relay has not sent, but still moves the schedule on', async () => {
+  it('does not send another while the relay has not sent the last one, but still moves the schedule on', async () => {
     const id = await waiting(2 * MIN, false);
     await runSweeps(t.db, cfg);
-    expect((await outboxFor(id))[0].publishedAt).toBeNull();
-    expect((await retry(id)).attempts).toBe(1);
+    expect(await outboxFor(id)).toHaveLength(1);
+    const r = await retry(id);
+    expect(r.attempts).toBe(0);
+    expect(r.nextRetryAt.getTime()).toBeGreaterThan(Date.now());
   });
 
   it('drops the bookkeeping once the errand moves on', async () => {
