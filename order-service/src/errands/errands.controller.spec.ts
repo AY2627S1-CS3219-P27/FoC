@@ -7,6 +7,7 @@ import { signAccessToken, TEST_USER_ID, testKeys } from '../../test/access-token
 import { configureHttp } from '../http/configure-http.js';
 import { LifecycleService } from '../lifecycle/lifecycle.service.js';
 import { ErrandsModule } from './errands.module.js';
+import { ErrandsQueryService } from './errands.query.js';
 
 // Largest value a Postgres integer column holds.
 const MAX_INT = 2_147_483_647;
@@ -28,6 +29,8 @@ describe('ErrandsController', () => {
     })
       .overrideProvider(LifecycleService)
       .useValue(lifecycle)
+      .overrideProvider(ErrandsQueryService)
+      .useValue({})
       .compile();
     app = module.createNestApplication();
     configureHttp(app);

@@ -3,17 +3,27 @@ import { Role } from '@foc/contracts';
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
+  NotFoundException,
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { LifecycleService } from '../lifecycle/lifecycle.service.js';
-import { WithdrawErrandDto, AdjustErrandDto, CreateErrandDto } from './errands.dto.js';
+import {
+  WithdrawErrandDto,
+  AdjustErrandDto,
+  CreateErrandDto,
+  ListErrandsQuery,
+  MineErrandsQuery,
+} from './errands.dto.js';
+import { ErrandsQueryService } from './errands.query.js';
 import { requesterCanCancel } from '../lifecycle/edges.js';
 import { user } from '../lifecycle/transition.js';
 import { ACTIONS, type ActionContext, type ActionName } from './actions.js';
@@ -26,7 +36,32 @@ import { isReplay, REPLAYED_HEADER, resultToHttp } from './result-to-http.js';
 @Controller('v1/errands')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ErrandsController {
-  constructor(private readonly lifecycle: LifecycleService) {}
+  constructor(
+    private readonly lifecycle: LifecycleService,
+    private readonly queries: ErrandsQueryService,
+  ) {}
+
+  // Reads go to the query service, never through transition().
+  @Get()
+  @Roles(Role.Courier)
+  list(@Query() query: ListErrandsQuery, @Req() req: AuthenticatedRequest) {
+    return this.queries.list(req.user.sub, query);
+  }
+
+  // Declared before :id so 'mine' is not parsed as an id.
+  @Get('mine')
+  @Roles(Role.Requester, Role.Courier)
+  mine(@Query() query: MineErrandsQuery, @Req() req: AuthenticatedRequest) {
+    return this.queries.mine(req.user.sub, query);
+  }
+
+  @Get(':id')
+  @Roles(Role.Requester, Role.Courier)
+  async detail(@Param('id', ParseUUIDPipe) id: string, @Req() req: AuthenticatedRequest) {
+    const view = await this.queries.detail(req.user.sub, id);
+    if (!view) throw new NotFoundException('Errand not found.');
+    return view;
+  }
 
   @Post()
   @Roles(Role.Requester)
