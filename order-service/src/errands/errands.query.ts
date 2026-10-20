@@ -31,9 +31,7 @@ const toView = (r: typeof errands.$inferSelect, callerId?: string) => ({
     : {}),
 });
 
-// Admin allowlist: the parties' view plus the internal sub-state, labelled as
-// internal (F9.3.3), and the lifecycle timestamps. Still never idempotencyKey
-// or lastSequenceNumber.
+// Admin allowlist (F9.3.3): adds the internal sub-state and lifecycle timestamps.
 const toAdminView = (r: typeof errands.$inferSelect) => ({
   ...toView(r, r.requesterId),
   internalStatus: r.status,
@@ -71,14 +69,12 @@ export class ErrandsQueryService {
     return { items: rows.map((r) => toView(r)), limit: q.limit, offset: q.offset };
   }
 
-  // The caller's errands, as requester or courier (or only one side, by
-  // `role`), newest first.
+  // The caller's errands, as requester or courier, newest first.
   async mine(callerId: string, q: MineErrandsQuery) {
     const rows = await this.partyRows(callerId, q);
     return { items: rows.map((r) => toView(r, callerId)), limit: q.limit, offset: q.offset };
   }
 
-  // Admin (F9.3.3): the same list for any user, with the internal sub-state.
   async ofUserForAdmin(userId: string, q: MineErrandsQuery) {
     const rows = await this.partyRows(userId, q);
     return { items: rows.map(toAdminView), limit: q.limit, offset: q.offset };

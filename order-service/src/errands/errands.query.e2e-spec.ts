@@ -313,7 +313,6 @@ describe('GET /v1/errands/:id', () => {
 
 describe('GET /v1/admin/users/:userId/errands', () => {
   const target = randomUUID();
-  // base is set in beforeAll, so build the admin root lazily.
   const adminUrl = (path: string) => `${base.replace('/v1/errands', '/v1/admin')}${path}`;
   const admin = async (path: string, isAdmin = true) =>
     fetch(adminUrl(path), {

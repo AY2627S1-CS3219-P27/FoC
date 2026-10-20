@@ -121,8 +121,7 @@ export class ListErrandsQuery extends PageQuery {
   sort: ListSort = 'expiring';
 }
 
-// Query string of GET /v1/errands/mine. `status` takes API names only;
-// `role` keeps only the errands where the caller is on that side.
+// Query string of GET /v1/errands/mine. `status` takes API names only.
 export class MineErrandsQuery extends PageQuery {
   @IsOptional()
   @IsIn(API_STATUSES)
