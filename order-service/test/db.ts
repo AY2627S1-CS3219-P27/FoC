@@ -16,14 +16,15 @@ const conn = () => ({
 });
 
 // A throwaway database per call, migrated from ./drizzle, so tests never touch dev data.
-export async function createTestDb() {
+export async function createTestDb({ migrated = true } = {}) {
   const admin = new pg.Pool({ ...conn(), database: 'postgres' });
   const name = `order_test_${randomUUID().replaceAll('-', '')}`;
   await admin.query(`CREATE DATABASE ${name}`);
   const pool = new pg.Pool({ ...conn(), database: name });
   const db = drizzle(pool);
-  await migrate(db, { migrationsFolder: './drizzle' });
+  if (migrated) await migrate(db, { migrationsFolder: './drizzle' });
   return {
+    name,
     db,
     pool,
     async close() {

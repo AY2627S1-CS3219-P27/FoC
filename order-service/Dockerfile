@@ -54,6 +54,7 @@ COPY --from=build --chown=node:node /usr/src/app/package.json ./
 COPY --from=build --chown=node:node /usr/src/app/package-lock.json ./
 COPY --from=build --chown=node:node /usr/src/app/node_modules ./node_modules
 COPY --from=build --chown=node:node /usr/src/app/dist ./dist
+COPY --from=build --chown=node:node /usr/src/app/drizzle ./drizzle
 COPY --from=build --chown=node:node /usr/src/packages/contracts/package*.json /usr/src/packages/contracts/
 COPY --from=build --chown=node:node /usr/src/packages/contracts/node_modules /usr/src/packages/contracts/node_modules
 COPY --from=build --chown=node:node /usr/src/packages/contracts/dist /usr/src/packages/contracts/dist

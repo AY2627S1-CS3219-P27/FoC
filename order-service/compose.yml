@@ -19,6 +19,7 @@ services:
       - DB_DATABASE=${ORDER_SERVICE_DB_DATABASE}
       - DB_SYNCHRONIZE=${ORDER_SERVICE_DB_SYNCHRONIZE}
       - DB_PASSWORD_FILE=/run/secrets/order_db_password
+      - DB_MIGRATIONS_RUN=${ORDER_SERVICE_DB_MIGRATIONS_RUN:-true}
       - JWT_PUBLIC_KEY_FILE=/run/secrets/jwt_public_key_order_service
       - LOG_LEVEL=${LOG_LEVEL}
       - RABBITMQ_USER=${ORDER_SERVICE_RABBITMQ_USER}

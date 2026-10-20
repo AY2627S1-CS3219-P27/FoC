@@ -14,6 +14,13 @@ const base = {
   RABBITMQ_PASSWORD_FILE: '/p',
 };
 
+describe('db env', () => {
+  it('migrates on startup unless turned off', () => {
+    expect(environmentSchema.validate(base).value.DB_MIGRATIONS_RUN).toBe(true);
+    expect(environmentSchema.validate({ ...base, DB_MIGRATIONS_RUN: 'false' }).value.DB_MIGRATIONS_RUN).toBe(false);
+  });
+});
+
 describe('consumer env', () => {
   it('defaults the retry topology', () => {
     const { value, error } = environmentSchema.validate(base);
