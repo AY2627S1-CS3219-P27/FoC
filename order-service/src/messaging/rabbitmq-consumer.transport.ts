@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
+import { annotateConsumeSpan } from '@foc/observability';
 import {
   Inject,
   Injectable,
@@ -576,6 +577,11 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       message,
       this.topology.retryDelays.length,
     );
+    annotateConsumeSpan({
+      messageId: eventId,
+      routingKey: message.fields.routingKey,
+      retryCount,
+    });
     if (retryCount === undefined) {
       await this.deadLetterOrRequeue(
         message,

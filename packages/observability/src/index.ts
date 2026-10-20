@@ -15,3 +15,8 @@ export {
   registry,
   METRICS_PREFIX,
 } from './metrics.js';
+export {
+  annotateConsumeSpan,
+  MESSAGE_RETRY_COUNT_ATTRIBUTE,
+  type ConsumeSpanAttributes,
+} from './messaging.js';
