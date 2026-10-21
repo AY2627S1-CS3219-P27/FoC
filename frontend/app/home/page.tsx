@@ -11,6 +11,7 @@ import { SupplierStatusControl } from "./_admin/supplier-status-control";
 import { UserAdminActions } from "./_admin/user-admin-actions";
 import { CategoriesPanel } from "./_admin/categories-panel";
 import { CreateUserForm } from "./_admin/create-user-form";
+import { ArchiveAccount } from "./_account/archive-account";
 import { MyRequests } from "./_suppliers/my-requests";
 import { SupplierForm } from "./_suppliers/supplier-form";
 import { authFetch, refreshSession, setSessionExpiredHandler } from "@/lib/api";
@@ -1267,6 +1268,8 @@ function ProfileTab({
           Reset password
         </Link>
       </div>
+
+      <ArchiveAccount />
     </div>
   );
 }

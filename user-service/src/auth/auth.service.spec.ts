@@ -26,7 +26,7 @@ describe('AuthService', () => {
   let usersService: {
     provisionUser: ReturnType<typeof vi.fn>;
     checkUserAndReturnInfo: ReturnType<typeof vi.fn>;
-    getUserByUuid: ReturnType<typeof vi.fn>;
+    getActiveUserByUuid: ReturnType<typeof vi.fn>;
   };
   let jwtService: { signAsync: ReturnType<typeof vi.fn> };
   let refreshTokenRepository: {
@@ -47,7 +47,7 @@ describe('AuthService', () => {
         isAdmin: false,
       })),
       checkUserAndReturnInfo: vi.fn(),
-      getUserByUuid: vi.fn(),
+      getActiveUserByUuid: vi.fn(),
     };
     jwtService = { signAsync: vi.fn(async () => 'signed-jwt') };
     refreshTokenRepository = {
@@ -289,7 +289,7 @@ describe('AuthService', () => {
 
     it('signs a fresh access token for the session bound to a valid token', async () => {
       refreshTokenRepository.findOneBy.mockResolvedValue(validRecord);
-      usersService.getUserByUuid.mockResolvedValue(refreshedUser);
+      usersService.getActiveUserByUuid.mockResolvedValue(refreshedUser);
 
       await expect(service.refreshSession('opaque-token')).resolves.toEqual({
         accessToken: 'signed-jwt',
@@ -304,7 +304,7 @@ describe('AuthService', () => {
       expect(refreshTokenRepository.findOneBy).toHaveBeenCalledWith({
         hashedToken: 'deadbeef',
       });
-      expect(usersService.getUserByUuid).toHaveBeenCalledWith(
+      expect(usersService.getActiveUserByUuid).toHaveBeenCalledWith(
         '11111111-1111-4111-8111-111111111111',
       );
       expect(jwtService.signAsync).toHaveBeenCalledTimes(1);
@@ -331,10 +331,10 @@ describe('AuthService', () => {
           }),
       },
       {
-        name: 'a token bound to a pruned account',
+        name: 'a token bound to a pruned, locked or archived account',
         setup: () => {
           refreshTokenRepository.findOneBy.mockResolvedValue(validRecord);
-          usersService.getUserByUuid.mockResolvedValue(null);
+          usersService.getActiveUserByUuid.mockResolvedValue(null);
         },
       },
     ])('rejects $name with the identical generic error (F5.2)', ({ setup }) => {
@@ -396,7 +396,7 @@ describe('access token contract conformance', () => {
               isAdmin: false,
               roles: [Role.Requester],
             })),
-            getUserByUuid: vi.fn(async () => ({
+            getActiveUserByUuid: vi.fn(async () => ({
               uuid: '11111111-1111-4111-8111-111111111111',
               email: 'eve@example.com',
               displayName: 'Eve',
@@ -471,7 +471,7 @@ describe('access token contract conformance', () => {
         {
           provide: UsersService,
           useValue: {
-            getUserByUuid: vi.fn(async () => ({
+            getActiveUserByUuid: vi.fn(async () => ({
               uuid: '11111111-1111-4111-8111-111111111111',
               email: 'eve@example.com',
               displayName: 'Eve',

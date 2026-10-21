@@ -53,10 +53,11 @@ export function useApiLog(): ApiLogEntry[] {
 // Nest errors are { code, message } from order-service, or { message: string | string[] } from pipes and guards.
 function readError(body: unknown): { code: string | null; message: string | null } {
   if (!body || typeof body !== "object") return { code: null, message: null };
-  const b = body as { code?: unknown; message?: unknown; error?: unknown; violations?: unknown };
-  // supplier-service lists each failed field as { field, reason }.
-  const violations = Array.isArray(b.violations)
-    ? (b.violations as { field?: string; reason?: string }[]).map((v) => `${v.field}: ${v.reason}`).join("; ")
+  const b = body as { code?: unknown; message?: unknown; error?: unknown; violations?: unknown; reasons?: unknown };
+  // Field errors arrive as { field, reason } in `violations` (supplier-service) or `reasons` (credit-service).
+  const fieldErrors = Array.isArray(b.violations) ? b.violations : Array.isArray(b.reasons) ? b.reasons : null;
+  const violations = fieldErrors
+    ? (fieldErrors as { field?: string; reason?: string }[]).map((v) => `${v.field}: ${v.reason}`).join("; ")
     : null;
   const message =
     violations ||
