@@ -4,7 +4,7 @@ import {
   Histogram,
   register as globalRegistry,
   collectDefaultMetrics,
-} from 'prom-client';
+} from '@prometheus-io/client';
 import type { ServerResponse, IncomingMessage } from 'node:http';
 
 export const METRICS_PREFIX = 'foc_';
@@ -28,7 +28,7 @@ export function createMetricsHandler(): (
 ) => Promise<void> {
   return async (_req, res) => {
     res.setHeader('Content-Type', globalRegistry.contentType);
-    // return metrics handled by prom-client
+    // return metrics handled by @prometheus-io/client
     res.end(await globalRegistry.metrics());
   };
 }

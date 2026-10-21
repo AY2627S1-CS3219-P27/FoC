@@ -2,7 +2,7 @@ export type {
   Counter,
   Gauge,
   Histogram,
-} from 'prom-client';
+} from '@prometheus-io/client';
 export {
   initTelemetry,
   registerTelemetryShutdown,
