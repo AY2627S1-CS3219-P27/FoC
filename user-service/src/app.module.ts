@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { createObserveModule } from '@nestjs/observe';
 import { FocAuthModule } from '@foc/auth';
 import { OutboxEvent, OutboxModule } from '@foc/outbox';
 import { OtpModule } from './otp/otp.module.js';
@@ -33,21 +32,12 @@ function buildRabbitMqUrl(
   );
 }
 
-export const { ObserveModule, ObserveInstrument } = createObserveModule();
-
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       cache: true,
       validationSchema: environmentSchema,
-    }),
-    // Distributed tracing, auto-correlated logs, request/job metrics, error
-    // telemetry, alarms, and more — out of the box. Sign up at https://observe.nestjs.com
-    ObserveModule.forRoot({
-      appKey: 'YOUR_APP_KEY',
-      appSecret: 'YOUR_APP_SECRET',
-      serviceId: 'user-service',
     }),
     SecretModule,
     // Verifies user-service access tokens with the shared RS256 public key

@@ -33,6 +33,7 @@ services:
       SEED_ON_STARTUP: ${SUPPLIER_SEED_ON_STARTUP:-true}
       SEED_CSV_PATH: /seed-data/supplier-seed-data.csv
       JWT_PUBLIC_KEY_FILE: /run/secrets/supplier_jwt_public_key
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4318}
       PLACEHOLDER_IMAGE_URL: ${SUPPLIER_PLACEHOLDER_IMAGE_URL:-}
       # The broker connection is shared (env/shared.env); the login is this
       # service's own broker user in rabbitmq/definitions.json (F13.7).

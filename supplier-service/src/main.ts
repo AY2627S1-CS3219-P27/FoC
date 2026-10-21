@@ -6,18 +6,22 @@ import {
   type EnvironmentVariables,
   logLevelsUpTo,
 } from './config/environment.schema.js';
+import {
+  createMetricsHandler,
+  initMetrics,
+  initTelemetry,
+} from '@foc/observability';
 
 async function bootstrap(): Promise<void> {
-  // Buffered until the configured logger is set, so startup logs (e.g. the
-  // seed import) are not lost.
+  initTelemetry({ serviceName: 'supplier-service' });
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   const config = app.get(ConfigService<EnvironmentVariables, true>);
 
   app.useLogger(logLevelsUpTo(config.get('LOG_LEVEL', { infer: true })));
   app.enableShutdownHooks();
-  // Parses the Cookie header so @foc/auth's JwtAuthGuard can read the
-  // access_token cookie set by user-service's login (as in user-service).
   app.use(cookieParser());
+  initMetrics();
+  app.use('/metrics', createMetricsHandler());
 
   await app.listen(config.get('PORT', { infer: true }), '0.0.0.0');
 }
