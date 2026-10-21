@@ -3,6 +3,7 @@ import { and, eq, gt, inArray, notInArray, sql } from 'drizzle-orm';
 import { errands, roleBlocks } from '../db/schema.js';
 import { ACTIVE_STATUSES } from '../lifecycle/status.js';
 import type { Db } from '../lifecycle/transition.js';
+import { TERMINAL_STATUS } from '../lifecycle/status.js';
 
 export const BLOCKABLE_ROLES: BlockableRole[] = [Role.Requester, Role.Courier];
 export type BlockableRole = Role.Requester | Role.Courier;
@@ -48,7 +49,7 @@ async function roleInUse(tx: Tx, userId: string, role: BlockableRole): Promise<b
     role === Role.Requester
       ? and(
           eq(errands.requesterId, userId),
-          notInArray(errands.status, ['Completed', 'Cancelled', 'Incomplete']),
+          notInArray(errands.status, TERMINAL_STATUS),
         )
       : and(eq(errands.courierId, userId), inArray(errands.status, ACTIVE_STATUSES));
   const rows = await tx.select({ id: errands.id }).from(errands).where(where).limit(1);

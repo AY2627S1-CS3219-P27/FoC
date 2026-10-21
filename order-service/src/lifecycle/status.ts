@@ -14,6 +14,8 @@ export const STATUSES = [
   'Incomplete',
 ] as const;
 
+
+
 export type Status = (typeof STATUSES)[number];
 
 export const statusEnum = pgEnum('errand_status', STATUSES);
@@ -22,20 +24,26 @@ export const statusEnum = pgEnum('errand_status', STATUSES);
 export const ALLOWED: Record<Status, Status[]> = {
   'Pending-Supplier': ['Reserving-Credit', 'Cancelled'],
   'Reserving-Credit': ['Open', 'Cancelled'],
-  'Open': ['Accepted', 'Adjusting-Credit', 'Cancelled'],
+  Open: ['Accepted', 'Adjusting-Credit', 'Cancelled'],
   'Adjusting-Credit': ['Open'],
-  'Accepted': ['Picked Up', 'Open'],
+  Accepted: ['Picked Up', 'Open'],
   'Picked Up': ['Delivered', 'Cancelled'],
-  'Delivered': ['Transferring-Credit', 'Incomplete'],
+  Delivered: ['Transferring-Credit', 'Incomplete'],
   'Transferring-Credit': ['Completed', 'Incomplete'],
-  'Completed': [],
-  'Cancelled': [],
-  'Incomplete': [],
+  Completed: [],
+  Cancelled: [],
+  Incomplete: [],
 };
 
 // A courier holds at most one errand in these statuses; the partial
 // unique index in schema.ts is built from this.
 export const ACTIVE_STATUSES: Status[] = ['Accepted', 'Picked Up'];
+
+export const TERMINAL_STATUS: Status[] = [
+  'Completed',
+  'Cancelled',
+  'Incomplete',
+];
 
 export const canTransition = (from: Status, to: Status): boolean =>
   ALLOWED[from].includes(to);
