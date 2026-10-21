@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { ServerResponse, IncomingMessage } from 'node:http';
 import { initMetrics, createMetricsHandler, createLabeledCounter, METRICS_PREFIX } from '../src/metrics.js';
 
