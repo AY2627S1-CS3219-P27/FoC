@@ -554,45 +554,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.role_blocks": {
-      "name": "role_blocks",
-      "schema": "",
-      "columns": {
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "role": {
-          "name": "role",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "role_blocks_user_id_role_pk": {
-          "name": "role_blocks_user_id_role_pk",
-          "columns": [
-            "user_id",
-            "role"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.supplier_validation_retries": {
       "name": "supplier_validation_retries",
       "schema": "",
