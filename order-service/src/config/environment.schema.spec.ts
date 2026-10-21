@@ -74,3 +74,11 @@ describe('auth env', () => {
     );
   });
 });
+
+describe("role block env", () => {
+  it("defaults the block lifetime to access-token lifetime plus a minute", () => {
+    const { value, error } = environmentSchema.validate(base);
+    expect(error).toBeUndefined();
+    expect(value.ROLE_BLOCK_TTL_MS).toBe(960_000);
+  });
+});

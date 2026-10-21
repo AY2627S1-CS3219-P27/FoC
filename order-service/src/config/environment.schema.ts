@@ -64,6 +64,8 @@ export const environmentSchema = Joi.object({
   CREDIT_REPLY_TIMEOUT_MS: Joi.number().integer().min(1).default(120_000),
   CREDIT_RESEND_MAX: Joi.number().integer().min(0).default(3),
   IDEMPOTENCY_KEY_TTL_MS: Joi.number().integer().min(1).default(604_800_000), // 7 days
+  // Must be at least user-service's access-token lifetime (15 min) plus skew; not checkable across services.
+  ROLE_BLOCK_TTL_MS: Joi.number().integer().min(1).default(960_000),
   SUPPLIER_RETRY_BASE_MS: Joi.number().integer().min(1).default(1_000),
   SUPPLIER_RETRY_MAX_MS: Joi.number().integer().min(Joi.ref('SUPPLIER_RETRY_BASE_MS')).default(300_000), // 5 min
   SUPPLIER_VALIDATION_HOLD_MS: Joi.number().integer().min(1).default(1_800_000), // 30 min

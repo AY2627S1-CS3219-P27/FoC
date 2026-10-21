@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { Role } from '@foc/contracts';
 import { and, desc, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import {
@@ -7,6 +8,7 @@ import {
   errands,
   idempotencyKeys,
 } from '../db/schema.js';
+import { isRoleBlocked, lockUser } from '../role-blocks/role-blocks.js';
 import {
   EDGES,
   USER_REASONS,
@@ -60,6 +62,7 @@ export type TransitionResult =
         | 'IDEMPOTENCY_KEY_REUSED'
         | 'FORBIDDEN' // actor may not take this edge on this errand
         | 'COURIER_BUSY' // courier already holds an active errand
+        | 'ROLE_BLOCKED' // accepting courier has a role block
         | 'EXPIRED'; // accept after expires_at
     }
   | { ok: false; reason: 'STATE_MISMATCH'; currentStatus: Status };
@@ -67,6 +70,8 @@ export type TransitionResult =
 const INVALID: TransitionResult = { ok: false, reason: 'INVALID_FIELDS' };
 const ILLEGAL: TransitionResult = { ok: false, reason: 'ILLEGAL_TRANSITION' };
 const BUSY: TransitionResult = { ok: false, reason: 'COURIER_BUSY' };
+const BLOCKED: TransitionResult = { ok: false, reason: 'ROLE_BLOCKED' };
+const RELEASED = ['COURIER_BUSY', 'ROLE_BLOCKED'];
 
 // Caller bugs, rejected before the transaction: not an outcome worth storing
 // under a key. Returns the refusal, or undefined when the input is well-formed.
@@ -159,15 +164,16 @@ async function claimKey(
 }
 
 // Same transaction as the transition, so key, status and event commit together.
-// COURIER_BUSY is transient (the courier may free up), so its key is released
-// and a retry runs afresh; every other outcome is stored for replay.
+// COURIER_BUSY and ROLE_BLOCKED are transient (the courier may free up, the
+// block expires), so their key is released and a retry runs afresh; every
+// other outcome is stored for replay.
 async function storeOutcome(
   tx: Db,
   i: TransitionInput,
   result: TransitionResult,
 ) {
   if (!i.idempotencyKey) return;
-  if (!result.ok && result.reason === 'COURIER_BUSY') {
+  if (!result.ok && RELEASED.includes(result.reason)) {
     await tx.delete(idempotencyKeys).where(keyRow(i));
     return;
   }
@@ -185,13 +191,19 @@ export function transition(
 
   const fingerprint = fingerprintOf(i, actor as string | null);
 
+  // Accept: validate() made the actor the courier, so this is their user id.
+  const courier = edge?.sets.includes('courierId') ? (actor as string) : undefined;
+
   return db.transaction(async (tx): Promise<TransitionResult> => {
+    // Taken first, so a concurrent role block for this courier serializes with us.
+    if (courier) await lockUser(tx, courier);
     const replay = await claimKey(tx, i, fingerprint);
     if (replay) return replay;
 
-    const result = edge
-      ? await apply(tx, i, edge, actor as string | null)
-      : ILLEGAL;
+    let result: TransitionResult;
+    if (!edge) result = ILLEGAL;
+    else if (courier && (await isRoleBlocked(tx, courier, Role.Courier))) result = BLOCKED;
+    else result = await apply(tx, i, edge, actor as string | null);
     await storeOutcome(tx, i, result);
     return result;
   });
