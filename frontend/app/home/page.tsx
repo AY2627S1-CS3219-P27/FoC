@@ -166,13 +166,13 @@ export default function HomePage() {
     Promise.all([
       fetch("/api/buildings")
         .then((r) => r.json())
-        .catch(() => ({ items: [] })),
+        .catch(() => []),
       fetch("/api/categories")
         .then((r) => r.json())
-        .catch(() => ({ items: [] })),
+        .catch(() => []),
     ]).then(([b, c]) => {
-      setBuildings(b.items ?? []);
-      setCategories(c.items ?? []);
+      setBuildings(Array.isArray(b) ? b : []);
+      setCategories(Array.isArray(c) ? c : []);
     });
   }, []);
 
