@@ -61,6 +61,7 @@
     "class-validator": "^0.15.1",
     "cookie-parser": "^1.4.7",
     "joi": "^18.2.9",
+    "nestjs-pino": "^5.3.1",
     "pg": "^8.23.0",
     "redis": "^6.2.1",
     "reflect-metadata": "^0.2.2",

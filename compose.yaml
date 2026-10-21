@@ -84,16 +84,37 @@ services:
       - ./observability/tempo.yaml:/etc/tempo.yaml:ro
       - tempo_data:/var/tempo
 
+  # Logs
+  loki:
+    image: grafana/loki:3.7.9
+    restart: unless-stopped
+    # The image is distroless (no shell or wget), so it has no healthcheck;
+    # Compose --wait treats a running container as ready.
+    command: ['-config.file=/etc/loki/loki.yaml']
+    ports:
+      - '127.0.0.1:3100:3100' # query/admin API; OTLP stays on the compose network
+    volumes:
+      - ./observability/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki_data:/loki
+
   # Graphical UI
   grafana:
     image: grafana/grafana:13.2.4
     restart: unless-stopped
+    environment:
+      # The datasource plugins for Tempo and Loki are catalog plugins that
+      # Grafana otherwise installs in the background, racing datasource
+      # provisioning ("data source not found" on a fresh volume). Preinstall
+      # them synchronously so provisioning always finds them registered.
+      GF_PLUGINS_PREINSTALL_SYNC: tempo,loki
     ports:
       - '127.0.0.1:3005:3000'
     depends_on:
       prometheus:
         condition: service_healthy
       tempo:
+        condition: service_started
+      loki:
         condition: service_started
     volumes:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
@@ -151,4 +172,5 @@ volumes:
   rabbitmq_log:
   prometheus_data:
   tempo_data:
+  loki_data:
   grafana_data:

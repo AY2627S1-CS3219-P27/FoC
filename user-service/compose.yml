@@ -40,6 +40,7 @@ services:
       - FRONTEND_BASE_URL=${FRONTEND_BASE_URL}
       - FRONTEND_PASSWORD_RESET_PATH=${FRONTEND_PASSWORD_RESET_PATH}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4318}
+      - OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:-http://loki:3100/otlp/v1/logs}
     secrets:
       - db_password
       - server_secret

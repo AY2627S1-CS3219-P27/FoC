@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { LoggerModule } from 'nestjs-pino';
+import { pinoHttpOptions } from '@foc/observability';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { FocAuthModule } from '@foc/auth';
@@ -39,6 +41,7 @@ function buildRabbitMqUrl(
       cache: true,
       validationSchema: environmentSchema,
     }),
+    LoggerModule.forRoot({ pinoHttp: pinoHttpOptions('user-service') }),
     SecretModule,
     // Verifies user-service access tokens with the shared RS256 public key
     // and exposes the standard JwtAuthGuard/RolesGuard/AdminGuard app-wide.

@@ -7,7 +7,9 @@ Shared **OpenTelemetry tracing** and **Prometheus metrics** for Friend on Campus
 | Export | Purpose |
 | --- | --- |
 | `initTelemetry({ serviceName, otlpEndpoint })` | Initialize OpenTelemetry with instrumentation for Express, HTTP, PostgreSQL, RabbitMQ, Redis, and NestJS controllers. Must be called before `NestFactory.create()`. |
-| `Telemetry.flush()` / `Telemetry.shutdown()` | Force-flush pending spans, then gracefully shut down the SDK. |
+| `Telemetry.flush()` | Force-flush pending spans/logs. The SDK keeps running. |
+| `Telemetry.shutdown()` | Force-flush, then gracefully stop the SDK. Safe to call repeatedly. |
+| `registerTelemetryShutdown(telemetry)` | Flush and stop the SDK on SIGINT/SIGTERM. Call once from `main.ts`, right after `initTelemetry()`. |
 | `initMetrics()` | Register default process metrics (CPU, RSS, GC, event loop). Idempotent. |
 | `createMetricsHandler()` | Return an Express request handler that serves metrics at `/metrics`. |
 | `createLabeledCounter(name, help, labelNames)` | Create a Prometheus counter with custom labels for domain-specific tracking. |
@@ -38,9 +40,17 @@ During `npm install`, the service's `node_modules` receives a packed copy of the
 In `main.ts` (must be before `NestFactory.create`):
 
 ```ts
-import { initTelemetry, initMetrics, createMetricsHandler } from '@foc/observability';
+import {
+  initTelemetry,
+  registerTelemetryShutdown,
+  initMetrics,
+  createMetricsHandler,
+} from '@foc/observability';
 
-initTelemetry({ serviceName: 'user-service' });
+const telemetry = initTelemetry({ serviceName: 'user-service' });
+// Flush and stop the SDK on SIGINT/SIGTERM so the final batch of spans and
+// logs is exported before the process exits.
+registerTelemetryShutdown(telemetry);
 initMetrics();
 
 const app = await NestFactory.create(AppModule);
