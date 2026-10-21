@@ -23,6 +23,8 @@ services:
       DB_PASSWORD_FILE: /run/secrets/credit_db_password
       INITIAL_CREDIT_BALANCE: ${INITIAL_CREDIT_BALANCE:-100}
       JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key_credit_service
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4318}
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:-http://loki:3100/otlp/v1/logs}
       RABBITMQ_USER: ${CREDIT_SERVICE_RABBITMQ_USER:-credit-service}
       RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
       RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
@@ -72,11 +74,12 @@ services:
       test:
         [
           'CMD-SHELL',
-          'wget --no-verbose --tries=1 --spider "http://127.0.0.1:$${PORT:-3000}/docs-json"',
+          'wget --no-verbose --tries=1 --spider
+          "http://127.0.0.1:$${PORT:-3000}/docs-json"',
         ]
       interval: 10s
       timeout: 3s
-      start_period: 60s
+      start_period: 120s
       retries: 3
     develop:
       watch:
