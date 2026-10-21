@@ -38,6 +38,7 @@ export interface EnvironmentVariables extends OutboxEnvironmentVariables {
   DB_USERNAME: string;
   DB_DATABASE: string;
   DB_PASSWORD_FILE: string;
+  DB_MIGRATIONS_RUN: boolean;
   JWT_PUBLIC_KEY_FILE: string;
   INITIAL_CREDIT_BALANCE: number;
   RABBITMQ_USER: string;
@@ -109,6 +110,7 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
   DB_USERNAME: Joi.string().min(1).required(),
   DB_DATABASE: Joi.string().min(1).required(),
   DB_PASSWORD_FILE: Joi.string().min(1).required(),
+  DB_MIGRATIONS_RUN: Joi.boolean().default(true),
   JWT_PUBLIC_KEY_FILE: Joi.string().min(1).required(),
   INITIAL_CREDIT_BALANCE: Joi.number()
     .integer()

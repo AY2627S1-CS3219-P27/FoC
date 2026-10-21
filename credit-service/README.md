@@ -338,19 +338,23 @@ npm ci
 
 ## Run with Docker Compose
 
-From the repository root, start the shared broker and Credit database, build
-Credit Service, apply its migrations, and then start the application:
+From the repository root:
 
 ```powershell
-docker compose up -d --wait rabbitmq credit-db
-docker compose build credit-service
-docker compose run --rm credit-service npm run migration:run
-docker compose up -d credit-service
+docker compose up -d --wait credit-service
 ```
 
-Applying migrations before starting the application prevents consumers and the
-outbox relay from accessing an empty schema. TypeORM schema synchronization is
-intentionally disabled.
+The service applies pending migrations (TypeORM `migrationsRun`) while it
+connects to the database, before its consumers and outbox relay start, so they
+never see an empty schema. Set `CREDIT_SERVICE_DB_MIGRATIONS_RUN=false` to
+turn this off and apply them by hand instead:
+
+```powershell
+docker compose run --rm credit-service npm run migration:run
+```
+
+The migration CLI and the integration tests leave it off and apply migrations
+themselves. TypeORM schema synchronization is intentionally disabled.
 
 Swagger UI is available at `http://localhost:3003/docs` and the generated
 OpenAPI document at `http://localhost:3003/docs-json` by default. Follow the

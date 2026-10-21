@@ -30,6 +30,11 @@ function validate(
 }
 
 describe('environmentSchema', () => {
+  it('runs migrations on startup unless turned off', () => {
+    expect(validate().DB_MIGRATIONS_RUN).toBe(true);
+    expect(validate({ DB_MIGRATIONS_RUN: 'false' }).DB_MIGRATIONS_RUN).toBe(false);
+  });
+
   it('applies account, messaging, and outbox defaults', () => {
     const environment = validate();
 

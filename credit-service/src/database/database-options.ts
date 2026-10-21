@@ -20,6 +20,8 @@ export interface DatabaseEnvironment {
   DB_USERNAME: string;
   DB_DATABASE: string;
   DB_PASSWORD_FILE: string;
+  // Off unless set: the migration CLI and integration tests apply migrations themselves.
+  DB_MIGRATIONS_RUN?: boolean;
 }
 
 export const databaseEntities = [
@@ -67,7 +69,7 @@ export function createDatabaseOptions(
       SettlementPersistence1735689602000,
     ],
     migrationsTableName: 'credit_service_migrations',
-    migrationsRun: false,
+    migrationsRun: environment.DB_MIGRATIONS_RUN ?? false,
     migrationsTransactionMode: 'all',
     synchronize: false,
   };
