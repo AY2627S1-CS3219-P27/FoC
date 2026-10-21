@@ -6,6 +6,7 @@ services:
       target: development
     image: ${FOC_IMAGE_PREFIX:-foc}/order-service:${ORDER_SERVICE_IMAGE_TAG:-dev}
     command: npm run start:dev
+    restart: on-failure:3
     ports:
       - '${ORDER_SERVICE_HOST_PORT}:3000'
     depends_on:
@@ -108,6 +109,7 @@ services:
 
   order-db:
     image: postgres:18-alpine
+    restart: on-failure:3
     ports:
       - '${ORDER_SERVICE_DB_HOST_PORT}:5432'
     environment:

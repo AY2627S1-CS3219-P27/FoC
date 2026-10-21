@@ -10,6 +10,7 @@ services:
       dockerfile: supplier-service/Dockerfile
       target: development
     image: ${FOC_IMAGE_PREFIX:-foc}/supplier-service:${SUPPLIER_IMAGE_TAG:-dev}
+    restart: on-failure:3
     command: npm run start:dev
     ports:
       - '${SUPPLIER_SERVICE_HOST_PORT:-3002}:3000'
@@ -92,6 +93,7 @@ services:
 
   supplier-db:
     image: postgres:18-alpine
+    restart: on-failure:3
     ports:
       - '${SUPPLIER_DB_HOST_PORT:-5438}:5432'
     environment:
