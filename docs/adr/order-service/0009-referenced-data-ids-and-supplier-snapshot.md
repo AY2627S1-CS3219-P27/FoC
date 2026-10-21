@@ -14,7 +14,7 @@ We need one rule for what an existing errand sees when that happens.
 - **Users: ids only.** `requester_id` and `courier_id` hold the user's UUID (the token's `sub`). Order-service stores no names or profile data; clients look them up live from user-service. A profile change therefore never touches an errand.
 - **Supplier: id plus a snapshot taken at validation.**
   - `supplier.validation-completed.v1` carries a supplier snapshot that includes its `version`. The `SupplierValidated` event payload keeps that snapshot verbatim.
-  - The `Pending-Supplier` → `Reserving-Credit` edge sets three columns: `supplier_validated_at`, `pickup_location` (the building's `shortName`) and `pickup_description` (floor and `locationDescription`, e.g. `Floor 1 · Next to LT19`). The client no longer sends a pickup location; until validation it is null.
+  - The `Pending-Supplier` → `Reserving-Credit` edge sets four columns: `supplier_validated_at`, `pickup_name` (the supplier's `displayName`), `pickup_location` (the building's `shortName`) and `pickup_description` (floor and `locationDescription`, e.g. `Floor 1 · Next to LT19`). The client no longer sends a pickup location; until validation it is null.
   - From then on the errand is fixed against that version. Later supplier edits do not rewrite existing errands: the courier goes where the errand says.
 - **Supplier status is checked once, at validation.**
   - A supplier that goes `Inactive` afterwards blocks new errands only. An existing `Open` errand carries on, and its requester can still cancel it.
@@ -29,7 +29,7 @@ Copying user data would duplicate personal data, and every rename would need an 
 
 ## Consequences
 
-- An errand's pickup text can differ from the supplier's current record. This is intended.
+- An errand's pickup name and text can differ from the supplier's current record after a rename or move. This is intended, and clients show the errand's own copy rather than the live supplier.
 - Order-service needs no consumer for supplier or user update events.
 - `GET /v1/errands?pickupBuilding=` filters on the snapshot's building, not on client free text.
 

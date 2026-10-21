@@ -147,7 +147,7 @@ export function ErrandDetail({
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm mt-4">
               <dt className="text-muted">Pickup</dt>
               <dd>
-                {supplier?.displayName ?? shortId(errand.supplierId)}
+                {errand.pickupName ?? supplier?.displayName ?? shortId(errand.supplierId)}
                 {errand.pickupLocation ? ` · ${errand.pickupLocation}` : ""}
                 {errand.pickupDescription && (
                   <span className="block text-xs text-muted">{errand.pickupDescription}</span>

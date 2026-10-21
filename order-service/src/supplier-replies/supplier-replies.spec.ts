@@ -54,6 +54,7 @@ describe('supplier validation reply', () => {
       to: 'Reserving-Credit',
       set: {
         supplierValidatedAt: new Date(timestamp),
+        pickupName: 'Cool Spot @ COM2',
         pickupLocation: 'COM2',
         pickupDescription: 'Floor 1 · Next to LT19',
       },
