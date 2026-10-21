@@ -9,6 +9,10 @@ import { ErrandsTab } from "./_errands/errands-tab";
 import { SupplierRequestsTab } from "./_admin/supplier-requests-tab";
 import { SupplierStatusControl } from "./_admin/supplier-status-control";
 import { UserAdminActions } from "./_admin/user-admin-actions";
+import { CategoriesPanel } from "./_admin/categories-panel";
+import { CreateUserForm } from "./_admin/create-user-form";
+import { MyRequests } from "./_suppliers/my-requests";
+import { SupplierForm } from "./_suppliers/supplier-form";
 import { authFetch, refreshSession, setSessionExpiredHandler } from "@/lib/api";
 
 interface UserProfile {
@@ -45,6 +49,7 @@ interface BuildingItem {
   id: string;
   canonicalName: string;
   shortName: string;
+  coordinates?: { latitude: number; longitude: number };
 }
 
 interface CategoryItem {
@@ -171,19 +176,21 @@ export default function HomePage() {
     return () => clearTimeout(timer);
   }, [loadSuppliers]);
 
-  useEffect(() => {
-    Promise.all([
-      authFetch("/api/buildings")
-        .then((r) => r.json())
-        .catch(() => []),
-      authFetch("/api/categories")
-        .then((r) => r.json())
-        .catch(() => []),
-    ]).then(([b, c]) => {
-      setBuildings(Array.isArray(b) ? b : []);
-      setCategories(Array.isArray(c) ? c : []);
-    });
+  const loadCategories = useCallback(async () => {
+    const c = await authFetch("/api/categories")
+      .then((r) => r.json())
+      .catch(() => []);
+    setCategories(Array.isArray(c) ? c : []);
   }, []);
+
+  useEffect(() => {
+    authFetch("/api/buildings")
+      .then((r) => r.json())
+      .catch(() => [])
+      .then((b) => setBuildings(Array.isArray(b) ? b : []));
+    const timer = setTimeout(() => void loadCategories(), 0);
+    return () => clearTimeout(timer);
+  }, [loadCategories]);
 
   async function handleProfileUpdate(e: React.FormEvent) {
     e.preventDefault();
@@ -440,6 +447,7 @@ export default function HomePage() {
               setSelectedSupplier={setSelectedSupplier}
               isAdmin={isAdmin}
               onSuppliersChanged={loadSuppliers}
+              onCategoriesChanged={loadCategories}
             />
           )}
 
@@ -452,6 +460,10 @@ export default function HomePage() {
               onUserUpdated={(updated) =>
                 setAllUsers((prev) => prev.map((u) => (u.uuid === updated.uuid ? updated : u)))
               }
+              onUserCreated={(created) => {
+                setAllUsers((prev) => [created, ...prev]);
+                setUsersTotal((t) => t + 1);
+              }}
             />
           )}
 
@@ -499,14 +511,22 @@ function SupplierDrawer({
   onClose,
   isAdmin,
   onStatusChanged,
+  buildings,
+  categories,
+  onSaved,
 }: {
   supplier: SupplierItem;
   onClose: () => void;
   isAdmin: boolean;
   onStatusChanged: () => void;
+  buildings: BuildingItem[];
+  categories: CategoryItem[];
+  onSaved: (message: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [location, setLocation] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [saved, setSaved] = useState(0);
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -514,7 +534,7 @@ function SupplierDrawer({
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { locationDescription?: string } | null) => setLocation(d?.locationDescription ?? null))
       .catch(() => setLocation(null));
-  }, [supplier.id]);
+  }, [supplier.id, saved]);
 
   useEffect(() => {
     requestAnimationFrame(() => {
@@ -599,6 +619,27 @@ function SupplierDrawer({
                 onChanged={onStatusChanged}
               />
             )}
+            {editing ? (
+              <SupplierForm
+                mode={isAdmin ? "admin-edit" : "request-update"}
+                supplierId={supplier.id}
+                buildings={buildings}
+                categories={categories}
+                onDone={(message) => {
+                  setEditing(false);
+                  setSaved((n) => n + 1);
+                  onSaved(message);
+                }}
+                onCancel={() => setEditing(false)}
+              />
+            ) : (
+              <button
+                onClick={() => setEditing(true)}
+                className="btn-press rounded-xl border border-border px-3.5 py-2 text-sm font-medium hover:bg-surface"
+              >
+                {isAdmin ? "Edit supplier" : "Suggest a change"}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -606,9 +647,12 @@ function SupplierDrawer({
   );
 }
 
+type SupplierPanel = "add" | "categories" | "suggest" | "mine" | null;
+
 function SuppliersTab({
   suppliers,
   buildings,
+  categories,
   loading,
   searchName,
   setSearchName,
@@ -620,6 +664,7 @@ function SuppliersTab({
   setSelectedSupplier,
   isAdmin,
   onSuppliersChanged,
+  onCategoriesChanged,
 }: {
   suppliers: SupplierItem[];
   buildings: BuildingItem[];
@@ -635,17 +680,84 @@ function SuppliersTab({
   setSelectedSupplier: (v: string | null) => void;
   isAdmin: boolean;
   onSuppliersChanged: () => void;
+  onCategoriesChanged: () => void;
 }) {
   const selected = suppliers.find((s) => s.id === selectedSupplier);
+  const [panel, setPanel] = useState<SupplierPanel>(null);
+  const [notice, setNotice] = useState("");
+  const [requestsVersion, setRequestsVersion] = useState(0);
+
+  const panelButtons: [Exclude<SupplierPanel, null>, string][] = isAdmin
+    ? [
+        ["add", "Add supplier"],
+        ["categories", "Categories"],
+      ]
+    : [
+        ["suggest", "Suggest a supplier"],
+        ["mine", "My requests"],
+      ];
+
+  function done(message: string) {
+    setNotice(message);
+    setPanel(isAdmin ? null : "mine");
+    setRequestsVersion((v) => v + 1);
+    onSuppliersChanged();
+  }
 
   return (
     <div>
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold mb-1">Supplier Directory</h2>
-        <p className="text-muted text-sm">
-          Browse campus pickup points for your errands.
-        </p>
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-bold mb-1">Supplier Directory</h2>
+          <p className="text-muted text-sm">
+            Browse campus pickup points for your errands.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          {panelButtons.map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => {
+                setNotice("");
+                setPanel(panel === key ? null : key);
+              }}
+              className={`btn-press rounded-xl border px-3.5 py-2 text-sm font-medium transition-colors ${
+                panel === key
+                  ? "border-nus-orange bg-nus-orange/10 text-nus-orange"
+                  : "border-border text-muted hover:text-foreground"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
+
+      {notice && (
+        <p role="status" className="text-sm text-success mb-4">
+          {notice}
+        </p>
+      )}
+      {(panel === "add" || panel === "suggest") && (
+        <div className="mb-6 max-w-2xl">
+          <SupplierForm
+            mode={panel === "add" ? "admin-create" : "request-create"}
+            buildings={buildings}
+            categories={categories}
+            onDone={done}
+            onCancel={() => setPanel(null)}
+          />
+        </div>
+      )}
+      {panel === "categories" && <CategoriesPanel categories={categories} onAdded={onCategoriesChanged} />}
+      {panel === "mine" && (
+        <div className="mb-6 max-w-2xl">
+          <MyRequests
+            reloadKey={requestsVersion}
+            supplierName={(id) => suppliers.find((s) => s.id === id)?.displayName}
+          />
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 mb-6">
@@ -749,10 +861,18 @@ function SuppliersTab({
 
       {selected && (
         <SupplierDrawer
+          key={selected.id}
           supplier={selected}
           onClose={() => setSelectedSupplier(null)}
           isAdmin={isAdmin}
           onStatusChanged={onSuppliersChanged}
+          buildings={buildings}
+          categories={categories}
+          onSaved={(message) => {
+            setNotice(message);
+            if (!isAdmin) setRequestsVersion((v) => v + 1);
+            onSuppliersChanged();
+          }}
         />
       )}
     </div>
@@ -780,22 +900,55 @@ function UsersTab({
   loading,
   currentUserId,
   onUserUpdated,
+  onUserCreated,
 }: {
   users: UserListItem[];
   total: number;
   loading: boolean;
   currentUserId: string;
   onUserUpdated: (user: UserListItem) => void;
+  onUserCreated: (user: UserListItem) => void;
 }) {
   const [errandsOf, setErrandsOf] = useState<UserListItem | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [notice, setNotice] = useState("");
   return (
     <div>
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold mb-1">All Users</h2>
-        <p className="text-muted text-sm">
-          {total} registered user{total !== 1 ? "s" : ""} on the platform.
-        </p>
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-bold mb-1">All Users</h2>
+          <p className="text-muted text-sm">
+            {total} registered user{total !== 1 ? "s" : ""} on the platform.
+          </p>
+        </div>
+        {!creating && (
+          <button
+            onClick={() => {
+              setNotice("");
+              setCreating(true);
+            }}
+            className="btn-press rounded-xl bg-nus-orange px-3.5 py-2 text-sm font-semibold text-white hover:bg-nus-orange-hover"
+          >
+            Create user
+          </button>
+        )}
       </div>
+
+      {notice && (
+        <p role="status" className="text-sm text-success mb-4">
+          {notice}
+        </p>
+      )}
+      {creating && (
+        <CreateUserForm<UserListItem>
+          onCreated={(created) => {
+            setCreating(false);
+            setNotice(`Created ${created.email}. They set a password with "Forgot password".`);
+            onUserCreated(created);
+          }}
+          onCancel={() => setCreating(false)}
+        />
+      )}
 
       {loading ? (
         <div className="text-center py-12 text-muted fade-in">
