@@ -8,6 +8,7 @@ import {
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { ConfigService } from '@nestjs/config';
+import { JwtAuthGuard } from '@foc/auth';
 import { RegisterDto } from './DTO/register.dto.js';
 import { LoginDto } from './DTO/login.dto.js';
 
@@ -26,7 +27,13 @@ describe('AuthController', () => {
         // `secure` flag; the login tests are covered separately.
         { provide: ConfigService, useValue: { get: vi.fn() } },
       ],
-    }).compile();
+    })
+      // JwtAuthGuard's token verification is exercised at the e2e level; here
+      // the guard is a passthrough so the controller's behaviour under an
+      // authenticated request can be asserted directly.
+      .overrideGuard(JwtAuthGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<AuthController>(AuthController);
   });
@@ -127,7 +134,10 @@ describe('AuthController login', () => {
         { provide: AuthService, useValue: authService },
         { provide: ConfigService, useValue: { get: configGet } },
       ],
-    }).compile();
+    })
+      .overrideGuard(JwtAuthGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<AuthController>(AuthController);
   });
@@ -177,7 +187,7 @@ describe('AuthController login', () => {
     expect(res.cookie).toHaveBeenCalledWith('refresh_token', 'opaque-token', {
       httpOnly: true,
       sameSite: 'lax',
-      path: '/auth/refresh',
+      path: '/',
       maxAge: 604_800_000,
       secure: false,
     });
@@ -251,7 +261,10 @@ describe('AuthController refresh', () => {
         { provide: AuthService, useValue: authService },
         { provide: ConfigService, useValue: { get: configGet } },
       ],
-    }).compile();
+    })
+      .overrideGuard(JwtAuthGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<AuthController>(AuthController);
   });
@@ -333,6 +346,150 @@ describe('AuthController refresh', () => {
     await expect(
       controller.refresh(request as never, res as never),
     ).resolves.toEqual({ message: 'Access token renewed.' });
+  });
+});
+
+describe('AuthController logout', () => {
+  let controller: AuthController;
+  let authService: { revokeRefreshToken: ReturnType<typeof vi.fn> };
+  let configGet: ReturnType<typeof vi.fn>;
+  let res: { clearCookie: ReturnType<typeof vi.fn> };
+
+  beforeEach(async () => {
+    authService = { revokeRefreshToken: vi.fn() };
+    configGet = vi.fn(() => 'development');
+    res = { clearCookie: vi.fn() };
+
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [AuthController],
+      providers: [
+        { provide: AuthService, useValue: authService },
+        { provide: ConfigService, useValue: { get: configGet } },
+      ],
+    })
+      .overrideGuard(JwtAuthGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
+
+    controller = module.get<AuthController>(AuthController);
+  });
+
+  const request = (overrides: Record<string, unknown> = {}) => ({
+    user: { sub: '11111111-1111-4111-8111-111111111111' },
+    cookies: { refresh_token: 'opaque-token' },
+    ...overrides,
+  });
+
+  it('revokes the device refresh token from the cookie', async () => {
+    await controller.logout(res as never, request() as never);
+
+    expect(authService.revokeRefreshToken).toHaveBeenCalledWith('opaque-token');
+  });
+
+  it('clears both cookies with their matching paths', async () => {
+    await controller.logout(res as never, request() as never);
+
+    expect(res.clearCookie).toHaveBeenCalledWith('access_token', {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      secure: false,
+    });
+    expect(res.clearCookie).toHaveBeenCalledWith('refresh_token', {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      secure: false,
+    });
+  });
+
+  it('clears cookies even when the refresh token is missing', async () => {
+    await controller.logout(res as never, request({ cookies: {} }) as never);
+
+    expect(authService.revokeRefreshToken).not.toHaveBeenCalled();
+    expect(res.clearCookie).toHaveBeenCalledTimes(2);
+  });
+
+  it('marks the cleared cookies secure in production', async () => {
+    configGet.mockReturnValue('production');
+
+    await controller.logout(res as never, request() as never);
+
+    expect(res.clearCookie).toHaveBeenCalledWith(
+      'refresh_token',
+      expect.objectContaining({ secure: true }),
+    );
+  });
+
+  it('reports a successful logout', async () => {
+    await expect(
+      controller.logout(res as never, request() as never),
+    ).resolves.toEqual({ message: 'Logged out.' });
+  });
+});
+
+describe('AuthController logout-all', () => {
+  let controller: AuthController;
+  let authService: { revokeAllRefreshTokens: ReturnType<typeof vi.fn> };
+  let configGet: ReturnType<typeof vi.fn>;
+  let res: { clearCookie: ReturnType<typeof vi.fn> };
+
+  beforeEach(async () => {
+    authService = { revokeAllRefreshTokens: vi.fn() };
+    configGet = vi.fn(() => 'development');
+    res = { clearCookie: vi.fn() };
+
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [AuthController],
+      providers: [
+        { provide: AuthService, useValue: authService },
+        { provide: ConfigService, useValue: { get: configGet } },
+      ],
+    })
+      .overrideGuard(JwtAuthGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
+
+    controller = module.get<AuthController>(AuthController);
+  });
+
+  it('revokes all refresh tokens for the authenticated user', async () => {
+    const request = {
+      user: { sub: '11111111-1111-4111-8111-111111111111' },
+    };
+
+    await controller.logoutAll(res as never, request as never);
+
+    expect(authService.revokeAllRefreshTokens).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
+    );
+  });
+
+  it('clears both cookies', async () => {
+    const request = {
+      user: { sub: '11111111-1111-4111-8111-111111111111' },
+    };
+
+    await controller.logoutAll(res as never, request as never);
+
+    expect(res.clearCookie).toHaveBeenCalledWith(
+      'access_token',
+      expect.any(Object),
+    );
+    expect(res.clearCookie).toHaveBeenCalledWith(
+      'refresh_token',
+      expect.any(Object),
+    );
+  });
+
+  it('reports a successful logout of all devices', async () => {
+    const request = {
+      user: { sub: '11111111-1111-4111-8111-111111111111' },
+    };
+
+    await expect(
+      controller.logoutAll(res as never, request as never),
+    ).resolves.toEqual({ message: 'Logged out of all devices.' });
   });
 });
 
