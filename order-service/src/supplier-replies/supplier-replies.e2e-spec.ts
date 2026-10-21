@@ -81,7 +81,6 @@ describe('supplier validation reply against the database', () => {
     expect(await row(id)).toMatchObject({
       status: 'Reserving-Credit',
       supplierValidatedAt: new Date(timestamp),
-      pickupName: 'Cool Spot @ COM2',
       pickupLocation: 'COM2',
       pickupDescription: 'Floor 1 · Next to LT19',
     });

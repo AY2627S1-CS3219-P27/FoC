@@ -1,1 +1,0 @@
-ALTER TABLE "errands" ADD COLUMN "pickup_name" text;

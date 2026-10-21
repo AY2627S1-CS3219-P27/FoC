@@ -34,7 +34,6 @@ describe('foldEvents', () => {
       deliveryLocation: 'COM2',
       rewardCredits: 5,
       pickupLocation: null,
-      pickupName: null,
       pickupDescription: null,
       description: null,
       expiresAt: null,

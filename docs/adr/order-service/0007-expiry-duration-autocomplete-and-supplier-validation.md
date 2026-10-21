@@ -22,7 +22,7 @@ Decided 2026-09-28 / 2026-09-29. Expiry duration implemented as of 2026-10-11. S
   envelope `timestamp`, so a redelivered reply carries the same value. The
   reply's supplier snapshot (with its `version`) is kept verbatim in the
   `SupplierValidated` event payload; ADR 0009 copies its building and spot
-  into `pickup_name` / `pickup_location` / `pickup_description`.
+  into `pickup_location` / `pickup_description`.
 
   *Amended 2026-10-19.* This first left the time to the event's `occurred_at`
   with no column. F1.4.5 asks for it on the errand, so it became a column
