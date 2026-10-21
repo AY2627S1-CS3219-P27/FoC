@@ -243,7 +243,7 @@ export function ErrandsTab({
                 className="card-press text-left rounded-2xl border border-border bg-surface p-4 hover:border-nus-orange/50 hover:shadow-md"
               >
                 <div className="flex items-start justify-between gap-2 mb-2">
-                  <h3 className="font-semibold">{supplierName(e.supplierId)}</h3>
+                  <h3 className="font-semibold">{e.pickupName ?? supplierName(e.supplierId)}</h3>
                   <StatusBadge status={e.status} />
                 </div>
                 <p className="text-sm text-muted mb-1">

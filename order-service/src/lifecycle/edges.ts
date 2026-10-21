@@ -10,6 +10,7 @@ export type Col =
   | 'rewardCredits'
   | 'supplierValidatedAt'
   | 'pickupLocation'
+  | 'pickupName'
   | 'pickupDescription';
 
 // Who may take an edge. `other` = any user who is not the requester.
@@ -82,7 +83,7 @@ export const EDGES: Partial<
           amount: c.rewardCredits,
         },
       })),
-      sets: ['supplierValidatedAt', 'pickupLocation', 'pickupDescription'],
+      sets: ['supplierValidatedAt', 'pickupName', 'pickupLocation', 'pickupDescription'],
     },
     // Nothing reserved yet, so nothing to release.
     Cancelled: cancel(sys, ['SUPPLIER_UNAVAILABLE', 'SUPPLIER_VALIDATION_TIMEOUT'], null),

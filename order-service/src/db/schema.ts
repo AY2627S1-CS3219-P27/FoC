@@ -37,6 +37,7 @@ export const errands = pgTable(
     supplierValidatedAt: ts('supplier_validated_at'),
     description: text('description'), // optional delivery instructions
     pickupLocation: text('pickup_location'),
+    pickupName: text('pickup_name'), // supplier display name, from the supplier snapshot
     pickupDescription: text('pickup_description'), // floor and spot, from the supplier snapshot
     deliveryLocation: text('delivery_location').notNull(),
     rewardCredits: integer('reward_credits').notNull(),

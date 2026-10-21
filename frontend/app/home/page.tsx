@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AdminUserErrands } from "./_errands/admin-user-errands";
 import { ApiLogPanel } from "./_errands/api-log-panel";
 import { ErrandsTab } from "./_errands/errands-tab";
+import { authFetch, refreshSession, setSessionExpiredHandler } from "@/lib/api";
 
 interface UserProfile {
   uuid: string;
@@ -95,7 +96,7 @@ export default function HomePage() {
     setCreditBalanceStatus("loading");
 
     try {
-      const res = await fetch("/api/credits/balance", {
+      const res = await authFetch("/api/credits/balance", {
         credentials: "same-origin",
       });
 
@@ -121,8 +122,10 @@ export default function HomePage() {
     }
   }, [router]);
 
+  useEffect(() => setSessionExpiredHandler(() => router.push("/login")), [router]);
+
   useEffect(() => {
-    fetch("/api/users/me")
+    authFetch("/api/users/me")
       .then((res) => {
         if (!res.ok) throw new Error("Not authenticated");
         return res.json();
@@ -145,7 +148,7 @@ export default function HomePage() {
       if (searchName) params.set("name", searchName);
       if (filterBuilding) params.set("buildingId", filterBuilding);
       if (filterKind) params.set("kind", filterKind);
-      const res = await fetch(`/api/suppliers?${params}`);
+      const res = await authFetch(`/api/suppliers?${params}`);
       if (res.ok) {
         const data = await res.json();
         setSuppliers(data.items);
@@ -165,10 +168,10 @@ export default function HomePage() {
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/buildings")
+      authFetch("/api/buildings")
         .then((r) => r.json())
         .catch(() => []),
-      fetch("/api/categories")
+      authFetch("/api/categories")
         .then((r) => r.json())
         .catch(() => []),
     ]).then(([b, c]) => {
@@ -181,7 +184,7 @@ export default function HomePage() {
     e.preventDefault();
     setProfileMsg("");
     const trimmedUrl = newProfilePictureUrl.trim();
-    const res = await fetch("/api/users/me", {
+    const res = await authFetch("/api/users/me", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -214,15 +217,20 @@ export default function HomePage() {
 
   async function handleRoleUpdate() {
     setRoleMsg("");
-    const res = await fetch("/api/users/me/roles", {
+    const res = await authFetch("/api/users/me/roles", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ roles: selectedRoles }),
     });
     if (res.ok) {
-      setRoleMsg(
-        "Roles updated. Please log in again to refresh your session."
-      );
+      // A refreshed token carries the new roles, so no re-login is needed.
+      const me = (await refreshSession()) ? await authFetch("/api/users/me") : null;
+      if (me?.ok) {
+        setUser((await me.json()) as UserProfile);
+        setRoleMsg("Roles updated.");
+      } else {
+        setRoleMsg("Roles updated. Please log in again to refresh your session.");
+      }
     } else {
       setRoleMsg("Failed to update roles.");
     }
@@ -231,7 +239,7 @@ export default function HomePage() {
   const loadAllUsers = useCallback(async () => {
     setUsersLoading(true);
     try {
-      const res = await fetch("/api/users?limit=100");
+      const res = await authFetch("/api/users?limit=100");
       if (res.ok) {
         const data = await res.json();
         setAllUsers(data.items);

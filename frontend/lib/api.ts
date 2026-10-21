@@ -63,6 +63,35 @@ function readError(body: unknown): { code: string | null; message: string | null
   return { code, message };
 }
 
+let refreshing: Promise<boolean> | null = null;
+let onSessionExpired: () => void = () => {};
+
+// The page passes its router, since this module cannot navigate on its own.
+export function setSessionExpiredHandler(handler: () => void) {
+  onSessionExpired = handler;
+}
+
+// One refresh at a time; callers that 401 together share it. Not under /api because the cookie's path is /auth/refresh.
+export function refreshSession(): Promise<boolean> {
+  refreshing ??= fetch("/auth/refresh", { method: "POST", credentials: "same-origin" })
+    .then((r) => r.ok)
+    .catch(() => false)
+    .finally(() => {
+      refreshing = null;
+    });
+  return refreshing;
+}
+
+// fetch that renews an expired access token once and retries; a failed renewal ends the session.
+export async function authFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  const send = () => fetch(input, { credentials: "same-origin", ...init });
+  const res = await send();
+  if (res.status !== 401) return res;
+  if (await refreshSession()) return send();
+  onSessionExpired();
+  return res;
+}
+
 export async function api<T = unknown>(
   method: "GET" | "POST",
   path: string,
@@ -76,10 +105,9 @@ export async function api<T = unknown>(
   let body: unknown = null;
   let replayed = false;
   try {
-    const res = await fetch(path, {
+    const res = await authFetch(path, {
       method,
       headers,
-      credentials: "same-origin",
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
     });
     status = res.status;
