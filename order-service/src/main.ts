@@ -1,6 +1,5 @@
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
-import { AppModule } from './app.module.js';
 import { configureHttp } from './http/configure-http.js';
 import {
   createMetricsHandler,
@@ -10,6 +9,11 @@ import {
 
 async function bootstrap() {
   initTelemetry({ serviceName: 'order-service' });
+
+  // Imported after initTelemetry: the app module graph pulls in amqplib and
+  // express, and ESM evaluates that graph before this file's body runs, so a
+  // static import would be cached before the SDK registers and never traced.
+  const { AppModule } = await import('./app.module.js');
   const app = await NestFactory.create(AppModule);
   const config = app.get(ConfigService);
 
