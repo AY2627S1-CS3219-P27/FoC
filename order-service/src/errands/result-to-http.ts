@@ -62,6 +62,10 @@ const FAILURES: Record<FailureReason, { exception: ExceptionClass; message: stri
     exception: ConflictException,
     message: 'You already have an active errand. Finish it before accepting another.',
   },
+  ROLE_BLOCKED: {
+    exception: ForbiddenException,
+    message: 'Your role is being changed. Try again in a few minutes.',
+  },
   IDEMPOTENCY_KEY_REUSED: {
     exception: UnprocessableEntityException,
     message: 'This Idempotency-Key was already used for a different request.',

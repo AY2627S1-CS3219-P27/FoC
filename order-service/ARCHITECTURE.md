@@ -1,6 +1,6 @@
 # order-service architecture
 
-Diagrams are Mermaid (render on GitHub / VS Code). Decisions behind them: ADRs [0001](../docs/adr/order-service/0001-hand-rolled-event-sourcing-on-postgres.md)–[0007](../docs/adr/order-service/0007-expiry-duration-autocomplete-and-supplier-validation.md), [0008](../docs/adr/order-service/0008-transactional-outbox-and-broker-access.md). Terms: [`CONTEXT.md`](./CONTEXT.md).
+Diagrams are Mermaid (render on GitHub / VS Code). Decisions behind them: ADRs [0001](../docs/adr/order-service/0001-hand-rolled-event-sourcing-on-postgres.md)–[0007](../docs/adr/order-service/0007-expiry-duration-autocomplete-and-supplier-validation.md), [0008](../docs/adr/order-service/0008-transactional-outbox-and-broker-access.md), [0009](../docs/adr/order-service/0009-role-block-with-ttl.md). Terms: [`CONTEXT.md`](./CONTEXT.md).
 
 ## 1. Components
 
@@ -12,7 +12,7 @@ flowchart LR
   Credit[credit-service]
 
   subgraph OS[order-service NestJS]
-    API[HTTP controllers<br/>create, edit, cancel, list, accept,<br/>pickup, deliver, confirm, role-check]
+    API[HTTP controllers<br/>create, edit, cancel, list, accept,<br/>pickup, deliver, confirm, role-block]
     Life[Lifecycle module<br/>state machine + transition function]
     Read[Read side<br/>list / filter / sort, sub-state to Pending]
     Consumers[Notice consumers<br/>supplier + credit replies]
@@ -25,16 +25,19 @@ flowchart LR
     Events[errand_events<br/>append-only log]
     OutboxT[outbox_events<br/>unpublished notices]
     Locks[advisory locks]
+    Blocks[role_blocks<br/>user, role, expires_at]
   end
 
   MQ{{RabbitMQ foc.events}}
 
   Client --> API
-  User -- "role check / block (F10)" --> API
+  User -- "role check + block / unblock (F10, ADR 0009)" --> API
   Supplier -- "hard-delete usage query (F5.3.1)" --> API
   API --> Life
   API --> Read
   Read --> Errands
+  API -->|"per-user lock, check, upsert"| Blocks
+  Life -->|"create / accept: per-user lock, is blocked?"| Blocks
   Life -->|"one transaction: conditional UPDATE + INSERT"| Errands
   Life --> Events
   Sweeps --> Locks
@@ -48,7 +51,9 @@ flowchart LR
   MQ <--> Credit
 ```
 
-Only the Lifecycle module writes. Every write, from a request, a notice reply or a sweep, goes through the same transition function.
+Only the Lifecycle module writes errands. Every write, from a request, a notice reply or a sweep, goes through the same transition function.
+
+Role blocks (F10, [ADR 0009](../docs/adr/order-service/0009-role-block-with-ttl.md)): user-service calls `POST v1/role-blocks` before removing a role or archiving a user. In one transaction order-service checks the user has no ongoing errands for each named role (requester: any non-terminal errand; courier: `Accepted` or `Picked Up`) and upserts a `role_blocks` row per role that expires after `ROLE_BLOCK_TTL_MS`. Any role in use: `409 ROLE_IN_USE`, nothing blocked. `DELETE v1/role-blocks` removes blocks early. While a block is live, create (requester) and accept (courier) refuse with `403 ROLE_BLOCKED`, so a stale access token cannot start new work. Block, unblock, create and accept each take a per-user `pg_advisory_xact_lock` first, so a block and a concurrent create or accept never both succeed. The block service writes only `role_blocks`.
 
 ## 2. State model (F9.4, ADR 0006)
 
@@ -89,7 +94,7 @@ Each edge in `edges.ts` lists the actors allowed to take it (`who`); the check i
 
 There is no `Accepted` -> `Cancelled` edge: the requester cannot cancel once accepted; the courier withdraws via edge 11 instead.
 
-Further guards: a courier may hold one active errand (`Accepted` or `Picked Up`), enforced by a partial unique index (`COURIER_BUSY`); item 5 is refused once `expires_at` has passed (`EXPIRED`), a backstop only: it rejects the accept but does not cancel, and the expiry sweep is what moves the errand `Open` → `Cancelled` (`ERRAND_EXPIRED`); a cancel's `cancellationReason` must be in that edge's subset of `CANCELLATION_REASONS` (`INVALID_FIELDS`). A refused actor gets `FORBIDDEN`.
+Further guards: a courier may hold one active errand (`Accepted` or `Picked Up`), enforced by a partial unique index (`COURIER_BUSY`); item 5 is refused once `expires_at` has passed (`EXPIRED`), a backstop only: it rejects the accept but does not cancel, and the expiry sweep is what moves the errand `Open` → `Cancelled` (`ERRAND_EXPIRED`); a courier with a live role block cannot accept (`ROLE_BLOCKED`, as create refuses a blocked requester); a cancel's `cancellationReason` must be in that edge's subset of `CANCELLATION_REASONS` (`INVALID_FIELDS`). A refused actor gets `FORBIDDEN`.
 
 Cancelling (requester cancel, expiry, `PICKUP_TIME_EXCEEDED`) is a direct edge to `Cancelled`; the release notice to credit is fire-and-forget. A reply timeout never reverts: re-send, then leave the errand in its in-flight status and alert an admin.
 

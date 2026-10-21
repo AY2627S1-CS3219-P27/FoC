@@ -27,6 +27,7 @@ describe('resultToHttp', () => {
     ['ILLEGAL_TRANSITION', 409],
     ['EXPIRED', 409],
     ['COURIER_BUSY', 409],
+    ['ROLE_BLOCKED', 403],
     ['IDEMPOTENCY_KEY_REUSED', 422],
   ] as const)('maps %s to %i with its code', (reason, status) => {
     const res = outcome({ ok: false, reason });
