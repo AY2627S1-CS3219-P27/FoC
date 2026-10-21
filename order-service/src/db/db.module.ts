@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { drizzle } from 'drizzle-orm/node-postgres';
+import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import pg from 'pg';
 import type { Db } from '../lifecycle/transition.js';
 
@@ -33,8 +34,15 @@ export const POOL = Symbol('POOL');
     },
     {
       provide: DB,
-      inject: [POOL],
-      useFactory: (pool: pg.Pool): Db => drizzle(pool),
+      inject: [POOL, ConfigService],
+      // Resolves before any onApplicationBootstrap, so the outbox relay never polls an unmigrated DB.
+      useFactory: async (pool: pg.Pool, c: ConfigService): Promise<Db> => {
+        const db = drizzle(pool);
+        if (c.get<boolean>('DB_MIGRATIONS_RUN')) {
+          await migrate(db, { migrationsFolder: './drizzle' });
+        }
+        return db;
+      },
     },
   ],
   exports: [DB, POOL],

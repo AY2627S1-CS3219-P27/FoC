@@ -1,3 +1,4 @@
+import { Role } from '@foc/contracts';
 import { Inject, Injectable } from '@nestjs/common';
 import { type AnyColumn, and, asc, desc, eq, gt, inArray, ne, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module.js';
@@ -19,6 +20,7 @@ const toView = (r: typeof errands.$inferSelect, callerId?: string) => ({
   status: toApiStatus(r.status),
   supplierId: r.supplierId,
   pickupLocation: r.pickupLocation,
+  pickupDescription: r.pickupDescription,
   deliveryLocation: r.deliveryLocation,
   collectionItems: r.collectionItems,
   description: r.description,
@@ -28,6 +30,15 @@ const toView = (r: typeof errands.$inferSelect, callerId?: string) => ({
   ...(callerId !== undefined && (callerId === r.requesterId || callerId === r.courierId)
     ? { requesterId: r.requesterId, courierId: r.courierId, cancellationReason: r.cancellationReason }
     : {}),
+});
+
+// Admin allowlist (F9.3.3): adds the internal sub-state and lifecycle timestamps.
+const toAdminView = (r: typeof errands.$inferSelect) => ({
+  ...toView(r, r.requesterId),
+  internalStatus: r.status,
+  pickedUpAt: r.pickedUpAt,
+  deliveredAt: r.deliveredAt,
+  updatedAt: r.updatedAt,
 });
 
 // The read side. Owns every errand SELECT; never writes (Lifecycle stays the
@@ -61,19 +72,34 @@ export class ErrandsQueryService {
 
   // The caller's errands, as requester or courier, newest first.
   async mine(callerId: string, q: MineErrandsQuery) {
-    const rows = await this.db
+    const rows = await this.partyRows(callerId, q);
+    return { items: rows.map((r) => toView(r, callerId)), limit: q.limit, offset: q.offset };
+  }
+
+  async ofUserForAdmin(userId: string, q: MineErrandsQuery) {
+    const rows = await this.partyRows(userId, q);
+    return { items: rows.map(toAdminView), limit: q.limit, offset: q.offset };
+  }
+
+  private partyRows(userId: string, q: MineErrandsQuery) {
+    const asRequester = eq(errands.requesterId, userId);
+    const asCourier = eq(errands.courierId, userId);
+    const side =
+      q.role === Role.Requester ? asRequester
+      : q.role === Role.Courier ? asCourier
+      : or(asRequester, asCourier);
+    return this.db
       .select()
       .from(errands)
       .where(
         and(
-          or(eq(errands.requesterId, callerId), eq(errands.courierId, callerId)),
+          side,
           q.status ? inArray(errands.status, [...INTERNAL_STATUSES_OF[q.status]]) : undefined,
         ),
       )
       .orderBy(desc(errands.createdAt), asc(errands.id))
       .limit(q.limit)
       .offset(q.offset);
-    return { items: rows.map((r) => toView(r, callerId)), limit: q.limit, offset: q.offset };
   }
 
   // Parties see any status, expired or not (expiresAt tells the app); everyone

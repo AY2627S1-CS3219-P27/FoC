@@ -37,7 +37,6 @@ async function create(over = {}) {
     supplierId: randomUUID(),
     deliveryLocation: 'COM2',
     rewardCredits: 5,
-    pickupLocation: 'Frontier',
     description: 'no onions',
     expiryDurationMinutes: 90,
     collectionItems: 'bubble tea',
@@ -107,7 +106,7 @@ describe('rebuildProjection', () => {
   });
 
   it('equals the live row for a cancelled errand', async () => {
-    const id = await create({ pickupLocation: undefined, description: undefined });
+    const id = await create({ description: undefined });
     await step(id, 'Pending-Supplier', 'Cancelled', {
       set: { cancellationReason: 'SUPPLIER_UNAVAILABLE' },
     });

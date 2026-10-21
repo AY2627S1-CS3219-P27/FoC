@@ -51,23 +51,22 @@ describe('createErrand', () => {
           supplierId: i.supplierId,
           deliveryLocation: 'COM2',
           rewardCredits: 5,
-          pickupLocation: null,
           description: null,
           expiryDurationMinutes: 60,
           collectionItems: 'bubble tea',
         },
       },
     ]);
+    expect((await events(res.errandId))[0].payload).not.toHaveProperty('pickupLocation'); // set at supplier validation
   });
 
   it('records the optional fields in the ErrandCreated payload', async () => {
     const res = await createErrand(
       t.db,
-      input({ pickupLocation: 'Frontier', description: 'no onions', expiryDurationMinutes: 120 }),
+      input({ description: 'no onions', expiryDurationMinutes: 120 }),
     );
     if (!res.ok) throw new Error('expected ok');
     expect((await events(res.errandId))[0].payload).toMatchObject({
-      pickupLocation: 'Frontier',
       description: 'no onions',
       expiryDurationMinutes: 120,
     });

@@ -40,6 +40,14 @@ export class LifecycleService {
     return row?.status;
   }
 
+  async supplierIdOf(errandId: string): Promise<string | undefined> {
+    const [row] = await this.db
+      .select({ supplierId: errands.supplierId })
+      .from(errands)
+      .where(eq(errands.id, errandId));
+    return row?.supplierId;
+  }
+
   async lastEvent(
     errandId: string,
   ): Promise<{ fromStatus: Status | null; toStatus: Status; type: string } | undefined> {
