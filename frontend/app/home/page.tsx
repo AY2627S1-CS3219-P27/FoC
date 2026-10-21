@@ -130,6 +130,7 @@ export default function HomePage() {
       .then((data: UserProfile) => {
         setUser(data);
         setSelectedRoles(data.roles);
+        if (data.isAdmin && data.roles.length === 0) setTab("users");
         void loadCreditBalance();
       })
       .catch(() => router.push("/login"))
@@ -166,13 +167,13 @@ export default function HomePage() {
     Promise.all([
       fetch("/api/buildings")
         .then((r) => r.json())
-        .catch(() => ({ items: [] })),
+        .catch(() => []),
       fetch("/api/categories")
         .then((r) => r.json())
-        .catch(() => ({ items: [] })),
+        .catch(() => []),
     ]).then(([b, c]) => {
-      setBuildings(b.items ?? []);
-      setCategories(c.items ?? []);
+      setBuildings(Array.isArray(b) ? b : []);
+      setCategories(Array.isArray(c) ? c : []);
     });
   }, []);
 
@@ -370,8 +371,24 @@ export default function HomePage() {
 
       <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6">
         <div key={tab} className="fade-in">
-          {tab === "errands" && user && (
+          {tab === "errands" && user && user.roles.length > 0 && (
             <ErrandsTab me={user.uuid} roles={user.roles} buildings={buildings} />
+          )}
+          {tab === "errands" && user && user.roles.length === 0 && (
+            <div className="max-w-xl rounded-2xl border border-border bg-surface p-6 shadow-sm">
+              <h2 className="text-xl font-bold mb-1">Errands</h2>
+              <p className="text-sm text-muted mb-4">
+                {user.isAdmin
+                  ? "Admin accounts have no requester or courier role. Use the Users tab to view any user's errands."
+                  : "Pick a role (requester or courier) on My Account, then sign in again to request or deliver errands."}
+              </p>
+              <button
+                onClick={() => setTab(user.isAdmin ? "users" : "profile")}
+                className="btn-press rounded-xl bg-nus-orange px-4 py-2 text-sm font-semibold text-white hover:bg-nus-orange-hover transition-colors"
+              >
+                {user.isAdmin ? "Go to Users" : "Go to My Account"}
+              </button>
+            </div>
           )}
 
           {tab === "suppliers" && (

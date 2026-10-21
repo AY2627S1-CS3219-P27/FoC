@@ -54,6 +54,10 @@ export function ErrandDetail({
       if (res.ok && res.data) {
         setErrand(res.data);
         setLoadError("");
+      } else if (res.status === 404) {
+        // Taken by another courier, or expired: non-parties can no longer see it.
+        setErrand(null);
+        setLoadError("This errand is no longer available.");
       } else {
         setLoadError(describe(res));
       }
@@ -117,7 +121,16 @@ export function ErrandDetail({
           </button>
         </div>
 
-        {loadError && !errand && <p className="text-sm text-danger">{loadError}</p>}
+        {loadError && !errand && (
+          <div className="space-y-2">
+            <p className="text-sm text-muted">{loadError}</p>
+            {result && (
+              <p role="status" className={`text-sm ${result.ok ? "text-success" : "text-danger"}`}>
+                {result.text}
+              </p>
+            )}
+          </div>
+        )}
 
         {errand && (
           <>
@@ -134,7 +147,7 @@ export function ErrandDetail({
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm mt-4">
               <dt className="text-muted">Pickup</dt>
               <dd>
-                {supplier?.displayName ?? shortId(errand.supplierId)}
+                {errand.pickupName ?? supplier?.displayName ?? shortId(errand.supplierId)}
                 {errand.pickupLocation ? ` · ${errand.pickupLocation}` : ""}
                 {errand.pickupDescription && (
                   <span className="block text-xs text-muted">{errand.pickupDescription}</span>

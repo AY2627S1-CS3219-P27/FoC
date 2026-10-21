@@ -1,7 +1,8 @@
 import { reply, type ReplySpec } from '../credit-replies/credit-reply.handler.js';
 
 // ADR 0009: the errand keeps the pickup as validated; later supplier edits do not change it.
-export const pickupOf = (s: { building: { shortName: string }; floor: string; locationDescription: string }) => ({
+export const pickupOf = (s: { displayName: string; building: { shortName: string }; floor: string; locationDescription: string }) => ({
+  pickupName: s.displayName,
   pickupLocation: s.building.shortName,
   pickupDescription: [s.floor && `Floor ${s.floor}`, s.locationDescription].filter(Boolean).join(' · '),
 });
