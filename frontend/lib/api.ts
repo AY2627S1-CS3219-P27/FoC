@@ -9,6 +9,7 @@ export interface ApiResult<T = unknown> {
   code: string | null;
   message: string | null;
   replayed: boolean;
+  etag: string | null;
 }
 
 export interface ApiLogEntry {
@@ -93,17 +94,19 @@ export async function authFetch(input: string, init: RequestInit = {}): Promise<
 }
 
 export async function api<T = unknown>(
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "PATCH" | "PUT",
   path: string,
-  options: { body?: unknown; idempotencyKey?: string; quiet?: boolean } = {},
+  options: { body?: unknown; idempotencyKey?: string; ifMatch?: string; quiet?: boolean } = {},
 ): Promise<ApiResult<T>> {
   const headers: Record<string, string> = {};
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
   if (options.idempotencyKey) headers["Idempotency-Key"] = options.idempotencyKey;
+  if (options.ifMatch) headers["If-Match"] = options.ifMatch;
 
   let status = 0;
   let body: unknown = null;
   let replayed = false;
+  let etag: string | null = null;
   try {
     const res = await authFetch(path, {
       method,
@@ -112,6 +115,7 @@ export async function api<T = unknown>(
     });
     status = res.status;
     replayed = res.headers.get("Idempotent-Replayed") === "true";
+    etag = res.headers.get("ETag");
     body = await res.json().catch(() => null);
   } catch {
     body = { code: "NETWORK_ERROR", message: "Could not reach the server." };
@@ -130,5 +134,5 @@ export async function api<T = unknown>(
       idempotencyKey: options.idempotencyKey ?? null,
     });
   }
-  return { ok, status, data: ok ? (body as T) : null, code, message, replayed };
+  return { ok, status, data: ok ? (body as T) : null, code, message, replayed, etag };
 }

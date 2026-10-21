@@ -87,7 +87,9 @@ export function CreateErrandForm({
           ))}
         </select>
         {supplier && (
-          <span className="block text-xs text-muted mt-1">{supplier.locationDescription}</span>
+          <span className="block text-xs text-muted mt-1">
+            Floor {supplier.floor}
+          </span>
         )}
       </Field>
 
