@@ -5,7 +5,7 @@ export type {
 } from '@prometheus-io/client';
 export {
   initTelemetry,
-  registerTelemetryShutdown,
+  registerShutdown,
   type TelemetryOptions,
   type Telemetry,
 } from './tracing.js';

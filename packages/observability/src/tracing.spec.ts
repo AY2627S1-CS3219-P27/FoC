@@ -1,14 +1,18 @@
-import { describe, it, beforeEach, vi } from 'vitest';
+import { describe, it, beforeEach, afterEach, vi } from 'vitest';
 import http from 'node:http';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
 import {
   initTelemetry,
-  registerTelemetryShutdown,
+  registerShutdown,
 } from '../src/tracing.js';
 
 describe('tracing', () => {
   beforeEach(() => {
     vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('flush() exports pending spans and keeps the SDK running', async () => {
@@ -55,17 +59,57 @@ describe('tracing', () => {
     await telemetry.shutdown();
   });
 
-  it('registerTelemetryShutdown flushes and stops on SIGINT/SIGTERM', () => {
-    const flush = vi.fn(async () => undefined);
-    const shutdown = vi.fn(async () => undefined);
-    registerTelemetryShutdown({ flush, shutdown });
+  it('registerShutdown closes the app, flushes and stops the SDK, then exits 0', async () => {
+    const calls: string[] = [];
+    const close = vi.fn(async () => void calls.push('close'));
+    const shutdown = vi.fn(async () => void calls.push('shutdown'));
+    const exit = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+    registerShutdown({ close }, { flush: async () => undefined, shutdown });
 
     // process.emit() only dispatches to registered listeners; it does not
     // raise a real signal that would kill the test process.
     process.emit('SIGINT');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(calls).toEqual(['close', 'shutdown']);
+    expect(exit).toHaveBeenCalledExactlyOnceWith(0);
+  });
+
+  it('registerShutdown ignores a second signal while shutting down', async () => {
+    const close = vi.fn(async () => undefined);
+    const shutdown = vi.fn(async () => undefined);
+    const exit = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+    registerShutdown({ close }, { flush: async () => undefined, shutdown });
+
+    process.emit('SIGINT');
+    process.emit('SIGTERM');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(close).toHaveBeenCalledTimes(1);
     expect(shutdown).toHaveBeenCalledTimes(1);
+    expect(exit).toHaveBeenCalledTimes(1);
+  });
+
+  it('registerShutdown exits 1 when closing the app fails, but still flushes', async () => {
+    const close = vi.fn(async () => {
+      throw new Error('hook boom');
+    });
+    const shutdown = vi.fn(async () => undefined);
+    const exit = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    registerShutdown({ close }, { flush: async () => undefined, shutdown });
 
     process.emit('SIGTERM');
-    expect(shutdown).toHaveBeenCalledTimes(2);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(shutdown).toHaveBeenCalledTimes(1);
+    expect(exit).toHaveBeenCalledExactlyOnceWith(1);
+    expect(error).toHaveBeenCalled();
   });
 });

@@ -8,14 +8,11 @@ import {
   createMetricsHandler,
   initMetrics,
   initTelemetry,
-  registerTelemetryShutdown,
+  registerShutdown,
 } from '@foc/observability';
 
 async function bootstrap(): Promise<void> {
   const telemetry = initTelemetry({ serviceName: 'supplier-service' });
-  // Flush and stop the SDK on SIGINT/SIGTERM so the final batch of spans and
-  // logs is exported before the process exits.
-  registerTelemetryShutdown(telemetry);
 
   // nestjs-pino must load after initTelemetry: its pino logger is created
   // through the module PinoInstrumentation hooks, and a static import would
@@ -28,10 +25,12 @@ async function bootstrap(): Promise<void> {
   // static import would be cached before the SDK registers and never traced.
   const { AppModule } = await import('./app.module.js');
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  // On SIGINT/SIGTERM: close the app (running its shutdown hooks), then flush
+  // and stop the telemetry SDK before the process exits.
+  registerShutdown(app, telemetry);
   const config = app.get(ConfigService<EnvironmentVariables, true>);
 
   app.useLogger(app.get(Logger));
-  app.enableShutdownHooks();
   app.use(cookieParser());
   initMetrics();
   app.use('/metrics', createMetricsHandler());

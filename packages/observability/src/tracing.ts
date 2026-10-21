@@ -111,19 +111,46 @@ export function initTelemetry(options: TelemetryOptions): Telemetry {
 }
 
 /**
- * Flush and gracefully stop the SDK on SIGINT/SIGTERM so the final batch of
- * spans and logs is exported before the process exits. Nest's own
- * `enableShutdownHooks()` coexists with these handlers: every listener for a
- * signal runs, and the process only exits once the OTLP export has completed.
+ * Run one coordinated shutdown on SIGINT/SIGTERM: close the Nest app first
+ * (`app.close()` awaits every lifecycle hook - HTTP server drain, DB pools,
+ * RabbitMQ consumers), then flush and stop the telemetry SDK, then exit.
+ * Being the only signal listener in the process is what makes the ordering
+ * real: nothing re-raises the signal or exits while the final OTLP export is
+ * in flight, so the last batch of spans and logs actually reaches the
+ * collector. A second signal while shutting down is ignored.
  *
- * Call once from the service's main.ts, right after `initTelemetry()`.
+ * Call once from the service's main.ts, right after `NestFactory.create()`.
+ * Signals received before that take the Node default action: terminate.
  */
-export function registerTelemetryShutdown(telemetry: Telemetry): void {
-  const onSignal = () => {
-    // shutdown() swallows its own errors; the catch only guards against a
-    // future implementation that rejects (an unhandled rejection would be
-    // fatal during exit).
-    void telemetry.shutdown().catch(() => undefined);
+export function registerShutdown(
+  app: { close(signal?: string): Promise<void> },
+  telemetry: Telemetry,
+): void {
+  let stopping = false;
+  const onSignal = (signal: NodeJS.Signals) => {
+    // SIGINT and SIGTERM have separate once-listeners; ignore whichever fires
+    // second so the teardown below runs at most once.
+    if (stopping) {
+      return;
+    }
+    stopping = true;
+    void (async () => {
+      let exitCode = 0;
+      try {
+        await app.close(signal);
+      } catch (err) {
+        // A lifecycle hook failed: log it, still flush what we have, and let
+        // the container see a failed exit.
+        console.error('Error during application shutdown', err);
+        exitCode = 1;
+      }
+      // shutdown() flushes, swallows its own errors and is safe to call
+      // repeatedly; the trailing catch only guards against a future
+      // implementation that rejects (an unhandled rejection would be fatal
+      // during exit).
+      await telemetry.shutdown().catch(() => undefined);
+      process.exit(exitCode);
+    })();
   };
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);

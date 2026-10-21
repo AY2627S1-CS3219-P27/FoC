@@ -9,7 +9,7 @@ Shared **OpenTelemetry tracing** and **Prometheus metrics** for Friend on Campus
 | `initTelemetry({ serviceName, otlpEndpoint })` | Initialize OpenTelemetry with instrumentation for Express, HTTP, PostgreSQL, RabbitMQ, Redis, and NestJS controllers. Must be called before `NestFactory.create()`. |
 | `Telemetry.flush()` | Force-flush pending spans/logs. The SDK keeps running. |
 | `Telemetry.shutdown()` | Force-flush, then gracefully stop the SDK. Safe to call repeatedly. |
-| `registerTelemetryShutdown(telemetry)` | Flush and stop the SDK on SIGINT/SIGTERM. Call once from `main.ts`, right after `initTelemetry()`. |
+| `registerShutdown(app, telemetry)` | On SIGINT/SIGTERM: close the Nest app (running all of its shutdown hooks), then flush and stop the SDK, then exit. Call once from `main.ts`, right after `NestFactory.create()`. |
 | `initMetrics()` | Register default process metrics (CPU, RSS, GC, event loop). Idempotent. |
 | `createMetricsHandler()` | Return an Express request handler that serves metrics at `/metrics`. |
 | `createLabeledCounter(name, help, labelNames)` | Create a Prometheus counter with custom labels for domain-specific tracking. |
@@ -37,24 +37,24 @@ During `npm install`, the service's `node_modules` receives a packed copy of the
 
 ### Usage in a service
 
-In `main.ts` (must be before `NestFactory.create`):
+In `main.ts` (`initTelemetry` before `NestFactory.create`, `registerShutdown` after):
 
 ```ts
 import {
   initTelemetry,
-  registerTelemetryShutdown,
+  registerShutdown,
   initMetrics,
   createMetricsHandler,
 } from '@foc/observability';
 
 const telemetry = initTelemetry({ serviceName: 'user-service' });
-// Flush and stop the SDK on SIGINT/SIGTERM so the final batch of spans and
-// logs is exported before the process exits.
-registerTelemetryShutdown(telemetry);
 initMetrics();
 
 const app = await NestFactory.create(AppModule);
-app.get('/metrics', createMetricsHandler());
+// On SIGINT/SIGTERM: close the app (running its shutdown hooks), then flush
+// and stop the SDK before the process exits.
+registerShutdown(app, telemetry);
+app.use('/metrics', createMetricsHandler());
 ```
 
 ### RabbitMQ context propagation
