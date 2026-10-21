@@ -163,6 +163,7 @@ export function ErrandsTab({
 
       {view === "new" && (
         <CreateErrandForm
+          userId={me}
           suppliers={suppliers}
           buildings={buildings}
           onCreated={(id) => {
