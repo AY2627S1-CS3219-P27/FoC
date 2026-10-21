@@ -316,7 +316,7 @@ describe('ReleaseService durable ingress', () => {
     await createReservation(incoming.payload.errandId, requesterUserId, 25);
 
     await expect(service.accept(incoming)).rejects.toThrow(
-      'Reservation and reserve operation disagree on amount',
+      'Reservation disagrees with the amount its reserve and adjustment operations recorded',
     );
 
     expect(

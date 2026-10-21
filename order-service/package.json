@@ -36,6 +36,8 @@
     "pretest:messaging": "npm run contracts:build && npm run auth:build && npm run auth:link",
     "test:messaging": "vitest run --config ./vitest.config.messaging.ts",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
+    "db:test:up": "docker compose --profile test up -d --wait order-db-test",
+    "db:test:down": "docker compose --profile test rm -sfv order-db-test",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts"
   },

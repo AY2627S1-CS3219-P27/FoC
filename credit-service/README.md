@@ -293,7 +293,10 @@ absence does not suppress Credit's authoritative domain outcome.
 ## Prerequisites
 
 - Node.js 22
-- npm 11.18.0
+- npm 11.18.0 or later (`npm install -g npm@11.18.0`). `devEngines` in
+  `package.json` enforces this: an older npm stops with `EBADDEVENGINES`
+  instead of misreading `package-lock.json` (npm 10 resolves an optional
+  `typescript` peer differently and reports the lock as out of sync).
 - Docker with Docker Compose
 
 Run npm commands in `credit-service`. Run the normal application stack from the

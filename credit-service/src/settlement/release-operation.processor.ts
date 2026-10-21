@@ -16,6 +16,7 @@ import {
   InboxEvent,
   OutboxEvent,
 } from '../database/entities/index.js';
+import { ledgerReservedAmount } from './ledger-reserved-amount.js';
 import { SerializableTransactionRunner } from '../database/serializable-transaction.runner.js';
 
 export type ReleaseProcessingOutcome =
@@ -167,7 +168,7 @@ export class ReleaseOperationProcessor {
         operation,
         reservation,
       );
-      this.assertReserveCompatibility(reservation, reserveOperation);
+      await this.assertReserveCompatibility(manager, reservation, reserveOperation);
       assertReleaseContext(operation);
 
       if (reservation.status === 'CONSUMED') {
@@ -328,10 +329,11 @@ export class ReleaseOperationProcessor {
     return { status: 'deferred', message };
   }
 
-  private assertReserveCompatibility(
+  private async assertReserveCompatibility(
+    manager: EntityManager,
     reservation: CreditReservation,
     reserveOperation: CreditOperation | null,
-  ): void {
+  ): Promise<void> {
     if (reserveOperation && reserveOperation.status !== 'SUCCEEDED') {
       throw new CreditReleaseExecutionError(
         'Reservation exists without a successful reserve operation',
@@ -345,13 +347,13 @@ export class ReleaseOperationProcessor {
         'Reservation and reserve operation disagree on requester',
       );
     }
-    if (
-      reserveOperation?.amount !== null &&
-      reserveOperation?.amount !== undefined &&
-      reserveOperation.amount !== reservation.reservedAmount
-    ) {
+    const expectedAmount =
+      reserveOperation?.amount !== null && reserveOperation?.amount !== undefined
+        ? await ledgerReservedAmount(manager, reservation.errandId, reserveOperation.amount)
+        : null;
+    if (expectedAmount !== null && expectedAmount !== reservation.reservedAmount) {
       throw new CreditReleaseExecutionError(
-        'Reservation and reserve operation disagree on amount',
+        'Reservation disagrees with the amount its reserve and adjustment operations recorded',
       );
     }
   }

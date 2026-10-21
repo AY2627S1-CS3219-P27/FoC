@@ -157,6 +157,66 @@ describe('ReleaseOperationProcessor', () => {
     );
   }
 
+  async function createSucceededAdjustment(
+    errandId: string,
+    requesterUserId: string,
+    expectedAmount: number,
+    amount: number,
+  ): Promise<void> {
+    const outcomeOutboxEventId = randomUUID();
+    const outbox = dataSource.getRepository(OutboxEvent);
+    await outbox.save(
+      outbox.create({
+        eventId: outcomeOutboxEventId,
+        eventType: 'CreditReservationAdjustmentSuccess',
+        routingKey: 'credit.reservation-adjustment-success.v1',
+        envelope: {},
+        publishedAt: null,
+        attemptCount: 0,
+        lastError: null,
+        claimedBy: null,
+        claimedUntil: null,
+      }),
+    );
+    const difference = amount - expectedAmount;
+    const transactions = dataSource.getRepository(CreditTransaction);
+    const transaction = await transactions.save(
+      transactions.create({
+        id: randomUUID(),
+        type: 'RESERVATION_ADJUSTMENT',
+        amount: Math.abs(difference),
+        originBalanceType: difference > 0 ? 'CREDIT_BALANCE' : 'RESERVED_BALANCE',
+        destinationBalanceType: difference > 0 ? 'RESERVED_BALANCE' : 'CREDIT_BALANCE',
+        originUserId: requesterUserId,
+        destinationUserId: requesterUserId,
+        errandId,
+      }),
+    );
+    const operations = dataSource.getRepository(CreditOperation);
+    await operations.save(
+      operations.create({
+        id: randomUUID(),
+        errandId,
+        operationType: 'ADJUST',
+        status: 'SUCCEEDED',
+        requesterUserId,
+        courierUserId: null,
+        amount,
+        expectedAmount,
+        commandEventId: randomUUID(),
+        requestPayloadHash: 'b'.repeat(64),
+        attemptCount: 0,
+        nextAttemptAt: new Date(),
+        claimedBy: null,
+        claimedUntil: null,
+        lastError: null,
+        rejectionReason: null,
+        completionTransactionId: transaction.id,
+        outcomeOutboxEventId,
+      }),
+    );
+  }
+
   async function acceptAndClaim(event: ErrandCancelledEvent): Promise<{
     operationId: string;
     workerId: string;
@@ -468,6 +528,28 @@ describe('ReleaseOperationProcessor', () => {
     ).toBe(0);
   });
 
+  it('releases the adjusted amount after a successful reward adjustment', async () => {
+    const event = cancellation();
+    const requesterUserId = randomUUID();
+    await createAccount(requesterUserId, 75, 25);
+    await createReserveOperation(event.payload.errandId, requesterUserId, 'SUCCEEDED', 20);
+    await createSucceededAdjustment(event.payload.errandId, requesterUserId, 20, 25);
+    await createReservation(event.payload.errandId, requesterUserId, 'ACTIVE', 25);
+
+    const { operationId, workerId } = await acceptAndClaim(event);
+    await processor.processClaimed(operationId, workerId);
+
+    await expect(
+      dataSource.getRepository(CreditAccount).findOneByOrFail({ userId: requesterUserId }),
+    ).resolves.toMatchObject({ creditBalance: 100, reservedBalance: 0 });
+    await expect(
+      dataSource.getRepository(CreditReservation).findOneByOrFail({ errandId: event.payload.errandId }),
+    ).resolves.toMatchObject({ status: 'RELEASED' });
+    await expect(
+      dataSource.getRepository(CreditOperation).findOneByOrFail({ id: operationId }),
+    ).resolves.toMatchObject({ status: 'SUCCEEDED', amount: 25 });
+  });
+
   it('rejects conflicting reserve and reservation amounts without financial mutation', async () => {
     const event = cancellation();
     const requesterUserId = randomUUID();
@@ -493,7 +575,9 @@ describe('ReleaseOperationProcessor', () => {
 
     await expect(
       processor.processClaimed(accepted.operationId, workerId),
-    ).rejects.toThrow('Reservation and reserve operation disagree on amount');
+    ).rejects.toThrow(
+      'Reservation disagrees with the amount its reserve and adjustment operations recorded',
+    );
 
     await expect(
       dataSource
