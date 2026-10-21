@@ -1,5 +1,5 @@
 {
-  "id": "55b5ee2e-eada-4743-965e-d465933280f6",
+  "id": "b879840f-68d0-4c68-b370-d8c4204e9222",
   "prevId": "edb50fd7-b676-439a-8f24-af52b973080a",
   "version": "7",
   "dialect": "postgresql",
@@ -159,6 +159,12 @@
         },
         "pickup_location": {
           "name": "pickup_location",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pickup_description": {
+          "name": "pickup_description",
           "type": "text",
           "primaryKey": false,
           "notNull": false

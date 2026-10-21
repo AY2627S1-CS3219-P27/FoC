@@ -1,3 +1,4 @@
+import { Role } from '@foc/contracts';
 import { Type } from 'class-transformer';
 import {
   IsIn,
@@ -35,12 +36,6 @@ export class CreateErrandDto {
   @Min(1)
   @Max(MAX_CREDITS)
   rewardCredits: number;
-
-  @IsOptional()
-  @IsString()
-  @Length(1, MAX_LOCATION_LENGTH)
-  @Matches(NOT_BLANK)
-  pickupLocation?: string;
 
   @IsOptional()
   @IsString()
@@ -125,4 +120,8 @@ export class MineErrandsQuery extends PageQuery {
   @IsOptional()
   @IsIn(API_STATUSES)
   status?: ApiStatus;
+
+  @IsOptional()
+  @IsIn(Object.values(Role))
+  role?: Role;
 }

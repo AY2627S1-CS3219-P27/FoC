@@ -34,6 +34,7 @@ export const environmentSchema = Joi.object({
   DB_USERNAME: Joi.string().min(1).required(),
   DB_DATABASE: Joi.string().min(1).required(),
   DB_PASSWORD_FILE: Joi.string().min(1).required(),
+  DB_MIGRATIONS_RUN: Joi.boolean().default(true),
 
   // user-service's RS256 public key (PEM), used by @foc/auth to verify access tokens.
   JWT_PUBLIC_KEY_FILE: Joi.string().min(1).required(),

@@ -14,7 +14,11 @@ export const supplierSnapshot = {
 };
 
 export const supplierValidated = () => ({
-  set: { supplierValidatedAt: new Date('2030-01-01T00:00:00.000Z') },
+  set: {
+    supplierValidatedAt: new Date('2030-01-01T00:00:00.000Z'),
+    pickupLocation: 'COM2',
+    pickupDescription: 'Floor 1 · Next to LT19',
+  },
   payload: { supplierEventId: randomUUID(), supplier: supplierSnapshot },
 });
 

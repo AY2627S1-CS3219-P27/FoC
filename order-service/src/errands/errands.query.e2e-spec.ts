@@ -46,6 +46,7 @@ const seed = async (over: Partial<typeof errands.$inferInsert> = {}) => {
     supplierId: randomUUID(),
     deliveryLocation: 'COM2',
     pickupLocation: 'UTown',
+    pickupDescription: 'Floor 1 · Next to LT19',
     rewardCredits: 5,
     collectionItems: 'bubble tea',
     expiresAt: inHours(2),
@@ -83,6 +84,7 @@ describe('GET /v1/errands', () => {
           status: 'Open',
           supplierId: e.supplierId,
           pickupLocation: 'UTown',
+          pickupDescription: 'Floor 1 · Next to LT19',
           deliveryLocation: 'COM2',
           collectionItems: 'bubble tea',
           description: 'leave at door',
@@ -216,13 +218,24 @@ describe('GET /v1/errands/mine', () => {
     expect(new Set(ids((await mine('status=Pending')).body))).toEqual(new Set([a.id, b.id]));
   });
 
+  it('narrows to one side with role, combined with status', async () => {
+    const asRequester = await seed({ requesterId: me, status: 'Open' });
+    const asCourier = await seed({ courierId: me, status: 'Accepted' });
+    const doneAsCourier = await seed({ courierId: me, status: 'Completed' });
+    expect(ids((await mine('role=requester')).body)).toEqual([asRequester.id]);
+    expect(new Set(ids((await mine('role=courier')).body))).toEqual(
+      new Set([asCourier.id, doneAsCourier.id]),
+    );
+    expect(ids((await mine('role=courier&status=Accepted')).body)).toEqual([asCourier.id]);
+  });
+
   it('pages', async () => {
     const rows = [];
     for (let h = 3; h >= 1; h--) rows.push(await seed({ requesterId: me, createdAt: inHours(-h) }));
     expect(ids((await mine('limit=1&offset=1')).body)).toEqual([rows[1]!.id]);
   });
 
-  it.each(['status=Pending-Supplier', 'status=Adjusting-Credit', 'status=nope', 'limit=0'])(
+  it.each(['status=Pending-Supplier', 'status=Adjusting-Credit', 'status=nope', 'limit=0', 'role=admin', 'role='])(
     '%s is a 400',
     async (query) => {
       expect((await mine(query)).res.status).toBe(400);
@@ -297,5 +310,58 @@ describe('GET /v1/errands/:id', () => {
   it('maps Transferring-Credit to Completed', async () => {
     const e = await seed({ status: 'Transferring-Credit', courierId: courier });
     expect((await detail(e.id, courier, [Role.Courier])).body.status).toBe('Completed');
+  });
+});
+
+describe('GET /v1/admin/users/:userId/errands', () => {
+  const target = randomUUID();
+  const adminUrl = (path: string) => `${base.replace('/v1/errands', '/v1/admin')}${path}`;
+  const admin = async (path: string, isAdmin = true) =>
+    fetch(adminUrl(path), {
+      headers: {
+        authorization: `Bearer ${await signAccessToken({ sub: randomUUID(), roles: [], isAdmin })}`,
+      },
+    });
+  const userErrands = async (query = '') => {
+    const res = await admin(`/users/${target}/errands${query ? `?${query}` : ''}`);
+    return { res, body: await res.json() };
+  };
+
+  it('rejects a missing token and a non-admin, whatever their roles', async () => {
+    expect((await fetch(adminUrl(`/users/${target}/errands`))).status).toBe(401);
+    expect((await admin(`/users/${target}/errands`, false)).status).toBe(403);
+  });
+
+  it('rejects a malformed user id', async () => {
+    expect((await admin('/users/nope/errands')).status).toBe(400);
+  });
+
+  it("lists the user's errands on both sides with the internal sub-state and party fields", async () => {
+    const asRequester = await seed({ requesterId: target, status: 'Reserving-Credit', createdAt: inHours(-2) });
+    const asCourier = await seed({ courierId: target, status: 'Transferring-Credit', createdAt: inHours(-1) });
+    await seed();
+    const { res, body } = await userErrands();
+    expect(res.status).toBe(200);
+    expect(ids(body)).toEqual([asCourier.id, asRequester.id]);
+    expect(body.items[0]).toMatchObject({
+      status: 'Completed',
+      internalStatus: 'Transferring-Credit',
+      requesterId: asCourier.requesterId,
+      courierId: target,
+    });
+    expect(body.items[1]).toMatchObject({ status: 'Pending', internalStatus: 'Reserving-Credit' });
+    expect(body.items[0]).not.toHaveProperty('idempotencyKey');
+    expect(body.items[0]).not.toHaveProperty('lastSequenceNumber');
+  });
+
+  it('applies role and status like /mine', async () => {
+    const asRequester = await seed({ requesterId: target, status: 'Open' });
+    await seed({ courierId: target, status: 'Accepted' });
+    expect(ids((await userErrands('role=requester')).body)).toEqual([asRequester.id]);
+    expect(ids((await userErrands('status=Open')).body)).toEqual([asRequester.id]);
+  });
+
+  it('is an empty list for a user with no errands', async () => {
+    expect((await userErrands()).body).toEqual({ items: [], limit: 20, offset: 0 });
   });
 });

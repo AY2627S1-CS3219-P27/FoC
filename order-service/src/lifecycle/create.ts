@@ -11,7 +11,6 @@ export interface CreateRequestInputs {
   supplierId: string;
   deliveryLocation: string;
   rewardCredits: number;
-  pickupLocation?: string;
   description?: string;
   expiryDurationMinutes: number; // ADR 0007; expiresAt is set when the errand goes Open
   collectionItems: string; // what the courier collects; kept in the ErrandCreated payload only
@@ -45,7 +44,6 @@ export function createErrand(db: Db, i: CreateRequestInputs): Promise<CreateResu
     supplierId: i.supplierId,
     deliveryLocation: i.deliveryLocation,
     rewardCredits: i.rewardCredits,
-    pickupLocation: i.pickupLocation ?? null,
     description: i.description ?? null,
     expiryDurationMinutes, // the Reserving-Credit -> Open edge turns this into expiresAt
     collectionItems,

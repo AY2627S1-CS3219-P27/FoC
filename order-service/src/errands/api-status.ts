@@ -4,8 +4,6 @@ import type { Status } from '../lifecycle/status.js';
 // statuses behind it. Feeds both the response mapper and the `status` filter,
 // so sub-states (Pending-Supplier, Reserving-Credit, Adjusting-Credit,
 // Transferring-Credit) never reach a client. ARCHITECTURE.md §2.
-// NOTE THAT ADJUSTING CREDIT WILL LIKELY NEED MODIFICATIONS ONCE SUPPLIER INTEGRATION
-// IS DONE
 export const INTERNAL_STATUSES_OF = {
   'Pending': ['Pending-Supplier', 'Reserving-Credit'],
   'Open': ['Open', 'Adjusting-Credit'],

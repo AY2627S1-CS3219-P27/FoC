@@ -7,6 +7,8 @@ const nextConfig: NextConfig = {
       process.env.SUPPLIER_SERVICE_URL ?? "http://localhost:3002";
     const creditService =
       process.env.CREDIT_SERVICE_URL ?? "http://localhost:3003";
+    const orderService =
+      process.env.ORDER_SERVICE_URL ?? "http://localhost:3004";
     return [
       { source: "/api/auth/:path*", destination: `${userService}/auth/:path*` },
       { source: "/api/otp/:path*", destination: `${userService}/otp/:path*` },
@@ -33,6 +35,14 @@ const nextConfig: NextConfig = {
       {
         source: "/api/credits/:path*",
         destination: `${creditService}/v1/credits/:path*`,
+      },
+      {
+        source: "/api/errands/:path*",
+        destination: `${orderService}/v1/errands/:path*`,
+      },
+      {
+        source: "/api/admin/:path*",
+        destination: `${orderService}/v1/admin/:path*`,
       },
     ];
   },

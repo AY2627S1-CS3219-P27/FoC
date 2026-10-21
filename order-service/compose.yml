@@ -19,6 +19,7 @@ services:
       - DB_DATABASE=${ORDER_SERVICE_DB_DATABASE}
       - DB_SYNCHRONIZE=${ORDER_SERVICE_DB_SYNCHRONIZE}
       - DB_PASSWORD_FILE=/run/secrets/order_db_password
+      - DB_MIGRATIONS_RUN=${ORDER_SERVICE_DB_MIGRATIONS_RUN:-true}
       - JWT_PUBLIC_KEY_FILE=/run/secrets/jwt_public_key_order_service
       - LOG_LEVEL=${LOG_LEVEL}
       - RABBITMQ_USER=${ORDER_SERVICE_RABBITMQ_USER}
@@ -52,6 +53,16 @@ services:
       - order_db_password
       - rabbitmq_password_order_service
       - jwt_public_key_order_service
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'wget --no-verbose --tries=1 --spider "http://127.0.0.1:3000/health"',
+        ]
+      interval: 10s
+      timeout: 3s
+      start_period: 60s
+      retries: 3
     develop:
       watch:
         - action: sync
