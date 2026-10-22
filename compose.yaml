@@ -30,7 +30,8 @@ services:
     hostname: rabbitmq
     networks: [internal, ops]
     ports:
-      - '127.0.0.1:15672:15672' # mgmt UI → loopback only; AMQP stays internal
+      - '127.0.0.1:5672:5672' # AMQP for host tools (credit-service event fixtures), loopback only
+      - '127.0.0.1:15672:15672' # mgmt UI → loopback only
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
       - rabbitmq_log:/var/log/rabbitmq
@@ -197,8 +198,8 @@ services:
 # services, databases, Redis, RabbitMQ and observability talk on `internal`,
 # which publishes nothing to the host. It keeps outbound access because the dev
 # images run `npm install` for the shared packages at startup. `ops` carries
-# the dev UIs (RabbitMQ, Papercut, Prometheus, Tempo, Loki, Grafana), bound to
-# 127.0.0.1. compose.debug.yaml opts back into host ports for debugging.
+# the dev UIs (RabbitMQ, Papercut, Prometheus, Tempo, Loki, Grafana) and AMQP
+# for host tools, bound to 127.0.0.1. compose.debug.yaml opts back into host ports for debugging.
 networks:
   public:
   internal:

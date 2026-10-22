@@ -61,7 +61,7 @@ services:
         ]
       interval: 10s
       timeout: 3s
-      start_period: 60s
+      start_period: 120s
       retries: 3
     develop:
       watch:

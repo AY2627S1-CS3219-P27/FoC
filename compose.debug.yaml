@@ -1,5 +1,5 @@
 # Opt-in host access for local debugging (Swagger, Postman straight to a
-# service, psql, the AMQP port). Not for demos or deployment:
+# service, psql). Not for demos or deployment:
 #
 #   docker compose -f compose.yaml -f compose.debug.yaml up -d --wait
 #
@@ -35,6 +35,3 @@ services:
   redis:
     networks: [internal, ops]
     ports: ['127.0.0.1:${REDIS_HOST_PORT:-6379}:6379']
-
-  rabbitmq:
-    ports: ['127.0.0.1:${RABBITMQ_HOST_PORT:-5672}:5672']
