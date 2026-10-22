@@ -496,7 +496,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
     channel: Channel,
     subscription: ResolvedSubscription,
   ): Promise<void> {
-    await channel.assertQueue(subscription.queue, { durable: true });
+    await channel.assertQueue(subscription.queue, { durable: true, arguments: { 'x-queue-type': 'quorum' } });
     await channel.bindQueue(
       subscription.queue,
       this.topology.domainExchange,
@@ -516,6 +516,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       // through the service-owned return exchange directly to this main queue.
       await channel.assertQueue(retryQueue, {
         durable: true,
+        arguments: { 'x-queue-type': 'quorum' },
         messageTtl: delay,
         deadLetterExchange: this.topology.retryReturnExchange,
         deadLetterRoutingKey: subscription.queue,
@@ -527,7 +528,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       );
     }
 
-    await channel.assertQueue(subscription.deadLetterQueue, { durable: true });
+    await channel.assertQueue(subscription.deadLetterQueue, { durable: true, arguments: { 'x-queue-type': 'quorum' } });
     await channel.bindQueue(
       subscription.deadLetterQueue,
       this.topology.deadLetterExchange,
