@@ -45,6 +45,98 @@ services:
       retries: 12
       start_period: 20s
 
+  # ---- Observability ---------------------------------------------------
+  # Metrics
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    networks: [internal, ops]
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:9090:9090'
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'wget',
+          '--no-verbose',
+          '--tries=1',
+          '--spider',
+          'http://127.0.0.1:9090/-/ready',
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  # Traces
+  tempo:
+    image: grafana/tempo:3.0.4
+    networks: [internal, ops]
+    restart: unless-stopped
+    # The image is distroless (no shell or wget), so it has no healthcheck;
+    # Compose --wait treats a running container as ready.
+    command: ['-config.file=/etc/tempo.yaml']
+    ports:
+      - '127.0.0.1:3200:3200' # query/admin API; OTLP stays on the compose network
+    volumes:
+      - ./observability/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo_data:/var/tempo
+
+  # Logs
+  loki:
+    image: grafana/loki:3.7.9
+    networks: [internal, ops]
+    restart: unless-stopped
+    # The image is distroless (no shell or wget), so it has no healthcheck;
+    # Compose --wait treats a running container as ready.
+    command: ['-config.file=/etc/loki/loki.yaml']
+    ports:
+      - '127.0.0.1:3100:3100' # query/admin API; OTLP stays on the compose network
+    volumes:
+      - ./observability/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki_data:/loki
+
+  # Graphical UI
+  grafana:
+    image: grafana/grafana:13.2.4
+    networks: [internal, ops]
+    restart: unless-stopped
+    environment:
+      # The datasource plugins for Tempo and Loki are catalog plugins that
+      # Grafana otherwise installs in the background, racing datasource
+      # provisioning ("data source not found" on a fresh volume). Preinstall
+      # them synchronously so provisioning always finds them registered.
+      GF_PLUGINS_PREINSTALL_SYNC: tempo,loki
+    ports:
+      - '127.0.0.1:3005:3000'
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      tempo:
+        condition: service_started
+      loki:
+        condition: service_started
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'wget',
+          '--no-verbose',
+          '--tries=1',
+          '--spider',
+          'http://127.0.0.1:3000/api/health',
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
   # Partial stubs that merge with the service definitions from the included
   # compose files: they add only the broker dependency here, so the per-service
   # compose files remain valid when run in isolation (rabbitmq lives in this
@@ -102,10 +194,11 @@ services:
     networks: [internal]
 
 # Communication isolation: the browser talks only to the frontend (public);
-# services, databases, Redis and RabbitMQ talk on `internal`, which publishes
-# nothing to the host. It keeps outbound access because the dev images run
-# `npm install` for the shared packages at startup. `ops` carries the dev UIs,
-# bound to 127.0.0.1. compose.debug.yaml opts back into host ports for debugging.
+# services, databases, Redis, RabbitMQ and observability talk on `internal`,
+# which publishes nothing to the host. It keeps outbound access because the dev
+# images run `npm install` for the shared packages at startup. `ops` carries
+# the dev UIs (RabbitMQ, Papercut, Prometheus, Tempo, Loki, Grafana), bound to
+# 127.0.0.1. compose.debug.yaml opts back into host ports for debugging.
 networks:
   public:
   internal:
@@ -114,3 +207,7 @@ networks:
 volumes:
   rabbitmq_data:
   rabbitmq_log:
+  prometheus_data:
+  tempo_data:
+  loki_data:
+  grafana_data:

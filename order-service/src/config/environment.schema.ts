@@ -28,6 +28,7 @@ export const environmentSchema = Joi.object({
   LOG_LEVEL: Joi.string()
     .valid('debug', 'info', 'warn', 'error', 'fatal')
     .default('info'),
+  OTEL_EXPORTER_OTLP_ENDPOINT: Joi.string().uri().default('http://localhost:4318'),
 
   DB_HOST: Joi.string().hostname().required(),
   DB_PORT: Joi.number().port().required(),

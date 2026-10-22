@@ -37,6 +37,8 @@ services:
       - JWT_PRIVATE_KEY_FILE=/run/secrets/jwt_private_key
       - FRONTEND_BASE_URL=${FRONTEND_BASE_URL}
       - FRONTEND_PASSWORD_RESET_PATH=${FRONTEND_PASSWORD_RESET_PATH}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4318}
+      - OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:-http://loki:3100/otlp/v1/logs}
     secrets:
       - db_password
       - server_secret
@@ -70,6 +72,19 @@ services:
           path: ../packages/contracts/package.json
         - action: rebuild
           path: ../packages/contracts/package-lock.json
+        - action: sync+restart
+          path: ../packages/observability/src
+          target: /usr/src/packages/observability/src
+        - action: sync+restart
+          path: ../packages/observability/tsconfig.json
+          target: /usr/src/packages/observability/tsconfig.json
+        - action: sync+restart
+          path: ../packages/observability/tsconfig.build.json
+          target: /usr/src/packages/observability/tsconfig.build.json
+        - action: rebuild
+          path: ../packages/observability/package.json
+        - action: rebuild
+          path: ../packages/observability/package-lock.json
         - action: sync+restart
           path: ../packages/auth/src
           target: /usr/src/packages/auth/src

@@ -1,5 +1,7 @@
 import { FocAuthModule } from '@foc/auth';
 import { Module } from '@nestjs/common';
+import { LoggerModule } from 'nestjs-pino';
+import { pinoHttpOptions } from '@foc/observability';
 import { ConfigModule } from '@nestjs/config';
 import { AuthKeyModule } from './auth/auth-key.module.js';
 import { AuthKeyService } from './auth/auth-key.service.js';
@@ -22,6 +24,7 @@ import { SweepsModule } from './sweeps/sweeps.module.js';
       cache: true,
       validationSchema: environmentSchema,
     }),
+    LoggerModule.forRoot({ pinoHttp: pinoHttpOptions('order-service') }),
     // Global: any controller can use @UseGuards(JwtAuthGuard | RolesGuard | AdminGuard).
     FocAuthModule.registerAsync({
       imports: [AuthKeyModule],

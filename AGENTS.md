@@ -22,4 +22,4 @@ Service images are tagged from each app's `package.json` version: `./scripts/bui
 
 ### Networks and host ports
 
-`compose.yaml` splits traffic: the browser reaches only the frontend (`public`, port 3001), which proxies `/api/*` to the services; services, databases, Redis and RabbitMQ share `internal`, which publishes nothing to the host; `ops` carries the RabbitMQ and Papercut UIs on 127.0.0.1. For direct access while debugging, add `-f compose.debug.yaml`, which publishes service and database ports on 127.0.0.1.
+`compose.yaml` splits traffic: the browser reaches only the frontend (`public`, port 3001), which proxies `/api/*` to the services; services, databases, Redis, RabbitMQ and the observability stack share `internal`, which publishes nothing to the host; `ops` carries the RabbitMQ, Papercut, Prometheus, Tempo, Loki and Grafana UIs on 127.0.0.1. For direct access while debugging, add `-f compose.debug.yaml`, which publishes service and database ports on 127.0.0.1.

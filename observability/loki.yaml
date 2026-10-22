@@ -1,0 +1,47 @@
+# Single-binary Loki for the local dev stack: filesystem storage, short
+# retention, and native OTLP ingestion (the OTLP endpoint is what the services
+# ship logs to; trace IDs arrive as structured metadata so Grafana can link a
+# log line to its Tempo trace).
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2020-10-24
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  # Required for trace_id/span_id to survive next to the log line.
+  allow_structured_metadata: true
+  retention_period: 24h
+
+compactor:
+  working_directory: /loki/compactor
+  delete_request_store: filesystem
+  retention_enabled: true
+  retention_delete_delay: 2h
+
+# Keep a local dev stack from phoning home.
+analytics:
+  reporting_enabled: false

@@ -1,0 +1,21 @@
+# Scrape config for the dev stack. Targets are compose-network names.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: foc-services
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - user-service:3000
+          - supplier-service:3000
+          - order-service:3000
+          - credit-service:3000
+
+  # The broker ships the Prometheus plugin enabled (port 15692).
+  - job_name: foc-rabbitmq
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - rabbitmq:15692

@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { LoggerModule } from 'nestjs-pino';
+import { pinoHttpOptions } from '@foc/observability';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { FocAuthModule } from '@foc/auth';
 import { OutboxModule } from '@foc/outbox';
@@ -23,6 +25,7 @@ import { SettlementModule } from './settlement/settlement.module.js';
       cache: true,
       validationSchema: environmentSchema,
     }),
+    LoggerModule.forRoot({ pinoHttp: pinoHttpOptions('credit-service') }),
     AuthKeyModule,
     FocAuthModule.registerAsync({
       imports: [AuthKeyModule],

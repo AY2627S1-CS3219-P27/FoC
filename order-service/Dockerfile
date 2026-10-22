@@ -14,6 +14,7 @@ RUN npm install --global "npm@${NPM_VERSION}"
 # @foc/auth dependencies are available without relying on host-generated files.
 COPY packages/contracts/package*.json /usr/src/packages/contracts/
 COPY packages/auth/package*.json /usr/src/packages/auth/
+COPY packages/observability/package*.json /usr/src/packages/observability/
 COPY order-service/package*.json ./
 
 # Install the exact dependency versions. Order Service's postinstall also
@@ -25,6 +26,7 @@ FROM dependencies AS development
 
 COPY packages/contracts/ /usr/src/packages/contracts/
 COPY packages/auth/ /usr/src/packages/auth/
+COPY packages/observability/ /usr/src/packages/observability/
 COPY order-service/ .
 
 EXPOSE 3000
@@ -36,6 +38,7 @@ FROM dependencies AS build
 
 COPY packages/contracts/ /usr/src/packages/contracts/
 COPY packages/auth/ /usr/src/packages/auth/
+COPY packages/observability/ /usr/src/packages/observability/
 COPY order-service/ .
 
 RUN npm run build
