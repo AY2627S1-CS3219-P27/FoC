@@ -124,7 +124,7 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     await adminChannel.assertExchange(names.domainExchange, 'direct', {
       durable: true,
     });
-    await adminChannel.assertQueue(names.mainQueue, { durable: true });
+    await adminChannel.assertQueue(names.mainQueue, { durable: true, arguments: { 'x-queue-type': 'quorum' } });
     await adminChannel.bindQueue(
       names.mainQueue,
       names.domainExchange,

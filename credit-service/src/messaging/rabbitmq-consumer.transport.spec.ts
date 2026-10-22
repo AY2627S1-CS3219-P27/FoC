@@ -321,17 +321,18 @@ describe('RabbitMqConsumerTransport', () => {
     ]);
     expect(model.publisher.checkedExchanges).toEqual(['foc.events']);
     expect(model.consumer.assertedQueues).toEqual([
-      ['credit-service.user-registered.v1', { durable: true }],
+      ['credit-service.user-registered.v1', { durable: true, arguments: { 'x-queue-type': 'quorum' } }],
       ...configuration.RABBITMQ_RETRY_DELAYS_MS.map((delay, index) => [
         `credit-service.user-registered.v1.retry.${index + 1}`,
         {
           durable: true,
+          arguments: { 'x-queue-type': 'quorum' },
           messageTtl: delay,
           deadLetterExchange: 'foc.credit.back',
           deadLetterRoutingKey: 'credit-service.user-registered.v1',
         },
       ]),
-      ['credit-service.user-registered.v1.dlq', { durable: true }],
+      ['credit-service.user-registered.v1.dlq', { durable: true, arguments: { 'x-queue-type': 'quorum' } }],
     ]);
     expect(model.consumer.bindings).toEqual([
       ['credit-service.user-registered.v1', 'foc.events', 'user.registered.v1'],
@@ -393,7 +394,7 @@ describe('RabbitMqConsumerTransport', () => {
     ]);
     expect(model.consumers[1].assertedQueues).toContainEqual([
       'credit-service.credit-reservation.failures',
-      { durable: true },
+      { durable: true, arguments: { 'x-queue-type': 'quorum' } },
     ]);
 
     await deliverOn(
