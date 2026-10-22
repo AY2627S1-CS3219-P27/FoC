@@ -17,7 +17,6 @@ import {
   InboxEvent,
   OutboxEvent,
 } from '../database/entities/index.js';
-import { ledgerReservedAmount } from './ledger-reserved-amount.js';
 import { SerializableTransactionRunner } from '../database/serializable-transaction.runner.js';
 
 export type CreditReleaseIngressOutcome =
@@ -286,15 +285,12 @@ export class ReleaseService {
           'Reservation and reserve operation disagree on requester',
         );
       }
-      const expectedAmount = reserveContext
-        ? await ledgerReservedAmount(manager, errandId, reserveContext.amount)
-        : undefined;
       if (
-        expectedAmount !== undefined &&
-        expectedAmount !== reservation.reservedAmount
+        reserveContext?.amount !== undefined &&
+        reserveContext.amount !== reservation.reservedAmount
       ) {
         throw new CreditReleaseIngressInvariantError(
-          'Reservation disagrees with the amount its reserve and adjustment operations recorded',
+          'Reservation and reserve operation disagree on amount',
         );
       }
       return {

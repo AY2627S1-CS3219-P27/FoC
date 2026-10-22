@@ -19,7 +19,6 @@ services:
       DB_USERNAME: ${CREDIT_SERVICE_DB_USERNAME:-credit_service}
       DB_DATABASE: ${CREDIT_SERVICE_DB_DATABASE:-credit_service}
       DB_PASSWORD_FILE: /run/secrets/credit_db_password
-      DB_MIGRATIONS_RUN: ${CREDIT_SERVICE_DB_MIGRATIONS_RUN:-true}
       INITIAL_CREDIT_BALANCE: ${INITIAL_CREDIT_BALANCE:-100}
       JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key_credit_service
       RABBITMQ_USER: ${CREDIT_SERVICE_RABBITMQ_USER:-credit-service}

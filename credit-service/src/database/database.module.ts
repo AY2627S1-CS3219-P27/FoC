@@ -21,7 +21,6 @@ import { SerializableTransactionRunner } from './serializable-transaction.runner
           DB_USERNAME: config.get('DB_USERNAME', { infer: true }),
           DB_DATABASE: config.get('DB_DATABASE', { infer: true }),
           DB_PASSWORD_FILE: config.get('DB_PASSWORD_FILE', { infer: true }),
-          DB_MIGRATIONS_RUN: config.get('DB_MIGRATIONS_RUN', { infer: true }),
         }),
     }),
     TypeOrmModule.forFeature(databaseEntities),

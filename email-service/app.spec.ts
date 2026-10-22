@@ -142,7 +142,6 @@ let wiring: {
   channelEvents: string[];
   connectionHandlers: UnknownFn[];
   channelHandlers: UnknownFn[];
-  closeHandler: UnknownFn;
 };
 
 const UUID = '3f2a8c1e-6b4d-4f9a-8e2b-1a2b3c4d5e6f';
@@ -208,10 +207,9 @@ beforeAll(async () => {
     consumeCalls: mocks.consume.mock.calls.splice(0),
     connectionEvents: mocks.connectionOn.mock.calls.map((c) => c[0] as string),
     channelEvents: mocks.channelOn.mock.calls.map((c) => c[0] as string),
-    connectionHandlers: mocks.connectionOn.mock.calls
-      .filter((c) => c[0] !== 'close')
-      .map((c) => c[1] as UnknownFn),
-    closeHandler: mocks.connectionOn.mock.calls.find((c) => c[0] === 'close')?.[1] as UnknownFn,
+    connectionHandlers: mocks.connectionOn.mock.calls.map(
+      (c) => c[1] as UnknownFn,
+    ),
     channelHandlers: mocks.channelOn.mock.calls.map((c) => c[1] as UnknownFn),
   };
 
@@ -248,9 +246,9 @@ describe('startup IIFE', () => {
     );
   });
 
-  it('creates one channel and registers error/handler-error listeners on it and the connection, plus close on the connection', () => {
+  it('creates one channel and registers error/handler-error listeners on it and the connection', () => {
     expect(wiring.createChannelCount).toBe(1);
-    expect(wiring.connectionEvents).toEqual(['error', 'handler-error', 'close']);
+    expect(wiring.connectionEvents).toEqual(['error', 'handler-error']);
     expect(wiring.channelEvents).toEqual(['error', 'handler-error']);
     expect(wiring.connectionHandlers).toHaveLength(2);
     expect(wiring.channelHandlers).toHaveLength(2);
@@ -339,45 +337,5 @@ describe('consume handler dispatch wiring', () => {
         ),
       }),
     );
-  });
-});
-
-describe('broker reconnect', () => {
-  it('reconnects with backoff after the connection closes and consumes both queues again', async () => {
-    vi.useFakeTimers();
-    try {
-      mocks.connect.mockClear();
-      mocks.consume.mockClear();
-
-      wiring.closeHandler();
-      expect(mocks.connect).not.toHaveBeenCalled();
-
-      await vi.advanceTimersByTimeAsync(1_000);
-      expect(mocks.connect).toHaveBeenCalledTimes(1);
-      await vi.waitFor(() => expect(mocks.consume).toHaveBeenCalledTimes(2));
-      expect(mocks.consume.mock.calls.map((call) => call[0])).toEqual([
-        'otp_emails',
-        'password_reset_emails',
-      ]);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('keeps retrying while the broker is unreachable', async () => {
-    vi.useFakeTimers();
-    try {
-      mocks.connect.mockClear();
-      mocks.connect.mockRejectedValueOnce(new Error('ECONNREFUSED'));
-
-      wiring.closeHandler();
-      await vi.advanceTimersByTimeAsync(1_000);
-      expect(mocks.connect).toHaveBeenCalledTimes(1);
-
-      await vi.advanceTimersByTimeAsync(2_000);
-      expect(mocks.connect).toHaveBeenCalledTimes(2);
-    } finally {
-      vi.useRealTimers();
-    }
   });
 });

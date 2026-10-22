@@ -293,10 +293,7 @@ absence does not suppress Credit's authoritative domain outcome.
 ## Prerequisites
 
 - Node.js 22
-- npm 11.18.0 or later (`npm install -g npm@11.18.0`). `devEngines` in
-  `package.json` enforces this: an older npm stops with `EBADDEVENGINES`
-  instead of misreading `package-lock.json` (npm 10 resolves an optional
-  `typescript` peer differently and reports the lock as out of sync).
+- npm 11.18.0
 - Docker with Docker Compose
 
 Run npm commands in `credit-service`. Run the normal application stack from the
@@ -341,23 +338,19 @@ npm ci
 
 ## Run with Docker Compose
 
-From the repository root:
+From the repository root, start the shared broker and Credit database, build
+Credit Service, apply its migrations, and then start the application:
 
 ```powershell
-docker compose up -d --wait credit-service
-```
-
-The service applies pending migrations (TypeORM `migrationsRun`) while it
-connects to the database, before its consumers and outbox relay start, so they
-never see an empty schema. Set `CREDIT_SERVICE_DB_MIGRATIONS_RUN=false` to
-turn this off and apply them by hand instead:
-
-```powershell
+docker compose up -d --wait rabbitmq credit-db
+docker compose build credit-service
 docker compose run --rm credit-service npm run migration:run
+docker compose up -d credit-service
 ```
 
-The migration CLI and the integration tests leave it off and apply migrations
-themselves. TypeORM schema synchronization is intentionally disabled.
+Applying migrations before starting the application prevents consumers and the
+outbox relay from accessing an empty schema. TypeORM schema synchronization is
+intentionally disabled.
 
 Swagger UI is available at `http://localhost:3003/docs` and the generated
 OpenAPI document at `http://localhost:3003/docs-json` by default. Follow the

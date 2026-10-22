@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api } from "@/lib/api";
 import type { BuildingOption, SupplierOption } from "./types";
 import { Field, inputClass } from "./ui";
@@ -14,27 +14,11 @@ const EXPIRY_OPTIONS = [
   { minutes: 1440, label: "1 day" },
 ];
 
-interface Sufficiency {
-  amount: number;
-  sufficient: boolean;
-}
-
-// Advisory only (F1.2.1): the credit reservation after supplier validation is the real check.
-async function checkSufficiency(me: string, amount: number, quiet: boolean): Promise<Sufficiency | null> {
-  const res = await api<Sufficiency>("POST", "/api/credits/sufficiency", {
-    body: { userId: me, amount },
-    quiet,
-  });
-  return res.ok && res.data ? { amount: res.data.amount, sufficient: res.data.sufficient } : null;
-}
-
 export function CreateErrandForm({
-  me,
   suppliers,
   buildings,
   onCreated,
 }: {
-  me: string;
   suppliers: SupplierOption[];
   buildings: BuildingOption[];
   onCreated: (errandId: string) => void;
@@ -47,35 +31,13 @@ export function CreateErrandForm({
   const [expiryDurationMinutes, setExpiry] = useState(60);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
-  const [sufficiency, setSufficiency] = useState<Sufficiency | null>(null);
 
   const supplier = suppliers.find((s) => s.id === supplierId);
-  const known = sufficiency?.amount === rewardCredits ? sufficiency : null;
-
-  useEffect(() => {
-    if (!Number.isInteger(rewardCredits) || rewardCredits < 1) return;
-    let stale = false;
-    const timer = setTimeout(async () => {
-      const result = await checkSufficiency(me, rewardCredits, true);
-      if (!stale) setSufficiency(result);
-    }, 400);
-    return () => {
-      stale = true;
-      clearTimeout(timer);
-    };
-  }, [me, rewardCredits]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setPending(true);
-    const check = await checkSufficiency(me, rewardCredits, false);
-    if (check) setSufficiency(check);
-    if (check && !check.sufficient) {
-      setPending(false);
-      setError(`You don't have ${rewardCredits} available credits. Lower the reward or wait for reserved credits to be released.`);
-      return;
-    }
     const res = await api<{ errandId: string }>("POST", "/api/errands", {
       idempotencyKey: crypto.randomUUID(),
       body: {
@@ -125,9 +87,7 @@ export function CreateErrandForm({
           ))}
         </select>
         {supplier && (
-          <span className="block text-xs text-muted mt-1">
-            Floor {supplier.floor}
-          </span>
+          <span className="block text-xs text-muted mt-1">Floor {supplier.floor}</span>
         )}
       </Field>
 
@@ -180,11 +140,6 @@ export function CreateErrandForm({
             onChange={(e) => setRewardCredits(Number(e.target.value))}
             className={`w-full ${inputClass}`}
           />
-          {known && (
-            <span className={`block text-xs mt-1 ${known.sufficient ? "text-success" : "text-danger"}`}>
-              {known.sufficient ? "You have enough available credits." : "Not enough available credits for this reward."}
-            </span>
-          )}
         </Field>
         <Field label="Open for">
           <select
@@ -208,7 +163,7 @@ export function CreateErrandForm({
       )}
 
       <button
-        disabled={pending || known?.sufficient === false}
+        disabled={pending}
         className="btn-press rounded-xl bg-nus-orange px-4 py-2.5 text-sm font-semibold text-white hover:bg-nus-orange-hover disabled:opacity-50 transition-colors"
       >
         {pending ? "Creating…" : "Create errand"}
