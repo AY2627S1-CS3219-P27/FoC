@@ -23,14 +23,14 @@ include:
     env_file:
       - env/shared.env
       - env/credit-service.env
-  - path: frontend/compose.yml
 
 services:
   rabbitmq:
     image: rabbitmq:4-management-alpine
     hostname: rabbitmq
+    networks: [internal, ops]
     ports:
-      - '5672:5672'
+      - '127.0.0.1:5672:5672' # AMQP for host tools (credit-service event fixtures), loopback only
       - '127.0.0.1:15672:15672' # mgmt UI → loopback only
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
@@ -50,6 +50,7 @@ services:
   # Metrics
   prometheus:
     image: prom/prometheus:v3.15.0
+    networks: [internal, ops]
     restart: unless-stopped
     ports:
       - '127.0.0.1:9090:9090'
@@ -74,6 +75,7 @@ services:
   # Traces
   tempo:
     image: grafana/tempo:3.0.4
+    networks: [internal, ops]
     restart: unless-stopped
     # The image is distroless (no shell or wget), so it has no healthcheck;
     # Compose --wait treats a running container as ready.
@@ -87,6 +89,7 @@ services:
   # Logs
   loki:
     image: grafana/loki:3.7.9
+    networks: [internal, ops]
     restart: unless-stopped
     # The image is distroless (no shell or wget), so it has no healthcheck;
     # Compose --wait treats a running container as ready.
@@ -100,6 +103,7 @@ services:
   # Graphical UI
   grafana:
     image: grafana/grafana:13.2.4
+    networks: [internal, ops]
     restart: unless-stopped
     environment:
       # The datasource plugins for Tempo and Loki are catalog plugins that
@@ -139,6 +143,7 @@ services:
   # compose files remain valid when run in isolation (rabbitmq lives in this
   # file, not in theirs).
   email-service:
+    networks: [internal]
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -148,24 +153,57 @@ services:
         condition: service_started
 
   user-service:
+    networks: [internal]
     depends_on:
       rabbitmq:
         condition: service_healthy
 
   order-service:
+    networks: [internal]
     depends_on:
       rabbitmq:
         condition: service_healthy
 
   credit-service:
+    networks: [internal]
     depends_on:
       rabbitmq:
         condition: service_healthy
 
   supplier-service:
+    networks: [internal]
     depends_on:
       rabbitmq:
         condition: service_healthy
+
+  # The only service the browser reaches; it proxies /api/* to the services.
+  frontend:
+    networks: [public, internal]
+
+  papercut:
+    networks: [internal, ops]
+
+  user-db:
+    networks: [internal]
+  redis:
+    networks: [internal]
+  supplier-db:
+    networks: [internal]
+  order-db:
+    networks: [internal]
+  credit-db:
+    networks: [internal]
+
+# Communication isolation: the browser talks only to the frontend (public);
+# services, databases, Redis, RabbitMQ and observability talk on `internal`,
+# which publishes nothing to the host. It keeps outbound access because the dev
+# images run `npm install` for the shared packages at startup. `ops` carries
+# the dev UIs (RabbitMQ, Papercut, Prometheus, Tempo, Loki, Grafana) and AMQP
+# for host tools, bound to 127.0.0.1. compose.debug.yaml opts back into host ports for debugging.
+networks:
+  public:
+  internal:
+  ops:
 
 volumes:
   rabbitmq_data:

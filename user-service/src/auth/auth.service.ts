@@ -122,10 +122,10 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    const user = await this.usersService.getUserByUuid(record.userId);
+    const user = await this.usersService.getActiveUserByUuid(record.userId);
 
     if (user === null) {
-      // throw same error
+      // throw same error (also for a locked or archived account)
       throw new UnauthorizedException('Invalid refresh token');
     }
 

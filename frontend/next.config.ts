@@ -10,6 +10,8 @@ const nextConfig: NextConfig = {
     const orderService =
       process.env.ORDER_SERVICE_URL ?? "http://localhost:3004";
     return [
+      // Matches the refresh cookie's Path=/auth/refresh, so the browser sends it.
+      { source: "/auth/refresh", destination: `${userService}/auth/refresh` },
       { source: "/api/auth/:path*", destination: `${userService}/auth/:path*` },
       { source: "/api/otp/:path*", destination: `${userService}/otp/:path*` },
       {
@@ -23,6 +25,10 @@ const nextConfig: NextConfig = {
       {
         source: "/api/suppliers/:path*",
         destination: `${supplierService}/suppliers/:path*`,
+      },
+      {
+        source: "/api/supplier-requests/:path*",
+        destination: `${supplierService}/supplier-requests/:path*`,
       },
       {
         source: "/api/buildings",

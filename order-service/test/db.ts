@@ -4,10 +4,10 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import pg from 'pg';
 
-// Defaults match the `order-db` container from compose (host port 5436).
+// Defaults match the `order-db-test` container (npm run db:test:up).
 const conn = () => ({
   host: process.env.DB_HOST ?? 'localhost',
-  port: Number(process.env.DB_PORT ?? 5436),
+  port: Number(process.env.DB_PORT ?? 5440),
   user: process.env.DB_USERNAME ?? 'order_service',
   password: readFileSync(
     process.env.DB_PASSWORD_FILE ?? './secrets/order_db_password.secret',
