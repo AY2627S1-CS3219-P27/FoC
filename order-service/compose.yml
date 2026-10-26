@@ -6,8 +6,6 @@ services:
       target: development
     image: ${FOC_IMAGE_PREFIX:-foc}/order-service:${ORDER_SERVICE_IMAGE_TAG:-dev}
     command: npm run start:dev
-    ports:
-      - '${ORDER_SERVICE_HOST_PORT}:3000'
     depends_on:
       order-db:
         condition: service_healthy
@@ -63,7 +61,7 @@ services:
         ]
       interval: 10s
       timeout: 3s
-      start_period: 60s
+      start_period: 120s
       retries: 3
     develop:
       watch:
@@ -110,8 +108,6 @@ services:
 
   order-db:
     image: postgres:18-alpine
-    ports:
-      - '${ORDER_SERVICE_DB_HOST_PORT}:5432'
     environment:
       - POSTGRES_USER=${ORDER_SERVICE_DB_USERNAME}
       - POSTGRES_PASSWORD_FILE=/run/secrets/order_db_password
@@ -129,6 +125,27 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # Throwaway Postgres for the e2e tests (npm run db:test:up), on a host port
+  # because the dev order-db publishes none.
+  order-db-test:
+    image: postgres:18-alpine
+    profiles: ['test']
+    ports:
+      - '127.0.0.1:${ORDER_SERVICE_DB_TEST_HOST_PORT:-5440}:5432'
+    environment:
+      - POSTGRES_USER=order_service
+      - POSTGRES_PASSWORD_FILE=/run/secrets/order_db_password
+      - POSTGRES_DB=order_service_test
+    tmpfs:
+      - /var/lib/postgresql
+    secrets:
+      - order_db_password
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U order_service -d order_service_test']
+      interval: 2s
+      timeout: 3s
+      retries: 15
 
 volumes:
   order-db-data:

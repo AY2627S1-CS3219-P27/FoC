@@ -14,7 +14,7 @@ Run from `order-service/`:
 
 - `npm run start:dev`: watch mode (in Docker, via `docker compose up --watch` from the repo root).
 - `npm run build` / `npm run lint`
-- `npm test`: unit specs (`src/**/*.spec.ts`). `npm run test:e2e`: `**/*.e2e-spec.ts`.
+- `npm test`: unit specs (`src/**/*.spec.ts`). `npm run test:e2e`: `**/*.e2e-spec.ts`, against `order-db-test` (`npm run db:test:up` first, 127.0.0.1:5440; `db:test:down` removes it).
 - `npm run test:messaging`: real-broker publisher test; needs `RABBITMQ_URL` (an `order-service` login on a running broker).
 - `npm run db:generate`: generate a migration after editing `src/db/schema.ts`. `npm run db:migrate`: apply it.
 
