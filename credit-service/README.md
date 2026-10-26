@@ -176,7 +176,10 @@ delivery. Requester and amount may initially be unknown because cancellation
 can arrive before reservation ingress. The worker enriches that context from
 the locked reservation or the semantic `RESERVE` operation without taking a
 reserve-operation row lock that could deadlock with a reserve worker waiting
-for the same errand advisory lock.
+for the same errand advisory lock. When a reservation exists, its current
+amount is authoritative: a pending release refreshes provisional context from
+the reservation so reward adjustments are released in full. The original
+`RESERVE` operation amount remains historical command evidence.
 
 The authoritative decisions are:
 
@@ -980,17 +983,23 @@ fixture again demonstrates event-ID idempotency; a distinct equivalent notice
 replays the established semantic outcome without another movement.
 
 For the alternative cancellation path, start from a clean Credit database,
-publish both registrations and the reservation, then publish cancellation
-instead of adjustment and completion:
+publish both registrations, the reservation, and its adjustment, then publish
+cancellation instead of completion:
 
 ```powershell
 npm run event:publish:user-registered
 npm run event:publish:user-registered-courier
 npm run event:publish:credit-reservation
+npm run event:publish:credit-reservation-adjustment
 npm run event:publish:errand-cancelled
 ```
 
-The persistence/messaging recovery suite asserts both alternatives using
+The reservation starts at 25 and is adjusted to 40. Cancellation releases the
+authoritative stored 40, leaving the requester at `100 / 0` and the courier at
+`100 / 0` (available / reserved).
+
+The integration coverage asserts adjusted release, while the
+persistence/messaging recovery suite verifies durable settlement using
 initialized accounts and immutable evidence. For a reservation of 25:
 
 | Stage or terminal path | Requester available / reserved | Courier available / reserved |
@@ -998,13 +1007,13 @@ initialized accounts and immutable evidence. For a reservation of 25:
 | Initialization | `100 / 0` | `100 / 0` |
 | Reservation | `75 / 25` | `100 / 0` |
 | Transfer | `75 / 0` | `125 / 0` |
-| Release | `100 / 0` | `100 / 0` |
+| Release after adjustment | `100 / 0` | `100 / 0` |
 
-The release scenario verifies both allocation rows, `RESERVATION` and
-`RELEASE` transactions, `ACTIVE → RELEASED`, the semantic reserve and release
-operations, linked inbox rows, and their outbox envelopes. Available plus
-reserved credit remains 200 across the two accounts; the courier is unchanged
-on release.
+The release scenario verifies both allocation rows, `RESERVATION`,
+`RESERVATION_ADJUSTMENT`, and `RELEASE` transactions, `ACTIVE → RELEASED`, the
+semantic reserve and release operations, linked inbox rows, and their outbox
+envelopes. Available plus reserved credit remains 200 across the two accounts;
+the courier is unchanged on release.
 
 The participant-mismatch fixture reuses the semantic errand with a different
 courier and produces `RESERVATION_USER_MISMATCH` without moving credit:

@@ -285,14 +285,6 @@ export class ReleaseService {
           'Reservation and reserve operation disagree on requester',
         );
       }
-      if (
-        reserveContext?.amount !== undefined &&
-        reserveContext.amount !== reservation.reservedAmount
-      ) {
-        throw new CreditReleaseIngressInvariantError(
-          'Reservation and reserve operation disagree on amount',
-        );
-      }
       return {
         requesterUserId: reservation.requesterUserId,
         amount: reservation.reservedAmount,
@@ -320,16 +312,19 @@ export class ReleaseService {
         'Release operation and discovered context disagree on requester',
       );
     }
-    if (operation.amount !== null && operation.amount !== context.amount) {
-      throw new CreditReleaseIngressInvariantError(
-        'Release operation and discovered context disagree on amount',
-      );
+    if (operation.status !== 'PENDING') {
+      if (operation.amount !== null && operation.amount !== context.amount) {
+        throw new CreditReleaseIngressInvariantError(
+          'Release operation and discovered context disagree on amount',
+        );
+      }
+      return;
     }
 
     const changed =
-      operation.requesterUserId === null || operation.amount === null;
+      operation.requesterUserId === null || operation.amount !== context.amount;
     operation.requesterUserId ??= context.requesterUserId;
-    operation.amount ??= context.amount;
+    operation.amount = context.amount;
     if (changed) {
       await manager.getRepository(CreditOperation).save(operation);
     }
