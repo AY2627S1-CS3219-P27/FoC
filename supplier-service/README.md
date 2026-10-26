@@ -575,8 +575,8 @@ Supplier Service also needs user-service's JWT key pair, set up as part of user-
 
 | What | Where |
 |---|---|
-| Supplier Service | `http://localhost:3002` (`SUPPLIER_SERVICE_HOST_PORT`) |
-| supplier-db | `localhost:5438` (`SUPPLIER_DB_HOST_PORT`) |
+| Supplier Service | Through the frontend at `http://localhost:3001/api/suppliers`; directly at `http://127.0.0.1:3002` only with `compose.debug.yaml` (`SUPPLIER_SERVICE_HOST_PORT`) |
+| supplier-db | Internal only; `127.0.0.1:5438` with `compose.debug.yaml` (`SUPPLIER_DB_HOST_PORT`) |
 | Test database | `localhost:5439` (`SUPPLIER_DB_TEST_HOST_PORT`), only with the `test` profile |
 | Test RabbitMQ | `localhost:5677`, web page `http://localhost:15677` (`supplier_service_test` / `supplier_service_test`), only with the `test` profile |
 

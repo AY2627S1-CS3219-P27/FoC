@@ -6,6 +6,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AdminUserErrands } from "./_errands/admin-user-errands";
 import { ApiLogPanel } from "./_errands/api-log-panel";
 import { ErrandsTab } from "./_errands/errands-tab";
+import { SupplierRequestsTab } from "./_admin/supplier-requests-tab";
+import { SupplierStatusControl } from "./_admin/supplier-status-control";
+import { UserAdminActions } from "./_admin/user-admin-actions";
+import { CategoriesPanel } from "./_admin/categories-panel";
+import { CreateUserForm } from "./_admin/create-user-form";
+import { ArchiveAccount } from "./_account/archive-account";
+import { MyRequests } from "./_suppliers/my-requests";
+import { SupplierForm } from "./_suppliers/supplier-form";
+import { authFetch, refreshSession, setSessionExpiredHandler } from "@/lib/api";
 
 interface UserProfile {
   uuid: string;
@@ -34,13 +43,14 @@ interface SupplierItem {
   floor: string;
   status: string;
   photoUrl: string | null;
-  locationDescription: string;
+  locationDescription?: string; // only on the single-supplier read, not the list
 }
 
 interface BuildingItem {
   id: string;
   canonicalName: string;
   shortName: string;
+  coordinates?: { latitude: number; longitude: number };
 }
 
 interface CategoryItem {
@@ -59,7 +69,7 @@ interface UserListItem {
   isArchived?: boolean;
 }
 
-type Tab = "errands" | "suppliers" | "profile" | "users";
+type Tab = "errands" | "suppliers" | "profile" | "users" | "requests";
 
 export default function HomePage() {
   const router = useRouter();
@@ -90,12 +100,13 @@ export default function HomePage() {
   const [allUsers, setAllUsers] = useState<UserListItem[]>([]);
   const [usersTotal, setUsersTotal] = useState(0);
   const [usersLoading, setUsersLoading] = useState(false);
+  const isAdmin = user?.isAdmin ?? false;
 
   const loadCreditBalance = useCallback(async () => {
     setCreditBalanceStatus("loading");
 
     try {
-      const res = await fetch("/api/credits/balance", {
+      const res = await authFetch("/api/credits/balance", {
         credentials: "same-origin",
       });
 
@@ -121,8 +132,10 @@ export default function HomePage() {
     }
   }, [router]);
 
+  useEffect(() => setSessionExpiredHandler(() => router.push("/login")), [router]);
+
   useEffect(() => {
-    fetch("/api/users/me")
+    authFetch("/api/users/me")
       .then((res) => {
         if (!res.ok) throw new Error("Not authenticated");
         return res.json();
@@ -141,11 +154,12 @@ export default function HomePage() {
     setSuppliersLoading(true);
     try {
       const params = new URLSearchParams();
-      params.set("status", "Active");
+      // Admins also see Inactive suppliers, so they can reactivate them.
+      if (!isAdmin) params.set("status", "Active");
       if (searchName) params.set("name", searchName);
       if (filterBuilding) params.set("buildingId", filterBuilding);
       if (filterKind) params.set("kind", filterKind);
-      const res = await fetch(`/api/suppliers?${params}`);
+      const res = await authFetch(`/api/suppliers?${params}`);
       if (res.ok) {
         const data = await res.json();
         setSuppliers(data.items);
@@ -154,7 +168,7 @@ export default function HomePage() {
       /* supplier service might not be running */
     }
     setSuppliersLoading(false);
-  }, [searchName, filterBuilding, filterKind]);
+  }, [searchName, filterBuilding, filterKind, isAdmin]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -163,25 +177,27 @@ export default function HomePage() {
     return () => clearTimeout(timer);
   }, [loadSuppliers]);
 
-  useEffect(() => {
-    Promise.all([
-      fetch("/api/buildings")
-        .then((r) => r.json())
-        .catch(() => []),
-      fetch("/api/categories")
-        .then((r) => r.json())
-        .catch(() => []),
-    ]).then(([b, c]) => {
-      setBuildings(Array.isArray(b) ? b : []);
-      setCategories(Array.isArray(c) ? c : []);
-    });
+  const loadCategories = useCallback(async () => {
+    const c = await authFetch("/api/categories")
+      .then((r) => r.json())
+      .catch(() => []);
+    setCategories(Array.isArray(c) ? c : []);
   }, []);
+
+  useEffect(() => {
+    authFetch("/api/buildings")
+      .then((r) => r.json())
+      .catch(() => [])
+      .then((b) => setBuildings(Array.isArray(b) ? b : []));
+    const timer = setTimeout(() => void loadCategories(), 0);
+    return () => clearTimeout(timer);
+  }, [loadCategories]);
 
   async function handleProfileUpdate(e: React.FormEvent) {
     e.preventDefault();
     setProfileMsg("");
     const trimmedUrl = newProfilePictureUrl.trim();
-    const res = await fetch("/api/users/me", {
+    const res = await authFetch("/api/users/me", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -214,15 +230,20 @@ export default function HomePage() {
 
   async function handleRoleUpdate() {
     setRoleMsg("");
-    const res = await fetch("/api/users/me/roles", {
+    const res = await authFetch("/api/users/me/roles", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ roles: selectedRoles }),
     });
     if (res.ok) {
-      setRoleMsg(
-        "Roles updated. Please log in again to refresh your session."
-      );
+      // A refreshed token carries the new roles, so no re-login is needed.
+      const me = (await refreshSession()) ? await authFetch("/api/users/me") : null;
+      if (me?.ok) {
+        setUser((await me.json()) as UserProfile);
+        setRoleMsg("Roles updated.");
+      } else {
+        setRoleMsg("Roles updated. Please log in again to refresh your session.");
+      }
     } else {
       setRoleMsg("Failed to update roles.");
     }
@@ -231,7 +252,7 @@ export default function HomePage() {
   const loadAllUsers = useCallback(async () => {
     setUsersLoading(true);
     try {
-      const res = await fetch("/api/users?limit=100");
+      const res = await authFetch("/api/users?limit=100");
       if (res.ok) {
         const data = await res.json();
         setAllUsers(data.items);
@@ -244,7 +265,7 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    if (tab === "users" && user?.isAdmin) {
+    if ((tab === "users" || tab === "requests") && user?.isAdmin) {
       const timer = setTimeout(() => {
         void loadAllUsers();
       }, 0);
@@ -318,6 +339,18 @@ export default function HomePage() {
                   Users
                 </button>
               )}
+              {user?.isAdmin && (
+                <button
+                  onClick={() => setTab("requests")}
+                  className={`btn-press px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                    tab === "requests"
+                      ? "bg-white/20 text-white"
+                      : "text-white/70 hover:text-white hover:bg-white/10"
+                  }`}
+                >
+                  Requests
+                </button>
+              )}
             </nav>
           </div>
           <div className="flex items-center gap-3">
@@ -366,6 +399,14 @@ export default function HomePage() {
               Users
             </button>
           )}
+          {user?.isAdmin && (
+            <button
+              onClick={() => setTab("requests")}
+              className={`btn-press flex-1 py-2.5 text-sm font-medium transition-colors ${tab === "requests" ? "bg-white/15 text-white" : "text-white/60"}`}
+            >
+              Requests
+            </button>
+          )}
         </div>
       </header>
 
@@ -405,6 +446,9 @@ export default function HomePage() {
               setFilterKind={setFilterKind}
               selectedSupplier={selectedSupplier}
               setSelectedSupplier={setSelectedSupplier}
+              isAdmin={isAdmin}
+              onSuppliersChanged={loadSuppliers}
+              onCategoriesChanged={loadCategories}
             />
           )}
 
@@ -413,6 +457,24 @@ export default function HomePage() {
               users={allUsers}
               total={usersTotal}
               loading={usersLoading}
+              currentUserId={user.uuid}
+              onUserUpdated={(updated) =>
+                setAllUsers((prev) => prev.map((u) => (u.uuid === updated.uuid ? updated : u)))
+              }
+              onUserCreated={(created) => {
+                setAllUsers((prev) => [created, ...prev]);
+                setUsersTotal((t) => t + 1);
+              }}
+            />
+          )}
+
+          {tab === "requests" && user?.isAdmin && (
+            <SupplierRequestsTab
+              suppliers={suppliers}
+              buildings={buildings}
+              categories={categories}
+              users={allUsers}
+              onResolved={loadSuppliers}
             />
           )}
 
@@ -448,12 +510,32 @@ export default function HomePage() {
 function SupplierDrawer({
   supplier,
   onClose,
+  isAdmin,
+  onStatusChanged,
+  buildings,
+  categories,
+  onSaved,
 }: {
   supplier: SupplierItem;
   onClose: () => void;
+  isAdmin: boolean;
+  onStatusChanged: () => void;
+  buildings: BuildingItem[];
+  categories: CategoryItem[];
+  onSaved: (message: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [location, setLocation] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [saved, setSaved] = useState(0);
   const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    authFetch(`/api/suppliers/${supplier.id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { locationDescription?: string } | null) => setLocation(d?.locationDescription ?? null))
+      .catch(() => setLocation(null));
+  }, [supplier.id, saved]);
 
   useEffect(() => {
     requestAnimationFrame(() => {
@@ -501,7 +583,7 @@ function SupplierDrawer({
               value={supplier.building?.shortName ?? "—"}
             />
             <InfoRow label="Floor" value={supplier.floor} />
-            <InfoRow label="Location" value={supplier.locationDescription} />
+            <InfoRow label="Location" value={location ?? "—"} />
             <InfoRow
               label="Status"
               value={
@@ -531,6 +613,34 @@ function SupplierDrawer({
                 ))}
               </div>
             </div>
+            {isAdmin && (
+              <SupplierStatusControl
+                supplierId={supplier.id}
+                status={supplier.status}
+                onChanged={onStatusChanged}
+              />
+            )}
+            {editing ? (
+              <SupplierForm
+                mode={isAdmin ? "admin-edit" : "request-update"}
+                supplierId={supplier.id}
+                buildings={buildings}
+                categories={categories}
+                onDone={(message) => {
+                  setEditing(false);
+                  setSaved((n) => n + 1);
+                  onSaved(message);
+                }}
+                onCancel={() => setEditing(false)}
+              />
+            ) : (
+              <button
+                onClick={() => setEditing(true)}
+                className="btn-press rounded-xl border border-border px-3.5 py-2 text-sm font-medium hover:bg-surface"
+              >
+                {isAdmin ? "Edit supplier" : "Suggest a change"}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -538,9 +648,12 @@ function SupplierDrawer({
   );
 }
 
+type SupplierPanel = "add" | "categories" | "suggest" | "mine" | null;
+
 function SuppliersTab({
   suppliers,
   buildings,
+  categories,
   loading,
   searchName,
   setSearchName,
@@ -550,6 +663,9 @@ function SuppliersTab({
   setFilterKind,
   selectedSupplier,
   setSelectedSupplier,
+  isAdmin,
+  onSuppliersChanged,
+  onCategoriesChanged,
 }: {
   suppliers: SupplierItem[];
   buildings: BuildingItem[];
@@ -563,17 +679,86 @@ function SuppliersTab({
   setFilterKind: (v: string) => void;
   selectedSupplier: string | null;
   setSelectedSupplier: (v: string | null) => void;
+  isAdmin: boolean;
+  onSuppliersChanged: () => void;
+  onCategoriesChanged: () => void;
 }) {
   const selected = suppliers.find((s) => s.id === selectedSupplier);
+  const [panel, setPanel] = useState<SupplierPanel>(null);
+  const [notice, setNotice] = useState("");
+  const [requestsVersion, setRequestsVersion] = useState(0);
+
+  const panelButtons: [Exclude<SupplierPanel, null>, string][] = isAdmin
+    ? [
+        ["add", "Add supplier"],
+        ["categories", "Categories"],
+      ]
+    : [
+        ["suggest", "Suggest a supplier"],
+        ["mine", "My requests"],
+      ];
+
+  function done(message: string) {
+    setNotice(message);
+    setPanel(isAdmin ? null : "mine");
+    setRequestsVersion((v) => v + 1);
+    onSuppliersChanged();
+  }
 
   return (
     <div>
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold mb-1">Supplier Directory</h2>
-        <p className="text-muted text-sm">
-          Browse campus pickup points for your errands.
-        </p>
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-bold mb-1">Supplier Directory</h2>
+          <p className="text-muted text-sm">
+            Browse campus pickup points for your errands.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          {panelButtons.map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => {
+                setNotice("");
+                setPanel(panel === key ? null : key);
+              }}
+              className={`btn-press rounded-xl border px-3.5 py-2 text-sm font-medium transition-colors ${
+                panel === key
+                  ? "border-nus-orange bg-nus-orange/10 text-nus-orange"
+                  : "border-border text-muted hover:text-foreground"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
+
+      {notice && (
+        <p role="status" className="text-sm text-success mb-4">
+          {notice}
+        </p>
+      )}
+      {(panel === "add" || panel === "suggest") && (
+        <div className="mb-6 max-w-2xl">
+          <SupplierForm
+            mode={panel === "add" ? "admin-create" : "request-create"}
+            buildings={buildings}
+            categories={categories}
+            onDone={done}
+            onCancel={() => setPanel(null)}
+          />
+        </div>
+      )}
+      {panel === "categories" && <CategoriesPanel categories={categories} onAdded={onCategoriesChanged} />}
+      {panel === "mine" && (
+        <div className="mb-6 max-w-2xl">
+          <MyRequests
+            reloadKey={requestsVersion}
+            supplierName={(id) => suppliers.find((s) => s.id === id)?.displayName}
+          />
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 mb-6">
@@ -652,8 +837,13 @@ function SuppliersTab({
                   {supplier.kind}
                 </span>
               </div>
+              {supplier.status !== "Active" && (
+                <span className="inline-block text-xs bg-danger/10 text-danger px-2 py-0.5 rounded-full font-medium mb-2">
+                  {supplier.status}
+                </span>
+              )}
               <p className="text-sm text-muted mb-2">
-                Floor {supplier.floor} · {supplier.locationDescription}
+                Floor {supplier.floor}
               </p>
               <div className="flex flex-wrap gap-1">
                 {supplier.categories.map((cat) => (
@@ -672,8 +862,18 @@ function SuppliersTab({
 
       {selected && (
         <SupplierDrawer
+          key={selected.id}
           supplier={selected}
           onClose={() => setSelectedSupplier(null)}
+          isAdmin={isAdmin}
+          onStatusChanged={onSuppliersChanged}
+          buildings={buildings}
+          categories={categories}
+          onSaved={(message) => {
+            setNotice(message);
+            if (!isAdmin) setRequestsVersion((v) => v + 1);
+            onSuppliersChanged();
+          }}
         />
       )}
     </div>
@@ -699,20 +899,57 @@ function UsersTab({
   users,
   total,
   loading,
+  currentUserId,
+  onUserUpdated,
+  onUserCreated,
 }: {
   users: UserListItem[];
   total: number;
   loading: boolean;
+  currentUserId: string;
+  onUserUpdated: (user: UserListItem) => void;
+  onUserCreated: (user: UserListItem) => void;
 }) {
   const [errandsOf, setErrandsOf] = useState<UserListItem | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [notice, setNotice] = useState("");
   return (
     <div>
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold mb-1">All Users</h2>
-        <p className="text-muted text-sm">
-          {total} registered user{total !== 1 ? "s" : ""} on the platform.
-        </p>
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-bold mb-1">All Users</h2>
+          <p className="text-muted text-sm">
+            {total} registered user{total !== 1 ? "s" : ""} on the platform.
+          </p>
+        </div>
+        {!creating && (
+          <button
+            onClick={() => {
+              setNotice("");
+              setCreating(true);
+            }}
+            className="btn-press rounded-xl bg-nus-orange px-3.5 py-2 text-sm font-semibold text-white hover:bg-nus-orange-hover"
+          >
+            Create user
+          </button>
+        )}
       </div>
+
+      {notice && (
+        <p role="status" className="text-sm text-success mb-4">
+          {notice}
+        </p>
+      )}
+      {creating && (
+        <CreateUserForm<UserListItem>
+          onCreated={(created) => {
+            setCreating(false);
+            setNotice(`Created ${created.email}. They set a password with "Forgot password".`);
+            onUserCreated(created);
+          }}
+          onCancel={() => setCreating(false)}
+        />
+      )}
 
       {loading ? (
         <div className="text-center py-12 text-muted fade-in">
@@ -733,6 +970,7 @@ function UsersTab({
                   <th className="px-4 py-3 font-medium">Roles</th>
                   <th className="px-4 py-3 font-medium">Status</th>
                   <th className="px-4 py-3 font-medium">Errands</th>
+                  <th className="px-4 py-3 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -784,6 +1022,13 @@ function UsersTab({
                       >
                         View errands
                       </button>
+                    </td>
+                    <td className="px-4 py-3">
+                      <UserAdminActions
+                        user={u}
+                        isSelf={u.uuid === currentUserId}
+                        onUpdated={onUserUpdated}
+                      />
                     </td>
                   </tr>
                 ))}
@@ -1023,6 +1268,8 @@ function ProfileTab({
           Reset password
         </Link>
       </div>
+
+      <ArchiveAccount />
     </div>
   );
 }
