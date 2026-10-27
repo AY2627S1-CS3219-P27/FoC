@@ -12,7 +12,8 @@ const ev = (
 const created = ev(1, 'Pending-Supplier', {
   requesterId: '33333333-3333-3333-3333-333333333333',
   supplierId: '44444444-4444-4444-4444-444444444444',
-  deliveryLocation: 'COM2',
+  deliveryBuildingId: '55555555-5555-5555-5555-555555555555',
+  deliveryDetail: 'Level 3 04-02',
   rewardCredits: 5,
   pickupLocation: null,
   description: null,
@@ -31,7 +32,9 @@ describe('foldEvents', () => {
       lastSequenceNumber: 1,
       requesterId: '33333333-3333-3333-3333-333333333333',
       supplierId: '44444444-4444-4444-4444-444444444444',
-      deliveryLocation: 'COM2',
+      deliveryBuildingId: '55555555-5555-5555-5555-555555555555',
+      deliveryDetail: 'Level 3 04-02',
+      deliveryLocation: null,
       rewardCredits: 5,
       pickupLocation: null,
       pickupName: null,
@@ -64,6 +67,11 @@ describe('foldEvents', () => {
       ev(3, 'Open', { courierId: null }),
     ]);
     expect(out?.courierId).toBeNull();
+  });
+
+  it('records the delivery building short name when the supplier validates', () => {
+    const out = foldEvents([created, ev(2, 'Reserving-Credit', { deliveryLocation: 'COM2' })]);
+    expect(out?.deliveryLocation).toBe('COM2');
   });
 
   it('restores ISO strings to Dates', () => {

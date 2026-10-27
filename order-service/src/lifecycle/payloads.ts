@@ -23,7 +23,7 @@ export const PAYLOADS: Record<string, Joi.ObjectSchema> = {
     creditEventId: Joi.string().uuid(),
     requestedAmount: amount,
     supplierEventId: Joi.string().uuid(),
-    supplierOutcome: Joi.string().valid('NOT_FOUND', 'INACTIVE'),
+    supplierOutcome: Joi.string().valid('NOT_FOUND', 'INACTIVE', 'BUILDING_NOT_FOUND'),
   })
     .and('creditEventId', 'requestedAmount')
     .and('supplierEventId', 'supplierOutcome')

@@ -11,7 +11,8 @@ export type Col =
   | 'supplierValidatedAt'
   | 'pickupLocation'
   | 'pickupName'
-  | 'pickupDescription';
+  | 'pickupDescription'
+  | 'deliveryLocation';
 
 // Who may take an edge. `other` = any user who is not the requester.
 export type UserRole = 'requester' | 'courier' | 'other';
@@ -84,10 +85,20 @@ export const EDGES: Partial<
           amount: c.rewardCredits,
         },
       })),
-      sets: ['supplierValidatedAt', 'pickupName', 'pickupLocation', 'pickupDescription'],
+      sets: [
+        'supplierValidatedAt',
+        'pickupName',
+        'pickupLocation',
+        'pickupDescription',
+        'deliveryLocation',
+      ],
     },
     // Nothing reserved yet, so nothing to release.
-    Cancelled: cancel(sys, ['SUPPLIER_UNAVAILABLE', 'SUPPLIER_VALIDATION_TIMEOUT'], null),
+    Cancelled: cancel(
+      sys,
+      ['SUPPLIER_UNAVAILABLE', 'BUILDING_UNAVAILABLE', 'SUPPLIER_VALIDATION_TIMEOUT'],
+      null,
+    ),
   },
   'Reserving-Credit': {
     Open: { ...plain('CreditReserved', sys), setsExpiry: true },

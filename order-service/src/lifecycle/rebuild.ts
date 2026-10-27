@@ -20,6 +20,8 @@ const COLUMNS = [
   'requesterId',
   'supplierId',
   'supplierValidatedAt',
+  'deliveryBuildingId',
+  'deliveryDetail',
   'deliveryLocation',
   'rewardCredits',
   'collectionItems',
@@ -49,6 +51,7 @@ export function foldEvents(events: RebuildEvent[]): RebuiltErrand | null {
   const state: Record<string, unknown> = {
     courierId: null,
     supplierValidatedAt: null,
+    deliveryLocation: null,
     pickupLocation: null,
     pickupName: null,
     pickupDescription: null,
