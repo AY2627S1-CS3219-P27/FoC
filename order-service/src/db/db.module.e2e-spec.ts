@@ -52,3 +52,29 @@ describe('DbModule migrations on startup', () => {
     }
   });
 });
+
+describe('errands table after the delivery building migration', () => {
+  const insert = (
+    pool: pg.Pool,
+    over: { delivery_location?: string | null; cancellation_reason?: string },
+  ) =>
+    pool.query(
+      `INSERT INTO errands (id, requester_id, supplier_id, delivery_building_id, delivery_detail,
+         delivery_location, reward_credits, collection_items, status, cancellation_reason, last_sequence_number)
+       VALUES (gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'Level 3 04-02',
+         $1, 5, 'a coffee', 'Cancelled', $2, 1)`,
+      [over.delivery_location ?? null, over.cancellation_reason],
+    );
+
+  it('takes a null delivery location and the BUILDING_UNAVAILABLE reason, and still refuses an unlisted reason', async () => {
+    const t = await createTestDb();
+    try {
+      await insert(t.pool, { cancellation_reason: 'BUILDING_UNAVAILABLE' });
+      await expect(insert(t.pool, { cancellation_reason: 'because' })).rejects.toThrow(
+        /errands_cancellation_reason_valid/,
+      );
+    } finally {
+      await t.close();
+    }
+  });
+});

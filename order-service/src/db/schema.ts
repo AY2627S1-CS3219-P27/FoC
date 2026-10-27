@@ -39,7 +39,9 @@ export const errands = pgTable(
     pickupLocation: text('pickup_location'),
     pickupName: text('pickup_name'), // supplier display name, from the supplier snapshot
     pickupDescription: text('pickup_description'), // floor and spot, from the supplier snapshot
-    deliveryLocation: text('delivery_location').notNull(),
+    deliveryBuildingId: uuid('delivery_building_id').notNull(),
+    deliveryDetail: text('delivery_detail').notNull(), // requester's room or level; never sent to supplier-service
+    deliveryLocation: text('delivery_location'), // building short name, from the delivery building snapshot
     rewardCredits: integer('reward_credits').notNull(),
     collectionItems: text('collection_items').notNull(), // read-only; never filtered or sorted
 

@@ -20,6 +20,7 @@ export type Role = UserRole | 'system';
 // Closed set of cancellation reasons; each cancel edge allows a subset.
 export const CANCELLATION_REASONS = [
   'SUPPLIER_UNAVAILABLE',
+  'BUILDING_UNAVAILABLE',
   'SUPPLIER_VALIDATION_TIMEOUT',
   'INSUFFICIENT_CREDITS',
   'MISSING_BALANCE',
