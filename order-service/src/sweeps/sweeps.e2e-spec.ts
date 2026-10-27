@@ -44,7 +44,8 @@ async function seed(status: Status, over: Partial<typeof errands.$inferInsert> =
     status,
     supplierId: randomUUID(),
     courierId: status === 'Picked Up' || status === 'Delivered' ? randomUUID() : undefined,
-    deliveryLocation: 'COM2',
+    deliveryBuildingId: randomUUID(),
+    deliveryDetail: 'Level 3 04-02',
     rewardCredits: 5,
     collectionItems: 'bubble tea',
     ...over,
@@ -65,7 +66,8 @@ describe('expiresAt', () => {
     const res = await createErrand(t.db, {
       requesterId: randomUUID(),
       supplierId: randomUUID(),
-      deliveryLocation: 'COM2',
+      deliveryBuildingId: randomUUID(),
+      deliveryDetail: 'Level 3 04-02',
       rewardCredits: 5,
       expiryDurationMinutes: 120,
       collectionItems: 'bubble tea',
@@ -246,7 +248,8 @@ describe('Pending-Supplier', () => {
     const res = await createErrand(t.db, {
       requesterId: randomUUID(),
       supplierId: randomUUID(),
-      deliveryLocation: 'COM2',
+      deliveryBuildingId: randomUUID(),
+      deliveryDetail: 'Level 3 04-02',
       rewardCredits: 5,
       expiryDurationMinutes: 60,
       collectionItems: 'bubble tea',
@@ -286,6 +289,7 @@ describe('Pending-Supplier', () => {
     expect(resent.eventId).toBe(supplierRequestId(id, 1));
     expect(resent.publishedAt).toBeNull();
     expect(resent.envelope).toMatchObject({ payload: before.envelope.payload });
+    expect(resent.envelope.payload).toHaveProperty('deliveryBuildingId'); // same building as the first ask
     expect((await row(id)).status).toBe('Pending-Supplier');
     const r = await retry(id);
     expect(r.attempts).toBe(1);

@@ -119,8 +119,13 @@ const after = (ms: number) => sql`now() + (${ms}::bigint * interval '1 milliseco
 
 // No retry row yet = due at created_at + base.
 async function resendSupplierRequests(db: Db, cfg: SweepConfig): Promise<number> {
-  const due = await db.execute<{ id: string; supplier_id: string; attempts: number }>(sql`
-    SELECT e.id, e.supplier_id, coalesce(r.attempts, 0) AS attempts
+  const due = await db.execute<{
+    id: string;
+    supplier_id: string;
+    delivery_building_id: string;
+    attempts: number;
+  }>(sql`
+    SELECT e.id, e.supplier_id, e.delivery_building_id, coalesce(r.attempts, 0) AS attempts
     FROM errands e LEFT JOIN supplier_validation_retries r ON r.errand_id = e.id
     WHERE e.status = 'Pending-Supplier'
       AND e.created_at > ${ago(cfg.supplierHoldMs)}
@@ -128,7 +133,7 @@ async function resendSupplierRequests(db: Db, cfg: SweepConfig): Promise<number>
     LIMIT ${BATCH}`);
 
   let resent = 0;
-  for (const { id, supplier_id, attempts } of due.rows) {
+  for (const { id, supplier_id, delivery_building_id, attempts } of due.rows) {
     const sent = Number(attempts);
     const wait = backoffDelay(sent + 2, {
       baseMs: cfg.supplierRetryBaseMs,
@@ -143,7 +148,7 @@ async function resendSupplierRequests(db: Db, cfg: SweepConfig): Promise<number>
       // Still unpublished: the relay has not sent the last one, so a new one would only queue behind it.
       const send = !last || last.publishedAt !== null;
       if (send) {
-        await enqueueSupplierRequest(tx, id, supplier_id, sent + 1);
+        await enqueueSupplierRequest(tx, id, supplier_id, delivery_building_id, sent + 1);
         resent++;
       }
       await tx.execute(sql`

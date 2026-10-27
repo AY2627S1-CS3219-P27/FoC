@@ -29,7 +29,7 @@
               "format": "uuid"
             },
             "outcome": {
-              "enum": ["FOUND", "NOT_FOUND"]
+              "enum": ["FOUND", "NOT_FOUND", "BUILDING_NOT_FOUND"]
             },
             "supplier": {
               "type": "object",
@@ -107,6 +107,25 @@
                   }
                 }
               }
+            },
+            "deliveryBuilding": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "shortName", "canonicalName"],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "shortName": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "canonicalName": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
             }
           },
           "if": {
@@ -120,18 +139,22 @@
           "then": {
             "type": "object",
             "properties": {
-              "supplier": true
+              "supplier": true,
+              "deliveryBuilding": true
             },
-            "required": ["supplier"]
+            "required": ["supplier", "deliveryBuilding"]
           },
           "else": {
             "type": "object",
+            "properties": {
+              "supplier": true,
+              "deliveryBuilding": true
+            },
             "not": {
-              "type": "object",
-              "properties": {
-                "supplier": true
-              },
-              "required": ["supplier"]
+              "anyOf": [
+                { "required": ["supplier"] },
+                { "required": ["deliveryBuilding"] }
+              ]
             }
           }
         }

@@ -29,10 +29,17 @@ const supplier = () => ({
   coordinates: { latitude: 1.294, longitude: 103.7738 },
 });
 
+const deliveryBuilding = () => ({
+  id: id(),
+  shortName: 'SOC',
+  canonicalName: 'School of Computing',
+});
+
 const question = () =>
   envelope('SupplierValidationRequested', 'order-service', {
     errandId: id(),
     supplierId: id(),
+    deliveryBuildingId: id(),
   });
 
 const found = () =>
@@ -41,6 +48,7 @@ const found = () =>
     supplierId: id(),
     outcome: 'FOUND',
     supplier: supplier(),
+    deliveryBuilding: deliveryBuilding(),
   });
 
 const notFound = () =>
@@ -50,10 +58,18 @@ const notFound = () =>
     outcome: 'NOT_FOUND',
   });
 
+const buildingNotFound = () =>
+  envelope('SupplierValidationCompleted', 'supplier-service', {
+    errandId: id(),
+    supplierId: id(),
+    outcome: 'BUILDING_NOT_FOUND',
+  });
+
 const validContracts = [
   [ORDER_SUPPLIER_VALIDATION_REQUESTED_V1_ROUTING_KEY, question()],
   [SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY, found()],
   [SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY, notFound()],
+  [SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY, buildingNotFound()],
 ] as const satisfies ReadonlyArray<readonly [EventContractKey, object]>;
 
 describe('supplier validation event contracts (Supplier FR F15.7)', () => {
@@ -88,7 +104,7 @@ describe('supplier validation event contracts (Supplier FR F15.7)', () => {
     });
   });
 
-  it.each(['errandId', 'supplierId'])(
+  it.each(['errandId', 'supplierId', 'deliveryBuildingId'])(
     'rejects a question without %s, or with a non-UUID one',
     (field) => {
       const missing = question() as { payload: Record<string, unknown> };
@@ -114,6 +130,37 @@ describe('supplier validation event contracts (Supplier FR F15.7)', () => {
     notFoundWith.payload.supplier = supplier();
 
     for (const input of [foundWithout, notFoundWith]) {
+      expect(
+        validator.validate(SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY, input),
+      ).toMatchObject({ valid: false, code: 'INVALID_PAYLOAD' });
+    }
+  });
+
+  it('requires the delivery building when FOUND, and forbids anything extra on NOT_FOUND and BUILDING_NOT_FOUND', () => {
+    const foundWithout = found() as { payload: Record<string, unknown> };
+    delete foundWithout.payload.deliveryBuilding;
+    const foundBadBuilding = found() as {
+      payload: { deliveryBuilding: Record<string, unknown> };
+    };
+    foundBadBuilding.payload.deliveryBuilding.coordinates = { latitude: 1 };
+    const notFoundWith = notFound() as { payload: Record<string, unknown> };
+    notFoundWith.payload.deliveryBuilding = deliveryBuilding();
+    const missingWithSupplier = buildingNotFound() as {
+      payload: Record<string, unknown>;
+    };
+    missingWithSupplier.payload.supplier = supplier();
+    const missingWithBuilding = buildingNotFound() as {
+      payload: Record<string, unknown>;
+    };
+    missingWithBuilding.payload.deliveryBuilding = deliveryBuilding();
+
+    for (const input of [
+      foundWithout,
+      foundBadBuilding,
+      notFoundWith,
+      missingWithSupplier,
+      missingWithBuilding,
+    ]) {
       expect(
         validator.validate(SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY, input),
       ).toMatchObject({ valid: false, code: 'INVALID_PAYLOAD' });

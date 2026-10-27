@@ -16,7 +16,7 @@ export const SUPPLIER_REPLY_SPECS: ReplySpec[] = [
         supplierId: p.supplierId,
         expected: 'Pending-Supplier',
         to: 'Reserving-Credit',
-        set: { supplierValidatedAt: new Date(e.timestamp), ...pickupOf(p.supplier) }, // supplier's time, stable on redelivery
+        set: { supplierValidatedAt: new Date(e.timestamp), ...pickupOf(p.supplier), deliveryLocation: p.deliveryBuilding.shortName }, // supplier's time, stable on redelivery
         payload: { supplierEventId: e.eventId, supplier: p.supplier },
       };
     }
@@ -26,10 +26,12 @@ export const SUPPLIER_REPLY_SPECS: ReplySpec[] = [
       supplierId: p.supplierId,
       expected: 'Pending-Supplier',
       to: 'Cancelled',
-      set: { cancellationReason: 'SUPPLIER_UNAVAILABLE' },
+      set: {
+        cancellationReason: p.outcome === 'BUILDING_NOT_FOUND' ? 'BUILDING_UNAVAILABLE' : 'SUPPLIER_UNAVAILABLE',
+      },
       payload: {
         supplierEventId: e.eventId,
-        supplierOutcome: p.outcome === 'NOT_FOUND' ? 'NOT_FOUND' : 'INACTIVE',
+        supplierOutcome: p.outcome === 'FOUND' ? 'INACTIVE' : p.outcome,
       },
     };
   }),

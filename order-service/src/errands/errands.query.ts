@@ -23,6 +23,7 @@ const toView = (r: typeof errands.$inferSelect, callerId?: string) => ({
   pickupName: r.pickupName,
   pickupDescription: r.pickupDescription,
   deliveryLocation: r.deliveryLocation,
+  deliveryDetail: r.deliveryDetail,
   collectionItems: r.collectionItems,
   description: r.description,
   rewardCredits: r.rewardCredits,

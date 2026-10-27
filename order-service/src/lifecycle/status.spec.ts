@@ -39,6 +39,15 @@ describe('EDGES', () => {
     expect(findEdge('Adjusting-Credit', 'Open', 'CreditAdjustmentFailed')?.sets).toEqual([]);
   });
 
+  it('lets the supplier validation write the delivery snapshot and cancel for a missing building', () => {
+    expect(findEdge('Pending-Supplier', 'Reserving-Credit')?.sets).toContain('deliveryLocation');
+    expect(findEdge('Pending-Supplier', 'Cancelled')?.reasons).toEqual([
+      'SUPPLIER_UNAVAILABLE',
+      'BUILDING_UNAVAILABLE',
+      'SUPPLIER_VALIDATION_TIMEOUT',
+    ]);
+  });
+
   it('gives every edge an actor rule and every cancel edge a reason subset', () => {
     const edges = Object.values(EDGES).flatMap((m) => Object.values(m!)).flat();
     for (const e of edges) {

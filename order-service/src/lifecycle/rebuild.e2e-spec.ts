@@ -35,7 +35,8 @@ async function create(over = {}) {
   const res = await createErrand(t.db, {
     requesterId: requester,
     supplierId: randomUUID(),
-    deliveryLocation: 'COM2',
+    deliveryBuildingId: randomUUID(),
+    deliveryDetail: 'Level 3 04-02',
     rewardCredits: 5,
     description: 'no onions',
     expiryDurationMinutes: 90,

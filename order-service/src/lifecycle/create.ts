@@ -9,7 +9,8 @@ import type { Db } from './transition.js';
 export interface CreateRequestInputs {
   requesterId: string;
   supplierId: string;
-  deliveryLocation: string;
+  deliveryBuildingId: string;
+  deliveryDetail: string; // room or level; stays in order-service
   rewardCredits: number;
   description?: string;
   expiryDurationMinutes: number; // ADR 0007; expiresAt is set when the errand goes Open
@@ -42,7 +43,8 @@ export function createErrand(db: Db, i: CreateRequestInputs): Promise<CreateResu
   const request: Record<string, unknown> = {
     requesterId: i.requesterId,
     supplierId: i.supplierId,
-    deliveryLocation: i.deliveryLocation,
+    deliveryBuildingId: i.deliveryBuildingId,
+    deliveryDetail: i.deliveryDetail,
     rewardCredits: i.rewardCredits,
     description: i.description ?? null,
     expiryDurationMinutes, // the Reserving-Credit -> Open edge turns this into expiresAt
@@ -79,7 +81,7 @@ export function createErrand(db: Db, i: CreateRequestInputs): Promise<CreateResu
         payload: request,
         actorId: i.requesterId,
       });
-      await enqueueSupplierRequest(tx, row.id, i.supplierId, 0);
+      await enqueueSupplierRequest(tx, row.id, i.supplierId, i.deliveryBuildingId, 0);
       return { ok: true, errandId: row.id };
     }
 

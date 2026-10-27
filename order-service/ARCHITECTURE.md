@@ -1,6 +1,6 @@
 # order-service architecture
 
-Diagrams are Mermaid (render on GitHub / VS Code). Decisions behind them: ADRs [0001](../docs/adr/order-service/0001-hand-rolled-event-sourcing-on-postgres.md)–[0007](../docs/adr/order-service/0007-expiry-duration-autocomplete-and-supplier-validation.md), [0008](../docs/adr/order-service/0008-transactional-outbox-and-broker-access.md), [0009](../docs/adr/order-service/0009-referenced-data-ids-and-supplier-snapshot.md), [0010](../docs/adr/order-service/0010-role-block-with-ttl.md). Terms: [`CONTEXT.md`](./CONTEXT.md).
+Diagrams are Mermaid (render on GitHub / VS Code). Decisions behind them: ADRs [0001](../docs/adr/order-service/0001-hand-rolled-event-sourcing-on-postgres.md)–[0007](../docs/adr/order-service/0007-expiry-duration-autocomplete-and-supplier-validation.md), [0008](../docs/adr/order-service/0008-transactional-outbox-and-broker-access.md), [0009](../docs/adr/order-service/0009-referenced-data-ids-and-supplier-snapshot.md), [0010](../docs/adr/order-service/0010-role-block-with-ttl.md), [0011](../docs/adr/order-service/0011-delivery-building-snapshot.md). Terms: [`CONTEXT.md`](./CONTEXT.md).
 
 ## 1. Components
 
@@ -102,7 +102,7 @@ Each row is one database transaction (§3): a conditional `UPDATE … WHERE stat
 | # | From → To | Event | Triggered by | Conditions | Credit op → resulting state |
 |---|---|---|---|---|---|
 | 1 | Pending-Supplier → Reserving-Credit | `SupplierValidated` | system: supplier reply `FOUND` + `Active` | supplier exists and is Active | `credit.reservation.v1` (hold `rewardCredits`); waits in Reserving-Credit |
-| 2 | Pending-Supplier → Cancelled | `ErrandCancelled` | system: supplier reply `NOT_FOUND` / `Inactive` (`SUPPLIER_UNAVAILABLE`), or hold-window sweep (`SUPPLIER_VALIDATION_TIMEOUT`) | reason fits the edge | none: nothing reserved yet |
+| 2 | Pending-Supplier → Cancelled | `ErrandCancelled` | system: supplier reply `NOT_FOUND` / `Inactive` (`SUPPLIER_UNAVAILABLE`) or `BUILDING_NOT_FOUND` (`BUILDING_UNAVAILABLE`), or hold-window sweep (`SUPPLIER_VALIDATION_TIMEOUT`) | reason fits the edge | none: nothing reserved yet |
 | 3 | Reserving-Credit → Open | `CreditReserved` | system: `credit.reservation-success.v1` | — | credits held; sets `expires_at` = now + duration (ADR 0007) |
 | 4 | Reserving-Credit → Cancelled | `ErrandCancelled` | system: `credit.reservation-rejected.v1` (`INSUFFICIENT_CREDITS`, `MISSING_BALANCE`), or sweep after `RESERVING_CREDIT_TIMEOUT_MS` (`CREDIT_TIMEOUT`) | reason fits the edge | rejection: none. Timeout: `order.errand-cancelled.v1` (release, in case a reservation landed) |
 | 5 | Open → Accepted | `ErrandAccepted` | courier: `POST /:id/accept` | caller is not the requester; `expires_at` not passed; caller holds no other `Accepted` / `Picked Up` errand | none; credits stay held |
@@ -171,7 +171,7 @@ stateDiagram-v2
     PendingSupplier --> ReservingCredit: supplier validation confirmed
     ReservingCredit
   }
-  PendingSupplier --> Cancelled: supplier validation failed (SUPPLIER_UNAVAILABLE / VALIDATION_TIMEOUT)
+  PendingSupplier --> Cancelled: supplier validation failed (SUPPLIER_UNAVAILABLE / BUILDING_UNAVAILABLE / VALIDATION_TIMEOUT)
   ReservingCredit --> Open: credit reservation confirmed
   ReservingCredit --> Cancelled: reservation failed / timed out
   Open --> Accepted: courier accepts
@@ -246,10 +246,13 @@ sequenceDiagram
   O-)S: SupplierValidationRequested (outbox, same transaction as create)
   alt FOUND and Active
     S--)O: SupplierValidationCompleted
-    O->>O: Pending-Supplier to Reserving-Credit, supplier_validated_at = reply time
+    O->>O: Pending-Supplier to Reserving-Credit, supplier_validated_at = reply time, delivery short name snapshotted
   else NOT_FOUND or Inactive
     S--)O: SupplierValidationCompleted
     O->>O: to Cancelled (SUPPLIER_UNAVAILABLE)
+  else BUILDING_NOT_FOUND
+    S--)O: SupplierValidationCompleted
+    O->>O: to Cancelled (BUILDING_UNAVAILABLE)
   else no reply
     O-)S: sweep re-sends the same eventId, backoff + jitter
     O->>O: after the hold window, to Cancelled (SUPPLIER_VALIDATION_TIMEOUT)
@@ -261,7 +264,7 @@ sequenceDiagram
 
 `createErrand()` requires `expiryDurationMinutes` (15 to 10080) and a non-blank `collectionItems` string. The duration stays in the `ErrandCreated` payload only; `collectionItems` is also an `errands` column (read-only, not filtered); the `CreditReserved` edge sets `expires_at` and records it in its own payload (ADR 0007). Creation never blocks on the supplier or credit outcome (F1.4.2).
 
-Supplier validation (`src/supplier-replies/`, supplier ADR 0002): an Active supplier moves the errand on, sets `pickup_name` (supplier display name), `pickup_location` (building short name) and `pickup_description` (floor and spot) from the reply's supplier snapshot (ADR 0009), and the `SupplierValidated` event keeps that snapshot verbatim; a missing or Inactive one cancels it (F1.4.4); nothing is reserved yet, so no release is sent. A reply whose `supplierId` is not the errand's is dead-lettered, and the errand stays in `Pending-Supplier`. If no reply comes (F1.5), a sweep sends a new request with its own `eventId` (derived from the errand and attempt number). Supplier Service answers each `eventId` only once, so reusing the original would never recover a lost reply. Extra replies hit the `Pending-Supplier` guard and are acked. The sweep skips a resend while the relay has not yet published the previous request, and uses exponential backoff and jitter (`SUPPLIER_RETRY_BASE_MS`, `SUPPLIER_RETRY_MAX_MS`), tracking attempts in `supplier_validation_retries`. After `SUPPLIER_VALIDATION_HOLD_MS` from creation it cancels with `SUPPLIER_VALIDATION_TIMEOUT`; a reply arriving after that is acked and dropped.
+Supplier validation (`src/supplier-replies/`, supplier ADR 0002): an Active supplier moves the errand on, sets `pickup_name` (supplier display name), `pickup_location` (building short name) and `pickup_description` (floor and spot) from the reply's supplier snapshot (ADR 0009), and the `SupplierValidated` event keeps that snapshot verbatim; a missing or Inactive one cancels it (F1.4.4). The same reply validates the delivery building (ADR 0011): `FOUND` also sets `delivery_location` to the building's short name, and `BUILDING_NOT_FOUND` (supplier exists, building does not) cancels with `BUILDING_UNAVAILABLE`; nothing is reserved yet, so no release is sent. A reply whose `supplierId` is not the errand's is dead-lettered, and the errand stays in `Pending-Supplier`. If no reply comes (F1.5), a sweep sends a new request with its own `eventId` (derived from the errand and attempt number). Supplier Service answers each `eventId` only once, so reusing the original would never recover a lost reply. Extra replies hit the `Pending-Supplier` guard and are acked. The sweep skips a resend while the relay has not yet published the previous request, and uses exponential backoff and jitter (`SUPPLIER_RETRY_BASE_MS`, `SUPPLIER_RETRY_MAX_MS`), tracking attempts in `supplier_validation_retries`. After `SUPPLIER_VALIDATION_HOLD_MS` from creation it cancels with `SUPPLIER_VALIDATION_TIMEOUT`; a reply arriving after that is acked and dropped.
 
 
 ## 5. Read side
@@ -315,4 +318,4 @@ Not needed to merge the lifecycle/sweeps work; needed before it is relied on:
 
 - **Cleanup (item 5):** the §2 diagram check and the backlog issue edits.
 - **Verification (item 6):** a real-broker `test:messaging` case (at least that a sweep re-queued event id is re-delivered), a fixture script faking credit's replies, and the rollout-order check (credit's queues must be bound before order publishes; a direct exchange drops unbound messages silently).
-- **Known gap (list filters):** an empty `pickupBuilding=` / `deliveryBuilding=` is a 400 rather than ignored. `deliveryLocation` is still client text, so `deliveryBuilding` only matches when the client sends a building short name (the frontend does).
+- **Known gap (list filters):** an empty `pickupBuilding=` / `deliveryBuilding=` is a 400 rather than ignored.
