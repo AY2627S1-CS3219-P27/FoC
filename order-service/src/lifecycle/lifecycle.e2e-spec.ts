@@ -22,7 +22,8 @@ it('creates and transitions through the injected service', async () => {
   const created = await svc.create({
     requesterId: randomUUID(),
     supplierId: randomUUID(),
-    deliveryLocation: 'COM2',
+    deliveryBuildingId: randomUUID(),
+    deliveryDetail: 'Level 3 04-02',
     rewardCredits: 5,
     expiryDurationMinutes: 60,
     collectionItems: 'bubble tea',
@@ -48,7 +49,8 @@ it('reads the current status, and undefined for an unknown errand', async () => 
   const created = await svc.create({
     requesterId: randomUUID(),
     supplierId: randomUUID(),
-    deliveryLocation: 'COM2',
+    deliveryBuildingId: randomUUID(),
+    deliveryDetail: 'Level 3 04-02',
     rewardCredits: 5,
     expiryDurationMinutes: 60,
     collectionItems: 'bubble tea',
@@ -68,7 +70,8 @@ it('reads the latest event, and undefined for an unknown errand', async () => {
   const created = await svc.create({
     requesterId: randomUUID(),
     supplierId: randomUUID(),
-    deliveryLocation: 'COM2',
+    deliveryBuildingId: randomUUID(),
+    deliveryDetail: 'Level 3 04-02',
     rewardCredits: 5,
     expiryDurationMinutes: 60,
     collectionItems: 'bubble tea',

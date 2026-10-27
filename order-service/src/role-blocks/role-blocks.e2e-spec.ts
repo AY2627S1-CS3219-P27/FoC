@@ -21,7 +21,8 @@ const create = (requesterId: string, idempotencyKey?: string) =>
   createErrand(t.db, {
     requesterId,
     supplierId: randomUUID(),
-    deliveryLocation: 'COM2',
+    deliveryBuildingId: randomUUID(),
+    deliveryDetail: 'Level 3 04-02',
     rewardCredits: 5,
     expiryDurationMinutes: 60,
     collectionItems: 'bubble tea',
