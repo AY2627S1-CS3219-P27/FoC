@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { FocAuthModule } from '@foc/auth';
+import { eq } from 'drizzle-orm';
 import { Global, type INestApplication, Module } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { signAccessToken, testKeys } from '../../test/access-token.js';
@@ -47,7 +48,7 @@ const seed = async (status: Status = 'Incomplete') => {
   return row;
 };
 
-const report = async (errandId: string, sub: string, body: unknown = { body: 'It was cold.' }) =>
+const report = async (errandId: string, sub: string, body: unknown = { text: 'It was cold.' }) =>
   fetch(`${base}/${errandId}/report`, {
     method: 'POST',
     headers: { authorization: `Bearer ${await signAccessToken({ sub })}`, 'content-type': 'application/json' },
@@ -71,8 +72,8 @@ describe('POST /v1/errands/:id/report', () => {
 
   it('refuses a second report from the same party, keeping the first', async () => {
     const e = await seed();
-    await report(e.id, e.requesterId, { body: 'first' });
-    const res = await report(e.id, e.requesterId, { body: 'second' });
+    await report(e.id, e.requesterId, { text: 'first' });
+    const res = await report(e.id, e.requesterId, { text: 'second' });
     expect(res.status).toBe(409);
     expect((await res.json()).code).toBe('ALREADY_REPORTED');
     const kept = (await t.db.select().from(disputeReports)).filter((r) => r.errandId === e.id);
@@ -107,12 +108,29 @@ describe('POST /v1/errands/:id/report', () => {
     expect((await res.json()).code).toBe('SETTLEMENT_REQUESTED');
   });
 
+  it('stays closed after a rejection returns the errand to Incomplete', async () => {
+    const e = await seed();
+    const ev = (n: number, type: string, from: Status, to: Status) => ({
+      errandId: e.id, sequenceNumber: n, type, fromStatus: from, toStatus: to, payload: {},
+    });
+    await t.db.insert(errandEvents).values([
+      ev(1, 'SettlementRequested', 'Incomplete', 'Settling-Credit'),
+      ev(2, 'CreditSettlementRejected', 'Settling-Credit', 'Incomplete'),
+    ]);
+    expect((await report(e.id, e.courierId)).status).toBe(409);
+  });
+
+  it('does not require a report from either party', async () => {
+    const e = await seed();
+    expect(await t.db.select().from(disputeReports).where(eq(disputeReports.errandId, e.id))).toEqual([]);
+  });
+
   it('enforces the 2,000 character cap and a non-blank body', async () => {
     const e = await seed();
-    expect((await report(e.id, e.requesterId, { body: 'x'.repeat(2001) })).status).toBe(400);
-    expect((await report(e.id, e.requesterId, { body: '   ' })).status).toBe(400);
+    expect((await report(e.id, e.requesterId, { text: 'x'.repeat(2001) })).status).toBe(400);
+    expect((await report(e.id, e.requesterId, { text: '   ' })).status).toBe(400);
     expect((await report(e.id, e.requesterId, {})).status).toBe(400);
-    expect((await report(e.id, e.requesterId, { body: 'x'.repeat(2000) })).status).toBe(201);
+    expect((await report(e.id, e.requesterId, { text: 'x'.repeat(2000) })).status).toBe(201);
   });
 
   it('rejects a missing token', async () => {

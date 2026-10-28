@@ -7,5 +7,5 @@ export class ReportDto {
   @IsString()
   @MaxLength(MAX_REPORT_LENGTH)
   @Matches(/\S/)
-  body: string;
+  text: string;
 }

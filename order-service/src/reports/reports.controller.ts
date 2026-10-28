@@ -26,14 +26,14 @@ export class ReportsController {
   constructor(private readonly reports: ReportsService) {}
 
   @Post(':id/report')
-  async report(
+  async submit(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: ReportDto,
+    @Body() dto: ReportDto,
     @Req() req: AuthenticatedRequest,
   ) {
-    const res = await this.reports.file(id, req.user.sub, body.body);
-    if (res.ok) return { filed: true };
-    if (res.reason === 'NOT_FOUND') throw new NotFoundException('Errand not found.');
-    throw new ConflictException({ code: res.reason, message: CONFLICT[res.reason] });
+    const result = await this.reports.submit(id, req.user.sub, dto.text);
+    if (result.ok) return { filed: true };
+    if (result.reason === 'NOT_FOUND') throw new NotFoundException('Errand not found.');
+    throw new ConflictException({ code: result.reason, message: CONFLICT[result.reason] });
   }
 }

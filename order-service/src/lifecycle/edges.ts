@@ -20,6 +20,9 @@ export type Col =
 export type UserRole = 'requester' | 'courier' | 'other' | 'admin';
 export type Role = UserRole | 'system';
 
+// The event that locks dispute reports; reports.service reads it.
+export const SETTLEMENT_REQUESTED = 'SettlementRequested';
+
 // Closed set of cancellation reasons; each cancel edge allows a subset.
 export const CANCELLATION_REASONS = [
   'SUPPLIER_UNAVAILABLE',
@@ -156,7 +159,7 @@ export const EDGES: Partial<
   // Dispute resolution: an admin settles; credit's reply resolves or returns the errand.
   Incomplete: {
     'Settling-Credit': {
-      type: 'SettlementRequested',
+      type: SETTLEMENT_REQUESTED,
       sets: ['settlementAmount', 'settlementNote'],
       clears: [],
       who: ['admin'],
