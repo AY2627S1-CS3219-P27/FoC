@@ -147,7 +147,7 @@ export const EDGES: Partial<
   },
   'Transferring-Credit': {
     Completed: plain('CreditTransferSucceeded', sys),
-    // Credit rejected the transfer (terminal on its side too): park in Incomplete for dispute handling (not built).
+    // Credit rejected the transfer (terminal on its side too): park in Incomplete for an admin to settle (dispute resolution).
     Incomplete: plain('CreditTransferRejected', sys),
   },
 };

@@ -1,5 +1,5 @@
 import { EDGES, findEdge } from './edges.js';
-import { ACTIVE_STATUSES, ALLOWED, STATUSES, canTransition } from './status.js';
+import { ACTIVE_STATUSES, ALLOWED, STATUSES, TERMINAL_STATUS, canTransition } from './status.js';
 
 describe('status transitions', () => {
   for (const from of STATUSES) {
@@ -11,15 +11,21 @@ describe('status transitions', () => {
     }
   }
 
-  // 17 edges (ADR 0006); the two Adjusting-Credit -> Open exits share one pair.
-  it('has exactly 16 distinct status pairs', () => {
-    expect(Object.values(ALLOWED).flat()).toHaveLength(16);
+  // 20 edges (ADR 0006, dispute resolution); the two Adjusting-Credit -> Open exits share one pair.
+  it('has exactly 19 distinct status pairs', () => {
+    expect(Object.values(ALLOWED).flat()).toHaveLength(19);
   });
 });
 
 // The courier-lock index (schema.ts) is built from this; a change must be deliberate.
 it('treats Accepted and Picked Up as the active statuses', () => {
   expect(ACTIVE_STATUSES).toEqual(['Accepted', 'Picked Up']);
+});
+
+// Incomplete is no longer terminal (an admin can settle it); role blocks read this list.
+it('treats Completed, Cancelled and Resolved as the terminal statuses', () => {
+  expect(TERMINAL_STATUS).toEqual(['Completed', 'Cancelled', 'Resolved']);
+  for (const s of TERMINAL_STATUS) expect(ALLOWED[s]).toEqual([]);
 });
 
 describe('EDGES', () => {

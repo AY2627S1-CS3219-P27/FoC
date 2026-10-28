@@ -57,7 +57,7 @@ describe('blockRoles', () => {
     expect(await isRoleBlocked(t.db, userId, Role.Courier)).toBe(true);
   });
 
-  const TERMINAL: Status[] = ['Completed', 'Cancelled', 'Incomplete'];
+  const TERMINAL: Status[] = ['Completed', 'Cancelled', 'Resolved'];
   it.each(STATUSES.map((s) => [s]))('requester with an errand in %s', async (status) => {
     const userId = randomUUID();
     await errandIn(status, userId);
