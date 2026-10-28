@@ -189,5 +189,8 @@ export const disputeReports = pgTable(
     body: text('body').notNull(),
     createdAt: ts('created_at').notNull().defaultNow(),
   },
-  (t) => [primaryKey({ columns: [t.errandId, t.authorId] })],
+  (t) => [
+    primaryKey({ columns: [t.errandId, t.authorId] }),
+    check('dispute_reports_role_valid', sql`${t.role} IN ('requester', 'courier')`),
+  ],
 );

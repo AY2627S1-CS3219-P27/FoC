@@ -1,0 +1,1 @@
+ALTER TABLE "dispute_reports" ADD CONSTRAINT "dispute_reports_role_valid" CHECK ("dispute_reports"."role" IN ('requester', 'courier'));
