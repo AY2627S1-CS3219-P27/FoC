@@ -50,6 +50,10 @@ export const errands = pgTable(
     deliveredAt: ts('delivered_at'), // starts the 24h Delivered -> Completed timer (ADR 0007)
 
     cancellationReason: text('cancellation_reason'),
+    // Dispute resolution: the admin's settlement, set on SettlementRequested and
+    // cleared on a credit rejection. Shown to the parties only once Resolved.
+    settlementAmount: integer('settlement_amount'), // courier's share, 0..rewardCredits
+    settlementNote: text('settlement_note'),
     createdAt: ts('created_at').notNull().defaultNow(),
     // the in-flight hold-window sweeps read this as "time entered the
     // status" (only transition() writes the row, and in-flight refuses every
