@@ -11,7 +11,9 @@ export type Col =
   | 'supplierValidatedAt'
   | 'pickupLocation'
   | 'pickupName'
-  | 'pickupDescription';
+  | 'pickupDescription'
+  | 'settlementAmount'
+  | 'settlementNote';
 
 // Who may take an edge. `other` = any user who is not the requester.
 export type UserRole = 'requester' | 'courier' | 'other';
@@ -69,7 +71,7 @@ const plain = (type: string, who: Role[], notice?: NoticeBuilder): Edge => ({
 });
 const sys: Role[] = ['system'];
 
-// 17 edges in total
+// 20 edges in total
 export const EDGES: Partial<
   Record<Status, Partial<Record<Status, Edge | Edge[]>>>
 > = {
@@ -149,6 +151,24 @@ export const EDGES: Partial<
     Completed: plain('CreditTransferSucceeded', sys),
     // Credit rejected the transfer (terminal on its side too): park in Incomplete for an admin to settle (dispute resolution).
     Incomplete: plain('CreditTransferRejected', sys),
+  },
+  // Dispute resolution. 1.4 adds the credit.settlement.v1 notice to the admin edge.
+  Incomplete: {
+    'Settling-Credit': {
+      type: 'SettlementRequested',
+      sets: ['settlementAmount', 'settlementNote'],
+      clears: [],
+      who: ['other'],
+    },
+  },
+  'Settling-Credit': {
+    Resolved: plain('CreditSettlementSucceeded', sys),
+    Incomplete: {
+      type: 'CreditSettlementRejected',
+      sets: [],
+      clears: ['settlementAmount', 'settlementNote'],
+      who: sys,
+    },
   },
 };
 
