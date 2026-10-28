@@ -6,7 +6,7 @@ import { errands } from '../db/schema.js';
 import { createErrand } from './create.js';
 import { rebuildProjection } from './rebuild.js';
 import type { Status } from './status.js';
-import { SYSTEM, transition, user, type TransitionInput } from './transition.js';
+import { SYSTEM, admin as adminActor, transition, user, type TransitionInput } from './transition.js';
 
 let t: Awaited<ReturnType<typeof createTestDb>>;
 beforeAll(async () => {
@@ -121,7 +121,7 @@ describe('rebuildProjection', () => {
     await step(id, 'Delivered', 'Transferring-Credit');
     await step(id, 'Transferring-Credit', 'Incomplete', { payload: transferFailed() });
 
-    const admin = user(randomUUID());
+    const admin = adminActor(randomUUID());
     const request = (amount: number) =>
       step(id, 'Incomplete', 'Settling-Credit', {
         actor: admin,
