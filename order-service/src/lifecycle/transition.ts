@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Role } from '@foc/contracts';
-import { and, desc, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, count, desc, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import {
   COURIER_LOCK_INDEX,
@@ -25,7 +25,7 @@ export type Db = NodePgDatabase<any>;
 
 // Who is acting. Required and explicit: a missing or failed-auth user must
 // never fall through to the system, which may take system-only edges.
-export type Actor = { kind: 'user'; id: string } | { kind: 'system' };
+export type Actor = { kind: 'user'; id: string; admin?: true } | { kind: 'system' };
 export const SYSTEM: Actor = { kind: 'system' };
 export const user = (id: string): Actor => ({ kind: 'user', id });
 // From the token's isAdmin flag; only this actor passes an admin edge.
@@ -385,6 +385,14 @@ async function explainNoRow(
   return { ok: false, reason: 'STATE_MISMATCH', currentStatus: cur.status };
 }
 
+const countEvents = async (tx: Db, errandId: string, type: string) =>
+  (
+    await tx
+      .select({ n: count() })
+      .from(errandEvents)
+      .where(and(eq(errandEvents.errandId, errandId), eq(errandEvents.type, type)))
+  )[0].n;
+
 async function apply(
   tx: Db,
   i: TransitionInput,
@@ -410,6 +418,10 @@ async function apply(
     courierId: row.row.courierId,
     rewardCredits: row.row.rewardCredits,
     payload: { ...i.payload, ...i.set },
+    attempt:
+      edge.type === 'SettlementRequested'
+        ? await countEvents(tx, i.errandId, edge.type)
+        : 1,
   });
   if (notice) await enqueueNotice(tx, notice);
   return { ok: true, sequenceNumber: row.seq };
