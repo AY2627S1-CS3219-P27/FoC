@@ -16,7 +16,8 @@ export type Col =
   | 'settlementNote';
 
 // Who may take an edge. `other` = any user who is not the requester.
-export type UserRole = 'requester' | 'courier' | 'other';
+// `admin` = a user whose token carries isAdmin; transition() checks the flag, the row check lets them through.
+export type UserRole = 'requester' | 'courier' | 'other' | 'admin';
 export type Role = UserRole | 'system';
 
 // Closed set of cancellation reasons; each cancel edge allows a subset.
@@ -152,13 +153,28 @@ export const EDGES: Partial<
     // Credit rejected the transfer (terminal on its side too): park in Incomplete for an admin to settle (dispute resolution).
     Incomplete: plain('CreditTransferRejected', sys),
   },
-  // Dispute resolution. 1.4 adds the credit.settlement.v1 notice to the admin edge.
+  // Dispute resolution: an admin settles; credit's reply resolves or returns the errand.
   Incomplete: {
     'Settling-Credit': {
       type: 'SettlementRequested',
       sets: ['settlementAmount', 'settlementNote'],
       clears: [],
-      who: ['other'],
+      who: ['admin'],
+      // One atomic credit operation out of the single reservation; attempt counts requests (credit is idempotent on errandId + attempt).
+      notice: (c) => {
+        const courierAmount = c.payload.settlementAmount as number;
+        return {
+          key: 'credit.settlement.v1',
+          payload: {
+            errandId: c.errandId,
+            requesterUserId: c.requesterId,
+            courierUserId: c.courierId,
+            courierAmount,
+            requesterAmount: c.rewardCredits - courierAmount,
+            attempt: c.attempt,
+          },
+        };
+      },
     },
   },
   'Settling-Credit': {
