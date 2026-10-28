@@ -83,6 +83,10 @@ export const errands = pgTable(
         sql`, `,
       )})`,
     ),
+    check(
+      'errands_settlement_amount_valid',
+      sql`${t.settlementAmount} IS NULL OR ${t.settlementAmount} BETWEEN 0 AND ${t.rewardCredits}`,
+    ),
     index().on(t.requesterId, t.status),
   ],
 );
