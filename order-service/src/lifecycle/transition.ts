@@ -71,6 +71,7 @@ const INVALID: TransitionResult = { ok: false, reason: 'INVALID_FIELDS' };
 const ILLEGAL: TransitionResult = { ok: false, reason: 'ILLEGAL_TRANSITION' };
 const BUSY: TransitionResult = { ok: false, reason: 'COURIER_BUSY' };
 const BLOCKED: TransitionResult = { ok: false, reason: 'ROLE_BLOCKED' };
+export const MAX_NOTE_WORDS = 100;
 const RELEASED = ['COURIER_BUSY', 'ROLE_BLOCKED'];
 
 // Caller bugs, rejected before the transaction: not an outcome worth storing
@@ -104,6 +105,11 @@ function validate(
     i.set?.courierId?.toLowerCase() !== actor
   ) {
     return INVALID;
+  }
+  // The admin's note is mandatory and capped; the resolve route maps INVALID to 400.
+  if (edge.sets.includes('settlementNote')) {
+    const words = i.set?.settlementNote?.trim().split(/\s+/) ?? [];
+    if (words[0] === '' || words.length > MAX_NOTE_WORDS) return INVALID;
   }
   const reason = i.set?.cancellationReason;
   if (edge.reasons && !edge.reasons.some((r) => r === reason)) return INVALID;
