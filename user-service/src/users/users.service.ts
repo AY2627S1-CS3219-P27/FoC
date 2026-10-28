@@ -4,7 +4,6 @@ import {
   Injectable,
   NotFoundException,
   UnauthorizedException,
-  Logger,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import {
@@ -38,6 +37,7 @@ import {
 } from '@foc/contracts';
 import { OutboxEvent } from '@foc/outbox';
 import { AuthorizationService } from '../authorization/authorization.service.js';
+import { OrderServiceClient } from '../order/order-service.client.js';
 
 /** The PostgreSQL driver error code for a unique-constraint violation. */
 const UNIQUE_VIOLATION_CODE = '23505';
@@ -149,7 +149,7 @@ export class UsersService {
     @InjectRepository(User) private userRepository: Repository<User>,
     @InjectDataSource() private dataSource: DataSource,
     private authorizationService: AuthorizationService,
-    private readonly logger = new Logger(UsersService.name),
+    private orderServiceClient: OrderServiceClient,
   ) {}
 
   async provisionUser({
@@ -322,8 +322,15 @@ export class UsersService {
    * Set-replaces the user's participant roles (M.1 F13.1.3). Duplicate or
    * out-of-order input is normalised to a set; the two participant roles are
    * the only possible values, so escalation to admin is impossible here.
+   *
+   * The acting user's access token is forwarded to order-service, which
+   * enforces "admin or self" on the role-block endpoints.
    */
-  async updateRoles(uuid: string, roles: Role[]): Promise<PublicUserInfo> {
+  async updateRoles(
+    uuid: string,
+    roles: Role[],
+    accessToken: string,
+  ): Promise<PublicUserInfo> {
     let user: User;
     try {
       user = await this.userRepository.findOneByOrFail({ uuid });
@@ -337,15 +344,15 @@ export class UsersService {
     const roleList = Object.values(Role);
     // incoming role list doesn't have role that user has => role got removed
     const rolesToRemove: Role[] = roleList.filter(
-      (role) => role in user.roles && !(role in roles),
+      (role) => user.roles.includes(role) && !roles.includes(role),
     );
     // conversely, incoming role list has role that user doesn't have => role got added
     const rolesToAdd: Role[] = roleList.filter(
-      (role) => !(role in user.roles) && role in roles,
+      (role) => !user.roles.includes(role) && roles.includes(role),
     );
 
-    await this.tryRemoveRoles(user, rolesToRemove);
-    await this.addRoles(user, rolesToAdd);
+    await this.tryRemoveRoles(user, rolesToRemove, accessToken);
+    await this.addRoles(user, rolesToAdd, accessToken);
 
     const saved = await this.userRepository.save(user);
 
@@ -353,59 +360,55 @@ export class UsersService {
   }
 
   /**
-   *  Helper function to remove roles from the user. Requires checking with
-   *  order service whether the role is ready to be removed. This is a synchronous
-   *  call that may fail.
+   * Removes the roles from the user, but only after order-service confirms
+   * none of them still has ongoing work (F10).
+   *
+   * All or nothing: order-service blocks none of the roles when any one is in
+   * use, and no role leaves the user unless every requested one was blocked.
+   * The block also stops a device holding a stale access token from starting
+   * new work in the removed role until its token refreshes.
    */
-  private async tryRemoveRoles(user: User, roles: Role[]) {
-    for (const role of roles) {
-      const canRemove = await this.blockRoleForUser(user.uuid, role);
-      if (!canRemove) {
-        throw new ConflictException(
-          'Role cannot be removed whille the account has active items related to the role.',
-        );
-      }
-      // Find & delete role from user.
-      // If not present, silently continues.
-      const index = user.roles.indexOf(role);
-      if (index > -1) {
-        user.roles.splice(index, 1);
-      }
+  private async tryRemoveRoles(
+    user: User,
+    roles: Role[],
+    accessToken: string,
+  ): Promise<void> {
+    if (roles.length === 0) {
+      return;
     }
+
+    const canRemove = await this.orderServiceClient.blockRoles(
+      user.uuid,
+      roles,
+      accessToken,
+    );
+    if (!canRemove) {
+      throw new ConflictException(
+        'Role cannot be removed while the account has active items related to the role.',
+      );
+    }
+
+    user.roles = user.roles.filter((role) => !roles.includes(role));
   }
 
   /**
-   * Helper function to add roles to the user. Attempts to update order
-   * service on role additions.
+   * Adds the roles to the user, first lifting any block still in place on
+   * them so a re-added role is usable immediately. The unblock is best
+   * effort: the client logs failures and a missed block expires on its own,
+   * since the addition itself is valid either way.
    */
-  private async addRoles(user: User, roles: Role[]) {
-    for (const role of roles) {
-      await this.unblockRoleForUser(user.uuid, role);
-
-      user.roles.push(role);
+  private async addRoles(
+    user: User,
+    roles: Role[],
+    accessToken: string,
+  ): Promise<void> {
+    if (roles.length === 0) {
+      return;
     }
-  }
 
-  private async blockRoleForUser(userId: string, role: Role) {
-    // TODO: synchronous request to order service to check if removable
-    return new Promise<boolean>((resolve, reject) => {
-      resolve(true);
-    });
-  }
+    await this.orderServiceClient.unblockRoles(user.uuid, roles, accessToken);
 
-  private async unblockRoleForUser(userId: string, role: Role) {
-    // TODO: synchronous request to order service to check if removable
-    try {
-      return new Promise<boolean>((resolve, reject) => {
-        resolve(true);
-      });
-    } catch (err) {
-      // Let errors occur, warn when occurs
-      this.logger.warn(
-        'Failed to reach order service to update role addition.',
-        err,
-      );
-    }
+    user.roles.push(...roles);
   }
 
   /**
