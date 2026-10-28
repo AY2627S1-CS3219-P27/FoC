@@ -19,6 +19,7 @@ import { User } from './user.entity.js';
 import { UserUpdateAudit } from './user-update-audit.entity.js';
 import { EmailAlreadyRegisteredError, UsersService } from './users.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
+import { OrderServiceClient } from '../order/order-service.client.js';
 
 vi.mock('../common/hash/hash.js', () => ({
   hashValue: vi.fn(async () => 'ab'.repeat(64)),
@@ -65,6 +66,10 @@ describe('UsersService', () => {
     removeAdminBlock: ReturnType<typeof vi.fn>;
     checkIsAdminBlocked: ReturnType<typeof vi.fn>;
   };
+  let orderServiceClient: {
+    blockRoles: ReturnType<typeof vi.fn>;
+    unblockRoles: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(async () => {
     userRepository = {
@@ -107,12 +112,20 @@ describe('UsersService', () => {
       checkIsAdminBlocked: vi.fn(async () => false),
     };
 
+    // Defaults model order-service answering "no role is in use" and a
+    // successful unblock; individual tests override them.
+    orderServiceClient = {
+      blockRoles: vi.fn(async () => true),
+      unblockRoles: vi.fn(async () => undefined),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsersService,
         { provide: getRepositoryToken(User), useValue: userRepository },
         { provide: DataSource, useValue: dataSource },
         { provide: AuthorizationService, useValue: authorizationService },
+        { provide: OrderServiceClient, useValue: orderServiceClient },
       ],
     }).compile();
 
@@ -655,6 +668,8 @@ describe('UsersService', () => {
   });
 
   describe('updateRoles', () => {
+    const ACCESS_TOKEN = 'test-access-token';
+
     it('persists the set-replaced roles and returns the stored state', async () => {
       const storedUser = {
         ...registeredUser,
@@ -669,7 +684,11 @@ describe('UsersService', () => {
       }));
 
       await expect(
-        service.updateRoles(FIXED_UUID, [Role.Requester, Role.Courier]),
+        service.updateRoles(
+          FIXED_UUID,
+          [Role.Requester, Role.Courier],
+          ACCESS_TOKEN,
+        ),
       ).resolves.toEqual({
         uuid: FIXED_UUID,
         email: 'eve@example.com',
@@ -696,10 +715,11 @@ describe('UsersService', () => {
         roles: [],
       });
 
-      const saved = await service.updateRoles(FIXED_UUID, [
-        Role.Requester,
-        Role.Requester,
-      ]);
+      const saved = await service.updateRoles(
+        FIXED_UUID,
+        [Role.Requester, Role.Requester],
+        ACCESS_TOKEN,
+      );
 
       expect(saved.roles).toEqual([Role.Requester]);
     });
@@ -710,7 +730,9 @@ describe('UsersService', () => {
         roles: [Role.Requester],
       });
 
-      await expect(service.updateRoles(FIXED_UUID, [])).resolves.toMatchObject({
+      await expect(
+        service.updateRoles(FIXED_UUID, [], ACCESS_TOKEN),
+      ).resolves.toMatchObject({
         roles: [],
       });
     });
@@ -721,7 +743,7 @@ describe('UsersService', () => {
       );
 
       await expect(
-        service.updateRoles(FIXED_UUID, [Role.Requester]),
+        service.updateRoles(FIXED_UUID, [Role.Requester], ACCESS_TOKEN),
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -729,8 +751,82 @@ describe('UsersService', () => {
       userRepository.findOneByOrFail.mockRejectedValue(new Error('db down'));
 
       await expect(
-        service.updateRoles(FIXED_UUID, [Role.Requester]),
+        service.updateRoles(FIXED_UUID, [Role.Requester], ACCESS_TOKEN),
       ).rejects.toThrow('db down');
+    });
+
+    it('blocks every removed role with the acting token before dropping them', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue({
+        ...registeredUser,
+        roles: [Role.Requester, Role.Courier],
+      });
+
+      await expect(
+        service.updateRoles(FIXED_UUID, [Role.Courier], ACCESS_TOKEN),
+      ).resolves.toMatchObject({ roles: [Role.Courier] });
+
+      // One all-or-nothing call carries both roles, so order-service either
+      // blocks the whole set or none of it.
+      expect(orderServiceClient.blockRoles).toHaveBeenCalledTimes(1);
+      expect(orderServiceClient.blockRoles).toHaveBeenCalledWith(
+        FIXED_UUID,
+        [Role.Requester],
+        ACCESS_TOKEN,
+      );
+      expect(orderServiceClient.unblockRoles).not.toHaveBeenCalled();
+    });
+
+    it('keeps every role when order-service reports one in use', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue({
+        ...registeredUser,
+        roles: [Role.Requester, Role.Courier],
+      });
+      orderServiceClient.blockRoles.mockResolvedValue(false);
+
+      await expect(
+        service.updateRoles(FIXED_UUID, [Role.Courier], ACCESS_TOKEN),
+      ).rejects.toThrow(ConflictException);
+
+      expect(orderServiceClient.blockRoles).toHaveBeenCalledWith(
+        FIXED_UUID,
+        [Role.Requester],
+        ACCESS_TOKEN,
+      );
+      // The role change is rejected outright: nothing is written.
+      expect(userRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('lifts any block on the roles being added', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue({
+        ...registeredUser,
+        roles: [],
+      });
+
+      await expect(
+        service.updateRoles(FIXED_UUID, [Role.Requester], ACCESS_TOKEN),
+      ).resolves.toMatchObject({ roles: [Role.Requester] });
+
+      expect(orderServiceClient.unblockRoles).toHaveBeenCalledTimes(1);
+      expect(orderServiceClient.unblockRoles).toHaveBeenCalledWith(
+        FIXED_UUID,
+        [Role.Requester],
+        ACCESS_TOKEN,
+      );
+      expect(orderServiceClient.blockRoles).not.toHaveBeenCalled();
+    });
+
+    it('makes no order-service call when the role set does not change', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue({
+        ...registeredUser,
+        roles: [Role.Courier],
+      });
+
+      await expect(
+        service.updateRoles(FIXED_UUID, [Role.Courier], ACCESS_TOKEN),
+      ).resolves.toMatchObject({ roles: [Role.Courier] });
+
+      expect(orderServiceClient.blockRoles).not.toHaveBeenCalled();
+      expect(orderServiceClient.unblockRoles).not.toHaveBeenCalled();
     });
   });
 

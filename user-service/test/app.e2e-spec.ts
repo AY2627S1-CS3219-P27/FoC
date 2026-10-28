@@ -239,9 +239,11 @@ describe('user-service (e2e)', () => {
     });
 
     it('applies a role change from the cookie and clears it', async () => {
+      const token = await signAccessToken();
+
       const response = await request(app.getHttpServer())
         .patch('/users/me/roles')
-        .set('Cookie', `${ACCESS_TOKEN_COOKIE}=${await signAccessToken()}`)
+        .set('Cookie', `${ACCESS_TOKEN_COOKIE}=${token}`)
         .send({ roles: [Role.Requester, Role.Courier] })
         .expect(200);
 
@@ -249,6 +251,20 @@ describe('user-service (e2e)', () => {
         roles: [Role.Requester, Role.Courier],
       });
       expect(response.headers['set-cookie']).toBeDefined();
+
+      // The acting user's own token is what order-service verifies and checks
+      // its "admin or self" rule against, so it must reach the service layer
+      // unchanged.
+      const updateRoles = (
+        app.get(UsersService) as unknown as {
+          updateRoles: ReturnType<typeof vi.fn>;
+        }
+      ).updateRoles;
+      expect(updateRoles).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111',
+        [Role.Requester, Role.Courier],
+        token,
+      );
     });
   });
 

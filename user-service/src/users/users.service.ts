@@ -354,17 +354,21 @@ export class UsersService {
     await this.tryRemoveRoles(user, rolesToRemove, accessToken);
     await this.addRoles(user, rolesToAdd, accessToken);
 
+    // Set-replace: the stored roles are exactly the requested set, in the
+    // enum's canonical order, so duplicate and out-of-order input never
+    // survives. The order-service calls above only gate the change.
+    user.roles = roleList.filter((role) => roles.includes(role));
+
     const saved = await this.userRepository.save(user);
 
     return this.getPublicUserInfo(saved);
   }
 
   /**
-   * Removes the roles from the user, but only after order-service confirms
-   * none of them still has ongoing work (F10).
+   * Asks order-service to check and block the roles about to leave the
+   * account (F10). All or nothing: order-service blocks none of the roles
+   * when any one is in use, and a 409 aborts the whole change.
    *
-   * All or nothing: order-service blocks none of the roles when any one is in
-   * use, and no role leaves the user unless every requested one was blocked.
    * The block also stops a device holding a stale access token from starting
    * new work in the removed role until its token refreshes.
    */
@@ -387,15 +391,13 @@ export class UsersService {
         'Role cannot be removed while the account has active items related to the role.',
       );
     }
-
-    user.roles = user.roles.filter((role) => !roles.includes(role));
   }
 
   /**
-   * Adds the roles to the user, first lifting any block still in place on
-   * them so a re-added role is usable immediately. The unblock is best
-   * effort: the client logs failures and a missed block expires on its own,
-   * since the addition itself is valid either way.
+   * Lifts any block still in place on the roles about to be added, so a
+   * re-added role is usable immediately. The unblock is best effort: the
+   * client logs failures and a missed block expires on its own, since the
+   * addition itself is valid either way.
    */
   private async addRoles(
     user: User,
@@ -407,8 +409,6 @@ export class UsersService {
     }
 
     await this.orderServiceClient.unblockRoles(user.uuid, roles, accessToken);
-
-    user.roles.push(...roles);
   }
 
   /**
