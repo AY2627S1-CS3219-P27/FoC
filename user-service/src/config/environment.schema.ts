@@ -44,6 +44,7 @@ export const environmentSchema = Joi.object({
   FRONTEND_PASSWORD_RESET_PATH: Joi.string()
     .pattern(/^\//)
     .default('/reset-password'),
+  ORDER_SERVICE_BASE_URL: Joi.string().uri().required(),
 })
   .concat(outboxEnvironmentSchema)
   .custom(validateOutboxTiming)

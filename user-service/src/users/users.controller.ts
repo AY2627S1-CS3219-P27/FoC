@@ -15,7 +15,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
-import { AdminGuard, JwtAuthGuard } from '@foc/auth';
+import { AdminGuard, JwtAuthGuard, extractAccessToken } from '@foc/auth';
 import type { AuthenticatedRequest } from '@foc/auth';
 import type { Paginated } from '@foc/contracts';
 import { ACCESS_TOKEN_COOKIE } from '@foc/contracts';
@@ -137,6 +137,9 @@ export class UsersController {
    * Set-replaces the authenticated user's participant roles. The
    * current access token is cleared so the client re-authenticates
    * and obtains a new access token with current claims.
+   *
+   * The token is forwarded to order-service, which checks the roles for
+   * ongoing errands and blocks them before they leave the account.
    */
   @Patch('me/roles')
   async updateMeRoles(
@@ -144,9 +147,16 @@ export class UsersController {
     @Body() updateRolesDto: UpdateRolesDto,
     @Res({ passthrough: true }) res: Response,
   ) {
+    const accessToken = extractAccessToken(request);
+    if (accessToken === null) {
+      // Unreachable behind JwtAuthGuard, which rejects tokenless requests.
+      throw new UnauthorizedException();
+    }
+
     const updated = await this.usersService.updateRoles(
       request.user.sub,
       updateRolesDto.roles,
+      accessToken,
     );
 
     res.clearCookie(ACCESS_TOKEN_COOKIE, {
