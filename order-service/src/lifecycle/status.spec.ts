@@ -37,9 +37,9 @@ describe('EDGES', () => {
     }
   });
 
-  it('has 17 edges; only Adjusting-Credit -> Open has two', () => {
+  it('has 20 edges; only Adjusting-Credit -> Open has two', () => {
     const edges = Object.values(EDGES).flatMap((m) => Object.values(m!)).flat();
-    expect(edges).toHaveLength(17);
+    expect(edges).toHaveLength(20);
     expect(findEdge('Adjusting-Credit', 'Open')).toBeUndefined(); // ambiguous without a type
     expect(findEdge('Adjusting-Credit', 'Open', 'CreditAdjusted')?.sets).toEqual(['rewardCredits']);
     expect(findEdge('Adjusting-Credit', 'Open', 'CreditAdjustmentFailed')?.sets).toEqual([]);

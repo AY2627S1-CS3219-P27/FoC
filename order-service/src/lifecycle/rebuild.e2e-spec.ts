@@ -105,6 +105,52 @@ describe('rebuildProjection', () => {
     expect(await rebuildProjection(t.db, id)).toEqual(await liveRow(id));
   });
 
+  it('reproduces the settlement columns, and a rejection clears them', async () => {
+    const id = await create();
+    await step(id, 'Pending-Supplier', 'Reserving-Credit', supplierValidated());
+    await step(id, 'Reserving-Credit', 'Open', { payload: creditReserved() });
+    await step(id, 'Open', 'Accepted', { actor: user(courier), set: { courierId: courier } });
+    await step(id, 'Accepted', 'Picked Up', {
+      actor: user(courier),
+      set: { pickedUpAt: new Date('2030-01-01T01:00:00.000Z') },
+    });
+    await step(id, 'Picked Up', 'Delivered', {
+      actor: user(courier),
+      set: { deliveredAt: new Date('2030-01-01T02:00:00.000Z') },
+    });
+    await step(id, 'Delivered', 'Transferring-Credit');
+    await step(id, 'Transferring-Credit', 'Incomplete', { payload: transferFailed() });
+
+    const admin = user(randomUUID());
+    const request = (amount: number) =>
+      step(id, 'Incomplete', 'Settling-Credit', {
+        actor: admin,
+        set: { settlementAmount: amount, settlementNote: 'split it' },
+      });
+
+    await request(2);
+    expect(await rebuildProjection(t.db, id)).toMatchObject({
+      settlementAmount: 2,
+      settlementNote: 'split it',
+    });
+    expect(await rebuildProjection(t.db, id)).toEqual(await liveRow(id));
+
+    await step(id, 'Settling-Credit', 'Incomplete', { payload: transferFailed() });
+    expect(await rebuildProjection(t.db, id)).toMatchObject({
+      settlementAmount: null,
+      settlementNote: null,
+    });
+    expect(await rebuildProjection(t.db, id)).toEqual(await liveRow(id));
+
+    await request(5);
+    await step(id, 'Settling-Credit', 'Resolved', { payload: creditIds() });
+    expect(await rebuildProjection(t.db, id)).toMatchObject({
+      status: 'Resolved',
+      settlementAmount: 5,
+    });
+    expect(await rebuildProjection(t.db, id)).toEqual(await liveRow(id));
+  });
+
   it('equals the live row for a cancelled errand', async () => {
     const id = await create({ description: undefined });
     await step(id, 'Pending-Supplier', 'Cancelled', {
