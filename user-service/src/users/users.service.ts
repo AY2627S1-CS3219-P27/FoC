@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
   UnauthorizedException,
+  Logger,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import {
@@ -148,6 +149,7 @@ export class UsersService {
     @InjectRepository(User) private userRepository: Repository<User>,
     @InjectDataSource() private dataSource: DataSource,
     private authorizationService: AuthorizationService,
+    private readonly logger = new Logger(UsersService.name),
   ) {}
 
   async provisionUser({
@@ -332,47 +334,78 @@ export class UsersService {
       throw error;
     }
 
-    let wasRemoved = false;
-    for (const role of Object.values(Role)) {
-      if (role in user.roles && !(role in roles)) {
-        // Role got removed
-        await this.removeRole(user, role);
-        wasRemoved = true;
-      } else if (!(role in user.roles) && role in roles) {
-        // Role got added - no other logic needed
-        user.roles.push(role);
-      }
-    }
+    const roleList = Object.values(Role);
+    // incoming role list doesn't have role that user has => role got removed
+    const rolesToRemove: Role[] = roleList.filter(
+      (role) => role in user.roles && !(role in roles),
+    );
+    // conversely, incoming role list has role that user doesn't have => role got added
+    const rolesToAdd: Role[] = roleList.filter(
+      (role) => !(role in user.roles) && role in roles,
+    );
+
+    await this.tryRemoveRoles(user, rolesToRemove);
+    await this.addRoles(user, rolesToAdd);
 
     const saved = await this.userRepository.save(user);
 
-    if (wasRemoved) {
-      // TODO: publish RoleRemoved event
-    }
     return this.getPublicUserInfo(saved);
   }
 
-  private async removeRole(user: User, role: Role) {
-    const canRemove = await this.checkIfRemovable(user.uuid, role);
-    if (!canRemove) {
-      throw new ConflictException(
-        'Role cannot be removed whille the account has active items related to the role.',
-      );
-    }
-
-    // Find & delete role from user.
-    // If not present, silently continues.
-    const index = user.roles.indexOf(role);
-    if (index > -1) {
-      user.roles.splice(index, 1);
+  /**
+   *  Helper function to remove roles from the user. Requires checking with
+   *  order service whether the role is ready to be removed. This is a synchronous
+   *  call that may fail.
+   */
+  private async tryRemoveRoles(user: User, roles: Role[]) {
+    for (const role of roles) {
+      const canRemove = await this.blockRoleForUser(user.uuid, role);
+      if (!canRemove) {
+        throw new ConflictException(
+          'Role cannot be removed whille the account has active items related to the role.',
+        );
+      }
+      // Find & delete role from user.
+      // If not present, silently continues.
+      const index = user.roles.indexOf(role);
+      if (index > -1) {
+        user.roles.splice(index, 1);
+      }
     }
   }
 
-  private async checkIfRemovable(userId: string, role: Role) {
+  /**
+   * Helper function to add roles to the user. Attempts to update order
+   * service on role additions.
+   */
+  private async addRoles(user: User, roles: Role[]) {
+    for (const role of roles) {
+      await this.unblockRoleForUser(user.uuid, role);
+
+      user.roles.push(role);
+    }
+  }
+
+  private async blockRoleForUser(userId: string, role: Role) {
     // TODO: synchronous request to order service to check if removable
     return new Promise<boolean>((resolve, reject) => {
       resolve(true);
     });
+  }
+
+  private async unblockRoleForUser(userId: string, role: Role) {
+    // TODO: synchronous request to order service to check if removable
+    try {
+      return new Promise<boolean>((resolve, reject) => {
+        resolve(true);
+      });
+    } catch (err) {
+      // Let errors occur, warn when occurs
+      this.logger.warn(
+        'Failed to reach order service to update role addition.',
+        err,
+      );
+    }
   }
 
   /**
