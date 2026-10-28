@@ -175,3 +175,19 @@ export const roleBlocks = pgTable(
   },
   (t) => [primaryKey({ columns: [t.userId, t.role] })],
 );
+
+// Dispute resolution: one optional, immutable account per party on an Incomplete
+// errand. Not a lifecycle transition, so it writes no event and is not rebuilt.
+export const disputeReports = pgTable(
+  'dispute_reports',
+  {
+    errandId: uuid('errand_id')
+      .notNull()
+      .references(() => errands.id),
+    authorId: uuid('author_id').notNull(),
+    role: text('role').notNull(), // 'requester' | 'courier'
+    body: text('body').notNull(),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.errandId, t.authorId] })],
+);
