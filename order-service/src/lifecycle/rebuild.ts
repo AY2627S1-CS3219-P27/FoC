@@ -32,6 +32,8 @@ const COLUMNS = [
   'pickedUpAt',
   'deliveredAt',
   'cancellationReason',
+  'settlementAmount',
+  'settlementNote',
 ] as const;
 
 // Stored as ISO strings in the payload, restored to Dates here.
@@ -57,6 +59,8 @@ export function foldEvents(events: RebuildEvent[]): RebuiltErrand | null {
     pickedUpAt: null,
     deliveredAt: null,
     cancellationReason: null,
+    settlementAmount: null,
+    settlementNote: null,
   };
 
   events.forEach((e, idx) => {
