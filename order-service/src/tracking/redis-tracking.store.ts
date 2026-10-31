@@ -11,6 +11,9 @@ import {
   type TrackingEvent,
 } from './tracking.types.js';
 
+// The node-redis client shape this store needs (any module/function/script set).
+export type RedisLike = RedisClientType<any, any, any>;
+
 type Handler = (event: TrackingEvent) => void;
 
 const parse = <T>(raw: string | null): T | null => {
@@ -28,11 +31,12 @@ const parse = <T>(raw: string | null): T | null => {
 // leaves a Redis subscription behind.
 export class RedisTrackingStore implements TrackingStore {
   private readonly logger = new Logger('TrackingStore');
-  private subscriber?: RedisClientType<any, any, any>;
+  private subscriber?: RedisLike;
   private readonly handlers = new Map<string, Set<Handler>>();
+  private readonly pending = new Map<string, Promise<unknown>>();
   private readonly dispatchers = new Map<string, (message: string) => void>();
 
-  constructor(private readonly client: RedisClientType<any, any, any>) {}
+  constructor(private readonly client: RedisLike) {}
 
   async acquireRateSlot(errandId: string, minIntervalMs: number) {
     const ok = await this.client.set(rateKey(errandId), '1', {
@@ -69,14 +73,9 @@ export class RedisTrackingStore implements TrackingStore {
   async subscribe(errandId: string, onEvent: Handler): Promise<Unsubscribe> {
     const channel = eventsChannel(errandId);
     let set = this.handlers.get(channel);
-    const first = !set;
     if (!set) {
       set = new Set();
       this.handlers.set(channel, set);
-    }
-    set.add(onEvent);
-
-    if (first) {
       const dispatcher = (message: string) => {
         const event = parse<TrackingEvent>(message);
         if (!event) return;
@@ -89,14 +88,26 @@ export class RedisTrackingStore implements TrackingStore {
         }
       };
       this.dispatchers.set(channel, dispatcher);
-      try {
-        const sub = await this.ensureSubscriber();
-        await sub.subscribe(channel, dispatcher);
-      } catch (e) {
-        this.handlers.delete(channel);
-        this.dispatchers.delete(channel);
-        throw e;
-      }
+      // Every caller on this channel awaits this same promise, so none returns
+      // before the Redis SUBSCRIBE is active.
+      const ready = this.ensureSubscriber().then((sub) => sub.subscribe(channel, dispatcher));
+      this.pending.set(channel, ready);
+      ready.catch(() => {
+        // Failed: drop the channel so the next caller starts afresh. All
+        // waiting callers reject through `ready` below.
+        if (this.pending.get(channel) === ready) {
+          this.pending.delete(channel);
+          this.handlers.delete(channel);
+          this.dispatchers.delete(channel);
+        }
+      });
+    }
+    set.add(onEvent);
+    try {
+      await this.pending.get(channel);
+    } catch (e) {
+      set.delete(onEvent);
+      throw e;
     }
 
     let released = false;
@@ -104,10 +115,11 @@ export class RedisTrackingStore implements TrackingStore {
       if (released) return;
       released = true;
       const current = this.handlers.get(channel);
-      if (!current) return;
+      if (!current || current !== set) return;
       current.delete(onEvent);
       if (current.size > 0) return;
       this.handlers.delete(channel);
+      this.pending.delete(channel);
       const dispatcher = this.dispatchers.get(channel);
       this.dispatchers.delete(channel);
       if (dispatcher && this.subscriber) {

@@ -16,6 +16,7 @@ import {
   type MessageEvent,
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
+import { toApiStatus } from '../errands/api-status.js';
 import { TRACKING_CONFIG, type TrackingConfig } from './tracking.config.js';
 import { LocationDto } from './tracking.dto.js';
 import { TrackingService } from './tracking.service.js';
@@ -100,10 +101,24 @@ export class TrackingController {
           live = true;
           for (const e of buffer.splice(0)) emit(e);
           if (!closed) {
-            timer = setInterval(
-              () => subscriber.next({ type: 'keepalive', data: {} }),
-              keepaliveMs,
-            );
+            let checking = false;
+            timer = setInterval(() => {
+              if (closed) return;
+              subscriber.next({ type: 'keepalive', data: {} });
+              if (checking) return;
+              checking = true;
+              // Safety net for a missed end hook: re-read the errand and end
+              // the stream if it is no longer being tracked.
+              this.tracking
+                .authorizeParty(id, req.user.sub)
+                .then((e) => {
+                  if (e.status !== 'Picked Up') {
+                    emit({ type: 'ended', reason: 'NOT_TRACKING', status: toApiStatus(e.status) });
+                  }
+                })
+                .catch(() => emit({ type: 'ended', reason: 'NOT_TRACKING', status: 'Unknown' }))
+                .finally(() => (checking = false));
+            }, keepaliveMs);
           }
         })
         .catch(() => {

@@ -110,6 +110,12 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
       ts: this.now(),
     };
     await this.store.setPosition(errandId, position, this.config.locationTtlS);
+    // A POST racing Delivered/Cancelled must not leave a position behind.
+    const after = await this.errands.find(errandId);
+    if (!after || after.status !== TRACKING_STATUS) {
+      await this.store.clear(errandId);
+      return;
+    }
     await this.store.publish(errandId, { type: 'location', ...position });
     void this.refreshRoute(errandId, position);
   }

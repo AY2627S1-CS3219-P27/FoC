@@ -49,7 +49,7 @@ const MAX_STARTUP_RETRIES = 5;
         );
         await client.connect();
         connectedOnce = true;
-        return new RedisTrackingStore(client as never);
+        return new RedisTrackingStore(client);
       },
     },
     {

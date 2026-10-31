@@ -6,9 +6,10 @@ import { Test } from '@nestjs/testing';
 import { signAccessToken, testKeys } from '../../test/access-token.js';
 import { environmentSchema } from '../config/environment.schema.js';
 import { configureHttp } from '../http/configure-http.js';
+import { SYSTEM, transition, user } from '../lifecycle/transition.js';
 import { notifyCommitted, onTransitionCommitted } from '../lifecycle/transition-hooks.js';
 import { ERRAND_READER, type TrackedErrand } from './errand-reader.js';
-import { FakeTrackingStore } from './fake-tracking.store.js';
+import { FakeTrackingStore } from './fake-tracking.store.spec-helper.js';
 import {
   DESTINATION_RESOLVER,
   OsrmRoutingProvider,
@@ -46,6 +47,7 @@ describe('tracking', () => {
   let clock = 1_000_000;
   const store = new FakeTrackingStore(() => clock);
   let errand: TrackedErrand | null;
+  let onFind: (() => void) | undefined;
   let destination: { lat: number; lng: number } | null;
   const routing = { route: vi.fn() } satisfies RoutingProvider;
 
@@ -59,7 +61,7 @@ describe('tracking', () => {
         { provide: TRACKING_STORE, useValue: store },
         { provide: ROUTING_PROVIDER, useValue: routing },
         { provide: DESTINATION_RESOLVER, useValue: { resolve: async () => destination } },
-        { provide: ERRAND_READER, useValue: { find: async () => errand } },
+        { provide: ERRAND_READER, useValue: { find: async () => { onFind?.(); return errand; } } },
       ],
     }).compile();
     // Deterministic server clock for ts / serverTime.
@@ -74,6 +76,7 @@ describe('tracking', () => {
     clock += 10_000;
     errand = { id: ERRAND, requesterId: REQUESTER, courierId: COURIER, status: 'Picked Up' };
     destination = null;
+    onFind = undefined;
     routing.route.mockReset();
     store.positions.clear();
     store.routes.clear();
@@ -118,7 +121,13 @@ describe('tracking', () => {
       [{ lat: '1.3', lng: 103.8 }],
       [{ lat: 1.3 }],
     ])('rejects invalid DTO %j with 400', async (body) => {
-      expect((await post(body)).status).toBe(400);
+      const res = await post(body);
+      expect(res.status).toBe(400);
+      // Nest's default ValidationPipe shape: no INVALID_FIELDS code.
+      const json = await res.json();
+      expect(json).toMatchObject({ statusCode: 400, error: 'Bad Request' });
+      expect(Array.isArray(json.message)).toBe(true);
+      expect(json).not.toHaveProperty('code');
       expect(store.positions.size).toBe(0);
     });
 
@@ -144,6 +153,16 @@ describe('tracking', () => {
       clock += 600;
       expect((await post({ lat: 1.32, lng: 103.81 })).status).toBe(204);
       expect(store.positions.get(ERRAND)!.value.lat).toBe(1.32);
+    });
+
+    it('leaves no position behind when the errand is delivered mid-POST', async () => {
+      let calls = 0;
+      onFind = () => {
+        if (++calls === 2) errand = { ...errand!, status: 'Delivered' };
+      };
+      expect((await post(CAMPUS)).status).toBe(204);
+      expect(store.positions.size).toBe(0);
+      expect(store.published.filter((p) => p.event.type === 'location')).toHaveLength(0);
     });
 
     it('auth matrix', async () => {
@@ -244,6 +263,22 @@ describe('tracking', () => {
       expect(snap.destination).toEqual(destination);
     });
 
+    it('backs off OSRM for the failure cooldown, then retries', async () => {
+      destination = { lat: 1.35, lng: 103.9 };
+      routing.route.mockResolvedValue(null);
+      await post(CAMPUS);
+      await settle();
+      expect(routing.route).toHaveBeenCalledTimes(1);
+      clock += 2000; // within ROUTE_FAILURE_COOLDOWN_MS (10 s)
+      await post({ lat: 1.3001, lng: 103.8 });
+      await settle();
+      expect(routing.route).toHaveBeenCalledTimes(1);
+      clock += 10_000; // past it
+      await post({ lat: 1.3002, lng: 103.8 });
+      await settle();
+      expect(routing.route).toHaveBeenCalledTimes(2);
+    });
+
     it('degrades to no route when routing fails, and still stores the position', async () => {
       destination = { lat: 1.35, lng: 103.9 };
       routing.route.mockResolvedValue(null);
@@ -324,6 +359,18 @@ describe('tracking', () => {
       const ended = events.at(-1)!;
       expect(ended.event).toBe('ended');
       expect(JSON.parse(ended.data)).toEqual({ reason: 'DELIVERED', status: 'Delivered' });
+      await waitFor(() => store.listenerCount === 0);
+    });
+
+    it('ends the stream on a keepalive tick when the errand left Picked Up without an ended event', async () => {
+      const { res } = await open();
+      const done = collect(res, (e) => e.some((x) => x.event === 'ended'));
+      await waitFor(() => store.listenerCount === 1);
+      errand = { ...errand!, status: 'Delivered' }; // end hook "missed"
+      const events = await done;
+      const ended = events.at(-1)!;
+      expect(ended.event).toBe('ended');
+      expect(JSON.parse(ended.data)).toEqual({ reason: 'NOT_TRACKING', status: 'Delivered' });
       await waitFor(() => store.listenerCount === 0);
     });
 
@@ -413,6 +460,70 @@ describe('tracking', () => {
         off2();
       }
     });
+  });
+});
+
+describe('transition() post-commit hook (real transition(), mocked db)', () => {
+  const userActor = user(COURIER);
+  const deliver = { errandId: ERRAND, expected: 'Picked Up', to: 'Delivered', actor: userActor, set: { deliveredAt: new Date() } } as const;
+  const cancel = { errandId: ERRAND, expected: 'Picked Up', to: 'Cancelled', actor: SYSTEM, set: { cancellationReason: 'PICKUP_TIME_EXCEEDED' } } as const;
+  const dbReturning = (result: unknown) => ({ transaction: vi.fn(async () => result) }) as never;
+  const flush = () => new Promise((r) => setTimeout(r, 5));
+  let seen: unknown[];
+  let off: () => void;
+  beforeEach(() => {
+    seen = [];
+    off = onTransitionCommitted((t) => void seen.push(t));
+  });
+  afterEach(() => off());
+
+  it('fires after a committed Picked Up -> Delivered / Cancelled', async () => {
+    const ok = { ok: true, sequenceNumber: 7 };
+    expect(await transition(dbReturning(ok), deliver)).toEqual(ok);
+    expect(await transition(dbReturning(ok), cancel)).toEqual(ok);
+    await flush();
+    expect(seen).toEqual([
+      { errandId: ERRAND, expected: 'Picked Up', to: 'Delivered', type: undefined },
+      { errandId: ERRAND, expected: 'Picked Up', to: 'Cancelled', type: undefined },
+    ]);
+  });
+
+  it('does not fire on a replay or a refused result', async () => {
+    await transition(dbReturning({ ok: true, sequenceNumber: 7, replayed: true }), deliver);
+    await transition(dbReturning({ ok: false, reason: 'FORBIDDEN' }), deliver);
+    await transition(dbReturning({ ok: false, reason: 'STATE_MISMATCH', currentStatus: 'Delivered' }), deliver);
+    await flush();
+    expect(seen).toEqual([]);
+  });
+
+  it('does not fire when the input is refused before the transaction', async () => {
+    const db = dbReturning({ ok: true, sequenceNumber: 1 });
+    const r = await transition(db, { ...deliver, set: {} });
+    expect(r).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
+    await flush();
+    expect(seen).toEqual([]);
+  });
+
+  it('leaves the result unchanged when a listener throws or rejects', async () => {
+    const offs = [
+      onTransitionCommitted(() => { throw new Error('sync'); }),
+      onTransitionCommitted(async () => { throw new Error('async'); }),
+    ];
+    try {
+      const ok = { ok: true, sequenceNumber: 9 };
+      await expect(transition(dbReturning(ok), deliver)).resolves.toEqual(ok);
+      await flush();
+      expect(seen).toHaveLength(1); // the well-behaved listener still ran
+    } finally {
+      offs.forEach((f) => f());
+    }
+  });
+
+  it('propagates a transaction failure and notifies nobody', async () => {
+    const db = { transaction: vi.fn(async () => { throw new Error('db down'); }) } as never;
+    await expect(transition(db, deliver)).rejects.toThrow('db down');
+    await flush();
+    expect(seen).toEqual([]);
   });
 });
 

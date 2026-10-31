@@ -22,6 +22,41 @@ function fakeClient() {
 }
 
 describe('RedisTrackingStore pub/sub', () => {
+  it('makes a concurrent second subscriber wait for the in-flight SUBSCRIBE', async () => {
+    const { client, sub } = fakeClient();
+    let release!: () => void;
+    sub.subscribe.mockImplementation(
+      () => new Promise<void>((r) => { release = () => r(); }),
+    );
+    const store = new RedisTrackingStore(client as never);
+    let secondDone = false;
+    const first = store.subscribe('e4', vi.fn());
+    const second = store.subscribe('e4', vi.fn()).then((off) => { secondDone = true; return off; });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(secondDone).toBe(false); // not returned before Redis is subscribed
+    expect(sub.subscribe).toHaveBeenCalledTimes(1);
+    release();
+    await Promise.all([first, second]);
+    expect(secondDone).toBe(true);
+  });
+
+  it('rejects every waiting caller if the first SUBSCRIBE fails, and cleans up', async () => {
+    const { client, sub } = fakeClient();
+    sub.subscribe.mockRejectedValueOnce(new Error('boom'));
+    const store = new RedisTrackingStore(client as never);
+    const results = await Promise.allSettled([
+      store.subscribe('e5', vi.fn()),
+      store.subscribe('e5', vi.fn()),
+    ]);
+    expect(results.map((r) => r.status)).toEqual(['rejected', 'rejected']);
+    expect(store.activeChannels).toBe(0);
+    // A later caller starts afresh and succeeds.
+    const off = await store.subscribe('e5', vi.fn());
+    expect(store.activeChannels).toBe(1);
+    await off();
+    expect(store.activeChannels).toBe(0);
+  });
+
   it('ref-counts one Redis subscription per channel and releases the last one', async () => {
     const { client, sub, subs } = fakeClient();
     const store = new RedisTrackingStore(client as never);
