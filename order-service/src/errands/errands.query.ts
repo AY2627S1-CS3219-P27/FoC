@@ -2,10 +2,11 @@ import { Role } from '@foc/contracts';
 import { Inject, Injectable } from '@nestjs/common';
 import { type AnyColumn, and, asc, desc, eq, gt, inArray, ne, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module.js';
-import { errands } from '../db/schema.js';
+import { disputeReports, errandEvents, errands } from '../db/schema.js';
+import { CREDIT_SETTLEMENT_REJECTED } from '../lifecycle/edges.js';
 import type { Db } from '../lifecycle/transition.js';
 import { INTERNAL_STATUSES_OF, toApiStatus } from './api-status.js';
-import type { ListErrandsQuery, ListSort, MineErrandsQuery } from './errands.dto.js';
+import type { ListErrandsQuery, ListSort, MineErrandsQuery, PageQuery } from './errands.dto.js';
 
 const ORDER: Record<ListSort, () => ReturnType<typeof asc>[]> = {
   expiring: () => [asc(errands.expiresAt)],
@@ -80,6 +81,44 @@ export class ErrandsQueryService {
   async ofUserForAdmin(userId: string, q: MineErrandsQuery) {
     const rows = await this.partyRows(userId, q);
     return { items: rows.map(toAdminView), limit: q.limit, offset: q.offset };
+  }
+
+  // Dispute queue: Incomplete only (not the internal Settling-Credit), longest-waiting
+  // first. `reports` says which side filed one, never what it says.
+  async disputeQueue(q: PageQuery) {
+    const rows = await this.db
+      .select({
+        errand: errands,
+        reporters: sql<string[]>`coalesce((select array_agg(${disputeReports.role}) from ${disputeReports} where ${disputeReports.errandId} = ${errands.id}), '{}')`,
+      })
+      .from(errands)
+      .where(eq(errands.status, 'Incomplete'))
+      .orderBy(asc(errands.updatedAt), asc(errands.id))
+      .limit(q.limit)
+      .offset(q.offset);
+    return {
+      items: rows.map(({ errand, reporters }) => ({
+        ...toAdminView(errand),
+        reports: { requester: reporters.includes('requester'), courier: reporters.includes('courier') },
+      })),
+      limit: q.limit,
+      offset: q.offset,
+    };
+  }
+
+  // Null (a 404) when the errand is unknown or not Incomplete.
+  async disputeDetail(id: string) {
+    const [errand] = await this.db
+      .select()
+      .from(errands)
+      .where(and(eq(errands.id, id), eq(errands.status, 'Incomplete')));
+    if (!errand) return null;
+    const [reports, events] = await Promise.all([
+      this.db.select().from(disputeReports).where(eq(disputeReports.errandId, id)).orderBy(asc(disputeReports.createdAt)),
+      this.db.select().from(errandEvents).where(eq(errandEvents.errandId, id)).orderBy(asc(errandEvents.sequenceNumber)),
+    ]);
+    const latestRejection = events.findLast((e) => e.type === CREDIT_SETTLEMENT_REJECTED) ?? null;
+    return { errand: toAdminView(errand), reports, events, latestRejection };
   }
 
   private partyRows(userId: string, q: MineErrandsQuery) {
