@@ -55,6 +55,17 @@ const seed = async (over: Partial<typeof errands.$inferInsert> = {}) => {
   await t.db.insert(errands).values(row);
   return row;
 };
+// When the errand first entered Incomplete: the queue orders by this, not updatedAt.
+const disputedAt = (e: { id: string }, at: Date, seq = 1) =>
+  t.db.insert(errandEvents).values({
+    errandId: e.id,
+    sequenceNumber: seq,
+    type: 'ErrandIncomplete',
+    fromStatus: 'Delivered',
+    toStatus: 'Incomplete',
+    payload: {},
+    occurredAt: at,
+  });
 const report = (e: { id: string; requesterId: string; courierId: string | null }, role: 'requester' | 'courier') =>
   t.db.insert(disputeReports).values({
     errandId: e.id,
@@ -84,21 +95,35 @@ describe('guard', () => {
 });
 
 describe('GET /v1/admin/disputes', () => {
-  it('lists only Incomplete errands, longest-waiting first', async () => {
-    const newer = await seed({ updatedAt: ago(1) });
-    const older = await seed({ updatedAt: ago(5) });
-    await seed({ status: 'Settling-Credit', updatedAt: ago(9) });
-    await seed({ status: 'Resolved', updatedAt: ago(9) });
-    await seed({ status: 'Open' });
+  it('lists Incomplete and Settling-Credit errands, longest-disputed first', async () => {
+    const newer = await seed();
+    const settling = await seed({ status: 'Settling-Credit' });
+    const oldest = await seed();
+    await disputedAt(newer, ago(1));
+    await disputedAt(settling, ago(3));
+    await disputedAt(oldest, ago(5));
+    for (const status of ['Resolved', 'Open'] as const) await seed({ status });
     const { res, body } = await queue();
     expect(res.status).toBe(200);
-    expect(ids(body)).toEqual([older.id, newer.id]);
+    expect(ids(body)).toEqual([oldest.id, settling.id, newer.id]);
+    expect(body.items[1]).toMatchObject({ status: 'Incomplete', internalStatus: 'Settling-Credit' });
+  });
+
+  it('keeps its place when a rejected settlement bumps updatedAt', async () => {
+    const rejected = await seed({ updatedAt: ago(0) });
+    const waiting = await seed({ updatedAt: ago(2) });
+    await disputedAt(rejected, ago(9));
+    await disputedAt(waiting, ago(4));
+    expect(ids((await queue()).body)).toEqual([rejected.id, waiting.id]);
   });
 
   it('shows both parties, the reward and which reports exist', async () => {
-    const none = await seed({ updatedAt: ago(3) });
-    const one = await seed({ updatedAt: ago(2) });
-    const both = await seed({ updatedAt: ago(1) });
+    const none = await seed();
+    const one = await seed();
+    const both = await seed();
+    await disputedAt(none, ago(3));
+    await disputedAt(one, ago(2));
+    await disputedAt(both, ago(1));
     await report(one, 'courier');
     await report(both, 'requester');
     await report(both, 'courier');
@@ -112,7 +137,10 @@ describe('GET /v1/admin/disputes', () => {
   });
 
   it('pages with limit and offset', async () => {
-    const [a, b, c] = [await seed({ updatedAt: ago(3) }), await seed({ updatedAt: ago(2) }), await seed({ updatedAt: ago(1) })];
+    const [a, b, c] = [await seed(), await seed(), await seed()];
+    await disputedAt(a, ago(3));
+    await disputedAt(b, ago(2));
+    await disputedAt(c, ago(1));
     expect(ids((await queue('limit=2')).body)).toEqual([a.id, b.id]);
     const { body } = await queue('limit=2&offset=2');
     expect(ids(body)).toEqual([c.id]);
@@ -164,10 +192,28 @@ describe('GET /v1/admin/disputes/:errandId', () => {
     expect(body.latestRejection).toMatchObject({ sequenceNumber: 2, payload: { reason: 'INSUFFICIENT_HELD' } });
   });
 
-  it('is a 404 for an unknown id and for an errand that is not Incomplete', async () => {
+  it('returns only the allowlisted fields of events, reports and the latest rejection', async () => {
+    const e = await seed({ lastSequenceNumber: 1 });
+    await report(e, 'requester');
+    await event(e.id, 1, 'CreditSettlementRejected', { reason: 'X' }, ago(1));
+    const body = await (await admin(`/${e.id}`)).json();
+    const eventKeys = ['actorId', 'fromStatus', 'occurredAt', 'payload', 'sequenceNumber', 'toStatus', 'type'];
+    expect(Object.keys(body.events[0]).sort()).toEqual(eventKeys);
+    expect(Object.keys(body.latestRejection).sort()).toEqual(eventKeys);
+    expect(Object.keys(body.reports[0]).sort()).toEqual(['authorId', 'body', 'createdAt', 'role']);
+  });
+
+  it('serves a Settling-Credit errand, reported as Incomplete with its internal status', async () => {
     const settling = await seed({ status: 'Settling-Credit' });
+    const res = await admin(`/${settling.id}`);
+    expect(res.status).toBe(200);
+    expect((await res.json()).errand).toMatchObject({ status: 'Incomplete', internalStatus: 'Settling-Credit' });
+  });
+
+  it('is a 404 for an unknown id and for an errand that is not in dispute', async () => {
+    const resolved = await seed({ status: 'Resolved' });
     expect((await admin(`/${randomUUID()}`)).status).toBe(404);
-    expect((await admin(`/${settling.id}`)).status).toBe(404);
+    expect((await admin(`/${resolved.id}`)).status).toBe(404);
   });
 
   it('is a 400 for a malformed id', async () => {
