@@ -6,7 +6,7 @@ services:
       target: development
     image: ${FOC_IMAGE_PREFIX:-foc}/credit-service:${CREDIT_SERVICE_IMAGE_TAG:-dev}
     command: npm run start:dev
-    restart: unless-stopped
+    restart: on-failure:3
     ports:
       - '${CREDIT_SERVICE_HOST_PORT:-3003}:${CREDIT_SERVICE_PORT:-3000}'
     depends_on:
@@ -139,7 +139,7 @@ services:
 
   credit-db:
     image: postgres:18-alpine
-    restart: unless-stopped
+    restart: on-failure:3
     ports:
       - '${CREDIT_SERVICE_DB_HOST_PORT:-5435}:5432'
     environment:
