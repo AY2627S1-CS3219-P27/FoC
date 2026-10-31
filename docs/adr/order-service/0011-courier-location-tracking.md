@@ -116,13 +116,25 @@ routes come from OSRM over OSM data.
   Mitigations are decided (compression off for the stream, a client watchdog
   that treats a silent stream as dead, and falling back to polling the
   snapshot), but it is still unverified end to end.
-- order-service now requires `REDIS_HOST`, `REDIS_PORT` and `REDIS_USERNAME` to
-  boot, even where tracking is unused.
+- Redis is non-fatal for order-service. `REDIS_HOST`, `REDIS_PORT` and
+  `REDIS_USERNAME` stay required config (a missing value stops boot), but the
+  service connects to Redis in the background with retry. While Redis is
+  unavailable, `POST /location` and the tracking GETs answer
+  `503 { code: 'TRACKING_UNAVAILABLE' }`, and lifecycle is unaffected.
+- Open streams are capped: `TRACKING_MAX_STREAMS_PER_ERRAND` (5) and
+  `TRACKING_MAX_STREAMS_PER_USER` (10). Over a cap the stream request answers
+  `429 { code: 'TOO_MANY_STREAMS' }`.
+- `ended` is sent only for a real end: the errand is not found or its status is
+  not `Picked Up`. If the per-tick status re-check itself fails (a transient
+  database error), that tick is skipped and the stream stays open.
 - The frontend has a Courier share toggle and a Requester map card (Leaflet).
   The tile source is configured with `NEXT_PUBLIC_MAP_TILE_URL` and
   `NEXT_PUBLIC_MAP_TILE_ATTRIBUTION`; outside development the map needs one set
   (the public OSM tile servers are not for production use), else the card shows
-  that tiles are not configured.
+  that tiles are not configured. The frontend dev container runs `npm run dev`
+  (`NODE_ENV=development`), where a public OSM tile fallback is active when
+  `NEXT_PUBLIC_MAP_TILE_URL` is empty. A production build needs both vars at
+  build time and must not use the public OSM tiles.
 
 ## Alternatives rejected
 

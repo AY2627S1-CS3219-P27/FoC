@@ -2,6 +2,17 @@
 
 Status: implementation in progress; see [ADR 0011](../docs/adr/order-service/0011-courier-location-tracking.md). Branch: `features/order-service/map-preview`. Owner service: `order-service`, with a frontend slice.
 
+> **Superseded where it differs.** This is the original research spec. [ADR 0011](../docs/adr/order-service/0011-courier-location-tracking.md) and [`ARCHITECTURE.md`](./ARCHITECTURE.md) §7 win over it. Known differences:
+>
+> - Admin viewing is not in v1 (snapshot and stream are for the errand's Requester or Courier).
+> - The keepalive is a named SSE `keepalive` event with `{}` data, not a comment.
+> - Destination: v1 uses a `NullDestinationResolver`, so no route is produced until delivery coordinates exist.
+> - `osrm` is opt-in via the compose profile `routing`.
+> - The OSM extract is Singapore-wide (`data/osm/singapore.osm.pbf`), not campus-only.
+> - Redis is non-fatal for boot; while it is down, tracking answers `503 TRACKING_UNAVAILABLE`.
+> - Open streams are capped per errand and per user (`429 TOO_MANY_STREAMS`).
+
+
 ## 1. Goal
 
 Once a Courier has picked up an Errand (`Picked Up`), the Requester can watch the Courier move on a map, with a route and ETA to the delivery point, until the Errand is `Delivered` (or leaves `Picked Up` some other way). Tracking is a convenience, not part of the state model: it must never block or change a lifecycle transition.
