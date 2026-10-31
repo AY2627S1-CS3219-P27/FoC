@@ -10,6 +10,8 @@ import {
   type Errand,
   type SupplierOption,
 } from "./types";
+import { CourierLocationShare } from "./courier-location-share";
+import { TrackingMapCard } from "./tracking-map-card";
 import { formatTime, inputClass, shortId, StatusBadge, timeLeft } from "./ui";
 
 const POLL_MS = 3000;
@@ -186,6 +188,13 @@ export function ErrandDetail({
                 </>
               )}
             </dl>
+
+            {errand.status === "Picked Up" && errand.requesterId === me && (
+              <TrackingMapCard errandId={errandId} />
+            )}
+            {errand.status === "Picked Up" && errand.courierId === me && (
+              <CourierLocationShare errandId={errandId} />
+            )}
 
             <div className="mt-6 space-y-3">
               {(actions.includes("withdraw") || actions.includes("adjust")) && (

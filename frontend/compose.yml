@@ -8,6 +8,8 @@ services:
       - SUPPLIER_SERVICE_URL=${SUPPLIER_SERVICE_URL-http://supplier-service:3000}
       - CREDIT_SERVICE_URL=${CREDIT_SERVICE_URL-http://credit-service:3000}
       - ORDER_SERVICE_URL=${ORDER_SERVICE_URL-http://order-service:3000}
+      - NEXT_PUBLIC_MAP_TILE_URL=${NEXT_PUBLIC_MAP_TILE_URL-}
+      - NEXT_PUBLIC_MAP_TILE_ATTRIBUTION=${NEXT_PUBLIC_MAP_TILE_ATTRIBUTION-}
     ports:
       - '3001:3000' # 3000 is user-service
     develop:
