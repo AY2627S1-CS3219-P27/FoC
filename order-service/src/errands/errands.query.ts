@@ -43,6 +43,24 @@ const toAdminView = (r: typeof errands.$inferSelect) => ({
   updatedAt: r.updatedAt,
 });
 
+// Dispute detail allowlists: rows are never returned as stored, so a new column stays
+// private until it is added here. errandId is dropped (it is in the URL).
+const toEventView = (e: typeof errandEvents.$inferSelect) => ({
+  sequenceNumber: e.sequenceNumber,
+  type: e.type,
+  fromStatus: e.fromStatus,
+  toStatus: e.toStatus,
+  payload: e.payload,
+  actorId: e.actorId,
+  occurredAt: e.occurredAt,
+});
+const toReportView = (r: typeof disputeReports.$inferSelect) => ({
+  authorId: r.authorId,
+  role: r.role,
+  body: r.body,
+  createdAt: r.createdAt,
+});
+
 // The read side. Owns every errand SELECT; never writes (Lifecycle stays the
 // only writer) and never calls transition().
 @Injectable()
@@ -124,7 +142,12 @@ export class ErrandsQueryService {
         const reports = await tx.select().from(disputeReports).where(eq(disputeReports.errandId, id)).orderBy(asc(disputeReports.createdAt));
         const events = await tx.select().from(errandEvents).where(eq(errandEvents.errandId, id)).orderBy(asc(errandEvents.sequenceNumber));
         const latestRejection = events.findLast((e) => e.type === CREDIT_SETTLEMENT_REJECTED) ?? null;
-        return { errand: toAdminView(errand), reports, events, latestRejection };
+        return {
+          errand: toAdminView(errand),
+          reports: reports.map(toReportView),
+          events: events.map(toEventView),
+          latestRejection: latestRejection && toEventView(latestRejection),
+        };
       },
       { isolationLevel: 'repeatable read', accessMode: 'read only' },
     );
