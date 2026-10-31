@@ -83,8 +83,10 @@ export class ErrandsQueryService {
     return { items: rows.map(toAdminView), limit: q.limit, offset: q.offset };
   }
 
-  // Dispute queue: Incomplete only (not the internal Settling-Credit), longest-waiting
-  // first. `reports` says which side filed one, never what it says.
+  // Dispute queue: every Incomplete errand, including the in-flight Settling-Credit
+  // (`internalStatus` tells them apart), longest-disputed first: by the first time it
+  // entered Incomplete, so a rejected settlement keeps its place. `reports` says which
+  // side filed one, never what it says.
   async disputeQueue(q: PageQuery) {
     const rows = await this.db
       .select({
@@ -92,8 +94,11 @@ export class ErrandsQueryService {
         reporters: sql<string[]>`coalesce((select array_agg(${disputeReports.role}) from ${disputeReports} where ${disputeReports.errandId} = ${errands.id}), '{}')`,
       })
       .from(errands)
-      .where(eq(errands.status, 'Incomplete'))
-      .orderBy(asc(errands.updatedAt), asc(errands.id))
+      .where(inArray(errands.status, [...INTERNAL_STATUSES_OF.Incomplete]))
+      .orderBy(
+        sql`(select min(${errandEvents.occurredAt}) from ${errandEvents} where ${errandEvents.errandId} = ${errands.id} and ${errandEvents.toStatus} = 'Incomplete')`,
+        asc(errands.id),
+      )
       .limit(q.limit)
       .offset(q.offset);
     return {
@@ -106,19 +111,23 @@ export class ErrandsQueryService {
     };
   }
 
-  // Null (a 404) when the errand is unknown or not Incomplete.
+  // Null (a 404) when the errand is unknown or not Incomplete (Settling-Credit counts).
   async disputeDetail(id: string) {
-    const [errand] = await this.db
-      .select()
-      .from(errands)
-      .where(and(eq(errands.id, id), eq(errands.status, 'Incomplete')));
-    if (!errand) return null;
-    const [reports, events] = await Promise.all([
-      this.db.select().from(disputeReports).where(eq(disputeReports.errandId, id)).orderBy(asc(disputeReports.createdAt)),
-      this.db.select().from(errandEvents).where(eq(errandEvents.errandId, id)).orderBy(asc(errandEvents.sequenceNumber)),
-    ]);
-    const latestRejection = events.findLast((e) => e.type === CREDIT_SETTLEMENT_REJECTED) ?? null;
-    return { errand: toAdminView(errand), reports, events, latestRejection };
+    // One snapshot, so the errand, reports and events can't disagree if a transition lands mid-read.
+    return this.db.transaction(
+      async (tx) => {
+        const [errand] = await tx
+          .select()
+          .from(errands)
+          .where(and(eq(errands.id, id), inArray(errands.status, [...INTERNAL_STATUSES_OF.Incomplete])));
+        if (!errand) return null;
+        const reports = await tx.select().from(disputeReports).where(eq(disputeReports.errandId, id)).orderBy(asc(disputeReports.createdAt));
+        const events = await tx.select().from(errandEvents).where(eq(errandEvents.errandId, id)).orderBy(asc(errandEvents.sequenceNumber));
+        const latestRejection = events.findLast((e) => e.type === CREDIT_SETTLEMENT_REJECTED) ?? null;
+        return { errand: toAdminView(errand), reports, events, latestRejection };
+      },
+      { isolationLevel: 'repeatable read', accessMode: 'read only' },
+    );
   }
 
   private partyRows(userId: string, q: MineErrandsQuery) {
