@@ -15,7 +15,8 @@ const ORDER: Record<ListSort, () => ReturnType<typeof asc>[]> = {
 };
 
 // The response allowlist: never idempotencyKey or lastSequenceNumber.
-// The parties' ids and the cancellation reason are added only for the parties.
+// The parties' ids and the cancellation reason are added only for the parties; the
+// settlement amount and note only for a party on a Resolved errand (a rejection clears them).
 const toView = (r: typeof errands.$inferSelect, callerId?: string) => ({
   id: r.id,
   status: toApiStatus(r.status),
@@ -30,7 +31,14 @@ const toView = (r: typeof errands.$inferSelect, callerId?: string) => ({
   expiresAt: r.expiresAt,
   createdAt: r.createdAt,
   ...(callerId !== undefined && (callerId === r.requesterId || callerId === r.courierId)
-    ? { requesterId: r.requesterId, courierId: r.courierId, cancellationReason: r.cancellationReason }
+    ? {
+        requesterId: r.requesterId,
+        courierId: r.courierId,
+        cancellationReason: r.cancellationReason,
+        ...(r.status === 'Resolved'
+          ? { settlementAmount: r.settlementAmount, settlementNote: r.settlementNote }
+          : {}),
+      }
     : {}),
 });
 
