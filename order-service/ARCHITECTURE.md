@@ -1,6 +1,6 @@
 # order-service architecture
 
-Diagrams are Mermaid (render on GitHub / VS Code). Decisions behind them: ADRs [0001](../docs/adr/order-service/0001-hand-rolled-event-sourcing-on-postgres.md)–[0007](../docs/adr/order-service/0007-expiry-duration-autocomplete-and-supplier-validation.md), [0008](../docs/adr/order-service/0008-transactional-outbox-and-broker-access.md), [0009](../docs/adr/order-service/0009-referenced-data-ids-and-supplier-snapshot.md), [0010](../docs/adr/order-service/0010-role-block-with-ttl.md). Terms: [`CONTEXT.md`](./CONTEXT.md).
+Diagrams are Mermaid (render on GitHub / VS Code). Decisions behind them: ADRs [0001](../docs/adr/order-service/0001-hand-rolled-event-sourcing-on-postgres.md)–[0007](../docs/adr/order-service/0007-expiry-duration-autocomplete-and-supplier-validation.md), [0008](../docs/adr/order-service/0008-transactional-outbox-and-broker-access.md), [0009](../docs/adr/order-service/0009-referenced-data-ids-and-supplier-snapshot.md), [0010](../docs/adr/order-service/0010-role-block-with-ttl.md), [0011](../docs/adr/order-service/0011-courier-location-tracking.md). Terms: [`CONTEXT.md`](./CONTEXT.md).
 
 ## 1. Components
 
@@ -10,6 +10,7 @@ flowchart LR
   User[user-service]
   Supplier[supplier-service]
   Credit[credit-service]
+  OSRM[OSRM foot routing]
 
   subgraph OS[order-service NestJS]
     API[HTTP controllers<br/>create, edit, cancel, list, accept,<br/>pickup, deliver, confirm, role-block]
@@ -18,6 +19,7 @@ flowchart LR
     Consumers[Notice consumers<br/>supplier + credit replies]
     Outbox[Outbox relay + publisher]
     Sweeps[Sweeps<br/>expiry, pickup, auto-complete, credit timeouts,<br/>supplier resend + hold]
+    Track[Tracking module<br/>location, SSE, snapshot, RoutingProvider]
   end
 
   subgraph PG[PostgreSQL]
@@ -27,6 +29,8 @@ flowchart LR
     Locks[advisory locks]
     Blocks[role_blocks<br/>user, role, expires_at]
   end
+
+  Redis[(Redis DB 1<br/>order:loc, order:route, pub/sub)]
 
   MQ{{RabbitMQ foc.events}}
 
@@ -49,6 +53,12 @@ flowchart LR
   Consumers --> Life
   MQ <--> Supplier
   MQ <--> Credit
+  Client -- "POST location, SSE tracking (ADR 0011)" --> API
+  API --> Track
+  Track -->|"read errand only"| Errands
+  Track -->|"position, route, pub/sub"| Redis
+  Track -.->|"route, degrades to none"| OSRM
+  Life -.->|"edges 12, 13: best-effort end, after commit"| Track
 ```
 
 Only the Lifecycle module writes errands. Every write, from a request, a notice reply or a sweep, goes through the same transition function.
@@ -308,6 +318,48 @@ Order-service and credit-service never share a transaction. Order changes its ow
 - **Telling the user a credit step failed (S6).** The reason is already in the revert event's payload. A notice will be added on those edges once notification-service defines its event contract.
 - **"You may resubmit" after `SUPPLIER_VALIDATION_TIMEOUT` (F1.5.3).** Today the requester sees `Cancelled` and the reason on the detail endpoint.
 - **The `ADMIN ALERT` repeats every tick.** Windows are counted from `updated_at`, with no stored attempt count.
+
+## 7. Courier location tracking (ADR 0011)
+
+While an Errand is `Picked Up`, the Requester can watch the Courier's last-known position. It is not part of the state model: the tracking module (`src/tracking/`) only reads the errand row, never calls `transition()` and never writes errand state. Nothing goes to Postgres, the event log or RabbitMQ.
+
+| Route | Who | Behaviour |
+|---|---|---|
+| `POST /v1/errands/:id/location` | the assigned Courier | Body `{lat, lng, accuracy, heading, speed}`. `204`. `409 STATE_MISMATCH` unless `Picked Up`, `403 FORBIDDEN` for anyone else. Positions outside `TRACKING_BBOX`, or faster than `TRACKING_MIN_UPDATE_INTERVAL_MS`, are dropped or rejected |
+| `GET /v1/errands/:id/tracking` | the Errand's Requester or Courier | SSE: `snapshot` first, then `location`, `route`, `ended`; keep-alive every `TRACKING_SSE_KEEPALIVE_MS` |
+| `GET /v1/errands/:id/tracking/snapshot` | the Errand's Requester or Courier | JSON: `{errandId, status, tracking, position, route, destination, serverTime}` |
+
+All three sit behind `JwtAuthGuard` and `RolesGuard`, and the handler then checks the caller is that Errand's Requester or Courier. `position` is `{lat, lng, accuracy, heading, speed, ts}` or `null`; `route` is `{polyline: [[lng, lat], ...], distanceM, durationS, computedAt}` or `null`; `destination` is `{lat, lng}` or `null`.
+
+```mermaid
+sequenceDiagram
+  participant C as Courier browser
+  participant O as order-service (tracking)
+  participant R as Redis DB 1
+  participant Q as OSRM
+  participant Rq as Requester browser
+  Rq->>O: GET /tracking (SSE)
+  O->>R: GET order:loc, order:route
+  O-->>Rq: event snapshot
+  O->>R: SUBSCRIBE order:loc-events:id
+  C->>O: POST /location
+  O->>O: Picked Up? bbox? interval?
+  O->>R: SET order:loc (TTL), PUBLISH order:loc-events:id
+  opt moved more than TRACKING_REROUTE_DISTANCE_M and destination known
+    O->>Q: foot route
+    Q--)O: polyline, distance, duration (failure: no route)
+    O->>R: SET order:route (TTL)
+  end
+  R--)O: event
+  O-)Rq: event location / route
+  Note over O,Rq: edge 12 or 13 commits, then DEL keys and publish ended
+```
+
+- **Redis.** `order:loc:<errandId>` holds the last position (`TRACKING_LOCATION_TTL_S`, 120 s), `order:route:<errandId>` the cached route (`TRACKING_ROUTE_TTL_S`, 600 s), and `order:loc-events:<errandId>` is the pub/sub channel (fire and forget). order-service uses its own DB index (`REDIS_DB_INDEX`, default 1) and the `order:` prefix.
+- **Ending.** Edges 12 (`Delivered`) and 13 (`PICKUP_TIME_EXCEEDED`) trigger a best-effort hook after the commit that deletes the keys and publishes `ended`. A failed hook never affects the transition; the status check on later requests and the TTL are the safety net.
+- **Routing.** A `RoutingProvider` calls OSRM (foot profile, Singapore extract) at `OSRM_BASE_URL` within `OSRM_TIMEOUT_MS`. A cached route is reused until the Courier is more than `TRACKING_REROUTE_DISTANCE_M` from its origin. On any OSRM failure there is no route and the live position still flows.
+- **Destination (v1 gap).** order-service stores no delivery coordinates (`delivery_location` is client text), so a `DestinationResolver` stub returns `null`. Until delivery coordinates exist, `destination` and `route` stay `null`; routes are not produced end to end.
+- **Privacy.** Positions are shared only between the two parties, kept no longer than the TTL, with no history, and never logged.
 
 ## Remaining work before rollout
 

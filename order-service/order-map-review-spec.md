@@ -1,6 +1,6 @@
 # Courier location tracking: research and implementation spec
 
-Status: **draft for review, nothing implemented.** Branch: `features/order-service/map-preview`. Owner service: `order-service`, with a frontend slice.
+Status: implementation in progress; see [ADR 0011](../docs/adr/order-service/0011-courier-location-tracking.md). Branch: `features/order-service/map-preview`. Owner service: `order-service`, with a frontend slice.
 
 ## 1. Goal
 
