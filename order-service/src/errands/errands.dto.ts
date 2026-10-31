@@ -68,6 +68,19 @@ export class AdjustErrandDto {
   newAmount: number;
 }
 
+// The admin's settlement: the courier's share. The upper bound is the errand's
+// reward, checked by the route; the word cap on the note lives in transition().
+export class ResolveDisputeDto {
+  @IsInt()
+  @Min(0)
+  @Max(MAX_CREDITS)
+  settlementAmount: number;
+
+  @IsString()
+  @Matches(NOT_BLANK)
+  note: string;
+}
+
 export const LIST_SORTS = ['expiring', 'newest', 'credits'] as const;
 export type ListSort = (typeof LIST_SORTS)[number];
 export const DEFAULT_LIMIT = 20;

@@ -1,6 +1,6 @@
 import { Role } from '@foc/contracts';
 import { Inject, Injectable } from '@nestjs/common';
-import { type AnyColumn, and, asc, desc, eq, gt, inArray, ne, or, sql } from 'drizzle-orm';
+import { type AnyColumn, and, asc, count, desc, eq, gt, inArray, ne, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module.js';
 import { disputeReports, errandEvents, errands } from '../db/schema.js';
 import { CREDIT_SETTLEMENT_REJECTED } from '../lifecycle/edges.js';
@@ -151,6 +151,27 @@ export class ErrandsQueryService {
       },
       { isolationLevel: 'repeatable read', accessMode: 'read only' },
     );
+  }
+
+  // What the resolve route checks before settling: the errand's status and reward,
+  // and its credit rejections in the last hour (the retry cap counts the event log).
+  async resolveGate(id: string) {
+    const [errand] = await this.db
+      .select({ status: errands.status, rewardCredits: errands.rewardCredits })
+      .from(errands)
+      .where(eq(errands.id, id));
+    if (!errand) return undefined;
+    const [{ n }] = await this.db
+      .select({ n: count() })
+      .from(errandEvents)
+      .where(
+        and(
+          eq(errandEvents.errandId, id),
+          eq(errandEvents.type, CREDIT_SETTLEMENT_REJECTED),
+          gt(errandEvents.occurredAt, new Date(Date.now() - 3_600_000)),
+        ),
+      );
+    return { ...errand, recentRejections: n };
   }
 
   private partyRows(userId: string, q: MineErrandsQuery) {
