@@ -117,7 +117,7 @@ Recommendation: 1 for v1 (no contract change), flagged against the in-flight del
 
 ### 4.6 Infrastructure
 
-- `osrm` compose service (OSRM backend image + volume with preprocessed Singapore/Malaysia extract, foot profile), and a one-off preprocessing script under `scripts/`. Data volume is large (hundreds of MB for the extract); extraction only needs to be re-run when map data is refreshed.
+- `osrm` compose service (OSRM backend image + volume with a preprocessed Singapore-only extract, foot profile). Cut from a larger OSM file with `osmium extract --bbox 103.60,1.15,104.10,1.48 --strategy complete_ways -o singapore.osm.pbf <source>.osm.pbf`; the extract goes in `data/osm/` if under ~50 MB, otherwise it is gitignored and the step is documented. Expect about 1–2 GB RAM at runtime, and a one-off preprocessing script under `scripts/`. Data volume is large (hundreds of MB for the extract); extraction only needs to be re-run when map data is refreshed.
 - order-service gains `depends_on: redis` (and `osrm` as non-blocking).
 - Pin the Redis image version for shared use (currently `redis:latest`; pre-existing, flag only).
 
