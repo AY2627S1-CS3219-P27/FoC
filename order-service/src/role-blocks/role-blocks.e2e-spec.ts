@@ -70,6 +70,19 @@ describe('blockRoles', () => {
     expect((await block(userId, [Role.Courier])).ok).toBe(status !== 'Accepted' && status !== 'Picked Up');
   });
 
+  it.each<Status>(['Incomplete', 'Settling-Credit'])(
+    'an errand in dispute (%s) blocks the requester role',
+    async (status) => {
+      const userId = randomUUID();
+      await errandIn(status, userId);
+      expect(await block(userId, [Role.Requester])).toEqual({
+        ok: false,
+        reason: 'ROLE_IN_USE',
+        inUse: [Role.Requester],
+      });
+    },
+  );
+
   it('blocks nothing when one of two roles is in use', async () => {
     const userId = randomUUID();
     await errandIn('Open', userId);
