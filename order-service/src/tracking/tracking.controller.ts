@@ -7,6 +7,8 @@ import {
   Header,
   HttpCode,
   Inject,
+  Logger,
+  NotFoundException,
   Param,
   ParseUUIDPipe,
   Post,
@@ -19,6 +21,7 @@ import { Observable } from 'rxjs';
 import { toApiStatus } from '../errands/api-status.js';
 import { TRACKING_CONFIG, type TrackingConfig } from './tracking.config.js';
 import { LocationDto } from './tracking.dto.js';
+import { StreamLimiter } from './stream-limiter.js';
 import { TrackingService } from './tracking.service.js';
 import type { TrackingEvent, TrackingSnapshot } from './tracking.types.js';
 
@@ -26,8 +29,11 @@ import type { TrackingEvent, TrackingSnapshot } from './tracking.types.js';
 @Controller('v1/errands')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class TrackingController {
+  private readonly logger = new Logger('TrackingStream');
+
   constructor(
     private readonly tracking: TrackingService,
+    private readonly limiter: StreamLimiter,
     @Inject(TRACKING_CONFIG) private readonly config: TrackingConfig,
   ) {}
 
@@ -57,11 +63,18 @@ export class TrackingController {
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req: AuthenticatedRequest,
   ): Promise<Observable<MessageEvent>> {
-    // Throws 404 before any stream is opened.
+    // 503 / 404 / 429 are thrown before any stream is opened.
+    this.tracking.assertAvailable();
     await this.tracking.authorizeParty(id, req.user.sub);
+    const releaseSlot = this.limiter.acquire(id, req.user.sub);
+    // If Nest never subscribes (client gone before the handler returned), the
+    // teardown below never runs; this timer gives the slot back.
+    const unsubscribedGuard = setTimeout(releaseSlot, 10_000);
+    unsubscribedGuard.unref();
     const keepaliveMs = this.config.sseKeepaliveMs;
 
     return new Observable<MessageEvent>((subscriber) => {
+      clearTimeout(unsubscribedGuard);
       let closed = false;
       let release: (() => Promise<void>) | undefined;
       let timer: NodeJS.Timeout | undefined;
@@ -116,7 +129,15 @@ export class TrackingController {
                     emit({ type: 'ended', reason: 'NOT_TRACKING', status: toApiStatus(e.status) });
                   }
                 })
-                .catch(() => emit({ type: 'ended', reason: 'NOT_TRACKING', status: 'Unknown' }))
+                .catch((e: unknown) => {
+                  // Only a definite "gone" ends the stream; a transient lookup
+                  // error just skips this tick.
+                  if (e instanceof NotFoundException) {
+                    emit({ type: 'ended', reason: 'NOT_TRACKING', status: 'Unknown' });
+                  } else {
+                    this.logger.warn(`keepalive status check failed for errand ${id}: ${(e as Error)?.name ?? 'error'}`);
+                  }
+                })
                 .finally(() => (checking = false));
             }, keepaliveMs);
           }
@@ -131,6 +152,7 @@ export class TrackingController {
         closed = true;
         if (timer) clearInterval(timer);
         void release?.().catch(() => undefined);
+        releaseSlot();
       };
     });
   }

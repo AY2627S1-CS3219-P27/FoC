@@ -18,6 +18,7 @@ import {
 } from './routing.js';
 import { TRACKING_CONFIG, type TrackingConfig } from './tracking.config.js';
 import { TrackingController } from './tracking.controller.js';
+import { StreamLimiter } from './stream-limiter.js';
 import { TrackingService } from './tracking.service.js';
 import { TRACKING_STORE } from './tracking.store.js';
 
@@ -37,6 +38,8 @@ const config: TrackingConfig = {
   rerouteDistanceM: 50,
   osrmBaseUrl: 'http://osrm:5000',
   osrmTimeoutMs: 50,
+  maxStreamsPerErrand: 2,
+  maxStreamsPerUser: 3,
 };
 
 const ROUTE = { polyline: [[103.8, 1.3], [103.81, 1.31]] as [number, number][], distanceM: 100, durationS: 70, computedAt: 1 };
@@ -47,6 +50,8 @@ describe('tracking', () => {
   let clock = 1_000_000;
   const store = new FakeTrackingStore(() => clock);
   let errand: TrackedErrand | null;
+  let findCalls = 0;
+  let findGate: Promise<void> | undefined;
   let onFind: (() => void) | undefined;
   let destination: { lat: number; lng: number } | null;
   const routing = { route: vi.fn() } satisfies RoutingProvider;
@@ -57,11 +62,12 @@ describe('tracking', () => {
       controllers: [TrackingController],
       providers: [
         TrackingService,
+        StreamLimiter,
         { provide: TRACKING_CONFIG, useValue: config },
         { provide: TRACKING_STORE, useValue: store },
         { provide: ROUTING_PROVIDER, useValue: routing },
         { provide: DESTINATION_RESOLVER, useValue: { resolve: async () => destination } },
-        { provide: ERRAND_READER, useValue: { find: async () => { onFind?.(); return errand; } } },
+        { provide: ERRAND_READER, useValue: { find: async () => { findCalls++; await findGate; onFind?.(); return errand; } } },
       ],
     }).compile();
     // Deterministic server clock for ts / serverTime.
@@ -77,6 +83,10 @@ describe('tracking', () => {
     errand = { id: ERRAND, requesterId: REQUESTER, courierId: COURIER, status: 'Picked Up' };
     destination = null;
     onFind = undefined;
+    findGate = undefined;
+    store.ready = true;
+    store.failSetPosition = undefined;
+    store.rateReleases = 0;
     routing.route.mockReset();
     store.positions.clear();
     store.routes.clear();
@@ -153,6 +163,14 @@ describe('tracking', () => {
       clock += 600;
       expect((await post({ lat: 1.32, lng: 103.81 })).status).toBe(204);
       expect(store.positions.get(ERRAND)!.value.lat).toBe(1.32);
+    });
+
+    it('releases the rate slot if storing the position fails', async () => {
+      store.failSetPosition = new Error('redis');
+      expect((await post(CAMPUS)).status).toBe(500);
+      expect(store.rateReleases).toBe(1);
+      store.failSetPosition = undefined;
+      expect((await post(CAMPUS)).status).toBe(204); // same instant: slot was given back
     });
 
     it('leaves no position behind when the errand is delivered mid-POST', async () => {
@@ -279,6 +297,47 @@ describe('tracking', () => {
       expect(routing.route).toHaveBeenCalledTimes(2);
     });
 
+    it('caches no route when tracking ended while routing was in flight', async () => {
+      destination = { lat: 1.35, lng: 103.9 };
+      routing.route.mockImplementation(async () => {
+        errand = { ...errand!, status: 'Delivered' };
+        return ROUTE;
+      });
+      await post(CAMPUS);
+      await settle();
+      expect(store.routes.size).toBe(0);
+      expect(store.published.some((p) => p.event.type === 'route')).toBe(false);
+    });
+
+    it('removes a route cached just as tracking ended, without publishing it', async () => {
+      destination = { lat: 1.35, lng: 103.9 };
+      routing.route.mockResolvedValue(ROUTE);
+      const orig = store.setRoute.bind(store);
+      const spy = vi.spyOn(store, 'setRoute').mockImplementationOnce(async (...a) => {
+        await orig(...a);
+        errand = { ...errand!, status: 'Delivered' };
+      });
+      await post(CAMPUS);
+      await settle();
+      spy.mockRestore();
+      expect(store.routes.size).toBe(0);
+      expect(store.published.some((p) => p.event.type === 'route')).toBe(false);
+    });
+
+    it('prunes stale routing failures', async () => {
+      destination = { lat: 1.35, lng: 103.9 };
+      routing.route.mockResolvedValue(null);
+      const failures = (app.get(TrackingService) as unknown as { routeFailedAt: Map<string, number> }).routeFailedAt;
+      await post(CAMPUS);
+      await settle();
+      expect(failures.size).toBe(1);
+      clock += 20_000;
+      destination = null; // next refresh does nothing but must still prune
+      await post({ lat: 1.3001, lng: 103.8 });
+      await settle();
+      expect(failures.size).toBe(0);
+    });
+
     it('degrades to no route when routing fails, and still stores the position', async () => {
       destination = { lat: 1.35, lng: 103.9 };
       routing.route.mockResolvedValue(null);
@@ -390,6 +449,124 @@ describe('tracking', () => {
       expect(events.map((e) => e.event)).toEqual(['snapshot', 'ended']);
       expect(JSON.parse(events[0].data).tracking).toBe(false);
       await waitFor(() => store.listenerCount === 0);
+    });
+  });
+
+  describe('SSE hardening', () => {
+    const limiter = () => app.get(StreamLimiter);
+    const openOn = async (errandId: string, sub = REQUESTER, roles = [Role.Requester]) => {
+      const ctl = new AbortController();
+      const res = await fetch(`${base.replace(ERRAND, errandId)}/tracking`, {
+        headers: { authorization: `Bearer ${await token(sub, roles)}` },
+        signal: ctl.signal,
+      });
+      return { res, ctl };
+    };
+    const drain = (res: Response) => void res.body?.getReader().read().catch(() => undefined);
+    const waitFor = async (fn: () => boolean) => {
+      for (let i = 0; i < 100 && !fn(); i++) await new Promise((r) => setTimeout(r, 20));
+      expect(fn()).toBe(true);
+    };
+
+    it('caps streams per errand (429) and frees a slot on disconnect', async () => {
+      const a = await openOn(ERRAND);
+      const b = await openOn(ERRAND);
+      drain(a.res);
+      drain(b.res);
+      await waitFor(() => limiter().open === 2);
+      const c = await openOn(ERRAND);
+      expect(c.res.status).toBe(429);
+      expect(await c.res.json()).toMatchObject({ code: 'TOO_MANY_STREAMS' });
+      a.ctl.abort();
+      await waitFor(() => limiter().open === 1);
+      const d = await openOn(ERRAND);
+      expect(d.res.status).toBe(200);
+      drain(d.res);
+      b.ctl.abort();
+      d.ctl.abort();
+      await waitFor(() => limiter().open === 0);
+    });
+
+    it('caps streams per user across errands', async () => {
+      const ids = [ERRAND, randomUUID(), randomUUID()];
+      const open = [await openOn(ids[0]), await openOn(ids[0]), await openOn(ids[1])];
+      open.forEach((o) => drain(o.res));
+      await waitFor(() => limiter().open === 3);
+      const over = await openOn(ids[2]);
+      expect(over.res.status).toBe(429);
+      expect(await over.res.json()).toMatchObject({ code: 'TOO_MANY_STREAMS' });
+      open.forEach((o) => o.ctl.abort());
+      await waitFor(() => limiter().open === 0);
+    });
+
+    it('frees the slot when the stream ends and when setup fails', async () => {
+      const spy = vi.spyOn(store, 'subscribe').mockRejectedValueOnce(new Error('redis'));
+      const failed = await openOn(ERRAND);
+      expect(failed.res.status).toBe(200);
+      await failed.res.text(); // completes without events
+      await waitFor(() => limiter().open === 0);
+      spy.mockRestore();
+
+      const ok = await openOn(ERRAND);
+      const body = ok.res.text();
+      await waitFor(() => store.listenerCount === 1);
+      await store.publish(ERRAND, { type: 'ended', reason: 'DELIVERED', status: 'Delivered' });
+      expect(await body).toContain('event: ended');
+      await waitFor(() => limiter().open === 0);
+    });
+
+    it('does not end the stream on a transient lookup error during keepalive', async () => {
+      const { res, ctl } = await openOn(ERRAND);
+      const reader = res.body!.getReader();
+      const dec = new TextDecoder();
+      let text = '';
+      const readUntil = async (pred: () => boolean) => {
+        const deadline = Date.now() + 3000;
+        while (!pred() && Date.now() < deadline) text += dec.decode((await reader.read()).value);
+      };
+      await readUntil(() => text.includes('event: snapshot'));
+      onFind = () => {
+        throw new Error('db hiccup');
+      };
+      text = '';
+      await readUntil(() => (text.match(/event: keepalive/g) ?? []).length >= 3);
+      expect(text).not.toContain('event: ended');
+      expect(store.listenerCount).toBe(1);
+      // A definite NotFound does end it.
+      onFind = undefined;
+      errand = null;
+      text = '';
+      await readUntil(() => text.includes('event: ended'));
+      expect(text).toContain('event: ended');
+      ctl.abort();
+      await waitFor(() => limiter().open === 0);
+    });
+
+    it('runs at most one keepalive status check at a time', async () => {
+      const { res, ctl } = await openOn(ERRAND);
+      const reader = res.body!.getReader();
+      const dec = new TextDecoder();
+      let text = '';
+      while (!text.includes('event: snapshot')) text += dec.decode((await reader.read()).value);
+      const before = findCalls;
+      let open!: () => void;
+      findGate = new Promise<void>((r) => (open = r));
+      await new Promise((r) => setTimeout(r, 250)); // ~5 ticks at 50 ms
+      expect(findCalls - before).toBe(1);
+      findGate = undefined;
+      open();
+      ctl.abort();
+      await waitFor(() => limiter().open === 0);
+    });
+
+    it('answers 503 TRACKING_UNAVAILABLE on all routes while Redis is down', async () => {
+      store.ready = false;
+      const checks = [await post(CAMPUS), await get('tracking/snapshot'), await get('tracking')];
+      for (const res of checks) {
+        expect(res.status).toBe(503);
+        expect(await res.json()).toMatchObject({ code: 'TRACKING_UNAVAILABLE' });
+      }
+      expect(limiter().open).toBe(0);
     });
   });
 
@@ -572,6 +749,13 @@ describe('tracking env', () => {
       TRACKING_ROUTE_TTL_S: 600, TRACKING_REROUTE_DISTANCE_M: 50,
       OSRM_BASE_URL: 'http://osrm:5000', OSRM_TIMEOUT_MS: 3000,
     });
+  });
+  it('defaults the stream caps and validates them', () => {
+    expect(environmentSchema.validate(base).value).toMatchObject({
+      TRACKING_MAX_STREAMS_PER_ERRAND: 5,
+      TRACKING_MAX_STREAMS_PER_USER: 10,
+    });
+    expect(environmentSchema.validate({ ...base, TRACKING_MAX_STREAMS_PER_USER: '0' }).error).toBeDefined();
   });
   it('requires REDIS_HOST/PORT/USERNAME', () => {
     for (const k of ['REDIS_HOST', 'REDIS_PORT', 'REDIS_USERNAME']) {

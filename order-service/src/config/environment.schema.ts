@@ -103,6 +103,8 @@ export const environmentSchema = Joi.object({
   TRACKING_REROUTE_DISTANCE_M: Joi.number().min(0).default(50),
   OSRM_BASE_URL: Joi.string().uri().default('http://osrm:5000'),
   OSRM_TIMEOUT_MS: Joi.number().integer().min(1).default(3_000),
+  TRACKING_MAX_STREAMS_PER_ERRAND: Joi.number().integer().min(1).default(5),
+  TRACKING_MAX_STREAMS_PER_USER: Joi.number().integer().min(1).default(10),
 })
   // The lease must outlast the confirm timeout, or a slow publish loses its claim.
   .custom((env, helpers) => {

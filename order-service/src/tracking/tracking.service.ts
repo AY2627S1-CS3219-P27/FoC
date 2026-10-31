@@ -6,6 +6,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
   type OnModuleDestroy,
   type OnModuleInit,
 } from '@nestjs/common';
@@ -79,9 +80,25 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  // 503 while Redis is unreachable (tracking is a side feature; the rest of
+  // order-service keeps working).
+  assertAvailable(): void {
+    if (!this.store.isReady()) {
+      throw new ServiceUnavailableException({
+        code: 'TRACKING_UNAVAILABLE',
+        message: 'Live tracking is temporarily unavailable.',
+      });
+    }
+  }
+
+  private async stillTracking(errandId: string): Promise<boolean> {
+    return (await this.errands.find(errandId))?.status === TRACKING_STATUS;
+  }
+
   // Location update from the assigned courier. Resolves normally for both
   // stored and rate-limit-dropped updates (the caller answers 204 either way).
   async updateLocation(errandId: string, callerId: string, dto: LocationDto): Promise<void> {
+    this.assertAvailable();
     const errand = await this.errands.find(errandId);
     if (!errand) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Errand not found.' });
     if (errand.courierId !== callerId) {
@@ -109,10 +126,15 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
       speed: dto.speed ?? null,
       ts: this.now(),
     };
-    await this.store.setPosition(errandId, position, this.config.locationTtlS);
+    try {
+      await this.store.setPosition(errandId, position, this.config.locationTtlS);
+    } catch (e) {
+      // The update was not stored, so it must not use up the rate slot.
+      await this.store.releaseRateSlot(errandId).catch(() => undefined);
+      throw e;
+    }
     // A POST racing Delivered/Cancelled must not leave a position behind.
-    const after = await this.errands.find(errandId);
-    if (!after || after.status !== TRACKING_STATUS) {
+    if (!(await this.stillTracking(errandId))) {
       await this.store.clear(errandId);
       return;
     }
@@ -120,10 +142,19 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
     void this.refreshRoute(errandId, position);
   }
 
+  // Forget failures older than the cooldown so the map cannot grow unbounded.
+  private pruneFailures() {
+    const now = this.now();
+    for (const [id, at] of this.routeFailedAt) {
+      if (now - at >= ROUTE_FAILURE_COOLDOWN_MS) this.routeFailedAt.delete(id);
+    }
+  }
+
   // Recomputes the route only when there is none cached (never computed, or
   // expired) or the courier moved > TRACKING_REROUTE_DISTANCE_M from the cached
   // route's origin. Runs in the background; never throws.
   async refreshRoute(errandId: string, position: LatLng): Promise<void> {
+    this.pruneFailures();
     if (this.routing.has(errandId)) return;
     this.routing.add(errandId);
     try {
@@ -141,7 +172,14 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
         return;
       }
       this.routeFailedAt.delete(errandId);
+      // Tracking may have ended while OSRM was thinking: cache nothing then.
+      if (!(await this.stillTracking(errandId))) return;
       await this.store.setRoute(errandId, { ...route, origin }, this.config.routeTtlS);
+      if (!(await this.stillTracking(errandId))) {
+        // Ended during the write: remove what we just cached.
+        await this.store.clear(errandId);
+        return;
+      }
       await this.store.publish(errandId, { type: 'route', ...toRoute(route) });
     } catch (e) {
       this.logger.warn(`route refresh failed for errand ${errandId}: ${(e as Error)?.name ?? 'error'}`);
@@ -180,6 +218,7 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
   }
 
   async snapshot(errandId: string, callerId: string): Promise<TrackingSnapshot> {
+    this.assertAvailable();
     return this.snapshotOf(await this.authorizeParty(errandId, callerId));
   }
 

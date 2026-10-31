@@ -15,6 +15,9 @@ export class FakeTrackingStore implements TrackingStore {
   private rate = new Map<string, number>();
   private listeners = new Map<string, Set<(e: TrackingEvent) => void>>();
   failWith?: Error;
+  ready = true;
+  failSetPosition?: Error;
+  rateReleases = 0;
 
   constructor(public now: () => number = Date.now) {}
 
@@ -29,8 +32,16 @@ export class FakeTrackingStore implements TrackingStore {
     this.rate.set(errandId, this.now());
     return true;
   }
+  async releaseRateSlot(errandId: string) {
+    this.rateReleases++;
+    this.rate.delete(errandId);
+  }
+  isReady() {
+    return this.ready;
+  }
   async setPosition(errandId: string, value: Position, ttlS: number) {
     this.check();
+    if (this.failSetPosition) throw this.failSetPosition;
     this.positions.set(errandId, { value, ttlS });
   }
   async getPosition(errandId: string) {

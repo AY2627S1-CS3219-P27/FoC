@@ -12,6 +12,8 @@ export interface TrackingConfig {
   rerouteDistanceM: number;
   osrmBaseUrl: string;
   osrmTimeoutMs: number;
+  maxStreamsPerErrand: number;
+  maxStreamsPerUser: number;
 }
 
 export const trackingConfigFrom = (c: ConfigService): TrackingConfig => ({
@@ -23,4 +25,6 @@ export const trackingConfigFrom = (c: ConfigService): TrackingConfig => ({
   rerouteDistanceM: c.getOrThrow<number>('TRACKING_REROUTE_DISTANCE_M'),
   osrmBaseUrl: c.getOrThrow<string>('OSRM_BASE_URL'),
   osrmTimeoutMs: c.getOrThrow<number>('OSRM_TIMEOUT_MS'),
+  maxStreamsPerErrand: c.getOrThrow<number>('TRACKING_MAX_STREAMS_PER_ERRAND'),
+  maxStreamsPerUser: c.getOrThrow<number>('TRACKING_MAX_STREAMS_PER_USER'),
 });

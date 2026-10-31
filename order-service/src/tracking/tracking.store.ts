@@ -10,6 +10,10 @@ export interface TrackingStore {
   // True if this update may proceed; false if one was accepted less than
   // `minIntervalMs` ago (atomic: SET NX PX).
   acquireRateSlot(errandId: string, minIntervalMs: number): Promise<boolean>;
+  // Gives back a slot taken by acquireRateSlot when the update then failed.
+  releaseRateSlot(errandId: string): Promise<void>;
+  // False while Redis is unreachable; the routes then answer 503.
+  isReady(): boolean;
   setPosition(errandId: string, position: Position, ttlS: number): Promise<void>;
   getPosition(errandId: string): Promise<Position | null>;
   setRoute(errandId: string, route: CachedRoute, ttlS: number): Promise<void>;

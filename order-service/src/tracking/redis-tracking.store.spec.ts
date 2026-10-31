@@ -15,6 +15,9 @@ function fakeClient() {
   const client = {
     duplicate: vi.fn(() => sub),
     set: vi.fn(async () => 'OK'),
+    del: vi.fn(async () => 1),
+    isReady: false,
+    destroy: vi.fn(),
     isOpen: true,
     close: vi.fn(async () => undefined),
   };
@@ -26,7 +29,7 @@ describe('RedisTrackingStore pub/sub', () => {
     const { client, sub } = fakeClient();
     let release!: () => void;
     sub.subscribe.mockImplementation(
-      () => new Promise<void>((r) => { release = () => r(); }),
+      () => new Promise<undefined>((r) => { release = () => r(undefined); }),
     );
     const store = new RedisTrackingStore(client as never);
     let secondDone = false;
@@ -95,6 +98,16 @@ describe('RedisTrackingStore pub/sub', () => {
     expect(good).toHaveBeenCalledTimes(1);
   });
 
+  it('reports readiness from the client and releases a rate slot with DEL', async () => {
+    const { client } = fakeClient();
+    const store = new RedisTrackingStore(client as never);
+    expect(store.isReady()).toBe(false);
+    client.isReady = true;
+    expect(store.isReady()).toBe(true);
+    await store.releaseRateSlot('e6');
+    expect(client.del).toHaveBeenCalledWith('order:loc-rate:e6');
+  });
+
   it('uses SET NX PX for the rate slot', async () => {
     const { client } = fakeClient();
     const store = new RedisTrackingStore(client as never);
@@ -102,5 +115,21 @@ describe('RedisTrackingStore pub/sub', () => {
     expect(client.set).toHaveBeenCalledWith('order:loc-rate:e3', '1', { NX: true, PX: 1000 });
     client.set.mockResolvedValueOnce(null as never);
     expect(await store.acquireRateSlot('e3', 1000)).toBe(false);
+  });
+});
+
+describe('createTrackingStore (Redis unreachable)', () => {
+  it('returns immediately, never throws, and reports not ready', async () => {
+    const { createTrackingStore } = await import('./redis-tracking.provider.js');
+    const started = Date.now();
+    const store = createTrackingStore({ host: '127.0.0.1', port: 1, username: 'u', database: 1 });
+    try {
+      expect(Date.now() - started).toBeLessThan(500);
+      expect(store.isReady()).toBe(false);
+      await new Promise((r) => setTimeout(r, 150)); // let a connect attempt fail
+      expect(store.isReady()).toBe(false);
+    } finally {
+      await store.close();
+    }
   });
 });

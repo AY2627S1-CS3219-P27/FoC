@@ -46,6 +46,14 @@ export class RedisTrackingStore implements TrackingStore {
     return ok === 'OK';
   }
 
+  async releaseRateSlot(errandId: string) {
+    await this.client.del(rateKey(errandId));
+  }
+
+  isReady() {
+    return this.client.isReady;
+  }
+
   async setPosition(errandId: string, position: Position, ttlS: number) {
     await this.client.set(locationKey(errandId), JSON.stringify(position), { EX: ttlS });
   }
@@ -149,8 +157,16 @@ export class RedisTrackingStore implements TrackingStore {
     return this.handlers.size;
   }
 
+  // Best-effort shutdown; works whether or not the client ever connected.
   async close() {
-    if (this.subscriber?.isOpen) await this.subscriber.close();
-    if (this.client.isOpen) await this.client.close();
+    for (const c of [this.subscriber, this.client]) {
+      if (!c) continue;
+      try {
+        if (c.isReady) await c.close();
+        else c.destroy();
+      } catch {
+        // already closed
+      }
+    }
   }
 }
