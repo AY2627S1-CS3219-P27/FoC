@@ -284,6 +284,8 @@ Supplier validation (`src/supplier-replies/`, supplier ADR 0002): an Active supp
 | `GET /v1/errands/:id` | Requester or Courier | The requester and assigned courier see it in any status; anyone else only while it is `Open` and unexpired, else 404. A party still sees an expired errand, with `expiresAt` (the sweep, not the read, cancels). `requesterId`, `courierId` and `cancellationReason` appear only for the two parties |
 | `GET /v1/admin/users/:userId/errands` | Admin (`AdminGuard`, the token's `isAdmin`) | The same list as `mine` for any user, same `role` / `status` / paging. Each item also carries `internalStatus` (the sub-state, labelled internal per F9.3.3), the party ids, `cancellationReason`, `pickedUpAt`, `deliveredAt` and `updatedAt` (`toAdminView`) |
 
+Dispute routes (`/v1/admin/disputes`, admin only) read through `disputeQueue` / `disputeDetail` (explicit allowlists, one `REPEATABLE READ` snapshot for the detail) and are listed in the README. Party visibility: `toView` adds `settlementAmount` and `settlementNote` for the two parties (and, through `toAdminView`, admins) only while the errand is `Resolved`; `Settling-Credit` and a rejected `Incomplete` carry none (a rejection clears the columns).
+
 Lists page with `limit` (default 20, max 50) and `offset`, and answer `{ items, limit, offset }` with no total. `mine` is declared before `:id` in the controller. The response is an allowlist (`toView`): never `idempotencyKey` or `lastSequenceNumber`.
 
 ## 6. Failures across services
@@ -313,7 +315,7 @@ Order-service and credit-service never share a transaction. Order changes its ow
 - The one overlap is a timeout release racing its reservation. Credit holds a release that arrives before its reservation and retries it (credit ADR 0008).
 
 **Planned, not built.** These are documented gaps, not current behaviour:
-- **Credits held in `Incomplete` (S3, #584).** Releasing or transferring them is a dispute decision. Planned: an admin queue (`Incomplete` errands with their latest event and reason, e.g. `CreditTransferRejected / DESTINATION_ARCHIVED`), then admin release and transfer actions.
+- **Credits held in `Incomplete` (S3, #584).** Releasing or transferring them is a dispute decision: an admin settles through the dispute routes (edge 18). Credit-service's settlement handling (#661) is not built yet, and there is no aging alert for a stale dispute.
 - **Telling the user a credit step failed (S6).** The reason is already in the revert event's payload. A notice will be added on those edges once notification-service defines its event contract.
 - **"You may resubmit" after `SUPPLIER_VALIDATION_TIMEOUT` (F1.5.3).** Today the requester sees `Cancelled` and the reason on the detail endpoint.
 - **The `ADMIN ALERT` repeats every tick.** Windows are counted from `updated_at`, with no stored attempt count.
