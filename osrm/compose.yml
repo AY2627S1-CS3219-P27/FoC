@@ -1,16 +1,24 @@
+# Opt-in: the osrm service is in the `routing` profile because its data (data/osrm/) is generated
+# and gitignored, so it cannot start on a fresh checkout. To enable:
+#   ./scripts/prepare-osrm.sh
+#   docker compose --profile routing up -d osrm
+# Without it order-service still works; routes just come back empty.
 services:
   osrm:
     # Walking router for courier tracking (order-service TRACKING_* / OSRM_*).
     # Data is built once by ./scripts/prepare-osrm.sh into data/osrm/ (gitignored).
     # Internal only: no host port; order-service reaches it at http://osrm:5000.
+    # Default tag must match scripts/prepare-osrm.sh.
     image: ghcr.io/project-osrm/osrm-backend:${OSRM_IMAGE_TAG:-v5.27.1}
     restart: unless-stopped
+    profiles: ['routing']
     command: osrm-routed --algorithm mld --port 5000 /data/singapore.osrm
     volumes:
       - ../data/osrm:/data:ro
     healthcheck:
-      # The image ships bash but no curl/wget, so probe the TCP port.
-      test: ['CMD-SHELL', 'exec 3<>/dev/tcp/127.0.0.1/5000']
+      # No curl/wget in the image; probe the TCP port with bash (/dev/tcp is a bash feature, so
+      # not CMD-SHELL/sh). Assumes the Debian-based image ships bash: not verified.
+      test: ['CMD', 'bash', '-c', 'exec 3<>/dev/tcp/127.0.0.1/5000']
       interval: 10s
       timeout: 3s
       retries: 5

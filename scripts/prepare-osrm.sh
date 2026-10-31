@@ -10,6 +10,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Keep this default in sync with osrm/compose.yml.
 image="ghcr.io/project-osrm/osrm-backend:${OSRM_IMAGE_TAG:-v5.27.1}"
 pbf="data/osm/singapore.osm.pbf"
 out="data/osrm"
@@ -29,9 +30,10 @@ if [ "$force" = false ] && [ -f "$marker" ] && [ "$marker" -nt "$pbf" ]; then
   exit 0
 fi
 
-# Build in a scratch dir and swap in at the end so a failed run never leaves a half-built dataset.
-mkdir -p "$out"
-work="$(mktemp -d "$out/.build.XXXXXX")"
+# Build in a scratch dir next to $out, then swap it in with two renames, so a failed build never
+# touches the current dataset (the swap is two renames, not one atomic step: a sub-millisecond gap
+# where $out is missing). Restart a running router afterwards: docker compose --profile routing restart osrm
+work="$(mktemp -d "$(dirname "$out")/.osrm-build.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 cp "$pbf" "$work/singapore.osm.pbf"
 
@@ -43,7 +45,10 @@ osrm osrm-extract -p /opt/foot.lua /data/singapore.osm.pbf
 osrm osrm-partition /data/singapore.osrm
 osrm osrm-customize /data/singapore.osrm
 
-rm -f "$out"/singapore.osrm*
 rm -f "$work/singapore.osm.pbf"
-mv "$work"/singapore.osrm* "$out"/
-echo "Done. Start the router with: docker compose up -d osrm"
+chmod 755 "$work" # mktemp creates 0700; the router container may run as another user
+rm -rf "$out.old"
+[ -d "$out" ] && mv "$out" "$out.old"
+mv "$work" "$out"
+rm -rf "$out.old"
+echo "Done. Start the router with: docker compose --profile routing up -d osrm"
