@@ -1,4 +1,4 @@
-// Pure helpers for courier location tracking. No browser APIs, so they can be unit-tested directly.
+// Pure helpers for courier location tracking. No browser APIs, written to be unit-testable (the frontend has no test runner yet).
 
 export interface TrackPosition {
   lat: number;
@@ -29,6 +29,8 @@ export interface TrackSnapshot {
 
 export const STALE_AFTER_S = 60;
 export const SEND_MIN_INTERVAL_MS = 5_000;
+export const SEND_TICK_MS = 5_000;
+export const SSE_WATCHDOG_MS = 60_000;
 export const SEND_HEARTBEAT_MS = 15_000;
 export const MOVE_THRESHOLD_M = 5;
 export const POLL_FALLBACK_MS = 10_000;
@@ -44,6 +46,19 @@ export function ageSeconds(ts: string | number | null | undefined, nowMs: number
   const t = toMs(ts);
   if (Number.isNaN(t)) return null;
   return Math.max(0, Math.round((nowMs - t) / 1000));
+}
+
+/** True when `incoming` is not older than `current` (or either is unknown/unparseable). */
+export function isNewerOrEqual(
+  incoming: { ts: string | number } | null,
+  current: { ts: string | number } | null,
+): boolean {
+  if (!incoming) return false;
+  if (!current) return true;
+  const a = toMs(incoming.ts);
+  const b = toMs(current.ts);
+  if (Number.isNaN(a) || Number.isNaN(b)) return true;
+  return a >= b;
 }
 
 export function isStale(ageS: number | null): boolean {

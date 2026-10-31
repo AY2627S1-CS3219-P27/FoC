@@ -4,7 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import {
   backoffMs,
+  isNewerOrEqual,
   POLL_FALLBACK_MS,
+  SSE_WATCHDOG_MS,
   SSE_MAX_FAILURES,
   type TrackPosition,
   type TrackRoute,
@@ -55,6 +57,7 @@ export function useTracking(errandId: string, enabled: boolean): TrackingState {
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let pollTimer: ReturnType<typeof setInterval> | undefined;
     let failures = 0;
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
 
     const base = `/api/errands/${errandId}/tracking`;
 
@@ -63,7 +66,7 @@ export function useTracking(errandId: string, enabled: boolean): TrackingState {
       setState((prev) => ({
         ...prev,
         tracking: s.tracking,
-        position: s.position,
+        position: isNewerOrEqual(s.position, prev.position) ? s.position : prev.position,
         route: s.route,
         destination: s.destination,
         serverOffsetMs: Number.isNaN(serverMs) ? prev.serverOffsetMs : serverMs - Date.now(),
@@ -75,6 +78,7 @@ export function useTracking(errandId: string, enabled: boolean): TrackingState {
       source?.close();
       clearInterval(pollTimer);
       clearTimeout(retryTimer);
+      clearTimeout(watchdog);
       setState((prev) => ({ ...prev, connection: "ended", endedReason: reason }));
     };
 
@@ -91,6 +95,9 @@ export function useTracking(errandId: string, enabled: boolean): TrackingState {
 
     const startPolling = () => {
       if (pollTimer) return;
+      source?.close();
+      clearTimeout(watchdog);
+      clearTimeout(retryTimer);
       setState((prev) => ({ ...prev, connection: "polling" }));
       void pollOnce();
       pollTimer = setInterval(() => void pollOnce(), POLL_FALLBACK_MS);
@@ -104,28 +111,46 @@ export function useTracking(errandId: string, enabled: boolean): TrackingState {
       }
       const es = new EventSource(base, { withCredentials: true });
       source = es;
+      // Any event (including keepalive) proves the stream is flowing; silence means it is buffered or dead.
+      const arm = () => {
+        clearTimeout(watchdog);
+        watchdog = setTimeout(() => {
+          if (!closed && !endedRef.current) startPolling();
+        }, SSE_WATCHDOG_MS);
+      };
+      arm();
+      es.addEventListener("keepalive", arm);
+      es.onmessage = arm;
       es.onopen = () => {
         failures = 0;
         setState((prev) => ({ ...prev, connection: "live" }));
       };
       es.addEventListener("snapshot", (e) => {
+        arm();
         const s = parse<TrackSnapshot>((e as MessageEvent).data);
         if (s) applySnapshot(s);
       });
       es.addEventListener("location", (e) => {
+        arm();
         const p = parse<TrackPosition>((e as MessageEvent).data);
-        if (p) setState((prev) => ({ ...prev, tracking: true, position: p }));
+        if (p)
+          setState((prev) =>
+            isNewerOrEqual(p, prev.position) ? { ...prev, tracking: true, position: p } : prev,
+          );
       });
       es.addEventListener("route", (e) => {
+        arm();
         const r = parse<TrackRoute>((e as MessageEvent).data);
         if (r) setState((prev) => ({ ...prev, route: r }));
       });
       es.addEventListener("ended", (e) => {
+        arm();
         const d = parse<{ reason?: string }>((e as MessageEvent).data);
         end(d?.reason ?? "ended");
       });
       es.onerror = () => {
         es.close();
+        clearTimeout(watchdog);
         if (closed || endedRef.current) return;
         failures += 1;
         if (failures >= SSE_MAX_FAILURES) {
@@ -144,6 +169,7 @@ export function useTracking(errandId: string, enabled: boolean): TrackingState {
       closed = true;
       source?.close();
       clearTimeout(retryTimer);
+      clearTimeout(watchdog);
       clearInterval(pollTimer);
     };
   }, [errandId, enabled]);

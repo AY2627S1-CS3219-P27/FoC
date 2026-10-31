@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { isValidCoord, SEND_MIN_INTERVAL_MS, shouldSend, type SendState } from "@/lib/tracking";
+import { isValidCoord, SEND_TICK_MS, shouldSend, type SendState } from "@/lib/tracking";
 
 type Phase = "off" | "starting" | "sharing" | "stopped";
 
@@ -128,7 +128,7 @@ export function CourierLocationShare({ errandId }: { errandId: string }) {
       { enableHighAccuracy: true, maximumAge: 5_000, timeout: 20_000 },
     );
     // Heartbeat while stationary (watchPosition may stay silent); shouldSend enforces the 15 s rule.
-    timer.current = setInterval(() => void maybeSend(), SEND_MIN_INTERVAL_MS);
+    timer.current = setInterval(() => void maybeSend(), SEND_TICK_MS);
   }
 
   useEffect(

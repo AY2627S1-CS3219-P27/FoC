@@ -1,6 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // The courier tracking stream (GET /api/errands/:id/tracking, text/event-stream) goes through the
+  // rewrites below. Next's default gzip can buffer event streams, and the docs offer no per-route
+  // exemption, so compression is turned off app-wide (compress: false). Put compression in front
+  // (e.g. a reverse proxy) if bandwidth matters. Rewrites are proxied by Next's internal proxy,
+  // which has its own timeout; a long-lived stream may be cut. The client reconnects with backoff
+  // and falls back to polling, so a cut degrades gracefully.
+  compress: false,
   async rewrites() {
     const userService = process.env.USER_SERVICE_URL ?? "http://localhost:3000";
     const supplierService =

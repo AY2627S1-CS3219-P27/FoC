@@ -58,7 +58,7 @@ export function TrackingMapCard({ errandId }: { errandId: string }) {
       </div>
 
       {TILES ? (
-        <div role="img" aria-label="Map showing the courier's position">
+        <div role="region" aria-label="Map showing the courier's position">
           <TrackingMap
             tiles={TILES}
             position={t.position}
