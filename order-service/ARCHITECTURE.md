@@ -325,8 +325,8 @@ While an Errand is `Picked Up`, the Requester can watch the Courier's last-known
 
 | Route | Who | Behaviour |
 |---|---|---|
-| `POST /v1/errands/:id/location` | the assigned Courier | Body `{lat, lng, accuracy, heading, speed}`. `204`. `409 STATE_MISMATCH` unless `Picked Up`, `403 FORBIDDEN` for anyone else. Positions outside `TRACKING_BBOX`, or faster than `TRACKING_MIN_UPDATE_INTERVAL_MS`, are dropped or rejected |
-| `GET /v1/errands/:id/tracking` | the Errand's Requester or Courier | SSE: `snapshot` first, then `location`, `route`, `ended`; keep-alive every `TRACKING_SSE_KEEPALIVE_MS` |
+| `POST /v1/errands/:id/location` | the assigned Courier | Body `{lat, lng, accuracy, heading, speed}`. `204`. `404 NOT_FOUND`, `403 FORBIDDEN` for anyone but the Courier, `409 STATE_MISMATCH` unless `Picked Up`, `400 INVALID_FIELDS` outside `TRACKING_BBOX`. An update sooner than `TRACKING_MIN_UPDATE_INTERVAL_MS` after the last accepted one is not stored and still answers `204`. Other validation errors use Nest's default 400 body (no `code`) |
+| `GET /v1/errands/:id/tracking` | the Errand's Requester or Courier | SSE: `snapshot` first, then `location`, `route`, `ended`; a named `keepalive` event (data `{}`) every `TRACKING_SSE_KEEPALIVE_MS` |
 | `GET /v1/errands/:id/tracking/snapshot` | the Errand's Requester or Courier | JSON: `{errandId, status, tracking, position, route, destination, serverTime}` |
 
 All three sit behind `JwtAuthGuard` and `RolesGuard`, and the handler then checks the caller is that Errand's Requester or Courier. `position` is `{lat, lng, accuracy, heading, speed, ts}` or `null`; `route` is `{polyline: [[lng, lat], ...], distanceM, durationS, computedAt}` or `null`; `destination` is `{lat, lng}` or `null`.
@@ -339,9 +339,9 @@ sequenceDiagram
   participant Q as OSRM
   participant Rq as Requester browser
   Rq->>O: GET /tracking (SSE)
+  O->>R: SUBSCRIBE order:loc-events:id (events buffered)
   O->>R: GET order:loc, order:route
-  O-->>Rq: event snapshot
-  O->>R: SUBSCRIBE order:loc-events:id
+  O-->>Rq: event snapshot, then the buffered events
   C->>O: POST /location
   O->>O: Picked Up? bbox? interval?
   O->>R: SET order:loc (TTL), PUBLISH order:loc-events:id
@@ -353,10 +353,16 @@ sequenceDiagram
   R--)O: event
   O-)Rq: event location / route
   Note over O,Rq: edge 12 or 13 commits, then DEL keys and publish ended
+  loop every TRACKING_SSE_KEEPALIVE_MS
+    O-)Rq: event keepalive
+    O->>O: still Picked Up? if not, event ended and close
+  end
 ```
 
+The stream subscribes to Redis first and buffers events while it reads and sends the snapshot, then flushes the buffer, so no update falls in the gap. A buffered event can be older than the snapshot's position, so the client ignores any position older (by `ts`) than the one it shows.
+
 - **Redis.** `order:loc:<errandId>` holds the last position (`TRACKING_LOCATION_TTL_S`, 120 s), `order:route:<errandId>` the cached route (`TRACKING_ROUTE_TTL_S`, 600 s), and `order:loc-events:<errandId>` is the pub/sub channel (fire and forget). order-service uses its own DB index (`REDIS_DB_INDEX`, default 1) and the `order:` prefix.
-- **Ending.** Edges 12 (`Delivered`) and 13 (`PICKUP_TIME_EXCEEDED`) trigger a best-effort hook after the commit that deletes the keys and publishes `ended`. A failed hook never affects the transition; the status check on later requests and the TTL are the safety net.
+- **Ending.** (1) Edges 12 (`Delivered`) and 13 (`PICKUP_TIME_EXCEEDED`) trigger a best-effort hook after the commit that deletes the keys and publishes `ended`; a failed hook never affects the transition. (2) Each open stream re-reads the errand on every keepalive tick and, if it is no longer `Picked Up`, sends `ended` and closes. (3) Every request checks the status, and a location POST re-checks it after writing and clears the key if the errand left `Picked Up`, so a POST racing delivery leaves no position. (4) The position TTL.
 - **Routing.** A `RoutingProvider` calls OSRM (foot profile, Singapore extract) at `OSRM_BASE_URL` within `OSRM_TIMEOUT_MS`. A cached route is reused until the Courier is more than `TRACKING_REROUTE_DISTANCE_M` from its origin. On any OSRM failure there is no route and the live position still flows.
 - **Destination (v1 gap).** order-service stores no delivery coordinates (`delivery_location` is client text), so a `DestinationResolver` stub returns `null`. Until delivery coordinates exist, `destination` and `route` stay `null`; routes are not produced end to end.
 - **Privacy.** Positions are shared only between the two parties, kept no longer than the TTL, with no history, and never logged.
