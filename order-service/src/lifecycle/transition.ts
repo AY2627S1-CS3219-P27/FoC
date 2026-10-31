@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Role } from '@foc/contracts';
-import { and, desc, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, count, desc, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import {
   COURIER_LOCK_INDEX,
@@ -25,9 +25,11 @@ export type Db = NodePgDatabase<any>;
 
 // Who is acting. Required and explicit: a missing or failed-auth user must
 // never fall through to the system, which may take system-only edges.
-export type Actor = { kind: 'user'; id: string } | { kind: 'system' };
+export type Actor = { kind: 'user'; id: string; admin?: true } | { kind: 'system' };
 export const SYSTEM: Actor = { kind: 'system' };
 export const user = (id: string): Actor => ({ kind: 'user', id });
+// From the token's isAdmin flag; only this actor passes an admin edge.
+export const admin = (id: string): Actor => ({ kind: 'user', id, admin: true });
 
 // Stored actor_id: null = system.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -70,7 +72,9 @@ export type TransitionResult =
 const INVALID: TransitionResult = { ok: false, reason: 'INVALID_FIELDS' };
 const ILLEGAL: TransitionResult = { ok: false, reason: 'ILLEGAL_TRANSITION' };
 const BUSY: TransitionResult = { ok: false, reason: 'COURIER_BUSY' };
+const FORBIDDEN: TransitionResult = { ok: false, reason: 'FORBIDDEN' };
 const BLOCKED: TransitionResult = { ok: false, reason: 'ROLE_BLOCKED' };
+export const MAX_NOTE_WORDS = 100;
 const RELEASED = ['COURIER_BUSY', 'ROLE_BLOCKED'];
 
 // Caller bugs, rejected before the transaction: not an outcome worth storing
@@ -104,6 +108,15 @@ function validate(
     i.set?.courierId?.toLowerCase() !== actor
   ) {
     return INVALID;
+  }
+  // The admin's note is mandatory and capped; the resolve route maps INVALID to 400.
+  if (edge.sets.includes('settlementNote')) {
+    const words = i.set?.settlementNote?.trim().split(/\s+/) ?? [];
+    if (words[0] === '' || words.length > MAX_NOTE_WORDS) return INVALID;
+  }
+  // An admin edge lists only 'admin'; the flag lives on the actor, not the row.
+  if (edge.who.includes('admin') && !(i.actor.kind === 'user' && i.actor.admin)) {
+    return FORBIDDEN;
   }
   const reason = i.set?.cancellationReason;
   if (edge.reasons && !edge.reasons.some((r) => r === reason)) return INVALID;
@@ -214,6 +227,7 @@ const roleSql: Record<UserRole, (a: string) => SQL> = {
   requester: (a) => eq(errands.requesterId, a),
   courier: (a) => eq(errands.courierId, a),
   other: (a) => ne(errands.requesterId, a),
+  admin: () => sql`true`, // validate() already checked the flag
 };
 // A null actor is the system and matches no row predicate: it passes only on
 // an edge that lists 'system'. A user passes if any of their roles holds.
@@ -371,6 +385,14 @@ async function explainNoRow(
   return { ok: false, reason: 'STATE_MISMATCH', currentStatus: cur.status };
 }
 
+const countEvents = async (tx: Db, errandId: string, type: string) =>
+  (
+    await tx
+      .select({ n: count() })
+      .from(errandEvents)
+      .where(and(eq(errandEvents.errandId, errandId), eq(errandEvents.type, type)))
+  )[0].n;
+
 async function apply(
   tx: Db,
   i: TransitionInput,
@@ -396,6 +418,10 @@ async function apply(
     courierId: row.row.courierId,
     rewardCredits: row.row.rewardCredits,
     payload: { ...i.payload, ...i.set },
+    attempt:
+      edge.type === 'SettlementRequested'
+        ? await countEvents(tx, i.errandId, edge.type)
+        : 1,
   });
   if (notice) await enqueueNotice(tx, notice);
   return { ok: true, sequenceNumber: row.seq };

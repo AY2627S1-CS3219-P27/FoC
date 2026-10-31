@@ -1,0 +1,1 @@
+ALTER TABLE "errands" ADD CONSTRAINT "errands_settlement_amount_valid" CHECK ("errands"."settlement_amount" IS NULL OR "errands"."settlement_amount" BETWEEN 0 AND "errands"."reward_credits");

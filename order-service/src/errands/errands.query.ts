@@ -1,11 +1,12 @@
 import { Role } from '@foc/contracts';
 import { Inject, Injectable } from '@nestjs/common';
-import { type AnyColumn, and, asc, desc, eq, gt, inArray, ne, or, sql } from 'drizzle-orm';
+import { type AnyColumn, and, asc, count, desc, eq, gt, inArray, ne, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module.js';
-import { errands } from '../db/schema.js';
+import { disputeReports, errandEvents, errands } from '../db/schema.js';
+import { CREDIT_SETTLEMENT_REJECTED } from '../lifecycle/edges.js';
 import type { Db } from '../lifecycle/transition.js';
 import { INTERNAL_STATUSES_OF, toApiStatus } from './api-status.js';
-import type { ListErrandsQuery, ListSort, MineErrandsQuery } from './errands.dto.js';
+import type { ListErrandsQuery, ListSort, MineErrandsQuery, PageQuery } from './errands.dto.js';
 
 const ORDER: Record<ListSort, () => ReturnType<typeof asc>[]> = {
   expiring: () => [asc(errands.expiresAt)],
@@ -14,7 +15,8 @@ const ORDER: Record<ListSort, () => ReturnType<typeof asc>[]> = {
 };
 
 // The response allowlist: never idempotencyKey or lastSequenceNumber.
-// The parties' ids and the cancellation reason are added only for the parties.
+// The parties' ids and the cancellation reason are added only for the parties; the
+// settlement amount and note only for a party on a Resolved errand (a rejection clears them).
 const toView = (r: typeof errands.$inferSelect, callerId?: string) => ({
   id: r.id,
   status: toApiStatus(r.status),
@@ -29,7 +31,14 @@ const toView = (r: typeof errands.$inferSelect, callerId?: string) => ({
   expiresAt: r.expiresAt,
   createdAt: r.createdAt,
   ...(callerId !== undefined && (callerId === r.requesterId || callerId === r.courierId)
-    ? { requesterId: r.requesterId, courierId: r.courierId, cancellationReason: r.cancellationReason }
+    ? {
+        requesterId: r.requesterId,
+        courierId: r.courierId,
+        cancellationReason: r.cancellationReason,
+        ...(r.status === 'Resolved'
+          ? { settlementAmount: r.settlementAmount, settlementNote: r.settlementNote }
+          : {}),
+      }
     : {}),
 });
 
@@ -40,6 +49,24 @@ const toAdminView = (r: typeof errands.$inferSelect) => ({
   pickedUpAt: r.pickedUpAt,
   deliveredAt: r.deliveredAt,
   updatedAt: r.updatedAt,
+});
+
+// Dispute detail allowlists: rows are never returned as stored, so a new column stays
+// private until it is added here. errandId is dropped (it is in the URL).
+const toEventView = (e: typeof errandEvents.$inferSelect) => ({
+  sequenceNumber: e.sequenceNumber,
+  type: e.type,
+  fromStatus: e.fromStatus,
+  toStatus: e.toStatus,
+  payload: e.payload,
+  actorId: e.actorId,
+  occurredAt: e.occurredAt,
+});
+const toReportView = (r: typeof disputeReports.$inferSelect) => ({
+  authorId: r.authorId,
+  role: r.role,
+  body: r.body,
+  createdAt: r.createdAt,
 });
 
 // The read side. Owns every errand SELECT; never writes (Lifecycle stays the
@@ -80,6 +107,79 @@ export class ErrandsQueryService {
   async ofUserForAdmin(userId: string, q: MineErrandsQuery) {
     const rows = await this.partyRows(userId, q);
     return { items: rows.map(toAdminView), limit: q.limit, offset: q.offset };
+  }
+
+  // Dispute queue: every Incomplete errand, including the in-flight Settling-Credit
+  // (`internalStatus` tells them apart), longest-disputed first: by the first time it
+  // entered Incomplete, so a rejected settlement keeps its place. `reports` says which
+  // side filed one, never what it says.
+  async disputeQueue(q: PageQuery) {
+    const rows = await this.db
+      .select({
+        errand: errands,
+        reporters: sql<string[]>`coalesce((select array_agg(${disputeReports.role}) from ${disputeReports} where ${disputeReports.errandId} = ${errands.id}), '{}')`,
+      })
+      .from(errands)
+      .where(inArray(errands.status, [...INTERNAL_STATUSES_OF.Incomplete]))
+      .orderBy(
+        sql`(select min(${errandEvents.occurredAt}) from ${errandEvents} where ${errandEvents.errandId} = ${errands.id} and ${errandEvents.toStatus} = 'Incomplete')`,
+        asc(errands.id),
+      )
+      .limit(q.limit)
+      .offset(q.offset);
+    return {
+      items: rows.map(({ errand, reporters }) => ({
+        ...toAdminView(errand),
+        reports: { requester: reporters.includes('requester'), courier: reporters.includes('courier') },
+      })),
+      limit: q.limit,
+      offset: q.offset,
+    };
+  }
+
+  // Null (a 404) when the errand is unknown or not Incomplete (Settling-Credit counts).
+  async disputeDetail(id: string) {
+    // One snapshot, so the errand, reports and events can't disagree if a transition lands mid-read.
+    return this.db.transaction(
+      async (tx) => {
+        const [errand] = await tx
+          .select()
+          .from(errands)
+          .where(and(eq(errands.id, id), inArray(errands.status, [...INTERNAL_STATUSES_OF.Incomplete])));
+        if (!errand) return null;
+        const reports = await tx.select().from(disputeReports).where(eq(disputeReports.errandId, id)).orderBy(asc(disputeReports.createdAt));
+        const events = await tx.select().from(errandEvents).where(eq(errandEvents.errandId, id)).orderBy(asc(errandEvents.sequenceNumber));
+        const latestRejection = events.findLast((e) => e.type === CREDIT_SETTLEMENT_REJECTED) ?? null;
+        return {
+          errand: toAdminView(errand),
+          reports: reports.map(toReportView),
+          events: events.map(toEventView),
+          latestRejection: latestRejection && toEventView(latestRejection),
+        };
+      },
+      { isolationLevel: 'repeatable read', accessMode: 'read only' },
+    );
+  }
+
+  // What the resolve route checks before settling: the errand's status and reward,
+  // and its credit rejections in the last hour (the retry cap counts the event log).
+  async resolveGate(id: string) {
+    const [errand] = await this.db
+      .select({ status: errands.status, rewardCredits: errands.rewardCredits })
+      .from(errands)
+      .where(eq(errands.id, id));
+    if (!errand) return undefined;
+    const [{ n }] = await this.db
+      .select({ n: count() })
+      .from(errandEvents)
+      .where(
+        and(
+          eq(errandEvents.errandId, id),
+          eq(errandEvents.type, CREDIT_SETTLEMENT_REJECTED),
+          gt(errandEvents.occurredAt, new Date(Date.now() - 3_600_000)),
+        ),
+      );
+    return { ...errand, recentRejections: n };
   }
 
   private partyRows(userId: string, q: MineErrandsQuery) {

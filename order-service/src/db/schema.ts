@@ -50,6 +50,10 @@ export const errands = pgTable(
     deliveredAt: ts('delivered_at'), // starts the 24h Delivered -> Completed timer (ADR 0007)
 
     cancellationReason: text('cancellation_reason'),
+    // Dispute resolution: the admin's settlement, set on SettlementRequested and
+    // cleared on a credit rejection. Shown to the parties only once Resolved.
+    settlementAmount: integer('settlement_amount'), // courier's share, 0..rewardCredits
+    settlementNote: text('settlement_note'),
     createdAt: ts('created_at').notNull().defaultNow(),
     // the in-flight hold-window sweeps read this as "time entered the
     // status" (only transition() writes the row, and in-flight refuses every
@@ -78,6 +82,10 @@ export const errands = pgTable(
         CANCELLATION_REASONS.map((r) => sql.raw(`'${r}'`)),
         sql`, `,
       )})`,
+    ),
+    check(
+      'errands_settlement_amount_valid',
+      sql`${t.settlementAmount} IS NULL OR ${t.settlementAmount} BETWEEN 0 AND ${t.rewardCredits}`,
     ),
     index().on(t.requesterId, t.status),
   ],
@@ -166,4 +174,23 @@ export const roleBlocks = pgTable(
     expiresAt: ts('expires_at').notNull(),
   },
   (t) => [primaryKey({ columns: [t.userId, t.role] })],
+);
+
+// Dispute resolution: one optional, immutable account per party on an Incomplete
+// errand. Not a lifecycle transition, so it writes no event and is not rebuilt.
+export const disputeReports = pgTable(
+  'dispute_reports',
+  {
+    errandId: uuid('errand_id')
+      .notNull()
+      .references(() => errands.id),
+    authorId: uuid('author_id').notNull(),
+    role: text('role').notNull(), // 'requester' | 'courier'
+    body: text('body').notNull(),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.errandId, t.authorId] }),
+    check('dispute_reports_role_valid', sql`${t.role} IN ('requester', 'courier')`),
+  ],
 );

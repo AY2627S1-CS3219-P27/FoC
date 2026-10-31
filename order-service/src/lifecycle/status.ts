@@ -12,9 +12,9 @@ export const STATUSES = [
   'Completed',
   'Cancelled',
   'Incomplete',
+  'Settling-Credit',
+  'Resolved',
 ] as const;
-
-
 
 export type Status = (typeof STATUSES)[number];
 
@@ -32,18 +32,17 @@ export const ALLOWED: Record<Status, Status[]> = {
   'Transferring-Credit': ['Completed', 'Incomplete'],
   Completed: [],
   Cancelled: [],
-  Incomplete: [],
+  // Dispute resolution: an admin settles an Incomplete errand; credit's rejection returns it.
+  Incomplete: ['Settling-Credit'],
+  'Settling-Credit': ['Resolved', 'Incomplete'],
+  Resolved: [],
 };
 
 // A courier holds at most one errand in these statuses; the partial
 // unique index in schema.ts is built from this.
 export const ACTIVE_STATUSES: Status[] = ['Accepted', 'Picked Up'];
 
-export const TERMINAL_STATUS: Status[] = [
-  'Completed',
-  'Cancelled',
-  'Incomplete',
-];
+export const TERMINAL_STATUS: Status[] = ['Completed', 'Cancelled', 'Resolved'];
 
 export const canTransition = (from: Status, to: Status): boolean =>
   ALLOWED[from].includes(to);

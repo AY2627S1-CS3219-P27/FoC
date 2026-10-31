@@ -11,11 +11,18 @@ export type Col =
   | 'supplierValidatedAt'
   | 'pickupLocation'
   | 'pickupName'
-  | 'pickupDescription';
+  | 'pickupDescription'
+  | 'settlementAmount'
+  | 'settlementNote';
 
 // Who may take an edge. `other` = any user who is not the requester.
-export type UserRole = 'requester' | 'courier' | 'other';
+// `admin` = a user whose token carries isAdmin; transition() checks the flag, the row check lets them through.
+export type UserRole = 'requester' | 'courier' | 'other' | 'admin';
 export type Role = UserRole | 'system';
+
+// The event that locks dispute reports; reports.service reads it.
+export const SETTLEMENT_REQUESTED = 'SettlementRequested';
+export const CREDIT_SETTLEMENT_REJECTED = 'CreditSettlementRejected';
 
 // Closed set of cancellation reasons; each cancel edge allows a subset.
 export const CANCELLATION_REASONS = [
@@ -69,7 +76,7 @@ const plain = (type: string, who: Role[], notice?: NoticeBuilder): Edge => ({
 });
 const sys: Role[] = ['system'];
 
-// 17 edges in total
+// 20 edges in total
 export const EDGES: Partial<
   Record<Status, Partial<Record<Status, Edge | Edge[]>>>
 > = {
@@ -147,8 +154,41 @@ export const EDGES: Partial<
   },
   'Transferring-Credit': {
     Completed: plain('CreditTransferSucceeded', sys),
-    // Credit rejected the transfer (terminal on its side too): park in Incomplete for dispute handling (not built).
+    // Credit rejected the transfer (terminal on its side too): park in Incomplete for an admin to settle (dispute resolution).
     Incomplete: plain('CreditTransferRejected', sys),
+  },
+  // Dispute resolution: an admin settles; credit's reply resolves or returns the errand.
+  Incomplete: {
+    'Settling-Credit': {
+      type: SETTLEMENT_REQUESTED,
+      sets: ['settlementAmount', 'settlementNote'],
+      clears: [],
+      who: ['admin'],
+      // One atomic credit operation out of the single reservation; attempt counts requests (credit is idempotent on errandId + attempt).
+      notice: (c) => {
+        const courierAmount = c.payload.settlementAmount as number;
+        return {
+          key: 'credit.settlement.v1',
+          payload: {
+            errandId: c.errandId,
+            requesterUserId: c.requesterId,
+            courierUserId: c.courierId,
+            courierAmount,
+            requesterAmount: c.rewardCredits - courierAmount,
+            attempt: c.attempt,
+          },
+        };
+      },
+    },
+  },
+  'Settling-Credit': {
+    Resolved: plain('CreditSettlementSucceeded', sys),
+    Incomplete: {
+      type: CREDIT_SETTLEMENT_REJECTED,
+      sets: [],
+      clears: ['settlementAmount', 'settlementNote'],
+      who: sys,
+    },
   },
 };
 

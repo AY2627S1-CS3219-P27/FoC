@@ -51,6 +51,18 @@ import {
   creditReleaseSuccessV1Contract,
 } from './events/credit-release-success/v1/contract.js';
 import {
+  CREDIT_SETTLEMENT_REJECTED_V1_ROUTING_KEY,
+  creditSettlementRejectedV1Contract,
+} from './events/credit-settlement-rejected/v1/contract.js';
+import {
+  CREDIT_SETTLEMENT_SUCCEEDED_V1_ROUTING_KEY,
+  creditSettlementSucceededV1Contract,
+} from './events/credit-settlement-succeeded/v1/contract.js';
+import {
+  CREDIT_SETTLEMENT_V1_ROUTING_KEY,
+  creditSettlementV1Contract,
+} from './events/credit-settlement/v1/contract.js';
+import {
   ORDER_SUPPLIER_VALIDATION_REQUESTED_V1_ROUTING_KEY,
   supplierValidationRequestedV1Contract,
 } from './events/supplier-validation-requested/v1/contract.js';
@@ -85,6 +97,11 @@ export const eventRegistry = {
   [CREDIT_TRANSFER_REJECTED_V1_ROUTING_KEY]: creditTransferRejectedV1Contract,
   [CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY]: creditReleaseSuccessV1Contract,
   [CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY]: creditReleaseRejectedV1Contract,
+  [CREDIT_SETTLEMENT_V1_ROUTING_KEY]: creditSettlementV1Contract,
+  [CREDIT_SETTLEMENT_SUCCEEDED_V1_ROUTING_KEY]:
+    creditSettlementSucceededV1Contract,
+  [CREDIT_SETTLEMENT_REJECTED_V1_ROUTING_KEY]:
+    creditSettlementRejectedV1Contract,
   [ORDER_SUPPLIER_VALIDATION_REQUESTED_V1_ROUTING_KEY]:
     supplierValidationRequestedV1Contract,
   [SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY]:

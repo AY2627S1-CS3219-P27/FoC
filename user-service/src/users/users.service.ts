@@ -316,6 +316,14 @@ export class UsersService {
     return user === null ? null : this.getPublicUserInfo(user);
   }
 
+  /** Same rule as login: a locked or archived account gets no new tokens. */
+  async getActiveUserByUuid(uuid: string): Promise<PublicUserInfo | null> {
+    const user = await this.userRepository.findOneBy({ uuid });
+    return user === null || user.isLocked || user.isArchived
+      ? null
+      : this.getPublicUserInfo(user);
+  }
+
   /**
    * Set-replaces the user's participant roles (M.1 F13.1.3). Duplicate or
    * out-of-order input is normalised to a set; the two participant roles are
