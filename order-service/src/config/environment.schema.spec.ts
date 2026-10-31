@@ -12,6 +12,9 @@ const base = {
   RABBITMQ_PORT: '5672',
   RABBITMQ_VHOST: '/foc',
   RABBITMQ_PASSWORD_FILE: '/p',
+  REDIS_HOST: 'redis',
+  REDIS_PORT: '6379',
+  REDIS_USERNAME: 'order-service',
 };
 
 describe('db env', () => {

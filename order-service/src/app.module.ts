@@ -16,6 +16,7 @@ import { OutboxModule } from './outbox/outbox.module.js';
 import { RoleBlocksModule } from './role-blocks/role-blocks.module.js';
 import { SupplierRepliesModule } from './supplier-replies/supplier-replies.module.js';
 import { SweepsModule } from './sweeps/sweeps.module.js';
+import { TrackingModule } from './tracking/tracking.module.js';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { SweepsModule } from './sweeps/sweeps.module.js';
     RoleBlocksModule,
     SupplierRepliesModule,
     SweepsModule,
+    TrackingModule,
   ],
   controllers: [HealthController],
 })

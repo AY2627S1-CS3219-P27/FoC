@@ -18,6 +18,7 @@ import {
   type UserRole,
 } from './edges.js';
 import { enqueueNotice } from './notice.js';
+import { notifyCommitted } from './transition-hooks.js';
 import { payloadValid } from './payloads.js';
 import type { Status } from './status.js';
 
@@ -194,7 +195,7 @@ export function transition(
   // Accept: validate() made the actor the courier, so this is their user id.
   const courier = edge?.sets.includes('courierId') ? (actor as string) : undefined;
 
-  return db.transaction(async (tx): Promise<TransitionResult> => {
+  const committed = db.transaction(async (tx): Promise<TransitionResult> => {
     // Taken first, so a concurrent role block for this courier serializes with us.
     if (courier) await lockUser(tx, courier);
     const replay = await claimKey(tx, i, fingerprint);
@@ -205,6 +206,11 @@ export function transition(
     else if (courier && (await isRoleBlocked(tx, courier, Role.Courier))) result = BLOCKED;
     else result = await apply(tx, i, edge, actor as string | null);
     await storeOutcome(tx, i, result);
+    return result;
+  });
+  // Post-commit observers (best-effort; cannot alter the result).
+  return committed.then((result) => {
+    notifyCommitted(i, result);
     return result;
   });
 }
