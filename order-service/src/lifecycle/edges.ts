@@ -22,6 +22,7 @@ export type Role = UserRole | 'system';
 
 // The event that locks dispute reports; reports.service reads it.
 export const SETTLEMENT_REQUESTED = 'SettlementRequested';
+export const CREDIT_SETTLEMENT_REJECTED = 'CreditSettlementRejected';
 
 // Closed set of cancellation reasons; each cancel edge allows a subset.
 export const CANCELLATION_REASONS = [
@@ -183,7 +184,7 @@ export const EDGES: Partial<
   'Settling-Credit': {
     Resolved: plain('CreditSettlementSucceeded', sys),
     Incomplete: {
-      type: 'CreditSettlementRejected',
+      type: CREDIT_SETTLEMENT_REJECTED,
       sets: [],
       clears: ['settlementAmount', 'settlementNote'],
       who: sys,
