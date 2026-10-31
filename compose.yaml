@@ -23,6 +23,7 @@ include:
     env_file:
       - env/shared.env
       - env/credit-service.env
+  - path: osrm/compose.yml
   - path: frontend/compose.yml
 
 services:
@@ -155,6 +156,8 @@ services:
   order-service:
     depends_on:
       rabbitmq:
+        condition: service_healthy
+      redis: # defined in user-service/compose.yml
         condition: service_healthy
 
   credit-service:

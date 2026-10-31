@@ -1,0 +1,17 @@
+services:
+  osrm:
+    # Walking router for courier tracking (order-service TRACKING_* / OSRM_*).
+    # Data is built once by ./scripts/prepare-osrm.sh into data/osrm/ (gitignored).
+    # Internal only: no host port; order-service reaches it at http://osrm:5000.
+    image: ghcr.io/project-osrm/osrm-backend:${OSRM_IMAGE_TAG:-v5.27.1}
+    restart: unless-stopped
+    command: osrm-routed --algorithm mld --port 5000 /data/singapore.osrm
+    volumes:
+      - ../data/osrm:/data:ro
+    healthcheck:
+      # The image ships bash but no curl/wget, so probe the TCP port.
+      test: ['CMD-SHELL', 'exec 3<>/dev/tcp/127.0.0.1/5000']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
