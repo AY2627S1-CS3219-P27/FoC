@@ -21,6 +21,7 @@ function numOrNull(n: number | null | undefined): number | null {
 export function CourierLocationShare({ errandId }: { errandId: string }) {
   const [phase, setPhase] = useState<Phase>("off");
   const [notice, setNotice] = useState<{ text: string; kind: "error" | "info" } | null>(null);
+  const [hidden, setHidden] = useState(false);
   const [lastOkAt, setLastOkAt] = useState<number | null>(null);
 
   const watchId = useRef<number | null>(null);
@@ -140,6 +141,12 @@ export function CourierLocationShare({ errandId }: { errandId: string }) {
     [],
   );
 
+  useEffect(() => {
+    const update = () => setHidden(document.visibilityState === "hidden");
+    document.addEventListener("visibilitychange", update);
+    return () => document.removeEventListener("visibilitychange", update);
+  }, []);
+
   const on = phase === "starting" || phase === "sharing";
 
   return (
@@ -174,6 +181,12 @@ export function CourierLocationShare({ errandId }: { errandId: string }) {
           {phase === "starting"
             ? "Waiting for your location…"
             : `Sharing your location${lastOkAt ? ` · last sent ${new Date(lastOkAt).toLocaleTimeString()}` : ""}`}
+        </p>
+      )}
+      {on && hidden && (
+        <p role="status" className="text-sm text-danger">
+          This tab is hidden. Location updates may pause while the tab is in the background or the
+          screen is locked. Return to this tab to keep sharing.
         </p>
       )}
       {on && (

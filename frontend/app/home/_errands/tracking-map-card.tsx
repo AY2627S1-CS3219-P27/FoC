@@ -37,6 +37,12 @@ export function TrackingMapCard({ errandId }: { errandId: string }) {
   const stale = isStale(age);
 
   let statusText: string;
+  const notice =
+    t.notice === "unavailable"
+      ? "Tracking is temporarily unavailable. Retrying automatically."
+      : t.notice === "toomany"
+        ? "Too many open tracking tabs. Close other tabs showing this errand."
+        : null;
   if (t.connection === "ended") statusText = "Tracking has ended for this errand.";
   else if (!t.tracking || !t.position)
     statusText = "The courier has not shared a live location. Tracking is optional.";
@@ -79,6 +85,11 @@ export function TrackingMapCard({ errandId }: { errandId: string }) {
       <p role="status" aria-live="polite" className="text-sm">
         {statusText}
       </p>
+      {notice && t.connection !== "ended" && (
+        <p role="alert" className="text-sm text-danger">
+          {notice}
+        </p>
+      )}
       {t.route && t.connection !== "ended" && (
         <p className="text-sm text-muted">
           About {formatEta(t.route.durationS)} away · {formatDistance(t.route.distanceM)}

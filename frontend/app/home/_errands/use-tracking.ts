@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import {
   backoffMs,
   isNewerOrEqual,
+  isRouteNewerOrEqual,
   POLL_FALLBACK_MS,
   SSE_WATCHDOG_MS,
   SSE_MAX_FAILURES,
@@ -20,6 +21,8 @@ export interface TrackingState {
   route: TrackRoute | null;
   destination: { lat: number; lng: number } | null;
   endedReason: string | null;
+  /** Transient server-side conditions to explain to the user. */
+  notice: "none" | "unavailable" | "toomany";
   serverOffsetMs: number;
 }
 
@@ -30,6 +33,7 @@ const INITIAL: TrackingState = {
   route: null,
   destination: null,
   endedReason: null,
+  notice: "none",
   serverOffsetMs: 0,
 };
 
@@ -55,7 +59,9 @@ export function useTracking(errandId: string, enabled: boolean): TrackingState {
     let closed = false;
     let source: EventSource | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
-    let pollTimer: ReturnType<typeof setInterval> | undefined;
+    let pollTimer: ReturnType<typeof setTimeout> | undefined;
+    let polling = false;
+    let pollFailures = 0;
     let failures = 0;
     let watchdog: ReturnType<typeof setTimeout> | undefined;
 
@@ -67,7 +73,8 @@ export function useTracking(errandId: string, enabled: boolean): TrackingState {
         ...prev,
         tracking: s.tracking,
         position: isNewerOrEqual(s.position, prev.position) ? s.position : prev.position,
-        route: s.route,
+        route: s.route && !isRouteNewerOrEqual(s.route, prev.route) ? prev.route : s.route,
+        notice: "none",
         destination: s.destination,
         serverOffsetMs: Number.isNaN(serverMs) ? prev.serverOffsetMs : serverMs - Date.now(),
       }));
@@ -76,31 +83,57 @@ export function useTracking(errandId: string, enabled: boolean): TrackingState {
     const end = (reason: string) => {
       endedRef.current = true;
       source?.close();
-      clearInterval(pollTimer);
+      clearTimeout(pollTimer);
       clearTimeout(retryTimer);
       clearTimeout(watchdog);
       setState((prev) => ({ ...prev, connection: "ended", endedReason: reason }));
     };
 
-    const pollOnce = async () => {
+    type Probe = "ok" | "terminal" | "unavailable" | "toomany" | "error";
+
+    // 403/404/409 are terminal; 503 TRACKING_UNAVAILABLE is transient; 429 means back off hard.
+    const pollOnce = async (): Promise<Probe> => {
       const res = await api<TrackSnapshot>("GET", `${base}/snapshot`, { quiet: true });
-      if (closed || endedRef.current) return;
+      if (closed || endedRef.current) return "terminal";
       if (res.ok && res.data) {
         applySnapshot(res.data);
-        if (res.data.status !== "Picked Up") end("status");
-      } else if (res.status === 403 || res.status === 404 || res.status === 409) {
-        end("unavailable");
+        if (res.data.status !== "Picked Up") {
+          end("status");
+          return "terminal";
+        }
+        return "ok";
       }
+      if (res.status === 403 || res.status === 404 || res.status === 409) {
+        end("unavailable");
+        return "terminal";
+      }
+      if (res.status === 503 || res.status === 429) {
+        const notice = res.status === 503 ? "unavailable" : "toomany";
+        setState((prev) => ({ ...prev, notice }));
+        return res.status === 503 ? "unavailable" : "toomany";
+      }
+      return "error";
+    };
+
+    const pollLoop = async () => {
+      const r = await pollOnce();
+      if (closed || endedRef.current) return;
+      pollFailures = r === "ok" ? 0 : pollFailures + 1;
+      const delay =
+        r === "ok"
+          ? POLL_FALLBACK_MS
+          : Math.max(r === "toomany" ? 30_000 : POLL_FALLBACK_MS, backoffMs(pollFailures, Math.random()));
+      pollTimer = setTimeout(() => void pollLoop(), delay);
     };
 
     const startPolling = () => {
-      if (pollTimer) return;
+      if (polling) return;
+      polling = true;
       source?.close();
       clearTimeout(watchdog);
       clearTimeout(retryTimer);
       setState((prev) => ({ ...prev, connection: "polling" }));
-      void pollOnce();
-      pollTimer = setInterval(() => void pollOnce(), POLL_FALLBACK_MS);
+      void pollLoop();
     };
 
     const connect = () => {
@@ -141,7 +174,7 @@ export function useTracking(errandId: string, enabled: boolean): TrackingState {
       es.addEventListener("route", (e) => {
         arm();
         const r = parse<TrackRoute>((e as MessageEvent).data);
-        if (r) setState((prev) => ({ ...prev, route: r }));
+        if (r) setState((prev) => (isRouteNewerOrEqual(r, prev.route) ? { ...prev, route: r } : prev));
       });
       es.addEventListener("ended", (e) => {
         arm();
@@ -153,11 +186,15 @@ export function useTracking(errandId: string, enabled: boolean): TrackingState {
         clearTimeout(watchdog);
         if (closed || endedRef.current) return;
         failures += 1;
-        if (failures >= SSE_MAX_FAILURES) {
-          startPolling();
-          return;
-        }
-        retryTimer = setTimeout(connect, backoffMs(failures - 1, Math.random()));
+        // EventSource hides the HTTP status, so ask the snapshot endpoint why the stream failed.
+        void pollOnce().then((r) => {
+          if (closed || endedRef.current || r === "terminal") return;
+          if (r === "toomany" || r === "unavailable" || failures >= SSE_MAX_FAILURES) {
+            startPolling();
+            return;
+          }
+          retryTimer = setTimeout(connect, backoffMs(failures - 1, Math.random()));
+        });
       };
     };
 
@@ -170,7 +207,7 @@ export function useTracking(errandId: string, enabled: boolean): TrackingState {
       source?.close();
       clearTimeout(retryTimer);
       clearTimeout(watchdog);
-      clearInterval(pollTimer);
+      clearTimeout(pollTimer);
     };
   }, [errandId, enabled]);
 

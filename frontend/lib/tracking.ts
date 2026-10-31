@@ -61,6 +61,17 @@ export function isNewerOrEqual(
   return a >= b;
 }
 
+/** Same ordering guard for routes, by computedAt. */
+export function isRouteNewerOrEqual(
+  incoming: { computedAt: string | number } | null,
+  current: { computedAt: string | number } | null,
+): boolean {
+  return isNewerOrEqual(
+    incoming && { ts: incoming.computedAt },
+    current && { ts: current.computedAt },
+  );
+}
+
 export function isStale(ageS: number | null): boolean {
   return ageS === null || ageS > STALE_AFTER_S;
 }
