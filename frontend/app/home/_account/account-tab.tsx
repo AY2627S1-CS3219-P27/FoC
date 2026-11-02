@@ -193,7 +193,8 @@ function EditProfileForm({
       }}
     >
       <div className="flex justify-center pt-1">
-        <Avatar url={pictureUrl.trim() || null} name={displayName || user.displayName} size={76} />
+        {/* Shows the saved picture, not the half-typed URL, so input text never flows into an image source. */}
+        <Avatar url={user.profilePictureUrl} name={displayName || user.displayName} size={76} />
       </div>
       <div>
         <div className="space-y-4 rounded-2xl bg-surface p-4">

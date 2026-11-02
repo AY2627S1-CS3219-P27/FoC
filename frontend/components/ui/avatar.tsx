@@ -18,6 +18,17 @@ function initials(name: string): string {
   return (first + last).toUpperCase();
 }
 
+// Only web images reach <img src>; anything else (e.g. "javascript:…" or a malformed value) shows initials.
+function safeImageUrl(url: string | null): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.href : null;
+  } catch {
+    return null;
+  }
+}
+
 export function Avatar({
   url,
   name,
@@ -30,6 +41,7 @@ export function Avatar({
   className?: string;
 }) {
   const [broken, setBroken] = useState(false);
+  const src = safeImageUrl(url);
 
   return (
     <span
@@ -39,10 +51,10 @@ export function Avatar({
       )}
       style={{ width: size, height: size, fontSize: Math.max(10, size * 0.38) }}
     >
-      {url && !broken ? (
+      {src && !broken ? (
         // eslint-disable-next-line @next/next/no-img-element -- remote URLs; next/image would need remotePatterns config
         <img
-          src={url}
+          src={src}
           alt=""
           width={size}
           height={size}
