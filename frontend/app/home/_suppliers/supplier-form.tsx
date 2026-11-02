@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { clsx } from "clsx";
 import { api } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { FormError, inputClass } from "@/components/ui/field";
 
 export type SupplierFormMode = "admin-create" | "admin-edit" | "request-create" | "request-update";
 
@@ -199,25 +202,25 @@ export function SupplierForm({
     }
   }
 
-  const input = "w-full rounded-xl border border-border bg-background px-3 py-2 text-sm";
+  const input = `w-full ${inputClass}`;
 
-  if (loading) return <p className="text-sm text-muted">Loading supplier…</p>;
+  if (loading) return <div role="status" aria-label="Loading supplier" className="skeleton h-48 rounded-2xl" />;
 
   return (
-    <form onSubmit={submit} className="space-y-3 rounded-xl border border-border bg-surface p-4">
-      <h4 className="font-semibold">{TITLES[mode]}</h4>
+    <form onSubmit={submit} className="fade-in space-y-4 rounded-2xl border border-border bg-surface p-5 shadow-card">
+      <h2 className="font-semibold">{TITLES[mode]}</h2>
       {mode.startsWith("request") && (
-        <p className="text-xs text-muted">An admin reviews this before it goes live.</p>
+        <p className="-mt-3 text-xs text-muted">An admin reviews this before it goes live.</p>
       )}
 
       <label className="block text-sm">
-        <span className="block mb-1 font-medium">Name</span>
+        <span className="mb-1.5 block font-medium">Name</span>
         <input required maxLength={100} value={values.name} onChange={(e) => set("name", e.target.value)} className={input} />
       </label>
 
       <div className="grid grid-cols-2 gap-3">
         <label className="block text-sm">
-          <span className="block mb-1 font-medium">Type</span>
+          <span className="mb-1.5 block font-medium">Type</span>
           <select value={values.kind} onChange={(e) => set("kind", e.target.value)} className={input}>
             <option value="Store">Store</option>
             <option value="Facility">Facility</option>
@@ -225,7 +228,7 @@ export function SupplierForm({
           </select>
         </label>
         <label className="block text-sm">
-          <span className="block mb-1 font-medium">Floor</span>
+          <span className="mb-1.5 block font-medium">Floor</span>
           <input
             required
             value={values.floor}
@@ -238,7 +241,7 @@ export function SupplierForm({
       </div>
 
       <label className="block text-sm">
-        <span className="block mb-1 font-medium">Building</span>
+        <span className="mb-1.5 block font-medium">Building</span>
         <select required value={values.buildingId} onChange={(e) => pickBuilding(e.target.value)} className={input}>
           <option value="">Choose a building…</option>
           {buildings.map((b) => (
@@ -250,7 +253,7 @@ export function SupplierForm({
       </label>
 
       <label className="block text-sm">
-        <span className="block mb-1 font-medium">Where exactly</span>
+        <span className="mb-1.5 block font-medium">Where exactly</span>
         <input
           required
           maxLength={255}
@@ -263,26 +266,27 @@ export function SupplierForm({
 
       <div className="grid grid-cols-2 gap-3">
         <label className="block text-sm">
-          <span className="block mb-1 font-medium">Latitude</span>
+          <span className="mb-1.5 block font-medium">Latitude</span>
           <input required type="number" step="any" value={values.latitude} onChange={(e) => set("latitude", e.target.value)} className={input} />
         </label>
         <label className="block text-sm">
-          <span className="block mb-1 font-medium">Longitude</span>
+          <span className="mb-1.5 block font-medium">Longitude</span>
           <input required type="number" step="any" value={values.longitude} onChange={(e) => set("longitude", e.target.value)} className={input} />
         </label>
       </div>
 
       <fieldset className="text-sm">
-        <legend className="mb-1 font-medium">Categories</legend>
+        <legend className="mb-1.5 font-medium">Categories</legend>
         <div className="flex flex-wrap gap-2">
           {categories.map((c) => {
             const on = values.categoryIds.includes(c.id);
             return (
               <label
                 key={c.id}
-                className={`cursor-pointer rounded-full border px-2.5 py-1 text-xs ${
-                  on ? "border-nus-orange bg-nus-orange/10 text-nus-orange" : "border-border text-muted"
-                }`}
+                className={clsx(
+                  "btn-press cursor-pointer rounded-full border px-3 py-1 text-xs font-medium select-none has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-nus-orange/50",
+                  on ? "border-nus-orange bg-nus-orange/10 text-nus-orange" : "border-border text-muted hover:text-foreground",
+                )}
               >
                 <input
                   type="checkbox"
@@ -300,30 +304,19 @@ export function SupplierForm({
       </fieldset>
 
       <label className="block text-sm">
-        <span className="block mb-1 font-medium">Photo URL (optional)</span>
+        <span className="mb-1.5 block font-medium">Photo URL (optional)</span>
         <input type="url" value={values.photoUrl} onChange={(e) => set("photoUrl", e.target.value)} className={input} />
       </label>
 
-      {error && (
-        <p role="alert" className="text-sm text-danger">
-          {error}
-        </p>
-      )}
+      {error && <FormError>{error}</FormError>}
 
       <div className="flex gap-2">
-        <button
-          disabled={pending || values.categoryIds.length === 0}
-          className="btn-press rounded-xl bg-nus-orange px-3.5 py-2 text-sm font-semibold text-white hover:bg-nus-orange-hover disabled:opacity-50"
-        >
+        <Button type="submit" size="sm" disabled={pending || values.categoryIds.length === 0}>
           {pending ? "Saving…" : mode.startsWith("request") ? "Send request" : "Save"}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="btn-press rounded-xl border border-border px-3.5 py-2 text-sm text-muted hover:text-foreground"
-        >
+        </Button>
+        <Button intent="outline" size="sm" onClick={onCancel}>
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );

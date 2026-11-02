@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import type { BuildingOption, SupplierOption } from "./types";
+import { Button } from "@/components/ui/button";
+import { textareaClass } from "@/components/ui/field";
 import { Field, inputClass } from "./ui";
 
 const MAX_CREDITS = 2_147_483_647;
@@ -146,11 +148,11 @@ export function CreateErrandForm({
   return (
     <form
       onSubmit={onSubmit}
-      className="max-w-2xl space-y-4 rounded-2xl border border-border bg-surface p-6 shadow-sm"
+      className="fade-in max-w-2xl space-y-5 rounded-2xl border border-border bg-surface p-5 shadow-card sm:p-6"
     >
       <div>
         <h3 className="text-lg font-semibold">New errand</h3>
-        <p className="text-sm text-muted">
+        <p className="mt-1 text-sm text-muted">
           Credits are reserved once the supplier is confirmed. The errand opens to couriers after that.
         </p>
       </div>
@@ -198,7 +200,7 @@ export function CreateErrandForm({
           value={collectionItems}
           onChange={(e) => setCollectionItems(e.target.value)}
           placeholder="1 large iced milo, less sugar"
-          className={`w-full ${inputClass}`}
+          className={`w-full ${textareaClass}`}
           rows={2}
         />
       </Field>
@@ -209,7 +211,7 @@ export function CreateErrandForm({
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="Leave it at the COM2 lobby"
-          className={`w-full ${inputClass}`}
+          className={`w-full ${textareaClass}`}
           rows={2}
         />
       </Field>
@@ -230,7 +232,7 @@ export function CreateErrandForm({
           <span
             id="credit-sufficiency-status"
             aria-live="polite"
-            className={`mt-1 block text-xs ${
+            className={`mt-1.5 block text-xs ${
               sufficiencyStatus === "insufficient" || sufficiencyStatus === "error"
                 ? "text-danger"
                 : "text-muted"
@@ -265,17 +267,18 @@ export function CreateErrandForm({
       </div>
 
       {error && (
-        <p role="alert" className="text-sm text-danger">
+        <p role="alert" className="text-sm break-words text-danger">
           {error}
         </p>
       )}
 
-      <button
+      <Button
+        type="submit"
+        size="lg"
         disabled={!canSubmit}
-        className="btn-press rounded-xl bg-nus-orange px-4 py-2.5 text-sm font-semibold text-white hover:bg-nus-orange-hover disabled:opacity-50 transition-colors"
       >
         {pending ? "Creating…" : "Create errand"}
-      </button>
+      </Button>
     </form>
   );
 }

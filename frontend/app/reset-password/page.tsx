@@ -3,6 +3,10 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
+import { AuthCard, AuthShell } from "@/components/auth-shell";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Field, FormError, inputClass } from "@/components/ui/field";
+import { CheckIcon } from "@/components/ui/icons";
 
 function ResetForm() {
   const searchParams = useSearchParams();
@@ -39,13 +43,13 @@ function ResetForm() {
 
   if (!token) {
     return (
-      <div className="rounded-2xl border border-border bg-surface p-6 text-center shadow-sm fade-in">
+      <div className="fade-in rounded-2xl border border-border bg-surface p-6 text-center shadow-card">
         <p className="text-muted">
           No reset token found. Please use the link from your email.
         </p>
         <Link
           href="/forgot-password"
-          className="inline-block mt-4 text-sm text-nus-blue hover:underline"
+          className="mt-4 inline-block text-sm text-nus-blue underline-offset-4 hover:underline"
         >
           Request a new reset link
         </Link>
@@ -55,20 +59,15 @@ function ResetForm() {
 
   if (done) {
     return (
-      <div className="rounded-2xl border border-border bg-surface p-6 text-center shadow-sm fade-in">
-        <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-success/10 mb-4">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 12l5 5L20 7"/>
-          </svg>
+      <div className="fade-in rounded-2xl border border-border bg-surface p-6 text-center shadow-card">
+        <div className="mb-4 inline-flex size-14 items-center justify-center rounded-full bg-success/10 text-success">
+          <CheckIcon size={26} />
         </div>
-        <p className="font-semibold mb-2">Password reset successfully</p>
-        <p className="text-sm text-muted mb-4">
+        <p className="mb-1 font-semibold">Password reset successfully</p>
+        <p className="mb-5 text-sm text-muted">
           You can now sign in with your new password.
         </p>
-        <Link
-          href="/login"
-          className="btn-press inline-block rounded-xl bg-nus-orange px-4 py-2 text-sm font-semibold text-white hover:bg-nus-orange-hover transition-colors"
-        >
+        <Link href="/login" className={buttonVariants()}>
           Sign in
         </Link>
       </div>
@@ -76,12 +75,8 @@ function ResetForm() {
   }
 
   return (
-    <form
-      onSubmit={onSubmit}
-      className="flex flex-col gap-4 rounded-2xl border border-border bg-surface p-6 shadow-sm"
-    >
-      <div>
-        <label className="block text-sm font-medium mb-1.5">New password</label>
+    <AuthCard onSubmit={onSubmit}>
+      <Field label="New password">
         <input
           name="password"
           type="password"
@@ -90,13 +85,10 @@ function ResetForm() {
           minLength={12}
           maxLength={255}
           autoComplete="new-password"
-          className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm transition-shadow"
+          className={`w-full ${inputClass}`}
         />
-      </div>
-      <div>
-        <label className="block text-sm font-medium mb-1.5">
-          Confirm password
-        </label>
+      </Field>
+      <Field label="Confirm password">
         <input
           name="confirm"
           type="password"
@@ -105,42 +97,23 @@ function ResetForm() {
           minLength={12}
           maxLength={255}
           autoComplete="new-password"
-          className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm transition-shadow"
+          className={`w-full ${inputClass}`}
         />
-      </div>
-      {error && (
-        <p role="alert" className="text-sm text-danger fade-in">
-          {error}
-        </p>
-      )}
-      <button
-        disabled={pending}
-        className="btn-press w-full rounded-xl bg-nus-orange px-4 py-2.5 text-sm font-semibold text-white hover:bg-nus-orange-hover disabled:opacity-50 transition-colors"
-      >
+      </Field>
+      {error && <FormError>{error}</FormError>}
+      <Button type="submit" size="lg" block disabled={pending}>
         {pending ? "Resetting…" : "Set new password"}
-      </button>
-    </form>
+      </Button>
+    </AuthCard>
   );
 }
 
 export default function ResetPasswordPage() {
   return (
-    <main className="flex flex-1 items-center justify-center p-6 bg-background">
-      <div className="w-full max-w-md fade-in">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-nus-blue mb-4 shadow-lg">
-            <span className="text-2xl font-bold text-white tracking-tight">FoC</span>
-          </div>
-          <h1 className="text-3xl font-bold text-foreground">
-            Set new password
-          </h1>
-        </div>
-        <Suspense
-          fallback={<div className="text-center text-muted">Loading...</div>}
-        >
-          <ResetForm />
-        </Suspense>
-      </div>
-    </main>
+    <AuthShell title="Set new password">
+      <Suspense fallback={<div className="text-center text-muted">Loading…</div>}>
+        <ResetForm />
+      </Suspense>
+    </AuthShell>
   );
 }

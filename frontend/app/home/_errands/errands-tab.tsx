@@ -1,7 +1,12 @@
 "use client";
 
+import NumberFlow from "@number-flow/react";
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { ArrowRightIcon, ClockIcon } from "@/components/ui/icons";
+import { EmptyState, PageHeader, SkeletonGrid } from "@/components/ui/layout";
+import { Segmented } from "@/components/ui/segmented";
 import { CreateErrandForm } from "./create-errand-form";
 import { ErrandDetail } from "./errand-detail";
 import {
@@ -16,6 +21,12 @@ import { inputClass, StatusBadge, timeLeft } from "./ui";
 const POLL_MS = 5000;
 
 type View = "browse" | "mine" | "new";
+
+const VIEWS = [
+  ["browse", "Open errands"],
+  ["mine", "My errands"],
+  ["new", "New errand"],
+] as const;
 
 interface Balance {
   creditBalance: number;
@@ -109,53 +120,33 @@ export function ErrandsTab({
 
   return (
     <div>
-      <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
-        <div>
-          <h2 className="text-2xl font-bold mb-1">Errands</h2>
-          <p className="text-muted text-sm">
-            Your roles: {roles.length ? roles.join(", ") : "none"}
-          </p>
-        </div>
-        <div className="flex gap-3 text-sm">
-          <div className="rounded-xl bg-surface border border-border px-3 py-2">
-            <span className="text-muted">Available </span>
-            <span className="font-bold">{balance?.creditBalance ?? "—"}</span>
-          </div>
-          <div className="rounded-xl bg-surface border border-border px-3 py-2">
-            <span className="text-muted">Reserved </span>
-            <span className="font-bold">{balance?.reservedBalance ?? "—"}</span>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        title="Errands"
+        subtitle={<>Signed in as {roles.join(" and ")}</>}
+        actions={
+          <>
+            <BalanceChip label="Available" value={balance?.creditBalance} />
+            <BalanceChip label="Reserved" value={balance?.reservedBalance} />
+          </>
+        }
+      />
 
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
-        <div className="flex gap-1 rounded-xl bg-surface border border-border p-1">
-          {(
-            [
-              ["browse", "Open errands"],
-              ["mine", "My errands"],
-              ["new", "New errand"],
-            ] as [View, string][]
-          ).map(([v, label]) => (
-            <button
-              key={v}
-              onClick={() => {
-                setLoading(true);
-                setView(v);
-              }}
-              className={`btn-press px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                view === v ? "bg-nus-orange text-white" : "text-muted hover:text-foreground"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <label className="flex items-center gap-2 text-sm text-muted">
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <Segmented
+          label="Errand views"
+          value={view}
+          items={VIEWS}
+          onChange={(v) => {
+            setLoading(true);
+            setView(v);
+          }}
+        />
+        <label className="flex cursor-pointer items-center gap-2 text-sm text-muted select-none">
           <input
             type="checkbox"
             checked={showAllActions}
             onChange={(e) => setShowAllActions(e.target.checked)}
+            className="size-4 accent-nus-orange"
           />
           Demo: show all actions (the backend decides)
         </label>
@@ -167,6 +158,9 @@ export function ErrandsTab({
           suppliers={suppliers}
           buildings={buildings}
           onCreated={(id) => {
+            toast.success("Errand created", {
+              description: "It opens to couriers once the supplier and credits are confirmed.",
+            });
             setSelected(id);
             setView("mine");
             refresh();
@@ -175,8 +169,8 @@ export function ErrandsTab({
       )}
 
       {view === "browse" && (
-        <div className="flex flex-wrap gap-3 mb-5">
-          <select value={pickupBuilding} onChange={(e) => setPickupBuilding(e.target.value)} className={inputClass}>
+        <div className="mb-5 grid gap-3 sm:flex sm:flex-wrap">
+          <select value={pickupBuilding} onChange={(e) => setPickupBuilding(e.target.value)} className={inputClass} aria-label="Pickup building">
             <option value="">Any pickup building</option>
             {buildings.map((b) => (
               <option key={b.id} value={b.shortName}>
@@ -184,7 +178,7 @@ export function ErrandsTab({
               </option>
             ))}
           </select>
-          <select value={deliveryBuilding} onChange={(e) => setDeliveryBuilding(e.target.value)} className={inputClass}>
+          <select value={deliveryBuilding} onChange={(e) => setDeliveryBuilding(e.target.value)} className={inputClass} aria-label="Delivery building">
             <option value="">Any delivery building</option>
             {buildings.map((b) => (
               <option key={b.id} value={b.shortName}>
@@ -196,11 +190,12 @@ export function ErrandsTab({
             type="number"
             min={1}
             placeholder="Min credits"
+            aria-label="Minimum credits"
             value={minCredits}
             onChange={(e) => setMinCredits(e.target.value)}
-            className={`w-32 ${inputClass}`}
+            className={`sm:w-32 ${inputClass}`}
           />
-          <select value={sort} onChange={(e) => setSort(e.target.value)} className={inputClass}>
+          <select value={sort} onChange={(e) => setSort(e.target.value)} className={inputClass} aria-label="Sort by">
             <option value="expiring">Expiring soonest</option>
             <option value="newest">Newest</option>
             <option value="credits">Highest credits</option>
@@ -209,13 +204,13 @@ export function ErrandsTab({
       )}
 
       {view === "mine" && (
-        <div className="flex flex-wrap gap-3 mb-5">
-          <select value={mineRole} onChange={(e) => setMineRole(e.target.value)} className={inputClass}>
+        <div className="mb-5 grid gap-3 sm:flex sm:flex-wrap">
+          <select value={mineRole} onChange={(e) => setMineRole(e.target.value)} className={inputClass} aria-label="Role">
             <option value="">As requester or courier</option>
             <option value="requester">My requests</option>
             <option value="courier">My deliveries</option>
           </select>
-          <select value={mineStatus} onChange={(e) => setMineStatus(e.target.value)} className={inputClass}>
+          <select value={mineStatus} onChange={(e) => setMineStatus(e.target.value)} className={inputClass} aria-label="Status">
             <option value="">Any status</option>
             {ERRAND_STATUSES.map((s) => (
               <option key={s} value={s}>
@@ -228,40 +223,34 @@ export function ErrandsTab({
 
       {view !== "new" &&
         (loading ? (
-          <p className="text-center py-12 text-muted">Loading errands…</p>
+          <SkeletonGrid />
         ) : listError ? (
-          <p role="alert" className="text-center py-12 text-danger text-sm">
-            {listError}
-          </p>
+          <EmptyState tone="error" title="Could not load errands" body={listError} />
         ) : items.length === 0 ? (
-          <p className="text-center py-12 text-muted">No errands here yet.</p>
+          <EmptyState
+            title={view === "browse" ? "No open errands right now" : "No errands here yet"}
+            body={
+              view === "browse"
+                ? "New requests show up here on their own. Try widening your filters."
+                : "Errands you request or deliver will be listed here."
+            }
+          />
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="stagger grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {items.map((e) => (
-              <button
+              <ErrandCard
                 key={e.id}
-                onClick={() => setSelected(e.id)}
-                className="card-press text-left rounded-2xl border border-border bg-surface p-4 hover:border-nus-orange/50 hover:shadow-md"
-              >
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <h3 className="font-semibold">{e.pickupName ?? supplierName(e.supplierId)}</h3>
-                  <StatusBadge status={e.status} />
-                </div>
-                <p className="text-sm text-muted mb-1">
-                  {e.pickupLocation ?? "—"} → {e.deliveryLocation}
-                </p>
-                <p className="text-sm line-clamp-2 mb-2">{e.collectionItems}</p>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="font-semibold text-nus-orange">{e.rewardCredits} credits</span>
-                  <span className="text-muted">
-                    {view === "mine"
-                      ? e.requesterId === me
-                        ? "You requested"
-                        : "You deliver"
-                      : timeLeft(e.expiresAt)}
-                  </span>
-                </div>
-              </button>
+                errand={e}
+                title={e.pickupName ?? supplierName(e.supplierId)}
+                footer={
+                  view === "mine"
+                    ? e.requesterId === me
+                      ? "You requested"
+                      : "You deliver"
+                    : timeLeft(e.expiresAt)
+                }
+                onOpen={() => setSelected(e.id)}
+              />
             ))}
           </div>
         ))}
@@ -278,5 +267,58 @@ export function ErrandsTab({
         />
       )}
     </div>
+  );
+}
+
+function BalanceChip({ label, value }: { label: string; value: number | undefined }) {
+  return (
+    <div className="flex items-baseline gap-1.5 rounded-xl border border-border bg-surface px-3 py-2 text-sm">
+      <span className="text-muted">{label}</span>
+      {value === undefined ? (
+        <span className="font-semibold">—</span>
+      ) : (
+        <NumberFlow value={value} className="tabular font-semibold" />
+      )}
+    </div>
+  );
+}
+
+function ErrandCard({
+  errand,
+  title,
+  footer,
+  onOpen,
+}: {
+  errand: Errand;
+  title: string;
+  footer: string;
+  onOpen: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="card-press flex min-w-0 flex-col rounded-2xl border border-border bg-surface p-4 text-left shadow-card"
+    >
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <h3 className="min-w-0 font-semibold break-words line-clamp-2">{title}</h3>
+        <StatusBadge status={errand.status} />
+      </div>
+      <p className="mb-2 flex min-w-0 items-center gap-1.5 text-sm text-muted">
+        <span className="truncate">{errand.pickupLocation ?? "—"}</span>
+        <ArrowRightIcon size={14} className="shrink-0" />
+        <span className="truncate">{errand.deliveryLocation}</span>
+      </p>
+      <p className="mb-4 text-sm break-words line-clamp-2">{errand.collectionItems}</p>
+      <div className="mt-auto flex items-center justify-between gap-3 border-t border-border pt-3 text-sm">
+        <span className="tabular truncate font-semibold text-nus-orange">
+          {errand.rewardCredits.toLocaleString()} credits
+        </span>
+        <span className="flex shrink-0 items-center gap-1 text-muted">
+          <ClockIcon size={14} />
+          {footer}
+        </span>
+      </div>
+    </button>
   );
 }

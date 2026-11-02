@@ -1,5 +1,6 @@
 "use client";
 
+import { clsx } from "clsx";
 import { useState } from "react";
 import { clearApiLog, useApiLog } from "@/lib/api";
 
@@ -14,41 +15,54 @@ export function ApiLogPanel() {
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="fixed bottom-4 right-4 z-40 w-[min(30rem,calc(100vw-2rem))]">
-      <div className="rounded-2xl border border-border bg-surface shadow-lg">
-        <div className="flex items-center justify-between px-4 py-2.5">
+    <div
+      className={clsx(
+        "fixed right-4 bottom-4 z-40",
+        open ? "w-[min(30rem,calc(100vw-2rem))]" : "w-auto",
+      )}
+    >
+      <div className="overflow-hidden rounded-2xl border border-border bg-background/95 shadow-raised backdrop-blur">
+        <div className="flex items-center justify-between gap-3 px-3 py-2">
           <button
             onClick={() => setOpen((o) => !o)}
-            className="btn-press text-sm font-semibold"
+            className="btn-press flex items-center gap-2 rounded-lg px-1.5 py-1 text-sm font-semibold"
             aria-expanded={open}
           >
-            API log ({entries.length}) {open ? "▾" : "▸"}
+            <span
+              aria-hidden="true"
+              className={clsx("size-2 rounded-full", entries.length ? "bg-success" : "bg-muted/50")}
+            />
+            API log
+            <span className="tabular rounded-full bg-surface px-1.5 text-xs text-muted">{entries.length}</span>
+            <span aria-hidden="true" className={clsx("text-muted transition-transform duration-200", open && "rotate-90")}>
+              ▸
+            </span>
           </button>
           {open && entries.length > 0 && (
-            <button onClick={clearApiLog} className="text-xs text-muted hover:text-foreground">
+            <button onClick={clearApiLog} className="btn-press rounded-lg px-2 py-1 text-xs text-muted hover:text-foreground">
               Clear
             </button>
           )}
         </div>
         {open && (
-          <ol className="max-h-80 overflow-y-auto border-t border-border text-xs font-mono">
+          <ol className="max-h-80 overflow-y-auto border-t border-border font-mono text-xs">
             {entries.length === 0 && <li className="px-4 py-3 text-muted">No calls yet.</li>}
             {entries.map((e) => (
-              <li key={e.id} className="px-4 py-2 border-b border-border last:border-b-0">
-                <div className="flex items-center gap-2">
-                  <span className={`px-1.5 rounded ${statusClass(e.status)}`}>{e.status || "ERR"}</span>
-                  <span className="font-semibold">{e.method}</span>
-                  <span className="truncate">{e.path}</span>
-                  <span className="ml-auto text-muted">{e.at.toLocaleTimeString()}</span>
+              <li key={e.id} className="border-b border-border px-4 py-2 last:border-b-0">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className={`shrink-0 rounded px-1.5 ${statusClass(e.status)}`}>{e.status || "ERR"}</span>
+                  <span className="shrink-0 font-semibold">{e.method}</span>
+                  <span className="min-w-0 truncate" title={e.path}>{e.path}</span>
+                  <span className="ml-auto shrink-0 text-muted">{e.at.toLocaleTimeString()}</span>
                 </div>
                 {(e.code || e.replayed || e.idempotencyKey) && (
-                  <div className="mt-0.5 text-muted">
+                  <div className="mt-0.5 break-words text-muted">
                     {e.code && <span className="text-danger">{e.code} </span>}
                     {e.replayed && <span className="text-success">Idempotent-Replayed </span>}
                     {e.idempotencyKey && <span>key {e.idempotencyKey.slice(0, 8)}</span>}
                   </div>
                 )}
-                {e.message && <div className="mt-0.5 text-muted break-words">{e.message}</div>}
+                {e.message && <div className="mt-0.5 break-words text-muted">{e.message}</div>}
               </li>
             ))}
           </ol>

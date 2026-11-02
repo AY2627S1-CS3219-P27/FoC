@@ -1,8 +1,14 @@
 "use client";
 
+import { clsx } from "clsx";
+import { OTPInput, type SlotProps } from "input-otp";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { AuthCard, AuthShell } from "@/components/auth-shell";
+import { Button } from "@/components/ui/button";
+import { Field, FormError, inputClass } from "@/components/ui/field";
+import { CheckIcon } from "@/components/ui/icons";
 
 type Step = "email" | "otp" | "details";
 
@@ -12,6 +18,10 @@ const steps: { key: Step; label: string }[] = [
   { key: "details", label: "Account" },
 ];
 
+const OTP_LENGTH = 6;
+// The code is base64url, so letters (case-sensitive), digits, "-" and "_".
+const OTP_PATTERN = "^[A-Za-z0-9_-]+$";
+
 async function post(path: string, body: object) {
   return fetch(path, {
     method: "POST",
@@ -20,10 +30,27 @@ async function post(path: string, body: object) {
   });
 }
 
+function OtpSlot({ char, isActive, hasFakeCaret }: SlotProps) {
+  return (
+    <div
+      className={clsx(
+        "relative flex h-12 min-w-0 flex-1 items-center justify-center rounded-xl border bg-background font-mono text-lg font-semibold transition-[border-color,box-shadow] duration-150 sm:h-14",
+        isActive ? "border-nus-orange shadow-[0_0_0_3px_rgba(239,124,0,0.3)]" : "border-border",
+      )}
+    >
+      {char}
+      {hasFakeCaret && (
+        <span aria-hidden="true" className="absolute h-5 w-px animate-pulse bg-foreground" />
+      )}
+    </div>
+  );
+}
+
 export default function RegisterPage() {
   const router = useRouter();
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
+  const [otp, setOtp] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
 
@@ -43,10 +70,7 @@ export default function RegisterPage() {
           setStep("otp");
         } else setError("Could not send OTP. Use an @u.nus.edu email.");
       } else if (step === "otp") {
-        const res = await post("/api/otp/validate", {
-          email,
-          otp: form.get("otp"),
-        });
+        const res = await post("/api/otp/validate", { email, otp });
         if (res.ok) setStep("details");
         else setError("Invalid OTP.");
       } else {
@@ -70,153 +94,109 @@ export default function RegisterPage() {
   }
 
   return (
-    <main className="flex flex-1 items-center justify-center p-6 bg-background">
-      <div className="w-full max-w-md fade-in">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-nus-blue mb-4 shadow-lg">
-            <span className="text-2xl font-bold text-white tracking-tight">FoC</span>
-          </div>
-          <h1 className="text-3xl font-bold text-foreground">
-            Create your account
-          </h1>
-          <p className="text-muted mt-1">Join Friend on Campus</p>
-        </div>
-
-        {/* Step indicator */}
-        <div className="flex items-center justify-center gap-2 mb-6">
-          {steps.map((s, i) => (
-            <div key={s.key} className="flex items-center gap-2">
-              <div
-                className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-semibold transition-colors ${
-                  i <= stepIndex
-                    ? "bg-nus-orange text-white"
-                    : "bg-border text-muted"
-                }`}
-              >
-                {i < stepIndex ? (
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <path d="M2.5 7l3 3 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                ) : (
-                  i + 1
-                )}
-              </div>
-              <span
-                className={`text-sm ${i <= stepIndex ? "text-foreground font-medium" : "text-muted"}`}
-              >
-                {s.label}
-              </span>
-              {i < steps.length - 1 && (
-                <div
-                  className={`w-8 h-0.5 rounded-full transition-colors ${i < stepIndex ? "bg-nus-orange" : "bg-border"}`}
-                />
+    <AuthShell title="Create your account" subtitle="Join Friend on Campus">
+      <ol className="mb-6 flex items-center justify-center gap-2" aria-label="Sign-up progress">
+        {steps.map((s, i) => (
+          <li key={s.key} className="flex items-center gap-2" aria-current={i === stepIndex ? "step" : undefined}>
+            <span
+              className={clsx(
+                "flex size-7 items-center justify-center rounded-full text-xs font-semibold transition-colors duration-200",
+                i <= stepIndex ? "bg-nus-orange text-white" : "bg-border text-muted",
               )}
-            </div>
-          ))}
-        </div>
-
-        <form
-          key={step}
-          onSubmit={onSubmit}
-          className="flex flex-col gap-4 rounded-2xl border border-border bg-surface p-6 shadow-sm fade-in"
-        >
-          {step === "email" && (
-            <div>
-              <label className="block text-sm font-medium mb-1.5">
-                NUS Email
-              </label>
-              <input
-                name="email"
-                type="email"
-                placeholder="e0123456@u.nus.edu"
-                required
-                autoComplete="email"
-                className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm transition-shadow"
+            >
+              {i < stepIndex ? <CheckIcon size={14} /> : i + 1}
+            </span>
+            <span className={clsx("text-sm", i <= stepIndex ? "font-medium text-foreground" : "text-muted")}>
+              {s.label}
+            </span>
+            {i < steps.length - 1 && (
+              <span
+                aria-hidden="true"
+                className={clsx(
+                  "h-0.5 w-6 rounded-full transition-colors duration-200 sm:w-8",
+                  i < stepIndex ? "bg-nus-orange" : "bg-border",
+                )}
               />
-              <p className="text-xs text-muted mt-1.5">
-                Only @u.nus.edu addresses are accepted.
-              </p>
-            </div>
-          )}
+            )}
+          </li>
+        ))}
+      </ol>
 
-          {step === "otp" && (
-            <div>
-              <p className="text-sm text-muted mb-3">
-                Enter the 6-character code sent to{" "}
-                <span className="font-medium text-foreground">{email}</span>.
-              </p>
-              <label className="block text-sm font-medium mb-1.5">
-                Verification code
-              </label>
-              <input
-                name="otp"
-                placeholder="Enter 6-character code"
-                required
-                minLength={6}
-                maxLength={6}
-                autoComplete="one-time-code"
-                className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm tracking-widest text-center font-mono transition-shadow"
-              />
-            </div>
-          )}
+      <AuthCard key={step} onSubmit={onSubmit} className="fade-in">
+        {step === "email" && (
+          <Field label="NUS email" hint="Only @u.nus.edu addresses are accepted.">
+            <input
+              name="email"
+              type="email"
+              placeholder="e0123456@u.nus.edu"
+              required
+              autoComplete="email"
+              className={`w-full ${inputClass}`}
+            />
+          </Field>
+        )}
 
-          {step === "details" && (
-            <>
-              <div>
-                <label className="block text-sm font-medium mb-1.5">
-                  Display name
-                </label>
-                <input
-                  name="displayName"
-                  placeholder="How others will see you"
-                  required
-                  maxLength={255}
-                  className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm transition-shadow"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1.5">
-                  Password
-                </label>
-                <input
-                  name="password"
-                  type="password"
-                  placeholder="At least 12 characters"
-                  required
-                  minLength={12}
-                  maxLength={255}
-                  autoComplete="new-password"
-                  className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm transition-shadow"
-                />
-              </div>
-            </>
-          )}
-
-          {error && (
-            <p role="alert" className="text-sm text-danger fade-in">
-              {error}
+        {step === "otp" && (
+          <div>
+            <p className="mb-4 text-sm text-muted">
+              Enter the 6-character code sent to{" "}
+              <span className="font-medium break-all text-foreground">{email}</span>. It is case-sensitive.
             </p>
-          )}
+            <OTPInput
+              autoFocus
+              maxLength={OTP_LENGTH}
+              pattern={OTP_PATTERN}
+              value={otp}
+              onChange={setOtp}
+              autoComplete="one-time-code"
+              aria-label="Verification code"
+              containerClassName="flex items-center gap-2"
+              render={({ slots }) => slots.map((slot, i) => <OtpSlot key={i} {...slot} />)}
+            />
+          </div>
+        )}
 
-          <button
-            disabled={pending}
-            className="btn-press w-full rounded-xl bg-nus-orange px-4 py-2.5 text-sm font-semibold text-white hover:bg-nus-orange-hover disabled:opacity-50 transition-colors"
-          >
-            {pending
-              ? "Please wait…"
-              : step === "details"
-                ? "Create account"
-                : "Continue"}
-          </button>
+        {step === "details" && (
+          <>
+            <Field label="Display name">
+              <input
+                name="displayName"
+                placeholder="How others will see you"
+                required
+                maxLength={255}
+                className={`w-full ${inputClass}`}
+              />
+            </Field>
+            <Field label="Password">
+              <input
+                name="password"
+                type="password"
+                placeholder="At least 12 characters"
+                required
+                minLength={12}
+                maxLength={255}
+                autoComplete="new-password"
+                className={`w-full ${inputClass}`}
+              />
+            </Field>
+          </>
+        )}
 
-          <Link
-            href="/login"
-            className="text-sm text-center text-nus-blue hover:underline"
-          >
-            Already have an account? Sign in
-          </Link>
-        </form>
-      </div>
-    </main>
+        {error && <FormError>{error}</FormError>}
+
+        <Button
+          type="submit"
+          size="lg"
+          block
+          disabled={pending || (step === "otp" && otp.length < OTP_LENGTH)}
+        >
+          {pending ? "Please wait…" : step === "details" ? "Create account" : "Continue"}
+        </Button>
+
+        <Link href="/login" className="text-center text-sm text-nus-blue underline-offset-4 hover:underline">
+          Already have an account? Sign in
+        </Link>
+      </AuthCard>
+    </AuthShell>
   );
 }

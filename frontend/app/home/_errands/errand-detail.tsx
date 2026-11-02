@@ -1,7 +1,10 @@
 "use client";
 
+import { clsx } from "clsx";
 import { useCallback, useEffect, useState } from "react";
 import { api, type ApiResult } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Sheet } from "@/components/ui/sheet";
 import {
   ACTION_LABELS,
   ALL_ACTIONS,
@@ -13,6 +16,8 @@ import {
 import { formatTime, inputClass, shortId, StatusBadge, timeLeft } from "./ui";
 
 const POLL_MS = 3000;
+
+const DESTRUCTIVE: ActionName[] = ["cancel", "incomplete", "withdraw"];
 
 interface SentAction {
   action: ActionName;
@@ -104,145 +109,148 @@ export function ErrandDetail({
         ? "You are the courier"
         : "You are not a party to this errand";
 
+  const resultLine = result && (
+    <p
+      role="status"
+      className={clsx(
+        "fade-in rounded-xl px-3 py-2 text-sm break-words",
+        result.ok ? "bg-success/10 text-success" : "bg-danger/10 text-danger",
+      )}
+    >
+      {result.text}
+    </p>
+  );
+
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 scrim" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-background border-l border-border overflow-y-auto p-6 fade-in">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xl font-bold">Errand {shortId(errandId)}</h3>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="btn-press flex items-center justify-center w-8 h-8 rounded-full bg-surface text-muted hover:text-foreground"
-          >
-            ✕
-          </button>
+    <Sheet
+      title={`Errand ${shortId(errandId)}`}
+      description={errand ? role : undefined}
+      onClose={onClose}
+    >
+      {loadError && !errand && (
+        <div className="space-y-3">
+          <p className="text-sm text-muted">{loadError}</p>
+          {resultLine}
         </div>
+      )}
 
-        {loadError && !errand && (
-          <div className="space-y-2">
-            <p className="text-sm text-muted">{loadError}</p>
-            {result && (
-              <p role="status" className={`text-sm ${result.ok ? "text-success" : "text-danger"}`}>
-                {result.text}
-              </p>
-            )}
-          </div>
-        )}
+      {!errand && !loadError && (
+        <div className="space-y-3" role="status" aria-label="Loading">
+          <div className="skeleton h-5 w-24 rounded-full" />
+          <div className="skeleton h-4 w-3/4 rounded-md" />
+          <div className="skeleton h-4 w-1/2 rounded-md" />
+        </div>
+      )}
 
-        {errand && (
-          <>
-            <div className="flex items-center gap-2 mb-1">
+      {errand && (
+        <div className="fade-in">
+          <div className="flex items-center gap-3 rounded-2xl bg-surface p-4">
+            <div className="min-w-0 flex-1">
               <StatusBadge status={errand.status} />
-              <span className="text-sm text-muted">{role}</span>
-            </div>
-            {errand.status === "Pending" && (
-              <p className="text-xs text-muted mb-3">
-                Waiting for supplier validation and the credit reservation. This refreshes on its own.
+              <p className="mt-2 text-sm text-muted">Reward</p>
+              <p className="tabular text-2xl font-bold break-words text-nus-orange">
+                {errand.rewardCredits.toLocaleString()}
+                <span className="ml-1 text-sm font-medium text-muted">credits</span>
               </p>
+            </div>
+            <div className="shrink-0 text-right text-sm">
+              <p className="text-muted">Expires</p>
+              <p className="font-medium">{timeLeft(errand.expiresAt)}</p>
+            </div>
+          </div>
+          {errand.status === "Pending" && (
+            <p className="mt-3 text-xs text-muted">
+              Waiting for supplier validation and the credit reservation. This refreshes on its own.
+            </p>
+          )}
+
+          <dl className="mt-5 grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-4 gap-y-3 text-sm">
+            <dt className="text-muted">Pickup</dt>
+            <dd className="break-words">
+              {errand.pickupName ?? supplier?.displayName ?? shortId(errand.supplierId)}
+              {errand.pickupLocation ? ` · ${errand.pickupLocation}` : ""}
+              {errand.pickupDescription && (
+                <span className="block text-xs text-muted">{errand.pickupDescription}</span>
+              )}
+            </dd>
+            <dt className="text-muted">Deliver to</dt>
+            <dd className="break-words">{errand.deliveryLocation}</dd>
+            <dt className="text-muted">Items</dt>
+            <dd className="whitespace-pre-wrap break-words">{errand.collectionItems}</dd>
+            {errand.description && (
+              <>
+                <dt className="text-muted">Note</dt>
+                <dd className="whitespace-pre-wrap break-words">{errand.description}</dd>
+              </>
+            )}
+            <dt className="text-muted">Expires</dt>
+            <dd>{formatTime(errand.expiresAt)}</dd>
+            <dt className="text-muted">Created</dt>
+            <dd>{formatTime(errand.createdAt)}</dd>
+            {errand.requesterId && (
+              <>
+                <dt className="text-muted">Requester</dt>
+                <dd className="font-mono text-xs break-all">{errand.requesterId}</dd>
+                <dt className="text-muted">Courier</dt>
+                <dd className="font-mono text-xs break-all">{errand.courierId ?? "—"}</dd>
+              </>
+            )}
+            {errand.cancellationReason && (
+              <>
+                <dt className="text-muted">Reason</dt>
+                <dd className="break-words">{errand.cancellationReason}</dd>
+              </>
+            )}
+          </dl>
+
+          <div className="mt-6 space-y-3 border-t border-border pt-5">
+            {(actions.includes("withdraw") || actions.includes("adjust")) && (
+              <div className="grid gap-2">
+                {actions.includes("withdraw") && (
+                  <input
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    placeholder="Withdraw reason (required)"
+                    aria-label="Withdraw reason"
+                    className={`w-full ${inputClass}`}
+                  />
+                )}
+                {actions.includes("adjust") && (
+                  <input
+                    type="number"
+                    min={1}
+                    value={newAmount || ""}
+                    onChange={(e) => setNewAmount(Number(e.target.value))}
+                    placeholder="New reward amount"
+                    aria-label="New reward amount"
+                    className={`w-full ${inputClass}`}
+                  />
+                )}
+              </div>
             )}
 
-            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm mt-4">
-              <dt className="text-muted">Pickup</dt>
-              <dd>
-                {errand.pickupName ?? supplier?.displayName ?? shortId(errand.supplierId)}
-                {errand.pickupLocation ? ` · ${errand.pickupLocation}` : ""}
-                {errand.pickupDescription && (
-                  <span className="block text-xs text-muted">{errand.pickupDescription}</span>
-                )}
-              </dd>
-              <dt className="text-muted">Deliver to</dt>
-              <dd>{errand.deliveryLocation}</dd>
-              <dt className="text-muted">Items</dt>
-              <dd className="whitespace-pre-wrap">{errand.collectionItems}</dd>
-              {errand.description && (
-                <>
-                  <dt className="text-muted">Note</dt>
-                  <dd className="whitespace-pre-wrap">{errand.description}</dd>
-                </>
-              )}
-              <dt className="text-muted">Reward</dt>
-              <dd className="font-semibold">{errand.rewardCredits} credits</dd>
-              <dt className="text-muted">Expires</dt>
-              <dd>
-                {formatTime(errand.expiresAt)} ({timeLeft(errand.expiresAt)})
-              </dd>
-              <dt className="text-muted">Created</dt>
-              <dd>{formatTime(errand.createdAt)}</dd>
-              {errand.requesterId && (
-                <>
-                  <dt className="text-muted">Requester</dt>
-                  <dd className="font-mono text-xs">{errand.requesterId}</dd>
-                  <dt className="text-muted">Courier</dt>
-                  <dd className="font-mono text-xs">{errand.courierId ?? "—"}</dd>
-                </>
-              )}
-              {errand.cancellationReason && (
-                <>
-                  <dt className="text-muted">Reason</dt>
-                  <dd>{errand.cancellationReason}</dd>
-                </>
-              )}
-            </dl>
+            {actions.length === 0 ? (
+              <p className="text-sm text-muted">No actions for you at this stage.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {actions.map((a) => (
+                  <Button
+                    key={a}
+                    size="sm"
+                    disabled={pending}
+                    onClick={() => run(a)}
+                    intent={DESTRUCTIVE.includes(a) ? "danger-outline" : "primary"}
+                  >
+                    {ACTION_LABELS[a]}
+                  </Button>
+                ))}
+              </div>
+            )}
 
-            <div className="mt-6 space-y-3">
-              {(actions.includes("withdraw") || actions.includes("adjust")) && (
-                <div className="grid gap-2">
-                  {actions.includes("withdraw") && (
-                    <input
-                      value={reason}
-                      onChange={(e) => setReason(e.target.value)}
-                      placeholder="Withdraw reason (required)"
-                      className={inputClass}
-                    />
-                  )}
-                  {actions.includes("adjust") && (
-                    <input
-                      type="number"
-                      min={1}
-                      value={newAmount || ""}
-                      onChange={(e) => setNewAmount(Number(e.target.value))}
-                      placeholder="New reward amount"
-                      className={inputClass}
-                    />
-                  )}
-                </div>
-              )}
-
-              {actions.length === 0 ? (
-                <p className="text-sm text-muted">No actions for you at this stage.</p>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {actions.map((a) => (
-                    <button
-                      key={a}
-                      disabled={pending}
-                      onClick={() => run(a)}
-                      className={`btn-press rounded-xl px-3.5 py-2 text-sm font-semibold transition-colors disabled:opacity-50 ${
-                        a === "cancel" || a === "incomplete" || a === "withdraw"
-                          ? "border border-danger text-danger hover:bg-danger/10"
-                          : "bg-nus-orange text-white hover:bg-nus-orange-hover"
-                      }`}
-                    >
-                      {ACTION_LABELS[a]}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {result && (
-                <p
-                  role="status"
-                  className={`text-sm ${result.ok ? "text-success" : "text-danger"}`}
-                >
-                  {result.text}
-                </p>
-              )}
-
-            </div>
-          </>
-        )}
-      </div>
-    </div>
+            {resultLine}
+          </div>
+        </div>
+      )}
+    </Sheet>
   );
 }

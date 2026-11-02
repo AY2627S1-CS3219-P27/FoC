@@ -1,12 +1,25 @@
 "use client";
 
 import { useState } from "react";
+import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 export interface AdminUserFlags {
   uuid: string;
   isAdmin?: boolean;
   isArchived?: boolean;
+}
+
+type Change = { isAdmin?: boolean; isArchived?: boolean };
+
+interface Pending {
+  change: Change;
+  title: string;
+  description: string;
+  confirmLabel: string;
+  danger: boolean;
 }
 
 export function UserAdminActions<U extends AdminUserFlags>({
@@ -18,59 +31,100 @@ export function UserAdminActions<U extends AdminUserFlags>({
   isSelf: boolean;
   onUpdated: (user: U) => void;
 }) {
+  const [confirming, setConfirming] = useState<Pending | null>(null);
+  // Kept after closing so the dialog does not go blank while it animates out.
+  const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
-  async function update(change: { isAdmin?: boolean; isArchived?: boolean }, confirmText: string) {
-    if (!window.confirm(confirmText)) return;
+  function ask(p: Pending) {
+    setConfirming(p);
+    setOpen(true);
+  }
+
+  async function update(change: Change) {
     setPending(true);
     setError("");
     const res = await api<Partial<U>>("PATCH", `/api/users/${user.uuid}`, { body: change });
     setPending(false);
-    if (res.ok && res.data) onUpdated({ ...user, ...res.data });
-    else setError(`${res.status} ${res.message ?? res.code ?? "Update failed."}`);
+    setOpen(false);
+    if (res.ok && res.data) {
+      onUpdated({ ...user, ...res.data });
+      toast.success("User updated");
+    } else setError(`${res.status} ${res.message ?? res.code ?? "Update failed."}`);
   }
-
-  const button =
-    "btn-press text-xs rounded-lg border px-2 py-1 font-medium transition-colors disabled:opacity-50";
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <button
+      <Button
+        size="xs"
+        intent="blue-outline"
         disabled={pending}
         onClick={() =>
-          update(
-            { isAdmin: !user.isAdmin },
+          ask(
             user.isAdmin
-              ? `Remove admin rights${isSelf ? " from yourself" : ""}?`
-              : "Make this user an admin?",
+              ? {
+                  change: { isAdmin: false },
+                  title: `Remove admin rights${isSelf ? " from yourself" : ""}?`,
+                  description: isSelf
+                    ? "You will lose access to the admin tabs once your session refreshes."
+                    : "They will lose access to the admin tabs.",
+                  confirmLabel: "Remove admin",
+                  danger: true,
+                }
+              : {
+                  change: { isAdmin: true },
+                  title: "Make this user an admin?",
+                  description: "They will be able to manage users, suppliers and requests.",
+                  confirmLabel: "Make admin",
+                  danger: false,
+                },
           )
         }
-        className={`${button} border-nus-blue/40 text-nus-blue hover:bg-nus-blue/10`}
       >
         {user.isAdmin ? "Remove admin" : "Make admin"}
-      </button>
-      <button
+      </Button>
+      <Button
+        size="xs"
+        intent={user.isArchived ? "success-outline" : "danger-outline"}
         disabled={pending}
         onClick={() =>
-          update(
-            { isArchived: !user.isArchived },
-            user.isArchived ? "Restore this account?" : "Archive this account?",
+          ask(
+            user.isArchived
+              ? {
+                  change: { isArchived: false },
+                  title: "Restore this account?",
+                  description: "They will be able to sign in again.",
+                  confirmLabel: "Unarchive",
+                  danger: false,
+                }
+              : {
+                  change: { isArchived: true },
+                  title: "Archive this account?",
+                  description: "They are signed out and cannot sign in until an admin restores the account.",
+                  confirmLabel: "Archive",
+                  danger: true,
+                },
           )
         }
-        className={`${button} ${
-          user.isArchived
-            ? "border-success/40 text-success hover:bg-success/10"
-            : "border-danger/40 text-danger hover:bg-danger/10"
-        }`}
       >
         {user.isArchived ? "Unarchive" : "Archive"}
-      </button>
+      </Button>
       {error && (
-        <span role="alert" className="text-xs text-danger w-full">
+        <span role="alert" className="w-full text-xs break-words text-danger">
           {error}
         </span>
       )}
+      <ConfirmDialog
+        open={open}
+        onOpenChange={(next) => !pending && setOpen(next)}
+        title={confirming?.title ?? ""}
+        description={confirming?.description ?? ""}
+        confirmLabel={confirming?.confirmLabel ?? ""}
+        intent={confirming?.danger ? "danger" : "primary"}
+        pending={pending}
+        onConfirm={() => confirming && void update(confirming.change)}
+      />
     </div>
   );
 }

@@ -1,7 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { FormError } from "@/components/ui/field";
 
 export function SupplierStatusControl({
   supplierId,
@@ -31,33 +34,32 @@ export function SupplierStatusControl({
       ifMatch: current.etag,
     });
     setPending(false);
-    if (res.ok && res.data) onChanged(res.data.status);
-    else setError(`${res.status} ${res.message ?? res.code ?? "Could not change the status."}`);
+    if (res.ok && res.data) {
+      toast.success(res.data.status === "Active" ? "Supplier activated" : "Supplier deactivated");
+      onChanged(res.data.status);
+    } else setError(`${res.status} ${res.message ?? res.code ?? "Could not change the status."}`);
   }
 
   return (
-    <div className="rounded-xl border border-border bg-surface p-4">
-      <p className="text-sm font-medium mb-1">Admin</p>
-      <p className="text-xs text-muted mb-3">
+    <div className="rounded-2xl border border-border bg-surface p-4">
+      <p className="text-sm font-semibold">Admin</p>
+      <p className="mt-0.5 mb-3 text-xs text-muted">
         {status === "Active"
           ? "Deactivating hides it from new errands. Existing errands keep their pickup."
           : "Activating lets requesters pick it again."}
       </p>
-      <button
+      <Button
+        size="sm"
         disabled={pending}
         onClick={change}
-        className={`btn-press rounded-xl px-3.5 py-2 text-sm font-semibold transition-colors disabled:opacity-50 ${
-          next === "Inactive"
-            ? "border border-danger text-danger hover:bg-danger/10"
-            : "bg-success text-white hover:opacity-90"
-        }`}
+        intent={next === "Inactive" ? "danger-outline" : "success"}
       >
         {pending ? "Saving…" : next === "Inactive" ? "Deactivate supplier" : "Activate supplier"}
-      </button>
+      </Button>
       {error && (
-        <p role="alert" className="text-sm text-danger mt-2">
-          {error}
-        </p>
+        <div className="mt-2">
+          <FormError>{error}</FormError>
+        </div>
       )}
     </div>
   );

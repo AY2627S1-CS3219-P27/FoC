@@ -1,57 +1,45 @@
+import { Pill } from "@/components/ui/layout";
 import type { ErrandStatus } from "./types";
 
-const STATUS_STYLES: Record<ErrandStatus, string> = {
-  Pending: "bg-muted/15 text-muted",
-  Open: "bg-nus-orange/15 text-nus-orange",
-  Accepted: "bg-nus-blue/15 text-nus-blue",
-  "Picked Up": "bg-nus-blue/15 text-nus-blue",
-  Delivered: "bg-nus-blue/15 text-nus-blue",
-  Completed: "bg-success/15 text-success",
-  Cancelled: "bg-danger/15 text-danger",
-  Incomplete: "bg-danger/15 text-danger",
+export { Field, inputClass } from "@/components/ui/field";
+
+const STATUS_TONES: Record<ErrandStatus, React.ComponentProps<typeof Pill>["tone"]> = {
+  Pending: "neutral",
+  Open: "orange",
+  Accepted: "blue",
+  "Picked Up": "blue",
+  Delivered: "blue",
+  Completed: "success",
+  Cancelled: "danger",
+  Incomplete: "danger",
 };
 
 export function StatusBadge({ status }: { status: string }) {
-  const style = STATUS_STYLES[status as ErrandStatus] ?? "bg-muted/15 text-muted";
   return (
-    <span className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${style}`}>
+    <Pill tone={STATUS_TONES[status as ErrandStatus] ?? "neutral"} className="shrink-0 whitespace-nowrap">
       {status}
-    </span>
+    </Pill>
   );
 }
 
 export function timeLeft(expiresAt: string | null): string {
   if (!expiresAt) return "—";
   const ms = new Date(expiresAt).getTime() - Date.now();
+  if (Number.isNaN(ms)) return "—";
   if (ms <= 0) return "expired";
   const minutes = Math.round(ms / 60_000);
   if (minutes < 60) return `${minutes} min left`;
   const hours = Math.floor(minutes / 60);
-  return `${hours}h ${minutes % 60}m left`;
+  if (hours < 48) return `${hours}h ${minutes % 60}m left`;
+  return `${Math.floor(hours / 24)}d left`;
 }
 
 export function formatTime(iso: string | null | undefined): string {
-  return iso ? new Date(iso).toLocaleString() : "—";
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
 }
 
 export function shortId(id: string | null | undefined): string {
   return id ? id.slice(0, 8) : "—";
-}
-
-export const inputClass =
-  "rounded-xl border border-border bg-surface px-3.5 py-2.5 text-sm transition-shadow";
-
-export function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="block">
-      <span className="block text-sm font-medium mb-1.5">{label}</span>
-      {children}
-    </label>
-  );
 }

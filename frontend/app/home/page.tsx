@@ -1,8 +1,11 @@
 "use client";
 
+import NumberFlow from "@number-flow/react";
+import { clsx } from "clsx";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { AdminUserErrands } from "./_errands/admin-user-errands";
 import { ApiLogPanel } from "./_errands/api-log-panel";
 import { ErrandsTab } from "./_errands/errands-tab";
@@ -15,6 +18,13 @@ import { ArchiveAccount } from "./_account/archive-account";
 import { MyRequests } from "./_suppliers/my-requests";
 import { SupplierForm } from "./_suppliers/supplier-form";
 import { authFetch, refreshSession, setSessionExpiredHandler } from "@/lib/api";
+import { Avatar } from "@/components/ui/avatar";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Field, inputClass } from "@/components/ui/field";
+import { PinIcon, PlusIcon, SearchIcon } from "@/components/ui/icons";
+import { Card, EmptyState, PageHeader, Pill, SkeletonGrid } from "@/components/ui/layout";
+import { Segmented } from "@/components/ui/segmented";
+import { Sheet } from "@/components/ui/sheet";
 
 interface UserProfile {
   uuid: string;
@@ -71,6 +81,18 @@ interface UserListItem {
 
 type Tab = "errands" | "suppliers" | "profile" | "users" | "requests";
 
+const MAX_CARD_CATEGORIES = 3;
+
+async function errorMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = await res.json();
+    if (body && typeof body.message === "string") return body.message;
+  } catch {
+    /* ignore non-JSON error bodies */
+  }
+  return fallback;
+}
+
 export default function HomePage() {
   const router = useRouter();
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -92,9 +114,7 @@ export default function HomePage() {
   const [editingProfile, setEditingProfile] = useState(false);
   const [newDisplayName, setNewDisplayName] = useState("");
   const [newProfilePictureUrl, setNewProfilePictureUrl] = useState("");
-  const [profileMsg, setProfileMsg] = useState("");
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
-  const [roleMsg, setRoleMsg] = useState("");
 
   // Admin users list state
   const [allUsers, setAllUsers] = useState<UserListItem[]>([]);
@@ -195,7 +215,6 @@ export default function HomePage() {
 
   async function handleProfileUpdate(e: React.FormEvent) {
     e.preventDefault();
-    setProfileMsg("");
     const trimmedUrl = newProfilePictureUrl.trim();
     const res = await authFetch("/api/users/me", {
       method: "PATCH",
@@ -209,27 +228,17 @@ export default function HomePage() {
       const updated = await res.json();
       setUser((prev) => (prev ? { ...prev, ...updated } : prev));
       setEditingProfile(false);
-      setProfileMsg(
-        updated.displayName !== user?.displayName
-          ? "Profile updated. You may need to log in again."
-          : "Profile updated.",
-      );
-    } else {
-      let message = "Failed to update profile.";
-      try {
-        const errBody = await res.json();
-        if (errBody && typeof errBody.message === "string") {
-          message = errBody.message;
-        }
-      } catch {
-        /* ignore non-JSON error bodies */
+      if (updated.displayName !== user?.displayName) {
+        toast.success("Profile updated", { description: "You may need to log in again." });
+      } else {
+        toast.success("Profile updated");
       }
-      setProfileMsg(message);
+    } else {
+      toast.error(await errorMessage(res, "Failed to update profile."));
     }
   }
 
   async function handleRoleUpdate() {
-    setRoleMsg("");
     const res = await authFetch("/api/users/me/roles", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -240,12 +249,12 @@ export default function HomePage() {
       const me = (await refreshSession()) ? await authFetch("/api/users/me") : null;
       if (me?.ok) {
         setUser((await me.json()) as UserProfile);
-        setRoleMsg("Roles updated.");
+        toast.success("Roles updated");
       } else {
-        setRoleMsg("Roles updated. Please log in again to refresh your session.");
+        toast.success("Roles updated", { description: "Please log in again to refresh your session." });
       }
     } else {
-      setRoleMsg("Failed to update roles.");
+      toast.error("Failed to update roles.");
     }
   }
 
@@ -281,155 +290,93 @@ export default function HomePage() {
 
   if (userLoading) {
     return (
-      <div className="flex flex-1 items-center justify-center">
-        <div className="text-muted fade-in">Loading...</div>
+      <div className="flex flex-1 items-center justify-center" role="status">
+        <span className="fade-in text-muted">Loading…</span>
       </div>
     );
   }
 
+  const tabs: [Tab, string][] = [
+    ["errands", "Errands"],
+    ["suppliers", "Suppliers"],
+    ["profile", "My Account"],
+    ...(user?.isAdmin
+      ? ([
+          ["users", "Users"],
+          ["requests", "Requests"],
+        ] as [Tab, string][])
+      : []),
+  ];
+
   return (
-    <div className="flex flex-col min-h-full">
-      {/* Translucent navigation bar (§12: glass material) */}
-      <header className="glass-heavy text-white sticky top-0 z-40">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-6">
-            <Link href="/home" className="text-xl font-bold tracking-tight">
-              FoC
+    <div className="flex min-h-full flex-col">
+      <header className="glass-heavy sticky top-0 z-40 text-white">
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4">
+          <div className="flex min-w-0 items-center gap-6">
+            <Link href="/home" className="shrink-0 text-lg font-bold tracking-tight">
+              Fo<span className="text-nus-orange">C</span>
             </Link>
-            <nav className="hidden sm:flex gap-1">
-              <button
-                onClick={() => setTab("errands")}
-                className={`btn-press px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  tab === "errands"
-                    ? "bg-white/20 text-white"
-                    : "text-white/70 hover:text-white hover:bg-white/10"
-                }`}
-              >
-                Errands
-              </button>
-              <button
-                onClick={() => setTab("suppliers")}
-                className={`btn-press px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  tab === "suppliers"
-                    ? "bg-white/20 text-white"
-                    : "text-white/70 hover:text-white hover:bg-white/10"
-                }`}
-              >
-                Suppliers
-              </button>
-              <button
-                onClick={() => setTab("profile")}
-                className={`btn-press px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  tab === "profile"
-                    ? "bg-white/20 text-white"
-                    : "text-white/70 hover:text-white hover:bg-white/10"
-                }`}
-              >
-                My Account
-              </button>
-              {user?.isAdmin && (
-                <button
-                  onClick={() => setTab("users")}
-                  className={`btn-press px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    tab === "users"
-                      ? "bg-white/20 text-white"
-                      : "text-white/70 hover:text-white hover:bg-white/10"
-                  }`}
-                >
-                  Users
-                </button>
-              )}
-              {user?.isAdmin && (
-                <button
-                  onClick={() => setTab("requests")}
-                  className={`btn-press px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    tab === "requests"
-                      ? "bg-white/20 text-white"
-                      : "text-white/70 hover:text-white hover:bg-white/10"
-                  }`}
-                >
-                  Requests
-                </button>
-              )}
-            </nav>
+            <Segmented
+              variant="nav"
+              label="Sections"
+              value={tab}
+              onChange={setTab}
+              items={tabs}
+              className="hidden sm:block"
+            />
           </div>
-          <div className="flex items-center gap-3">
-            {user && <Avatar url={user.profilePictureUrl} size={28} ring />}
-            <span className="text-sm text-white/80 hidden sm:inline">
+          <div className="flex min-w-0 items-center gap-2.5">
+            {user && (
+              <Avatar
+                url={user.profilePictureUrl}
+                name={user.displayName}
+                size={28}
+                className="ring-2 ring-white/30"
+              />
+            )}
+            <span className="hidden max-w-40 truncate text-sm text-white/85 md:inline" title={user?.displayName}>
               {user?.displayName}
             </span>
             {user?.isAdmin && (
-              <span className="text-xs bg-nus-orange px-2 py-0.5 rounded-full font-medium">
+              <span className="shrink-0 rounded-full bg-nus-orange px-2 py-0.5 text-xs font-semibold">
                 Admin
               </span>
             )}
             <Link
               href="/login"
-              className="text-sm text-white/70 hover:text-white transition-colors"
+              className="btn-press shrink-0 rounded-lg px-2 py-1.5 text-sm text-white/75 hover:bg-white/10 hover:text-white"
             >
               Sign out
             </Link>
           </div>
         </div>
-        {/* Mobile tabs */}
-        <div className="sm:hidden flex border-t border-white/10">
-          <button
-            onClick={() => setTab("errands")}
-            className={`btn-press flex-1 py-2.5 text-sm font-medium transition-colors ${tab === "errands" ? "bg-white/15 text-white" : "text-white/60"}`}
-          >
-            Errands
-          </button>
-          <button
-            onClick={() => setTab("suppliers")}
-            className={`btn-press flex-1 py-2.5 text-sm font-medium transition-colors ${tab === "suppliers" ? "bg-white/15 text-white" : "text-white/60"}`}
-          >
-            Suppliers
-          </button>
-          <button
-            onClick={() => setTab("profile")}
-            className={`btn-press flex-1 py-2.5 text-sm font-medium transition-colors ${tab === "profile" ? "bg-white/15 text-white" : "text-white/60"}`}
-          >
-            My Account
-          </button>
-          {user?.isAdmin && (
-            <button
-              onClick={() => setTab("users")}
-              className={`btn-press flex-1 py-2.5 text-sm font-medium transition-colors ${tab === "users" ? "bg-white/15 text-white" : "text-white/60"}`}
-            >
-              Users
-            </button>
-          )}
-          {user?.isAdmin && (
-            <button
-              onClick={() => setTab("requests")}
-              className={`btn-press flex-1 py-2.5 text-sm font-medium transition-colors ${tab === "requests" ? "bg-white/15 text-white" : "text-white/60"}`}
-            >
-              Requests
-            </button>
-          )}
+        <div className="border-t border-white/10 sm:hidden">
+          <Segmented variant="strip" label="Sections" value={tab} onChange={setTab} items={tabs} />
         </div>
       </header>
 
-      <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6">
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 pt-6 pb-24 sm:pt-8">
         <div key={tab} className="fade-in">
           {tab === "errands" && user && user.roles.length > 0 && (
             <ErrandsTab me={user.uuid} roles={user.roles} buildings={buildings} />
           )}
           {tab === "errands" && user && user.roles.length === 0 && (
-            <div className="max-w-xl rounded-2xl border border-border bg-surface p-6 shadow-sm">
-              <h2 className="text-xl font-bold mb-1">Errands</h2>
-              <p className="text-sm text-muted mb-4">
-                {user.isAdmin
-                  ? "Admin accounts have no requester or courier role. Use the Users tab to view any user's errands."
-                  : "Pick a role (requester or courier) on My Account, then sign in again to request or deliver errands."}
-              </p>
-              <button
-                onClick={() => setTab(user.isAdmin ? "users" : "profile")}
-                className="btn-press rounded-xl bg-nus-orange px-4 py-2 text-sm font-semibold text-white hover:bg-nus-orange-hover transition-colors"
-              >
-                {user.isAdmin ? "Go to Users" : "Go to My Account"}
-              </button>
-            </div>
+            <>
+              <PageHeader title="Errands" />
+              <Card className="max-w-xl">
+                <h2 className="text-lg font-semibold">
+                  {user.isAdmin ? "Admins don't run errands" : "Pick a role to get started"}
+                </h2>
+                <p className="mt-1 mb-5 text-sm text-muted">
+                  {user.isAdmin
+                    ? "Admin accounts have no requester or courier role. Use the Users tab to view any user's errands."
+                    : "Pick a role (requester or courier) on My Account, then sign in again to request or deliver errands."}
+                </p>
+                <Button onClick={() => setTab(user.isAdmin ? "users" : "profile")}>
+                  {user.isAdmin ? "Go to Users" : "Go to My Account"}
+                </Button>
+              </Card>
+            </>
           )}
 
           {tab === "suppliers" && (
@@ -487,12 +434,10 @@ export default function HomePage() {
               setNewDisplayName={setNewDisplayName}
               newProfilePictureUrl={newProfilePictureUrl}
               setNewProfilePictureUrl={setNewProfilePictureUrl}
-              profileMsg={profileMsg}
               handleProfileUpdate={handleProfileUpdate}
               selectedRoles={selectedRoles}
               toggleRole={toggleRole}
               handleRoleUpdate={handleRoleUpdate}
-              roleMsg={roleMsg}
               creditBalance={creditBalance}
               creditBalanceStatus={creditBalanceStatus}
               loadCreditBalance={loadCreditBalance}
@@ -505,9 +450,11 @@ export default function HomePage() {
   );
 }
 
-/* --- Supplier detail drawer with spatial animation (§7) --- */
+function kindTone(kind: string): React.ComponentProps<typeof Pill>["tone"] {
+  return kind === "Store" ? "orange" : kind === "Facility" ? "blue" : "neutral";
+}
 
-function SupplierDrawer({
+function SupplierSheet({
   supplier,
   onClose,
   isAdmin,
@@ -524,11 +471,9 @@ function SupplierDrawer({
   categories: CategoryItem[];
   onSaved: (message: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [location, setLocation] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [saved, setSaved] = useState(0);
-  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     authFetch(`/api/suppliers/${supplier.id}`)
@@ -537,113 +482,81 @@ function SupplierDrawer({
       .catch(() => setLocation(null));
   }, [supplier.id, saved]);
 
-  useEffect(() => {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => setOpen(true));
-    });
-  }, []);
-
-  function handleClose() {
-    setOpen(false);
-    const panel = panelRef.current;
-    if (panel) {
-      panel.addEventListener("transitionend", onClose, { once: true });
-    } else {
-      onClose();
-    }
-  }
-
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div
-        className={`absolute inset-0 scrim drawer-backdrop ${open ? "open" : ""}`}
-        onClick={handleClose}
-      />
-      <div
-        ref={panelRef}
-        className={`relative w-full max-w-md bg-background border-l border-border overflow-y-auto drawer-panel ${open ? "open" : ""}`}
-      >
-        <div className="p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-xl font-bold">{supplier.displayName}</h3>
-            <button
-              onClick={handleClose}
-              className="btn-press flex items-center justify-center w-8 h-8 rounded-full bg-surface text-muted hover:text-foreground transition-colors"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <path d="M4 4l8 8M12 4l-8 8"/>
-              </svg>
-            </button>
-          </div>
-
-          <div className="space-y-4">
-            <InfoRow label="Type" value={supplier.kind} />
-            <InfoRow
-              label="Building"
-              value={supplier.building?.shortName ?? "—"}
-            />
-            <InfoRow label="Floor" value={supplier.floor} />
-            <InfoRow label="Location" value={location ?? "—"} />
-            <InfoRow
-              label="Status"
-              value={
-                <span
-                  className={
-                    supplier.status === "Active"
-                      ? "text-success"
-                      : "text-danger"
-                  }
-                >
-                  {supplier.status}
-                </span>
-              }
-            />
-            <div>
-              <span className="text-sm text-muted block mb-1.5">
-                Categories
+    <Sheet
+      title={supplier.displayName}
+      description={[supplier.kind, supplier.building?.shortName].filter(Boolean).join(" · ")}
+      onClose={onClose}
+    >
+      <div className="space-y-5">
+        <dl className="grid grid-cols-2 gap-3">
+          <InfoTile label="Building" value={supplier.building?.shortName ?? "—"} />
+          <InfoTile label="Floor" value={supplier.floor} />
+          <InfoTile className="col-span-2" label="Location" value={location ?? "—"} />
+          <InfoTile
+            label="Status"
+            value={
+              <span className={supplier.status === "Active" ? "text-success" : "text-danger"}>
+                {supplier.status}
               </span>
-              <div className="flex flex-wrap gap-1.5">
-                {supplier.categories.map((cat) => (
-                  <span
-                    key={cat.id}
-                    className="text-sm bg-nus-orange/10 text-nus-orange px-2.5 py-1 rounded-full font-medium"
-                  >
-                    {cat.name}
-                  </span>
-                ))}
-              </div>
-            </div>
-            {isAdmin && (
-              <SupplierStatusControl
-                supplierId={supplier.id}
-                status={supplier.status}
-                onChanged={onStatusChanged}
-              />
-            )}
-            {editing ? (
-              <SupplierForm
-                mode={isAdmin ? "admin-edit" : "request-update"}
-                supplierId={supplier.id}
-                buildings={buildings}
-                categories={categories}
-                onDone={(message) => {
-                  setEditing(false);
-                  setSaved((n) => n + 1);
-                  onSaved(message);
-                }}
-                onCancel={() => setEditing(false)}
-              />
-            ) : (
-              <button
-                onClick={() => setEditing(true)}
-                className="btn-press rounded-xl border border-border px-3.5 py-2 text-sm font-medium hover:bg-surface"
-              >
-                {isAdmin ? "Edit supplier" : "Suggest a change"}
-              </button>
-            )}
+            }
+          />
+          <InfoTile label="Type" value={supplier.kind} />
+        </dl>
+        <div>
+          <p className="mb-2 text-sm text-muted">Categories</p>
+          <div className="flex flex-wrap gap-1.5">
+            {supplier.categories.length === 0 && <span className="text-sm">—</span>}
+            {supplier.categories.map((cat) => (
+              <Pill key={cat.id} tone="orange" className="text-sm">
+                {cat.name}
+              </Pill>
+            ))}
           </div>
         </div>
+        {isAdmin && (
+          <SupplierStatusControl
+            supplierId={supplier.id}
+            status={supplier.status}
+            onChanged={onStatusChanged}
+          />
+        )}
+        {editing ? (
+          <SupplierForm
+            mode={isAdmin ? "admin-edit" : "request-update"}
+            supplierId={supplier.id}
+            buildings={buildings}
+            categories={categories}
+            onDone={(message) => {
+              setEditing(false);
+              setSaved((n) => n + 1);
+              onSaved(message);
+            }}
+            onCancel={() => setEditing(false)}
+          />
+        ) : (
+          <Button intent="outline" size="sm" onClick={() => setEditing(true)}>
+            {isAdmin ? "Edit supplier" : "Suggest a change"}
+          </Button>
+        )}
       </div>
+    </Sheet>
+  );
+}
+
+function InfoTile({
+  label,
+  value,
+  className,
+}: {
+  label: string;
+  value: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={clsx("min-w-0 rounded-xl bg-surface px-3.5 py-3", className)}>
+      <dt className="text-xs text-muted">{label}</dt>
+      <dd className="mt-0.5 text-sm font-medium break-words">{value}</dd>
     </div>
   );
 }
@@ -685,7 +598,6 @@ function SuppliersTab({
 }) {
   const selected = suppliers.find((s) => s.id === selectedSupplier);
   const [panel, setPanel] = useState<SupplierPanel>(null);
-  const [notice, setNotice] = useState("");
   const [requestsVersion, setRequestsVersion] = useState(0);
 
   const panelButtons: [Exclude<SupplierPanel, null>, string][] = isAdmin
@@ -699,46 +611,33 @@ function SuppliersTab({
       ];
 
   function done(message: string) {
-    setNotice(message);
+    toast.success(message);
     setPanel(isAdmin ? null : "mine");
     setRequestsVersion((v) => v + 1);
     onSuppliersChanged();
   }
 
+  const filtered = !!(searchName || filterBuilding || filterKind);
+
   return (
     <div>
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-bold mb-1">Supplier Directory</h2>
-          <p className="text-muted text-sm">
-            Browse campus pickup points for your errands.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          {panelButtons.map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => {
-                setNotice("");
-                setPanel(panel === key ? null : key);
-              }}
-              className={`btn-press rounded-xl border px-3.5 py-2 text-sm font-medium transition-colors ${
-                panel === key
-                  ? "border-nus-orange bg-nus-orange/10 text-nus-orange"
-                  : "border-border text-muted hover:text-foreground"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <PageHeader
+        title="Supplier directory"
+        subtitle="Browse campus pickup points for your errands."
+        actions={panelButtons.map(([key, label]) => (
+          <Button
+            key={key}
+            size="sm"
+            intent={panel === key ? "primary" : "outline"}
+            aria-pressed={panel === key}
+            onClick={() => setPanel(panel === key ? null : key)}
+          >
+            {(key === "add" || key === "suggest") && <PlusIcon size={14} />}
+            {label}
+          </Button>
+        ))}
+      />
 
-      {notice && (
-        <p role="status" className="text-sm text-success mb-4">
-          {notice}
-        </p>
-      )}
       {(panel === "add" || panel === "suggest") && (
         <div className="mb-6 max-w-2xl">
           <SupplierForm
@@ -752,7 +651,7 @@ function SuppliersTab({
       )}
       {panel === "categories" && <CategoriesPanel categories={categories} onAdded={onCategoriesChanged} />}
       {panel === "mine" && (
-        <div className="mb-6 max-w-2xl">
+        <div className="fade-in mb-6 max-w-2xl">
           <MyRequests
             reloadKey={requestsVersion}
             supplierName={(id) => suppliers.find((s) => s.id === id)?.displayName}
@@ -760,19 +659,23 @@ function SuppliersTab({
         </div>
       )}
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-3 mb-6">
-        <input
-          type="text"
-          placeholder="Search by name…"
-          value={searchName}
-          onChange={(e) => setSearchName(e.target.value)}
-          className="flex-1 min-w-[200px] rounded-xl border border-border bg-surface px-3.5 py-2.5 text-sm transition-shadow"
-        />
+      <div className="mb-6 grid gap-3 sm:flex sm:flex-wrap">
+        <label className="relative min-w-0 sm:min-w-[220px] sm:flex-1">
+          <span className="sr-only">Search by name</span>
+          <SearchIcon size={16} className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-muted" />
+          <input
+            type="search"
+            placeholder="Search by name…"
+            value={searchName}
+            onChange={(e) => setSearchName(e.target.value)}
+            className={`w-full pl-10 ${inputClass}`}
+          />
+        </label>
         <select
           value={filterBuilding}
           onChange={(e) => setFilterBuilding(e.target.value)}
-          className="rounded-xl border border-border bg-surface px-3.5 py-2.5 text-sm transition-shadow"
+          className={inputClass}
+          aria-label="Building"
         >
           <option value="">All buildings</option>
           {buildings.map((b) => (
@@ -784,7 +687,8 @@ function SuppliersTab({
         <select
           value={filterKind}
           onChange={(e) => setFilterKind(e.target.value)}
-          className="rounded-xl border border-border bg-surface px-3.5 py-2.5 text-sm transition-shadow"
+          className={inputClass}
+          aria-label="Type"
         >
           <option value="">All types</option>
           <option value="Store">Store</option>
@@ -794,74 +698,71 @@ function SuppliersTab({
       </div>
 
       {loading ? (
-        <div className="text-center py-12 text-muted fade-in">
-          Loading suppliers...
-        </div>
+        <SkeletonGrid />
       ) : suppliers.length === 0 ? (
-        <div className="text-center py-12 fade-in">
-          <p className="text-muted text-lg">No suppliers found</p>
-          <p className="text-muted text-sm mt-1">
-            Try adjusting your filters or check if the supplier service is
-            running.
-          </p>
-        </div>
+        <EmptyState
+          title="No suppliers found"
+          body={
+            filtered
+              ? "Try adjusting your filters."
+              : "Check if the supplier service is running."
+          }
+          action={
+            filtered && (
+              <Button
+                intent="outline"
+                size="sm"
+                onClick={() => {
+                  setSearchName("");
+                  setFilterBuilding("");
+                  setFilterKind("");
+                }}
+              >
+                Clear filters
+              </Button>
+            )
+          }
+        />
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {suppliers.map((supplier) => (
-            <button
-              key={supplier.id}
-              onClick={() =>
-                setSelectedSupplier(
-                  selectedSupplier === supplier.id ? null : supplier.id
-                )
-              }
-              className={`card-press text-left rounded-2xl border p-4 hover:shadow-md ${
-                selectedSupplier === supplier.id
-                  ? "border-nus-orange ring-2 ring-nus-orange/30 bg-surface"
-                  : "border-border bg-surface hover:border-nus-orange/50"
-              }`}
-            >
-              <div className="flex items-start justify-between mb-2">
-                <h3 className="font-semibold text-foreground">
-                  {supplier.displayName}
-                </h3>
-                <span
-                  className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                    supplier.kind === "Store"
-                      ? "bg-nus-orange/10 text-nus-orange"
-                      : supplier.kind === "Facility"
-                        ? "bg-nus-blue/10 text-nus-blue"
-                        : "bg-muted/10 text-muted"
-                  }`}
-                >
-                  {supplier.kind}
-                </span>
-              </div>
-              {supplier.status !== "Active" && (
-                <span className="inline-block text-xs bg-danger/10 text-danger px-2 py-0.5 rounded-full font-medium mb-2">
-                  {supplier.status}
-                </span>
-              )}
-              <p className="text-sm text-muted mb-2">
-                Floor {supplier.floor}
-              </p>
-              <div className="flex flex-wrap gap-1">
-                {supplier.categories.map((cat) => (
-                  <span
-                    key={cat.id}
-                    className="text-xs bg-border/50 text-muted px-2 py-0.5 rounded-full"
-                  >
-                    {cat.name}
+        <div className="stagger grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {suppliers.map((supplier) => {
+            const extra = supplier.categories.length - MAX_CARD_CATEGORIES;
+            return (
+              <button
+                key={supplier.id}
+                type="button"
+                onClick={() => setSelectedSupplier(supplier.id)}
+                className="card-press flex min-w-0 flex-col rounded-2xl border border-border bg-surface p-4 text-left shadow-card"
+              >
+                <div className="mb-2 flex items-start justify-between gap-3">
+                  <h3 className="min-w-0 font-semibold break-words line-clamp-2">{supplier.displayName}</h3>
+                  <Pill tone={kindTone(supplier.kind)} className="shrink-0">
+                    {supplier.kind}
+                  </Pill>
+                </div>
+                <p className="mb-3 flex min-w-0 items-center gap-1.5 text-sm text-muted">
+                  <PinIcon size={14} className="shrink-0" />
+                  <span className="truncate">
+                    {supplier.building?.shortName ?? "—"} · Floor {supplier.floor}
                   </span>
-                ))}
-              </div>
-            </button>
-          ))}
+                </p>
+                <div className="mt-auto flex flex-wrap gap-1">
+                  {supplier.status !== "Active" && <Pill tone="danger">{supplier.status}</Pill>}
+                  {supplier.categories.slice(0, MAX_CARD_CATEGORIES).map((cat) => (
+                    <Pill key={cat.id} className="max-w-[10rem]">
+                      {cat.name}
+                    </Pill>
+                  ))}
+                  {extra > 0 && <Pill>+{extra}</Pill>}
+                </div>
+              </button>
+            );
+          })}
         </div>
       )}
 
       {selected && (
-        <SupplierDrawer
+        <SupplierSheet
           key={selected.id}
           supplier={selected}
           onClose={() => setSelectedSupplier(null)}
@@ -870,27 +771,12 @@ function SuppliersTab({
           buildings={buildings}
           categories={categories}
           onSaved={(message) => {
-            setNotice(message);
+            toast.success(message);
             if (!isAdmin) setRequestsVersion((v) => v + 1);
             onSuppliersChanged();
           }}
         />
       )}
-    </div>
-  );
-}
-
-function InfoRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: React.ReactNode;
-}) {
-  return (
-    <div>
-      <span className="text-sm text-muted block">{label}</span>
-      <span className="text-sm font-medium">{value}</span>
     </div>
   );
 }
@@ -912,39 +798,28 @@ function UsersTab({
 }) {
   const [errandsOf, setErrandsOf] = useState<UserListItem | null>(null);
   const [creating, setCreating] = useState(false);
-  const [notice, setNotice] = useState("");
   return (
     <div>
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-bold mb-1">All Users</h2>
-          <p className="text-muted text-sm">
-            {total} registered user{total !== 1 ? "s" : ""} on the platform.
-          </p>
-        </div>
-        {!creating && (
-          <button
-            onClick={() => {
-              setNotice("");
-              setCreating(true);
-            }}
-            className="btn-press rounded-xl bg-nus-orange px-3.5 py-2 text-sm font-semibold text-white hover:bg-nus-orange-hover"
-          >
-            Create user
-          </button>
-        )}
-      </div>
+      <PageHeader
+        title="All users"
+        subtitle={`${total.toLocaleString()} registered user${total !== 1 ? "s" : ""} on the platform.`}
+        actions={
+          !creating && (
+            <Button size="sm" onClick={() => setCreating(true)}>
+              <PlusIcon size={14} />
+              Create user
+            </Button>
+          )
+        }
+      />
 
-      {notice && (
-        <p role="status" className="text-sm text-success mb-4">
-          {notice}
-        </p>
-      )}
       {creating && (
         <CreateUserForm<UserListItem>
           onCreated={(created) => {
             setCreating(false);
-            setNotice(`Created ${created.email}. They set a password with "Forgot password".`);
+            toast.success(`Created ${created.email}`, {
+              description: "They set a password with “Forgot password”.",
+            });
             onUserCreated(created);
           }}
           onCancel={() => setCreating(false)}
@@ -952,21 +827,20 @@ function UsersTab({
       )}
 
       {loading ? (
-        <div className="text-center py-12 text-muted fade-in">
-          Loading users...
+        <div role="status" aria-label="Loading" className="space-y-2">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="skeleton h-14 rounded-xl" />
+          ))}
         </div>
       ) : users.length === 0 ? (
-        <div className="text-center py-12 fade-in">
-          <p className="text-muted text-lg">No users found</p>
-        </div>
+        <EmptyState title="No users found" />
       ) : (
-        <div className="rounded-2xl border border-border bg-surface shadow-sm overflow-hidden">
+        <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-card">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[56rem] text-sm">
               <thead>
-                <tr className="border-b border-border text-left text-muted">
-                  <th className="px-4 py-3 font-medium">Display Name</th>
-                  <th className="px-4 py-3 font-medium">Email</th>
+                <tr className="border-b border-border text-left text-xs tracking-wide text-muted uppercase">
+                  <th className="px-4 py-3 font-medium">User</th>
                   <th className="px-4 py-3 font-medium">Roles</th>
                   <th className="px-4 py-3 font-medium">Status</th>
                   <th className="px-4 py-3 font-medium">Errands</th>
@@ -977,29 +851,32 @@ function UsersTab({
                 {users.map((u) => (
                   <tr
                     key={u.uuid}
-                    className="border-b border-border last:border-b-0 hover:bg-background/50 transition-colors"
+                    className="border-b border-border transition-colors duration-150 last:border-b-0 hover:bg-background/60"
                   >
-                    <td className="px-4 py-3 font-medium">
-                      <div className="flex items-center gap-2">
-                        {u.displayName}
-                        {u.isAdmin && (
-                          <span className="text-xs bg-nus-orange/10 text-nus-orange px-1.5 py-0.5 rounded-full font-medium">
-                            Admin
-                          </span>
-                        )}
+                    <td className="max-w-[22rem] px-4 py-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <Avatar url={u.profilePictureUrl} name={u.displayName} size={32} />
+                        <div className="min-w-0">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="truncate font-medium" title={u.displayName}>
+                              {u.displayName}
+                            </span>
+                            {u.isAdmin && <Pill tone="orange" className="shrink-0">Admin</Pill>}
+                            {u.uuid === currentUserId && <Pill className="shrink-0">You</Pill>}
+                          </div>
+                          <div className="truncate text-xs text-muted" title={u.email}>
+                            {u.email}
+                          </div>
+                        </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-muted">{u.email}</td>
                     <td className="px-4 py-3">
-                      <div className="flex gap-1">
+                      <div className="flex flex-wrap gap-1">
                         {u.roles.length > 0 ? (
                           u.roles.map((role) => (
-                            <span
-                              key={role}
-                              className="text-xs bg-nus-blue/10 text-nus-blue px-2 py-0.5 rounded-full capitalize"
-                            >
+                            <Pill key={role} tone="blue" className="capitalize">
                               {role}
-                            </span>
+                            </Pill>
                           ))
                         ) : (
                           <span className="text-xs text-muted">None</span>
@@ -1007,21 +884,12 @@ function UsersTab({
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      {u.isLocked ? (
-                        <span className="text-xs text-danger font-medium">Locked</span>
-                      ) : u.isArchived ? (
-                        <span className="text-xs text-muted font-medium">Archived</span>
-                      ) : (
-                        <span className="text-xs text-success font-medium">Active</span>
-                      )}
+                      <UserStatus user={u} />
                     </td>
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => setErrandsOf(u)}
-                        className="btn-press text-sm text-nus-blue hover:underline"
-                      >
+                      <Button intent="link" size="sm" onClick={() => setErrandsOf(u)}>
                         View errands
-                      </button>
+                      </Button>
                     </td>
                     <td className="px-4 py-3">
                       <UserAdminActions
@@ -1044,55 +912,16 @@ function UsersTab({
   );
 }
 
-function Avatar({
-  url,
-  size = 64,
-  ring = false,
-}: {
-  url: string | null;
-  size?: number;
-  ring?: boolean;
-}) {
-  const [broken, setBroken] = useState(false);
-  const showImage = !!url && !broken;
-
-  let picture: React.ReactNode;
-  if (showImage) {
-    picture = (
-      // eslint-disable-next-line @next/next/no-img-element -- remote URLs; next/image would need remotePatterns config
-      <img
-        src={url ?? ""}
-        alt="Profile picture"
-        width={size}
-        height={size}
-        className="h-full w-full object-cover"
-        onError={() => setBroken(true)}
-      />
-    );
-  } else {
-    picture = (
-      <svg
-        width={size * 0.52}
-        height={size * 0.52}
-        viewBox="0 0 24 24"
-        fill="currentColor"
-        aria-hidden="true"
-      >
-        <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
-      </svg>
-    );
-  }
-
+function UserStatus({ user }: { user: UserListItem }) {
+  const [label, dot, text] = user.isLocked
+    ? ["Locked", "bg-danger", "text-danger"]
+    : user.isArchived
+      ? ["Archived", "bg-muted", "text-muted"]
+      : ["Active", "bg-success", "text-success"];
   return (
-    <span
-      className="inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface text-muted"
-      style={{
-        width: size,
-        height: size,
-        boxShadow: ring ? "0 0 0 2px rgba(255,255,255,0.35)" : undefined,
-      }}
-    >
-      {picture}
+    <span className={clsx("inline-flex items-center gap-1.5 text-xs font-medium", text)}>
+      <span aria-hidden="true" className={clsx("size-1.5 rounded-full", dot)} />
+      {label}
     </span>
   );
 }
@@ -1105,12 +934,10 @@ function ProfileTab({
   setNewDisplayName,
   newProfilePictureUrl,
   setNewProfilePictureUrl,
-  profileMsg,
   handleProfileUpdate,
   selectedRoles,
   toggleRole,
   handleRoleUpdate,
-  roleMsg,
   creditBalance,
   creditBalanceStatus,
   loadCreditBalance,
@@ -1122,19 +949,84 @@ function ProfileTab({
   setNewDisplayName: (v: string) => void;
   newProfilePictureUrl: string;
   setNewProfilePictureUrl: (v: string) => void;
-  profileMsg: string;
   handleProfileUpdate: (e: React.FormEvent) => void;
   selectedRoles: string[];
   toggleRole: (role: string) => void;
   handleRoleUpdate: () => void;
-  roleMsg: string;
   creditBalance: CreditBalance | null;
   creditBalanceStatus: CreditBalanceStatus;
   loadCreditBalance: () => Promise<void>;
 }) {
+  const rolesChanged =
+    selectedRoles.length !== user.roles.length || selectedRoles.some((r) => !user.roles.includes(r));
+
   return (
-    <div className="max-w-2xl">
-      <h2 className="text-2xl font-bold mb-6">My Account</h2>
+    <div className="max-w-2xl space-y-5">
+      <PageHeader title="My account" />
+
+      <Card aria-labelledby="profile-heading">
+        <div className="flex items-center gap-4">
+          <Avatar url={user.profilePictureUrl} name={user.displayName} size={64} />
+          <div className="min-w-0 flex-1">
+            <h2 id="profile-heading" className="text-lg font-semibold break-words">
+              {user.displayName}
+            </h2>
+            <p className="truncate text-sm text-muted" title={user.email}>
+              {user.email}
+            </p>
+          </div>
+          {!editingProfile && (
+            <Button
+              intent="outline"
+              size="sm"
+              onClick={() => {
+                setNewDisplayName(user.displayName);
+                setNewProfilePictureUrl(user.profilePictureUrl ?? "");
+                setEditingProfile(true);
+              }}
+            >
+              Edit
+            </Button>
+          )}
+        </div>
+
+        {editingProfile ? (
+          <form onSubmit={handleProfileUpdate} className="fade-in mt-5 space-y-4 border-t border-border pt-5">
+            <Field label="Display name">
+              <input
+                value={newDisplayName}
+                onChange={(e) => setNewDisplayName(e.target.value)}
+                required
+                maxLength={255}
+                className={`w-full ${inputClass}`}
+              />
+            </Field>
+            <Field label="Profile picture URL" hint="Leave blank to remove your profile picture.">
+              <input
+                type="url"
+                value={newProfilePictureUrl}
+                onChange={(e) => setNewProfilePictureUrl(e.target.value)}
+                placeholder="https://example.com/me.jpg"
+                maxLength={2083}
+                className={`w-full ${inputClass}`}
+              />
+            </Field>
+            <div className="flex gap-2">
+              <Button type="submit" size="sm">
+                Save
+              </Button>
+              <Button intent="outline" size="sm" onClick={() => setEditingProfile(false)}>
+                Cancel
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <dl className="mt-5 border-t border-border pt-4 text-sm">
+            <dt className="text-xs text-muted">User ID</dt>
+            <dd className="mt-0.5 font-mono text-xs break-all">{user.uuid}</dd>
+          </dl>
+        )}
+      </Card>
 
       <CreditBalanceCard
         balance={creditBalance}
@@ -1142,132 +1034,60 @@ function ProfileTab({
         onRetry={loadCreditBalance}
       />
 
-      {/* Profile card */}
-      <div className="rounded-2xl border border-border bg-surface p-6 mb-6 shadow-sm">
-        <h3 className="text-lg font-semibold mb-4">Profile</h3>
-        <div className="space-y-3">
-          <div className="pb-1">
-            <Avatar url={user.profilePictureUrl} size={72} />
-          </div>
-          <InfoRow label="Email" value={user.email} />
-          <InfoRow label="User ID" value={user.uuid} />
-
-          {editingProfile ? (
-            <form onSubmit={handleProfileUpdate} className="space-y-3 pt-2 fade-in">
-              <div>
-                <label className="block text-sm font-medium mb-1.5">
-                  Display name
-                </label>
-                <input
-                  value={newDisplayName}
-                  onChange={(e) => setNewDisplayName(e.target.value)}
-                  required
-                  maxLength={255}
-                  className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm transition-shadow"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1.5">
-                  Profile picture URL
-                </label>
-                <input
-                  type="url"
-                  value={newProfilePictureUrl}
-                  onChange={(e) => setNewProfilePictureUrl(e.target.value)}
-                  placeholder="https://example.com/me.jpg"
-                  maxLength={2083}
-                  className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm transition-shadow"
-                />
-                <p className="text-xs text-muted mt-1">
-                  Leave blank to remove your profile picture.
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  type="submit"
-                  className="btn-press rounded-xl bg-nus-orange px-4 py-2 text-sm font-semibold text-white hover:bg-nus-orange-hover transition-colors"
-                >
-                  Save
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setEditingProfile(false)}
-                  className="btn-press rounded-xl border border-border px-4 py-2 text-sm hover:bg-background transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          ) : (
-            <div className="flex items-center justify-between pt-2">
-              <InfoRow label="Display name" value={user.displayName} />
-              <button
-                onClick={() => {
-                  setNewDisplayName(user.displayName);
-                  setNewProfilePictureUrl(user.profilePictureUrl ?? "");
-                  setEditingProfile(true);
-                }}
-                className="btn-press text-sm text-nus-blue hover:underline"
-              >
-                Edit
-              </button>
-            </div>
-          )}
-
-          {profileMsg && (
-            <p className="text-sm text-nus-orange fade-in">{profileMsg}</p>
-          )}
-        </div>
-      </div>
-
-      {/* Roles card */}
-      <div className="rounded-2xl border border-border bg-surface p-6 mb-6 shadow-sm">
-        <h3 className="text-lg font-semibold mb-2">Errand Roles</h3>
-        <p className="text-sm text-muted mb-4">
+      <Card aria-labelledby="roles-heading">
+        <h2 id="roles-heading" className="text-lg font-semibold">Errand roles</h2>
+        <p className="mt-1 mb-4 text-sm text-muted">
           Choose how you want to participate on the platform.
         </p>
-        <div className="flex gap-3 mb-4">
-          {["requester", "courier"].map((role) => (
-            <button
-              key={role}
-              onClick={() => toggleRole(role)}
-              className={`btn-press flex-1 rounded-xl border-2 px-4 py-3 text-sm font-medium transition-all ${
-                selectedRoles.includes(role)
-                  ? "border-nus-orange bg-nus-orange/10 text-nus-orange"
-                  : "border-border text-muted hover:border-nus-orange/50"
-              }`}
-            >
-              <div className="font-semibold capitalize">{role}</div>
-              <div className="text-xs mt-1 opacity-70">
-                {role === "requester"
-                  ? "Request errands"
-                  : "Fulfill errands"}
-              </div>
-            </button>
-          ))}
+        <div className="mb-4 grid gap-3 sm:grid-cols-2">
+          {["requester", "courier"].map((role) => {
+            const on = selectedRoles.includes(role);
+            return (
+              <button
+                key={role}
+                type="button"
+                aria-pressed={on}
+                onClick={() => toggleRole(role)}
+                className={clsx(
+                  "btn-press rounded-xl border-2 px-4 py-3 text-left",
+                  on
+                    ? "border-nus-orange bg-nus-orange/8"
+                    : "border-border hover:border-nus-orange/40",
+                )}
+              >
+                <span className="flex items-center justify-between gap-2">
+                  <span className={clsx("font-semibold capitalize", on && "text-nus-orange")}>{role}</span>
+                  <span
+                    aria-hidden="true"
+                    className={clsx(
+                      "flex size-5 items-center justify-center rounded-full border-2 transition-colors duration-150",
+                      on ? "border-nus-orange bg-nus-orange" : "border-border",
+                    )}
+                  >
+                    {on && <span className="size-1.5 rounded-full bg-white" />}
+                  </span>
+                </span>
+                <span className="mt-0.5 block text-xs text-muted">
+                  {role === "requester" ? "Request errands" : "Fulfil errands"}
+                </span>
+              </button>
+            );
+          })}
         </div>
-        <button
-          onClick={handleRoleUpdate}
-          className="btn-press rounded-xl bg-nus-blue px-4 py-2 text-sm font-semibold text-white hover:bg-nus-blue-light transition-colors"
-        >
+        <Button intent="secondary" size="sm" onClick={handleRoleUpdate} disabled={!rolesChanged}>
           Update roles
-        </button>
-        {roleMsg && <p className="text-sm text-nus-orange mt-2 fade-in">{roleMsg}</p>}
-      </div>
+        </Button>
+      </Card>
 
-      {/* Password reset */}
-      <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
-        <h3 className="text-lg font-semibold mb-2">Security</h3>
-        <p className="text-sm text-muted mb-4">
+      <Card aria-labelledby="security-heading">
+        <h2 id="security-heading" className="text-lg font-semibold">Security</h2>
+        <p className="mt-1 mb-4 text-sm text-muted">
           Manage your password and account security.
         </p>
-        <Link
-          href="/forgot-password"
-          className="btn-press inline-block rounded-xl border border-border px-4 py-2 text-sm font-medium hover:bg-background transition-colors"
-        >
+        <Link href="/forgot-password" className={buttonVariants({ intent: "outline", size: "sm" })}>
           Reset password
         </Link>
-      </div>
+      </Card>
 
       <ArchiveAccount />
     </div>
@@ -1284,30 +1104,22 @@ function CreditBalanceCard({
   onRetry: () => Promise<void>;
 }) {
   return (
-    <section
-      aria-labelledby="credit-balance-heading"
-      className="rounded-2xl border border-border bg-surface p-6 mb-6 shadow-sm"
-    >
-      <h3 id="credit-balance-heading" className="text-lg font-semibold mb-4">
-        Credit Balance
-      </h3>
+    <Card aria-labelledby="credit-balance-heading">
+      <h2 id="credit-balance-heading" className="mb-4 text-lg font-semibold">
+        Credit balance
+      </h2>
 
       {status === "loading" && (
-        <p role="status" className="text-sm text-muted">
-          Loading credit balance...
-        </p>
+        <div role="status" aria-label="Loading credit balance" className="grid gap-3 sm:grid-cols-2">
+          <div className="skeleton h-20 rounded-xl" />
+          <div className="skeleton h-20 rounded-xl" />
+        </div>
       )}
 
       {status === "ready" && balance && (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <BalanceValue
-            label="Available credits"
-            value={balance.creditBalance}
-          />
-          <BalanceValue
-            label="Reserved credits"
-            value={balance.reservedBalance}
-          />
+          <BalanceValue label="Available credits" value={balance.creditBalance} accent />
+          <BalanceValue label="Reserved credits" value={balance.reservedBalance} />
         </div>
       )}
 
@@ -1324,17 +1136,18 @@ function CreditBalanceCard({
           onRetry={onRetry}
         />
       )}
-    </section>
+    </Card>
   );
 }
 
-function BalanceValue({ label, value }: { label: string; value: number }) {
+function BalanceValue({ label, value, accent = false }: { label: string; value: number; accent?: boolean }) {
   return (
-    <div className="rounded-xl bg-background p-4">
+    <div className="min-w-0 rounded-xl bg-background p-4">
       <span className="block text-sm text-muted">{label}</span>
-      <span className="mt-1 block text-2xl font-bold text-foreground">
-        {value.toLocaleString()}
-      </span>
+      <NumberFlow
+        value={value}
+        className={clsx("tabular mt-1 block text-[1.75rem] font-bold tracking-tight", accent && "text-nus-orange")}
+      />
     </div>
   );
 }
@@ -1349,13 +1162,9 @@ function BalanceFailure({
   return (
     <div role="alert" className="flex flex-wrap items-center justify-between gap-3">
       <p className="text-sm text-muted">{message}</p>
-      <button
-        type="button"
-        onClick={() => void onRetry()}
-        className="btn-press rounded-xl border border-border px-3 py-1.5 text-sm font-medium hover:bg-background transition-colors"
-      >
+      <Button intent="outline" size="sm" onClick={() => void onRetry()}>
         Retry
-      </button>
+      </Button>
     </div>
   );
 }

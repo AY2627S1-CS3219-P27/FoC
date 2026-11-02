@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Field, FormError, inputClass } from "@/components/ui/field";
 
 export function CreateUserForm<U>({ onCreated, onCancel }: { onCreated: (user: U) => void; onCancel: () => void }) {
   const [email, setEmail] = useState("");
@@ -24,57 +26,46 @@ export function CreateUserForm<U>({ onCreated, onCancel }: { onCreated: (user: U
   }
 
   const toggle = (r: string) => setRoles((rs) => (rs.includes(r) ? rs.filter((x) => x !== r) : [...rs, r]));
-  const input = "w-full rounded-xl border border-border bg-background px-3 py-2 text-sm";
 
   return (
-    <form onSubmit={submit} className="rounded-2xl border border-border bg-surface p-4 mb-6 space-y-3 max-w-xl">
+    <form
+      onSubmit={submit}
+      className="fade-in mb-6 max-w-xl space-y-4 rounded-2xl border border-border bg-surface p-5 shadow-card"
+    >
       <div>
-        <h3 className="font-semibold">Create user</h3>
-        <p className="text-xs text-muted">
+        <h2 className="font-semibold">Create user</h2>
+        <p className="mt-0.5 text-xs text-muted">
           The account gets no usable password. The user sets one with &ldquo;Forgot password&rdquo; on the login page.
         </p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="block text-sm">
-          <span className="block mb-1 font-medium">Email</span>
-          <input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={input} />
-        </label>
-        <label className="block text-sm">
-          <span className="block mb-1 font-medium">Display name</span>
-          <input required maxLength={255} value={displayName} onChange={(e) => setDisplayName(e.target.value)} className={input} />
-        </label>
+        <Field label="Email">
+          <input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={`w-full ${inputClass}`} />
+        </Field>
+        <Field label="Display name">
+          <input required maxLength={255} value={displayName} onChange={(e) => setDisplayName(e.target.value)} className={`w-full ${inputClass}`} />
+        </Field>
       </div>
       <div className="flex flex-wrap gap-4 text-sm">
         {["requester", "courier"].map((r) => (
-          <label key={r} className="flex items-center gap-1.5 capitalize">
-            <input type="checkbox" checked={roles.includes(r)} onChange={() => toggle(r)} />
+          <label key={r} className="flex cursor-pointer items-center gap-2 capitalize select-none">
+            <input type="checkbox" checked={roles.includes(r)} onChange={() => toggle(r)} className="size-4 accent-nus-orange" />
             {r}
           </label>
         ))}
-        <label className="flex items-center gap-1.5">
-          <input type="checkbox" checked={isAdmin} onChange={(e) => setIsAdmin(e.target.checked)} />
+        <label className="flex cursor-pointer items-center gap-2 select-none">
+          <input type="checkbox" checked={isAdmin} onChange={(e) => setIsAdmin(e.target.checked)} className="size-4 accent-nus-orange" />
           Admin
         </label>
       </div>
-      {error && (
-        <p role="alert" className="text-sm text-danger">
-          {error}
-        </p>
-      )}
+      {error && <FormError>{error}</FormError>}
       <div className="flex gap-2">
-        <button
-          disabled={pending}
-          className="btn-press rounded-xl bg-nus-orange px-3.5 py-2 text-sm font-semibold text-white hover:bg-nus-orange-hover disabled:opacity-50"
-        >
+        <Button type="submit" size="sm" disabled={pending}>
           {pending ? "Creating…" : "Create user"}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="btn-press rounded-xl border border-border px-3.5 py-2 text-sm text-muted hover:text-foreground"
-        >
+        </Button>
+        <Button intent="outline" size="sm" onClick={onCancel}>
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );

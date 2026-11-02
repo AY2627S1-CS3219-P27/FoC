@@ -3,6 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { FormError } from "@/components/ui/field";
 
 export function ArchiveAccount() {
   const router = useRouter();
@@ -16,46 +19,36 @@ export function ArchiveAccount() {
     const res = await api("POST", "/api/users/me/archive");
     setPending(false);
     if (res.ok) router.push("/login");
-    else setError(`${res.status} ${res.message ?? res.code ?? "Could not archive your account."}`);
+    else {
+      setConfirming(false);
+      setError(`${res.status} ${res.message ?? res.code ?? "Could not archive your account."}`);
+    }
   }
 
   return (
-    <div className="rounded-2xl border border-danger/40 bg-surface p-6 mt-6 shadow-sm">
-      <h3 className="text-lg font-semibold mb-2 text-danger">Archive account</h3>
-      <p className="text-sm text-muted mb-4">
+    <section className="rounded-2xl border border-danger/30 bg-danger/[0.03] p-5 sm:p-6">
+      <h2 className="text-lg font-semibold text-danger">Archive account</h2>
+      <p className="mt-1 mb-4 text-sm text-muted">
         Archiving signs you out and deactivates your account. An admin can restore it later.
       </p>
-      {!confirming ? (
-        <button
-          onClick={() => setConfirming(true)}
-          className="btn-press rounded-xl border border-danger px-4 py-2 text-sm font-semibold text-danger hover:bg-danger/10"
-        >
-          Archive my account
-        </button>
-      ) : (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm">Are you sure?</span>
-          <button
-            disabled={pending}
-            onClick={archive}
-            className="btn-press rounded-xl bg-danger px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
-          >
-            {pending ? "Archiving…" : "Yes, archive it"}
-          </button>
-          <button
-            disabled={pending}
-            onClick={() => setConfirming(false)}
-            className="btn-press rounded-xl border border-border px-4 py-2 text-sm text-muted hover:text-foreground"
-          >
-            Cancel
-          </button>
+      <Button intent="danger-outline" size="sm" onClick={() => setConfirming(true)}>
+        Archive my account
+      </Button>
+      {error && (
+        <div className="mt-3">
+          <FormError>{error}</FormError>
         </div>
       )}
-      {error && (
-        <p role="alert" className="text-sm text-danger mt-2">
-          {error}
-        </p>
-      )}
-    </div>
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={(open) => !pending && setConfirming(open)}
+        title="Archive your account?"
+        description="You will be signed out straight away. Only an admin can restore the account."
+        confirmLabel="Yes, archive it"
+        intent="danger"
+        pending={pending}
+        onConfirm={() => void archive()}
+      />
+    </section>
   );
 }

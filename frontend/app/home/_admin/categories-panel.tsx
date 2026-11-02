@@ -1,7 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { FormError, inputClass } from "@/components/ui/field";
+import { Pill } from "@/components/ui/layout";
 
 export function CategoriesPanel({
   categories,
@@ -21,6 +25,7 @@ export function CategoriesPanel({
     const res = await api("POST", "/api/categories", { body: { name: name.trim() } });
     setPending(false);
     if (res.ok) {
+      toast.success(`Added “${name.trim()}”`);
       setName("");
       onAdded();
     } else {
@@ -29,13 +34,12 @@ export function CategoriesPanel({
   }
 
   return (
-    <div className="rounded-2xl border border-border bg-surface p-4 mb-6">
-      <h3 className="font-semibold mb-2">Categories</h3>
-      <div className="flex flex-wrap gap-1.5 mb-3">
+    <div className="fade-in mb-6 rounded-2xl border border-border bg-surface p-5 shadow-card">
+      <h2 className="mb-3 font-semibold">Categories</h2>
+      <div className="mb-4 flex flex-wrap gap-1.5">
+        {categories.length === 0 && <p className="text-sm text-muted">No categories yet.</p>}
         {categories.map((c) => (
-          <span key={c.id} className="text-xs bg-border/50 text-muted px-2 py-0.5 rounded-full">
-            {c.name}
-          </span>
+          <Pill key={c.id}>{c.name}</Pill>
         ))}
       </div>
       <form onSubmit={add} className="flex flex-wrap gap-2">
@@ -44,19 +48,17 @@ export function CategoriesPanel({
           onChange={(e) => setName(e.target.value)}
           maxLength={50}
           placeholder="New category name"
-          className="flex-1 min-w-[180px] rounded-xl border border-border bg-background px-3 py-2 text-sm"
+          aria-label="New category name"
+          className={`min-w-[180px] flex-1 ${inputClass}`}
         />
-        <button
-          disabled={pending || !name.trim()}
-          className="btn-press rounded-xl bg-nus-blue px-3.5 py-2 text-sm font-semibold text-white hover:bg-nus-blue-light disabled:opacity-50"
-        >
+        <Button type="submit" intent="secondary" disabled={pending || !name.trim()}>
           Add category
-        </button>
+        </Button>
       </form>
       {error && (
-        <p role="alert" className="text-sm text-danger mt-2">
-          {error}
-        </p>
+        <div className="mt-2">
+          <FormError>{error}</FormError>
+        </div>
       )}
     </div>
   );
