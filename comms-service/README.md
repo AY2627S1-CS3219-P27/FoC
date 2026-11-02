@@ -14,6 +14,28 @@ The current foundation intentionally exposes only:
 Lifecycle consumers, chat APIs, Socket.IO connections, messages, grace-period
 handling, and archives are deferred to later roadmap packages.
 
+## Lifecycle contracts and publication
+
+All lifecycle notices use strict v1 contracts from `@foc/contracts` and are
+published by Order Service through its transactional outbox. The notice row is
+inserted in the same PostgreSQL transaction as the successful lifecycle
+transition; a confirm-channel relay later publishes it persistently to
+`foc.events`. Delivery is therefore at least once, and future consumers must
+deduplicate by envelope `eventId`.
+
+| Order lifecycle transition   | External notice    | Routing key                  | Payload identity                            |
+| ---------------------------- | ------------------ | ---------------------------- | ------------------------------------------- |
+| `ErrandAccepted`             | `ErrandAccepted`   | `order.errand-accepted.v1`   | Errand, requester, persisted courier        |
+| `ErrandDelivered`            | `ErrandDelivered`  | `order.errand-delivered.v1`  | Errand, requester, persisted courier        |
+| `CourierWithdrew`            | `CourierCancelled` | `order.courier-cancelled.v1` | Errand, requester, authorized courier actor |
+| Terminal errand cancellation | `ErrandCancelled`  | `order.errand-cancelled.v1`  | Errand only                                 |
+
+Courier withdrawal clears the Order projection's `courierId`. The external
+notice therefore uses the already-authorized transition `actorUserId`, which
+Order Service proved was the current courier before applying the update. The
+existing minimal `ErrandCancelled` payload remains unchanged for Credit Service
+compatibility; Communication Service later correlates it by `errandId`.
+
 ## Local commands
 
 Run commands from this directory:
@@ -122,6 +144,20 @@ four durable primary lifecycle queues, and their four `foc.events` bindings.
 Those queues exist before Order Service publishes, so notices remain retained
 while Communication Service is offline.
 
+| Primary queue                              | Domain routing key           | Retry queues            | Dead-letter queue |
+| ------------------------------------------ | ---------------------------- | ----------------------- | ----------------- |
+| `comms-service.order-errand-accepted.v1`   | `order.errand-accepted.v1`   | `.retry.1` … `.retry.5` | `.dlq`            |
+| `comms-service.order-errand-delivered.v1`  | `order.errand-delivered.v1`  | `.retry.1` … `.retry.5` | `.dlq`            |
+| `comms-service.order-courier-cancelled.v1` | `order.courier-cancelled.v1` | `.retry.1` … `.retry.5` | `.dlq`            |
+| `comms-service.order-errand-cancelled.v1`  | `order.errand-cancelled.v1`  | `.retry.1` … `.retry.5` | `.dlq`            |
+
+Retry suffixes are appended to the full primary queue name. The five TTLs are
+`1000`, `2000`, `4000`, `8000`, and `16000` milliseconds. Expired retries
+return through `foc.comms.back` using the primary queue name; exhausted
+deliveries are published to `foc.comms.dlx` and routed to the stream's `.dlq`.
+All queues and exchanges are durable, publications are persistent, and no
+maximum-length or silent-overflow policy is configured.
+
 On startup, Communication Service creates `foc.comms.retry`,
 `foc.comms.back`, and `foc.comms.dlx`; five durable retry queues per stream
 using 1, 2, 4, 8, and 16 second delays; the retry-return bindings; and one
@@ -148,3 +184,55 @@ allow/deny boundary with:
 ```powershell
 npm run test:rabbitmq-permissions
 ```
+
+## Deployment and rollback
+
+Deploy the foundation in this order:
+
+1. Build and verify `@foc/contracts` with all current consumers.
+2. Import root RabbitMQ definitions so the service identity, four primary
+   queues, permissions, and four domain bindings exist.
+3. Create environment and secret files, start PostgreSQL and Redis, and apply
+   the Communication Service migration explicitly.
+4. Start Communication Service. Its startup provisioner creates or adopts the
+   compatible retry exchanges, retry chains, return bindings, and DLQs.
+5. Enable Order Service lifecycle publication only after the primary queues
+   exist. Until Package 2, published notices accumulate durably.
+
+To roll back, disable Order Service publication first and stop Communication
+Service without deleting its database, queues, or retained messages. Revert a
+migration only after confirming the schema contains no required retained
+evidence and receiving explicit approval. Broker definitions removal is
+non-destructive and is not a reason to delete queues during ordinary rollback.
+
+## Foundation verification
+
+Run the non-container quality gates from this directory:
+
+```powershell
+npm run build
+npm run lint
+npm test
+npm run format:check
+```
+
+Run contract and Order Service suites from their respective directories. With
+Docker available, additionally run the disposable migration suite, isolated
+RabbitMQ permission verifier, development and production image builds, and the
+root stack health check. From the repository root,
+`./scripts/build-images.sh --print-tags` must include
+`COMMS_SERVICE_IMAGE_TAG`; `docker compose up -d --wait` must report the
+service, PostgreSQL, RabbitMQ, Redis, and observability dependencies healthy.
+
+## Deferred roadmap behavior
+
+Package 1 does not consume or acknowledge lifecycle messages, create chats,
+expose chat or archive APIs, open a Socket.IO namespace, send or read messages,
+apply grace periods, or run an archive worker. Packages 2–5 add those behaviors
+in dependency order. The reserved socket configuration is not evidence of an
+available realtime endpoint.
+
+The governing decisions are recorded under
+`docs/adr/comms-service/0001`–`0004`: PostgreSQL authority and message
+ordering, lifecycle notice ingestion, authenticated WebSocket delivery, and
+grace deadlines with immutable archives.

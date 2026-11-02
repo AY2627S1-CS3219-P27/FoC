@@ -2,6 +2,7 @@
 
 NestJS Communication Service foundation using PostgreSQL with TypeORM,
 RabbitMQ, Redis, shared User Service JWT verification, and shared observability.
+Architecture decisions live in `../docs/adr/comms-service/`.
 
 Run npm commands from this directory. Schema synchronization is prohibited in
 all environments: use explicit TypeORM migrations. PostgreSQL is authoritative;
