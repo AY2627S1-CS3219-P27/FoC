@@ -34,6 +34,23 @@ npm run migration:run
 npm run migration:revert
 ```
 
+The initial migration owns five tables: `inbox_events`,
+`chat_lifecycle_events`, `chats`, `messages`, and `chat_archives`. Lifecycle
+facts and archives are immutable at the PostgreSQL boundary. Chats retain the
+acceptance identity and archived chat row, while mutable message rows can later
+be removed only after an immutable JSONB archive is committed. Per-chat
+sequence constraints provide stable message ordering; participant, errand,
+due-chat, and archive-list indexes support the later API and worker queries.
+
+Run the PostgreSQL migration suite only against the disposable database
+documented in `.env.example`:
+
+```powershell
+npm run test:integration
+```
+
+The suite refuses to reset a database whose name does not end in `_test`.
+
 Create local secret files from the templates introduced with platform wiring,
 then combine `env/shared.env` and `env/comms-service.env` when starting the
 service. `JWT_PUBLIC_KEY_FILE`, `DB_PASSWORD_FILE`, and

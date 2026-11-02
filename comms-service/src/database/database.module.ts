@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import type { EnvironmentVariables } from '../config/environment.js';
-import { createDatabaseOptions } from './database-options.js';
+import { createDatabaseOptions, databaseEntities } from './database-options.js';
 
 @Module({
   imports: [
@@ -17,6 +17,7 @@ import { createDatabaseOptions } from './database-options.js';
           DB_PASSWORD_FILE: config.get('DB_PASSWORD_FILE', { infer: true }),
         }),
     }),
+    TypeOrmModule.forFeature(databaseEntities),
   ],
   exports: [TypeOrmModule],
 })

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   createDatabaseOptions,
+  databaseEntities,
   readDatabasePassword,
 } from './database-options.js';
 
@@ -31,6 +32,8 @@ describe('database options', () => {
     expect(options.migrationsRun).toBe(false);
     expect(options.migrationsTransactionMode).toBe('all');
     expect(options.migrationsTableName).toBe('comms_service_migrations');
+    expect(options.entities).toEqual(databaseEntities);
+    expect(options.migrations).toHaveLength(1);
   });
 
   it('rejects an empty password file', () => {
