@@ -95,3 +95,13 @@ export async function api<T = unknown>(
   const { code, message } = ok ? { code: null, message: null } : readError(body);
   return { ok, status, data: ok ? (body as T) : null, code, message, etag };
 }
+
+// A plain sentence for a failed call: no status codes. Validation and conflict messages are written for people, so they pass through.
+export function errorText(res: ApiResult, fallback: string): string {
+  if (res.status === 0) return "Can't reach FoC right now. Check your connection and try again.";
+  if (res.status === 401 || res.status === 403) return "You don't have permission to do that.";
+  if (res.status === 429) return "Too many attempts. Wait a moment and try again.";
+  if (res.status >= 500) return "Something went wrong on our side. Try again in a moment.";
+  if ((res.status === 400 || res.status === 409 || res.status === 422) && res.message) return res.message;
+  return fallback;
+}

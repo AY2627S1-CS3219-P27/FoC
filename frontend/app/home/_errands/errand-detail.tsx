@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import { api, errorText } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { FormError } from "@/components/ui/field";
+import { FormError, surfaceInputClass } from "@/components/ui/field";
+import { Section } from "@/components/ui/layout";
 import { Sheet } from "@/components/ui/sheet";
 import {
   ACTION_LABELS,
@@ -14,7 +15,7 @@ import {
   type Errand,
   type SupplierOption,
 } from "./types";
-import { formatTime, inputClass, shortId, StatusBadge, timeLeft } from "./ui";
+import { formatTime, shortId, StatusBadge, timeLeft } from "./ui";
 
 const POLL_MS = 3000;
 
@@ -81,7 +82,7 @@ export function ErrandDetail({
       setErrand(null);
       setLoadError("This errand is no longer available.");
     } else {
-      setLoadError(res.message ?? "Could not load this errand.");
+      setLoadError(errorText(res, "Could not load this errand."));
     }
   }, [errandId]);
 
@@ -103,7 +104,7 @@ export function ErrandDetail({
     });
     setPending(false);
     if (res.ok) toast.success(DONE[sent.action]);
-    else setActionError(res.message ?? `Could not ${ACTION_LABELS[sent.action].toLowerCase()}.`);
+    else setActionError(errorText(res, `Could not ${ACTION_LABELS[sent.action].toLowerCase()}.`));
     await load();
     onChanged();
   }
@@ -127,139 +128,126 @@ export function ErrandDetail({
 
   return (
     <Sheet
-      title={`Errand ${shortId(errandId)}`}
+      title={errand?.pickupName ?? supplier?.displayName ?? `Errand ${shortId(errandId)}`}
       description={errand ? role : undefined}
       onClose={onClose}
     >
       {loadError && !errand && (
-        <div className="space-y-3">
-          <p className="text-sm text-muted">{loadError}</p>
+        <div className="space-y-3 py-6 text-center">
+          <p className="text-[15px] text-muted">{loadError}</p>
           {resultLine}
         </div>
       )}
 
       {!errand && !loadError && (
-        <div className="space-y-3" role="status" aria-label="Loading">
-          <div className="skeleton h-5 w-24 rounded-full" />
-          <div className="skeleton h-4 w-3/4 rounded-md" />
-          <div className="skeleton h-4 w-1/2 rounded-md" />
+        <div className="space-y-3 py-2" role="status" aria-label="Loading">
+          <div className="skeleton h-24 rounded-2xl" />
+          <div className="skeleton h-40 rounded-2xl" />
         </div>
       )}
 
       {errand && (
-        <div className="fade-in">
-          <div className="flex items-center gap-3 rounded-2xl bg-surface p-4">
-            <div className="min-w-0 flex-1">
-              <StatusBadge status={errand.status} />
-              <p className="mt-2 text-sm text-muted">Reward</p>
-              <p className="tabular flex flex-wrap items-baseline gap-x-1 text-2xl font-bold text-nus-orange">
-                <span className="min-w-0 break-all">{errand.rewardCredits.toLocaleString()}</span>
-                <span className="text-sm font-medium whitespace-nowrap text-muted">
-                  {errand.rewardCredits === 1 ? "credit" : "credits"}
-                </span>
-              </p>
-            </div>
-            <div className="shrink-0 text-right text-sm">
-              <p className="text-muted">Expires</p>
-              <p className="font-medium">{timeLeft(errand.expiresAt)}</p>
-            </div>
-          </div>
-          {errand.status === "Pending" && (
-            <p className="mt-3 text-xs text-muted">
-              Waiting for supplier validation and the credit reservation. This refreshes on its own.
+        <div className="fade-in space-y-6">
+          <div className="flex flex-col items-center pt-2 text-center">
+            <StatusBadge status={errand.status} />
+            <p className="tabular mt-3 flex flex-wrap items-baseline justify-center gap-x-1.5 text-[34px] leading-none font-bold tracking-tight text-nus-orange">
+              <span className="min-w-0 break-all">{errand.rewardCredits.toLocaleString()}</span>
+              <span className="text-[15px] font-semibold whitespace-nowrap text-muted">
+                {errand.rewardCredits === 1 ? "credit" : "credits"}
+              </span>
             </p>
-          )}
+            <p className="mt-2 text-[13px] text-muted">
+              {errand.status === "Pending"
+                ? "Waiting for the supplier check and credit reservation. This updates on its own."
+                : `Expires ${formatTime(errand.expiresAt)} · ${timeLeft(errand.expiresAt)}`}
+            </p>
+          </div>
 
-          <dl className="mt-5 grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-4 gap-y-3 text-sm">
-            <dt className="text-muted">Pickup</dt>
-            <dd className="break-words">
+          <Section title="Route">
+            <DetailRow label="Pickup">
               {errand.pickupName ?? supplier?.displayName ?? "Unknown supplier"}
               {errand.pickupLocation ? ` · ${errand.pickupLocation}` : ""}
               {errand.pickupDescription && (
-                <span className="block text-xs text-muted">{errand.pickupDescription}</span>
+                <span className="mt-0.5 block text-[13px] text-muted">{errand.pickupDescription}</span>
               )}
-            </dd>
-            <dt className="text-muted">Deliver to</dt>
-            <dd className="break-words">{errand.deliveryLocation}</dd>
-            <dt className="text-muted">Items</dt>
-            <dd className="whitespace-pre-wrap break-words">{errand.collectionItems}</dd>
+            </DetailRow>
+            <DetailRow label="Deliver to">{errand.deliveryLocation}</DetailRow>
+          </Section>
+
+          <Section title="Request">
+            <DetailRow label="Items">
+              <span className="whitespace-pre-wrap">{errand.collectionItems}</span>
+            </DetailRow>
             {errand.description && (
-              <>
-                <dt className="text-muted">Note</dt>
-                <dd className="whitespace-pre-wrap break-words">{errand.description}</dd>
-              </>
+              <DetailRow label="Note">
+                <span className="whitespace-pre-wrap">{errand.description}</span>
+              </DetailRow>
             )}
-            <dt className="text-muted">Expires</dt>
-            <dd>{formatTime(errand.expiresAt)}</dd>
-            <dt className="text-muted">Created</dt>
-            <dd>{formatTime(errand.createdAt)}</dd>
-            {errand.requesterId && (
-              <>
-                <dt className="text-muted">Requester</dt>
-                <dd className="font-mono text-xs break-all">{errand.requesterId}</dd>
-                <dt className="text-muted">Courier</dt>
-                <dd className="font-mono text-xs break-all">{errand.courierId ?? "—"}</dd>
-              </>
-            )}
-            {errand.cancellationReason && (
-              <>
-                <dt className="text-muted">Reason</dt>
-                <dd className="break-words">{errand.cancellationReason}</dd>
-              </>
-            )}
-          </dl>
+            {errand.cancellationReason && <DetailRow label="Reason">{errand.cancellationReason}</DetailRow>}
+            <DetailRow label="Created">{formatTime(errand.createdAt)}</DetailRow>
+          </Section>
 
-          <div className="mt-6 space-y-3 border-t border-border pt-5">
-            {(actions.includes("withdraw") || actions.includes("adjust")) && (
-              <div className="grid gap-2">
-                {actions.includes("withdraw") && (
-                  <input
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
-                    placeholder="Withdraw reason (required)"
-                    aria-label="Withdraw reason"
-                    className={`w-full ${inputClass}`}
-                  />
-                )}
-                {actions.includes("adjust") && (
-                  <input
-                    type="number"
-                    min={1}
-                    value={newAmount || ""}
-                    onChange={(e) => setNewAmount(Number(e.target.value))}
-                    placeholder="New reward amount"
-                    aria-label="New reward amount"
-                    className={`w-full ${inputClass}`}
-                  />
-                )}
-              </div>
-            )}
+          {errand.requesterId && (
+            <Section title="People">
+              <DetailRow label="Requester">
+                <span className="font-mono text-[13px] break-all">{errand.requesterId}</span>
+              </DetailRow>
+              <DetailRow label="Courier">
+                <span className="font-mono text-[13px] break-all">{errand.courierId ?? "—"}</span>
+              </DetailRow>
+            </Section>
+          )}
 
-            {actions.length === 0 ? (
-              <p className="text-sm text-muted">No actions for you at this stage.</p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {actions.map((a) => (
-                  <Button
-                    key={a}
-                    size="sm"
-                    disabled={pending}
-                    onClick={() => {
-                      if (CONFIRM[a]) {
-                        setConfirming(a);
-                        setConfirmOpen(true);
-                      } else run(a);
-                    }}
-                    intent={DESTRUCTIVE.includes(a) ? "danger-outline" : "primary"}
-                  >
-                    {ACTION_LABELS[a]}
-                  </Button>
-                ))}
-              </div>
-            )}
+          {(actions.includes("withdraw") || actions.includes("adjust")) && (
+            <div className="grid gap-2">
+              {actions.includes("withdraw") && (
+                <input
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="Why are you withdrawing? (required)"
+                  aria-label="Withdraw reason"
+                  className={`w-full ${surfaceInputClass}`}
+                />
+              )}
+              {actions.includes("adjust") && (
+                <input
+                  type="number"
+                  min={1}
+                  value={newAmount || ""}
+                  onChange={(e) => setNewAmount(Number(e.target.value))}
+                  placeholder="New reward in credits"
+                  aria-label="New reward amount"
+                  className={`w-full ${surfaceInputClass}`}
+                />
+              )}
+            </div>
+          )}
 
-            {resultLine}
-          </div>
+          {actions.length === 0 ? (
+            <p className="text-center text-[13px] text-muted">Nothing for you to do at this stage.</p>
+          ) : (
+            <div className="grid gap-2">
+              {actions.map((a) => (
+                <Button
+                  key={a}
+                  size="lg"
+                  block
+                  disabled={pending}
+                  onClick={() => {
+                    if (CONFIRM[a]) {
+                      setConfirming(a);
+                      setConfirmOpen(true);
+                    } else run(a);
+                  }}
+                  intent={DESTRUCTIVE.includes(a) ? "danger-outline" : "primary"}
+                >
+                  {ACTION_LABELS[a]}
+                </Button>
+              ))}
+            </div>
+          )}
+
+          {resultLine}
         </div>
       )}
       <ConfirmDialog
@@ -275,5 +263,17 @@ export function ErrandDetail({
         }}
       />
     </Sheet>
+  );
+}
+
+// A labelled value inside a grouped section; hairlines start at the text, as in table views.
+function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="pl-4 [&+&>div]:border-t">
+      <div className="border-border py-2.5 pr-4">
+        <p className="text-[13px] text-muted">{label}</p>
+        <p className="mt-0.5 text-[15px] break-words">{children}</p>
+      </div>
+    </div>
   );
 }

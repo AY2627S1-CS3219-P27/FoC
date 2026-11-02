@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { clsx } from "clsx";
-import { api } from "@/lib/api";
+import { api, errorText } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { FormError, inputClass } from "@/components/ui/field";
+import { Field, FormError, inputClass } from "@/components/ui/field";
 
 export type SupplierFormMode = "admin-create" | "admin-edit" | "request-create" | "request-update";
 
@@ -104,7 +104,7 @@ export function SupplierForm({
   buildings: FormBuilding[];
   categories: { id: string; name: string }[];
   onDone: (message: string) => void;
-  onCancel: () => void;
+  onCancel?: () => void;
 }) {
   const editing = mode === "admin-edit" || mode === "request-update";
   const [values, setValues] = useState<Values>(EMPTY);
@@ -127,7 +127,7 @@ export function SupplierForm({
         setOriginal(v);
         setEtag(res.etag);
       } else {
-        setError(`${res.status} ${res.message ?? "Could not load the supplier."}`);
+        setError(errorText(res, "Could not load the supplier."));
       }
     });
     return () => {
@@ -180,7 +180,7 @@ export function SupplierForm({
       setError(
         res.code === "VERSION_CONFLICT"
           ? "This supplier changed since you opened it. Close and reopen to get the latest version."
-          : `${res.status} ${res.message ?? res.code ?? "Could not save."}`,
+          : errorText(res, "Could not save."),
       );
       return;
     }
@@ -202,90 +202,86 @@ export function SupplierForm({
     }
   }
 
+
   const input = `w-full ${inputClass}`;
 
-  if (loading) return <div role="status" aria-label="Loading supplier" className="skeleton h-48 rounded-2xl" />;
+  if (loading) return <div role="status" aria-label="Loading supplier" className="skeleton h-64 rounded-2xl" />;
 
   return (
-    <form onSubmit={submit} className="fade-in space-y-4 rounded-2xl border border-border bg-surface p-5 shadow-card">
-      <h2 className="font-semibold">{TITLES[mode]}</h2>
-      {mode.startsWith("request") && (
-        <p className="-mt-3 text-xs text-muted">An admin reviews this before it goes live.</p>
-      )}
+    <form onSubmit={submit} className="fade-in space-y-5">
+      <div>
+        <div className="space-y-4 rounded-2xl bg-surface p-4">
+          <Field label="Name">
+            <input required maxLength={100} value={values.name} onChange={(e) => set("name", e.target.value)} className={input} />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Type">
+              <select value={values.kind} onChange={(e) => set("kind", e.target.value)} className={input}>
+                <option value="Store">Store</option>
+                <option value="Facility">Facility</option>
+                <option value="Landmark">Landmark</option>
+              </select>
+            </Field>
+            <Field label="Floor">
+              <input
+                required
+                value={values.floor}
+                onChange={(e) => set("floor", e.target.value.toUpperCase())}
+                pattern="B[1-9]|[1-9][0-9]?|M"
+                title="B1-B9, 1-99 or M"
+                className={input}
+              />
+            </Field>
+          </div>
+        </div>
+        {mode.startsWith("request") && (
+          <p className="mt-1.5 px-4 text-[13px] text-muted">An admin reviews this before it goes live.</p>
+        )}
+      </div>
 
-      <label className="block text-sm">
-        <span className="mb-1.5 block font-medium">Name</span>
-        <input required maxLength={100} value={values.name} onChange={(e) => set("name", e.target.value)} className={input} />
-      </label>
-
-      <div className="grid grid-cols-2 gap-3">
-        <label className="block text-sm">
-          <span className="mb-1.5 block font-medium">Type</span>
-          <select value={values.kind} onChange={(e) => set("kind", e.target.value)} className={input}>
-            <option value="Store">Store</option>
-            <option value="Facility">Facility</option>
-            <option value="Landmark">Landmark</option>
+      <div className="space-y-4 rounded-2xl bg-surface p-4">
+        <Field label="Building">
+          <select required value={values.buildingId} onChange={(e) => pickBuilding(e.target.value)} className={input}>
+            <option value="">Choose a building…</option>
+            {buildings.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.shortName} — {b.canonicalName}
+              </option>
+            ))}
           </select>
-        </label>
-        <label className="block text-sm">
-          <span className="mb-1.5 block font-medium">Floor</span>
+        </Field>
+        <Field label="Where exactly">
           <input
             required
-            value={values.floor}
-            onChange={(e) => set("floor", e.target.value.toUpperCase())}
-            pattern="B[1-9]|[1-9][0-9]?|M"
-            title="B1-B9, 1-99 or M"
+            maxLength={255}
+            value={values.locationDescription}
+            onChange={(e) => set("locationDescription", e.target.value)}
+            placeholder="Next to the lift lobby"
             className={input}
           />
-        </label>
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Latitude">
+            <input required type="number" step="any" value={values.latitude} onChange={(e) => set("latitude", e.target.value)} className={input} />
+          </Field>
+          <Field label="Longitude">
+            <input required type="number" step="any" value={values.longitude} onChange={(e) => set("longitude", e.target.value)} className={input} />
+          </Field>
+        </div>
       </div>
 
-      <label className="block text-sm">
-        <span className="mb-1.5 block font-medium">Building</span>
-        <select required value={values.buildingId} onChange={(e) => pickBuilding(e.target.value)} className={input}>
-          <option value="">Choose a building…</option>
-          {buildings.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.shortName} — {b.canonicalName}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="block text-sm">
-        <span className="mb-1.5 block font-medium">Where exactly</span>
-        <input
-          required
-          maxLength={255}
-          value={values.locationDescription}
-          onChange={(e) => set("locationDescription", e.target.value)}
-          placeholder="Next to the lift lobby"
-          className={input}
-        />
-      </label>
-
-      <div className="grid grid-cols-2 gap-3">
-        <label className="block text-sm">
-          <span className="mb-1.5 block font-medium">Latitude</span>
-          <input required type="number" step="any" value={values.latitude} onChange={(e) => set("latitude", e.target.value)} className={input} />
-        </label>
-        <label className="block text-sm">
-          <span className="mb-1.5 block font-medium">Longitude</span>
-          <input required type="number" step="any" value={values.longitude} onChange={(e) => set("longitude", e.target.value)} className={input} />
-        </label>
-      </div>
-
-      <fieldset className="text-sm">
-        <legend className="mb-1.5 font-medium">Categories</legend>
-        <div className="flex flex-wrap gap-2">
+      <fieldset>
+        <legend className="section-label mb-1.5 px-4">Categories</legend>
+        <div className="flex flex-wrap gap-2 rounded-2xl bg-surface p-4">
+          {categories.length === 0 && <p className="text-[13px] text-muted">No categories yet.</p>}
           {categories.map((c) => {
             const on = values.categoryIds.includes(c.id);
             return (
               <label
                 key={c.id}
                 className={clsx(
-                  "btn-press cursor-pointer rounded-full border px-3 py-1 text-xs font-medium select-none has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-nus-orange/50",
-                  on ? "border-nus-orange bg-nus-orange/10 text-nus-orange" : "border-border text-muted hover:text-foreground",
+                  "btn-press cursor-pointer rounded-full px-3 py-1.5 text-[13px] font-medium select-none has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-nus-orange/50",
+                  on ? "bg-nus-orange text-white" : "bg-fill text-foreground",
                 )}
               >
                 <input
@@ -301,22 +297,26 @@ export function SupplierForm({
             );
           })}
         </div>
+        <p className="mt-1.5 px-4 text-[13px] text-muted">Pick at least one.</p>
       </fieldset>
 
-      <label className="block text-sm">
-        <span className="mb-1.5 block font-medium">Photo URL (optional)</span>
-        <input type="url" value={values.photoUrl} onChange={(e) => set("photoUrl", e.target.value)} className={input} />
-      </label>
+      <div className="rounded-2xl bg-surface p-4">
+        <Field label="Photo URL (optional)">
+          <input type="url" value={values.photoUrl} onChange={(e) => set("photoUrl", e.target.value)} className={input} />
+        </Field>
+      </div>
 
       {error && <FormError>{error}</FormError>}
 
-      <div className="flex gap-2">
-        <Button type="submit" size="sm" disabled={pending || values.categoryIds.length === 0}>
-          {pending ? "Saving…" : mode.startsWith("request") ? "Send request" : "Save"}
+      <div className="grid gap-2">
+        <Button type="submit" size="lg" block disabled={pending || values.categoryIds.length === 0}>
+          {pending ? "Saving…" : mode.startsWith("request") ? "Send request" : TITLES[mode]}
         </Button>
-        <Button intent="outline" size="sm" onClick={onCancel}>
-          Cancel
-        </Button>
+        {onCancel && (
+          <Button intent="ghost" size="lg" block onClick={onCancel}>
+            Cancel
+          </Button>
+        )}
       </div>
     </form>
   );

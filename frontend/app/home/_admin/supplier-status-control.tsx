@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
-import { Button } from "@/components/ui/button";
+import { api, errorText } from "@/lib/api";
 import { FormError } from "@/components/ui/field";
+import { List, ListRow } from "@/components/ui/layout";
 
+// Admin-only row in a supplier's sheet that switches it between Active and Inactive.
 export function SupplierStatusControl({
   supplierId,
   status,
@@ -26,7 +27,7 @@ export function SupplierStatusControl({
     const current = await api("GET", `/api/suppliers/${supplierId}`);
     if (!current.etag) {
       setPending(false);
-      setError(`${current.status} ${current.message ?? "Could not read the supplier's version."}`);
+      setError(errorText(current, "Could not read the supplier's version."));
       return;
     }
     const res = await api<{ status: string }>("PUT", `/api/suppliers/${supplierId}/status`, {
@@ -37,30 +38,30 @@ export function SupplierStatusControl({
     if (res.ok && res.data) {
       toast.success(res.data.status === "Active" ? "Supplier activated" : "Supplier deactivated");
       onChanged(res.data.status);
-    } else setError(`${res.status} ${res.message ?? res.code ?? "Could not change the status."}`);
+    } else setError(errorText(res, "Could not change the status."));
   }
 
   return (
-    <div className="rounded-2xl border border-border bg-surface p-4">
-      <p className="text-sm font-semibold">Admin</p>
-      <p className="mt-0.5 mb-3 text-xs text-muted">
+    <section>
+      <h2 className="section-label mb-1.5 px-4">Admin</h2>
+      <List>
+        <ListRow
+          title={pending ? "Saving…" : next === "Inactive" ? "Deactivate supplier" : "Activate supplier"}
+          tone={next === "Inactive" ? "danger" : "tint"}
+          chevron={false}
+          onClick={pending ? undefined : () => void change()}
+        />
+      </List>
+      <p className="mt-1.5 px-4 text-[13px] text-muted">
         {status === "Active"
           ? "Deactivating hides it from new errands. Existing errands keep their pickup."
           : "Activating lets requesters pick it again."}
       </p>
-      <Button
-        size="sm"
-        disabled={pending}
-        onClick={change}
-        intent={next === "Inactive" ? "danger-outline" : "success"}
-      >
-        {pending ? "Saving…" : next === "Inactive" ? "Deactivate supplier" : "Activate supplier"}
-      </Button>
       {error && (
-        <div className="mt-2">
+        <div className="mt-2 px-4">
           <FormError>{error}</FormError>
         </div>
       )}
-    </div>
+    </section>
   );
 }

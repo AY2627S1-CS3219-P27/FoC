@@ -1,6 +1,6 @@
-type IconProps = { size?: number; className?: string };
+type IconProps = { size?: number; className?: string; strokeWidth?: number };
 
-function Icon({ size = 16, className, children }: IconProps & { children: React.ReactNode }) {
+function Icon({ size = 16, className, strokeWidth = 2, children }: IconProps & { children: React.ReactNode }) {
   return (
     <svg
       width={size}
@@ -8,7 +8,7 @@ function Icon({ size = 16, className, children }: IconProps & { children: React.
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={2}
+      strokeWidth={strokeWidth}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -28,6 +28,24 @@ export const CloseIcon = (p: IconProps) => (
 export const ArrowRightIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M5 12h14M13 6l6 6-6 6" />
+  </Icon>
+);
+
+export const ChevronRightIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M9 5l7 7-7 7" />
+  </Icon>
+);
+
+export const ChevronLeftIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M15 5l-7 7 7 7" />
+  </Icon>
+);
+
+export const ChevronDownIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M6 9l6 6 6-6" />
   </Icon>
 );
 
@@ -82,5 +100,64 @@ export const CheckIcon = (p: IconProps) => (
 export const PlusIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M12 5v14M5 12h14" />
+  </Icon>
+);
+
+// Section glyphs for the sidebar and tab bar.
+export const BoxIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M21 8l-9-5-9 5 9 5 9-5z" />
+    <path d="M3 8v8l9 5 9-5V8" />
+    <path d="M12 13v8" />
+  </Icon>
+);
+
+export const StoreIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 10v10h16V10" />
+    <path d="M3 10l1.5-6h15L21 10a3 3 0 01-6 0 3 3 0 01-6 0 3 3 0 01-6 0z" />
+    <path d="M10 20v-5h4v5" />
+  </Icon>
+);
+
+export const PersonIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="12" cy="8" r="4" />
+    <path d="M4 21a8 8 0 0116 0" />
+  </Icon>
+);
+
+export const PeopleIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="9" cy="8" r="3.5" />
+    <path d="M2.5 20a6.5 6.5 0 0113 0" />
+    <path d="M16 4.5a3.5 3.5 0 010 7M18 20a6.5 6.5 0 00-2.5-5.1" />
+  </Icon>
+);
+
+export const TrayIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 4h16v16H4z" />
+    <path d="M4 14h4.5l1.5 2.5h4l1.5-2.5H20" />
+  </Icon>
+);
+
+export const BuildingIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M5 21V4h10v17M15 9h4v12" />
+    <path d="M8 8h1M11 8h1M8 12h1M11 12h1M8 16h1M11 16h1M3 21h18" />
+  </Icon>
+);
+
+export const FlagIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M5 21V4M5 4h11l-2 4 2 4H5" />
+  </Icon>
+);
+
+export const SignOutIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M15 4h3a2 2 0 012 2v12a2 2 0 01-2 2h-3" />
+    <path d="M10 8l-4 4 4 4M6 12h10" />
   </Icon>
 );

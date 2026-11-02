@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { api } from "@/lib/api";
+import { api, errorText } from "@/lib/api";
 import type { BuildingOption, SupplierOption } from "./types";
 import { Button } from "@/components/ui/button";
 import { textareaClass } from "@/components/ui/field";
@@ -140,144 +140,148 @@ export function CreateErrandForm({
       setDescription("");
       onCreated(res.data.errandId);
     } else {
-      setError(`${res.status} ${res.code ?? ""}: ${res.message ?? "Could not create the errand."}`);
+      setError(errorText(res, "Could not create the errand."));
     }
   }
 
   return (
-    <form
-      onSubmit={onSubmit}
-      className="fade-in max-w-2xl space-y-5 rounded-2xl border border-border bg-surface p-5 shadow-card sm:p-6"
-    >
-      <div>
-        <h3 className="text-lg font-semibold">New errand</h3>
-        <p className="mt-1 text-sm text-muted">
-          Credits are reserved once the supplier is confirmed. The errand opens to couriers after that.
-        </p>
-      </div>
-
-      <Field label="Pickup from (supplier)">
-        <select
-          required
-          value={supplierId}
-          onChange={(e) => setSupplierId(e.target.value)}
-          className={`w-full ${inputClass}`}
-        >
-          <option value="">Choose a supplier…</option>
-          {suppliers.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.displayName}
-              {s.building ? ` · ${s.building.shortName}` : ""}
-            </option>
-          ))}
-        </select>
-        {supplier && (
-          <span className="block text-xs text-muted mt-1">Floor {supplier.floor}</span>
-        )}
-      </Field>
-
-      <Field label="Deliver to (building)">
-        <select
-          required
-          value={deliveryLocation}
-          onChange={(e) => setDeliveryLocation(e.target.value)}
-          className={`w-full ${inputClass}`}
-        >
-          <option value="">Choose a building…</option>
-          {buildings.map((b) => (
-            <option key={b.id} value={b.shortName}>
-              {b.shortName} — {b.canonicalName}
-            </option>
-          ))}
-        </select>
-      </Field>
-
-      <Field label="Items to collect">
-        <textarea
-          required
-          maxLength={1000}
-          value={collectionItems}
-          onChange={(e) => setCollectionItems(e.target.value)}
-          placeholder="1 large iced milo, less sugar"
-          className={`w-full ${textareaClass}`}
-          rows={2}
-        />
-      </Field>
-
-      <Field label="Note for the courier (optional)">
-        <textarea
-          maxLength={1000}
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="Leave it at the COM2 lobby"
-          className={`w-full ${textareaClass}`}
-          rows={2}
-        />
-      </Field>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Credits offered">
-          <input
-            type="number"
-            required
-            min={1}
-            max={MAX_CREDITS}
-            step={1}
-            value={rewardCredits}
-            onChange={(e) => onRewardCreditsChange(e.target.value)}
-            aria-describedby="credit-sufficiency-status"
-            className={`w-full ${inputClass}`}
-          />
-          <span
-            id="credit-sufficiency-status"
-            aria-live="polite"
-            className={`mt-1.5 block text-xs ${
-              sufficiencyStatus === "insufficient" || sufficiencyStatus === "error"
-                ? "text-danger"
-                : "text-muted"
-            }`}
-          >
-            {rewardCredits !== "" && rewardAmount === null
-              ? `Enter a whole number from 1 to ${MAX_CREDITS.toLocaleString()}.`
-              : sufficiencyStatus === "checking"
-                ? "Checking available credits…"
-                : sufficiencyStatus === "sufficient"
-                  ? "You have enough available credits."
-                  : sufficiencyStatus === "insufficient"
-                    ? "You do not have enough available credits."
-                    : sufficiencyStatus === "error"
-                      ? "Could not check your available credits. Edit the amount to try again."
-                      : ""}
-          </span>
-        </Field>
-        <Field label="Open for">
+    <form onSubmit={onSubmit} className="space-y-5">
+      <FormGroup footer="Credits are reserved once the supplier is confirmed, then couriers can see the errand.">
+        <Field label="Pickup from">
           <select
-            value={expiryDurationMinutes}
-            onChange={(e) => setExpiry(Number(e.target.value))}
+            required
+            value={supplierId}
+            onChange={(e) => setSupplierId(e.target.value)}
             className={`w-full ${inputClass}`}
           >
-            {EXPIRY_OPTIONS.map((o) => (
-              <option key={o.minutes} value={o.minutes}>
-                {o.label}
+            <option value="">Choose a supplier…</option>
+            {suppliers.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.displayName}
+                {s.building ? ` · ${s.building.shortName}` : ""}
+              </option>
+            ))}
+          </select>
+          {supplier && (
+            <span className="mt-1.5 block text-xs text-muted">Floor {supplier.floor}</span>
+          )}
+        </Field>
+  
+        <Field label="Deliver to">
+          <select
+            required
+            value={deliveryLocation}
+            onChange={(e) => setDeliveryLocation(e.target.value)}
+            className={`w-full ${inputClass}`}
+          >
+            <option value="">Choose a building…</option>
+            {buildings.map((b) => (
+              <option key={b.id} value={b.shortName}>
+                {b.shortName} — {b.canonicalName}
               </option>
             ))}
           </select>
         </Field>
-      </div>
+  
+      </FormGroup>
+
+      <FormGroup>
+        <Field label="Items to collect">
+          <textarea
+            required
+            maxLength={1000}
+            value={collectionItems}
+            onChange={(e) => setCollectionItems(e.target.value)}
+            placeholder="1 large iced milo, less sugar"
+            className={`w-full ${textareaClass}`}
+            rows={2}
+          />
+        </Field>
+  
+        <Field label="Note for the courier (optional)">
+          <textarea
+            maxLength={1000}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Leave it at the COM2 lobby"
+            className={`w-full ${textareaClass}`}
+            rows={2}
+          />
+        </Field>
+  
+      </FormGroup>
+
+      <FormGroup>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Credits offered">
+            <input
+              type="number"
+              required
+              min={1}
+              max={MAX_CREDITS}
+              step={1}
+              value={rewardCredits}
+              onChange={(e) => onRewardCreditsChange(e.target.value)}
+              aria-describedby="credit-sufficiency-status"
+              className={`w-full ${inputClass}`}
+            />
+            <span
+              id="credit-sufficiency-status"
+              aria-live="polite"
+              className={`mt-1.5 block text-xs ${
+                sufficiencyStatus === "insufficient" || sufficiencyStatus === "error"
+                  ? "text-danger"
+                  : "text-muted"
+              }`}
+            >
+              {rewardCredits !== "" && rewardAmount === null
+                ? `Enter a whole number from 1 to ${MAX_CREDITS.toLocaleString()}.`
+                : sufficiencyStatus === "checking"
+                  ? "Checking available credits…"
+                  : sufficiencyStatus === "sufficient"
+                    ? "You have enough available credits."
+                    : sufficiencyStatus === "insufficient"
+                      ? "You do not have enough available credits."
+                      : sufficiencyStatus === "error"
+                        ? "Could not check your available credits. Edit the amount to try again."
+                        : ""}
+            </span>
+          </Field>
+          <Field label="Open for">
+            <select
+              value={expiryDurationMinutes}
+              onChange={(e) => setExpiry(Number(e.target.value))}
+              className={`w-full ${inputClass}`}
+            >
+              {EXPIRY_OPTIONS.map((o) => (
+                <option key={o.minutes} value={o.minutes}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+      </FormGroup>
 
       {error && (
-        <p role="alert" className="text-sm break-words text-danger">
+        <p role="alert" className="text-[13px] break-words text-danger">
           {error}
         </p>
       )}
 
-      <Button
-        type="submit"
-        size="lg"
-        disabled={!canSubmit}
-      >
+      <Button type="submit" size="lg" block disabled={!canSubmit}>
         {pending ? "Creating…" : "Create errand"}
       </Button>
     </form>
+  );
+}
+
+// A white group on the sheet's gray, holding related fields.
+function FormGroup({ footer, children }: { footer?: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className="space-y-4 rounded-2xl bg-surface p-4">{children}</div>
+      {footer && <p className="mt-1.5 px-4 text-[13px] text-muted">{footer}</p>}
+    </div>
   );
 }

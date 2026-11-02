@@ -29,7 +29,7 @@ export function DataToggle() {
   return (
     <div
       style={{ fontFamily: "system-ui, sans-serif" }}
-      className="fixed bottom-4 left-1/2 z-[60] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 gap-0.5 overflow-x-auto rounded-full bg-neutral-200 p-0.5 text-xs text-neutral-700 shadow"
+      className="fixed bottom-[calc(env(safe-area-inset-bottom)+4.5rem)] left-1/2 z-[60] md:bottom-4 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 gap-0.5 overflow-x-auto rounded-full bg-neutral-200 p-0.5 text-xs text-neutral-700 shadow"
     >
       {[null, ...DATASETS].map((d) => (
         <button

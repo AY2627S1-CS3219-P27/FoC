@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { AuthCard, AuthShell } from "@/components/auth-shell";
+import { AUTH_PLACE, AuthCard, AuthLinks, AuthShell, FieldGroup, authLinkClass, groupInputClass } from "@/components/auth-shell";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Field, FormError, inputClass } from "@/components/ui/field";
+import { FormError } from "@/components/ui/field";
 import { MailIcon } from "@/components/ui/icons";
 
 export default function ForgotPasswordPage() {
@@ -33,39 +33,40 @@ export default function ForgotPasswordPage() {
 
   return (
     <AuthShell
+      place={AUTH_PLACE.forgot}
       title="Reset password"
-      subtitle={sent ? "Check your email for a reset link." : "Enter your email to receive a reset link."}
+      subtitle={sent ? "Check your email for a reset link." : "Enter your email and we'll send you a reset link."}
     >
       {!sent ? (
         <AuthCard onSubmit={onSubmit}>
-          <Field label="Email">
+          <FieldGroup>
             <input
               name="email"
               type="email"
-              placeholder="e0123456@u.nus.edu"
+              aria-label="Email"
+              placeholder="Email"
               required
               autoComplete="email"
-              className={`w-full ${inputClass}`}
+              className={groupInputClass}
             />
-          </Field>
+          </FieldGroup>
           {error && <FormError>{error}</FormError>}
           <Button type="submit" size="lg" block disabled={pending}>
             {pending ? "Sending…" : "Send reset link"}
           </Button>
-          <Link href="/login" className="text-center text-sm text-nus-blue-ink underline-offset-4 hover:underline">
-            Back to sign in
-          </Link>
+          <AuthLinks>
+            <Link href="/login" className={authLinkClass}>
+              Back to sign in
+            </Link>
+          </AuthLinks>
         </AuthCard>
       ) : (
-        <div className="fade-in rounded-2xl border border-border bg-surface p-6 text-center shadow-card">
-          <div className="mb-4 inline-flex size-14 items-center justify-center rounded-full bg-nus-orange/10 text-nus-orange">
-            <MailIcon size={26} />
-          </div>
-          <p className="mb-5 text-sm text-muted">
-            If an account exists with that email, a password reset link has
-            been sent. Check your inbox (and spam folder).
+        <div className="fade-in flex flex-col items-center rounded-2xl bg-surface px-6 py-8 text-center shadow-raised">
+          <MailIcon size={36} strokeWidth={1.5} className="mb-3 text-nus-orange" />
+          <p className="mb-6 text-[15px] text-muted">
+            If an account exists with that email, a reset link is on its way. Check your inbox and spam folder.
           </p>
-          <Link href="/login" className={buttonVariants({ intent: "secondary" })}>
+          <Link href="/login" className={buttonVariants({ block: true })}>
             Return to sign in
           </Link>
         </div>

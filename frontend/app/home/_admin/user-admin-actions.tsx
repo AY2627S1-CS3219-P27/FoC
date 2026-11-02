@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
-import { Button } from "@/components/ui/button";
+import { api, errorText } from "@/lib/api";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { FormError } from "@/components/ui/field";
+import { List, ListRow } from "@/components/ui/layout";
 
 export interface AdminUserFlags {
   uuid: string;
@@ -22,6 +23,7 @@ interface Pending {
   danger: boolean;
 }
 
+// Admin rights and archiving as rows in the user's sheet. Granting or removing rights and archiving ask first; restoring doesn't.
 export function UserAdminActions<U extends AdminUserFlags>({
   user,
   isSelf,
@@ -51,62 +53,66 @@ export function UserAdminActions<U extends AdminUserFlags>({
     if (res.ok && res.data) {
       onUpdated({ ...user, ...res.data });
       toast.success("User updated");
-    } else setError(`${res.status} ${res.message ?? res.code ?? "Update failed."}`);
+    } else setError(errorText(res, "Could not update this user."));
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <Button
-        size="xs"
-        intent="blue-outline"
-        disabled={pending}
-        onClick={() =>
-          ask(
-            user.isAdmin
-              ? {
-                  change: { isAdmin: false },
-                  title: `Remove admin rights${isSelf ? " from yourself" : ""}?`,
-                  description: isSelf
-                    ? "You will lose access to the admin tabs once your session refreshes."
-                    : "They will lose access to the admin tabs.",
-                  confirmLabel: "Remove admin",
-                  danger: true,
-                }
-              : {
-                  change: { isAdmin: true },
-                  title: "Make this user an admin?",
-                  description: "They will be able to manage users, suppliers and requests.",
-                  confirmLabel: "Make admin",
-                  danger: false,
-                },
-          )
-        }
-      >
-        {user.isAdmin ? "Remove admin" : "Make admin"}
-      </Button>
-      <Button
-        size="xs"
-        intent={user.isArchived ? "success-outline" : "danger-outline"}
-        disabled={pending}
-        onClick={() =>
-          // Restoring is safe and easy to undo, so only archiving asks first.
-          user.isArchived
-            ? void update({ isArchived: false })
-            : ask({
-                change: { isArchived: true },
-                title: "Archive this account?",
-                description: "They are signed out and cannot sign in until an admin restores the account.",
-                confirmLabel: "Archive",
-                danger: true,
-              })
-        }
-      >
-        {user.isArchived ? "Unarchive" : "Archive"}
-      </Button>
+    <div>
+      <List>
+        <ListRow
+          title={user.isAdmin ? "Remove admin rights" : "Make admin"}
+          tone={user.isAdmin ? "danger" : "tint"}
+          chevron={false}
+          onClick={
+            pending
+              ? undefined
+              : () =>
+                  ask(
+                    user.isAdmin
+                      ? {
+                          change: { isAdmin: false },
+                          title: `Remove admin rights${isSelf ? " from yourself" : ""}?`,
+                          description: isSelf
+                            ? "You will lose access to the admin sections once your session refreshes."
+                            : "They will lose access to the admin sections.",
+                          confirmLabel: "Remove",
+                          danger: true,
+                        }
+                      : {
+                          change: { isAdmin: true },
+                          title: "Make this user an admin?",
+                          description: "They will be able to manage users, suppliers and requests.",
+                          confirmLabel: "Make admin",
+                          danger: false,
+                        },
+                  )
+          }
+        />
+        <ListRow
+          title={user.isArchived ? "Restore account" : "Archive account"}
+          tone={user.isArchived ? "tint" : "danger"}
+          chevron={false}
+          onClick={
+            pending
+              ? undefined
+              : () =>
+                  // Restoring is safe and easy to undo, so only archiving asks first.
+                  user.isArchived
+                    ? void update({ isArchived: false })
+                    : ask({
+                        change: { isArchived: true },
+                        title: "Archive this account?",
+                        description: "They are signed out and cannot sign in until an admin restores the account.",
+                        confirmLabel: "Archive",
+                        danger: true,
+                      })
+          }
+        />
+      </List>
       {error && (
-        <span role="alert" className="w-full text-xs break-words text-danger">
-          {error}
-        </span>
+        <div className="mt-2 px-4">
+          <FormError>{error}</FormError>
+        </div>
       )}
       <ConfirmDialog
         open={open}

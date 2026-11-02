@@ -14,6 +14,19 @@ const STATUS_TONES: Record<ErrandStatus, React.ComponentProps<typeof Pill>["tone
   Incomplete: "danger",
 };
 
+const TONE_COLORS: Record<NonNullable<React.ComponentProps<typeof Pill>["tone"]>, string> = {
+  neutral: "#8e8e93",
+  orange: "var(--nus-orange)",
+  blue: "var(--nus-blue-light)",
+  success: "var(--success)",
+  danger: "var(--danger)",
+};
+
+// Fill for an errand's icon tile, matching its status badge.
+export function statusColor(status: string): string {
+  return TONE_COLORS[STATUS_TONES[status as ErrandStatus] ?? "neutral"];
+}
+
 export function StatusBadge({ status }: { status: string }) {
   return (
     <Pill tone={STATUS_TONES[status as ErrandStatus] ?? "neutral"} className="shrink-0 whitespace-nowrap">
@@ -38,7 +51,7 @@ export function timeLeft(expiresAt: string | null): string {
 export function formatTime(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
 export function shortId(id: string | null | undefined): string {

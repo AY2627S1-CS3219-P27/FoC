@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { AuthCard, AuthShell } from "@/components/auth-shell";
+import { AUTH_PLACE, AuthCard, AuthLinks, AuthShell, FieldGroup, authLinkClass, groupInputClass } from "@/components/auth-shell";
 import { Button } from "@/components/ui/button";
-import { Field, FormError, inputClass } from "@/components/ui/field";
+import { FormError } from "@/components/ui/field";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -37,29 +37,29 @@ export default function LoginPage() {
   }
 
   return (
-    <AuthShell title="Welcome back" subtitle="Sign in to Friend on Campus">
+    <AuthShell place={AUTH_PLACE.login} title="Sign in" subtitle="Use your NUS email to sign in to Friend on Campus.">
       <AuthCard onSubmit={onSubmit}>
-        <Field label="Email">
+        <FieldGroup>
           <input
             name="email"
             type="email"
-            placeholder="e0123456@u.nus.edu"
+            aria-label="Email"
+            placeholder="Email"
             required
             autoComplete="email"
-            className={`w-full ${inputClass}`}
+            className={groupInputClass}
           />
-        </Field>
-        <Field label="Password">
           <input
             name="password"
             type="password"
-            placeholder="Enter your password"
+            aria-label="Password"
+            placeholder="Password"
             required
             minLength={12}
             autoComplete="current-password"
-            className={`w-full ${inputClass}`}
+            className={groupInputClass}
           />
-        </Field>
+        </FieldGroup>
 
         {error && <FormError>{error}</FormError>}
 
@@ -67,14 +67,14 @@ export default function LoginPage() {
           {pending ? "Signing in…" : "Sign in"}
         </Button>
 
-        <div className="flex items-center justify-between text-sm">
-          <Link href="/forgot-password" className="text-nus-blue-ink underline-offset-4 hover:underline">
+        <AuthLinks>
+          <Link href="/forgot-password" className={authLinkClass}>
             Forgot password?
           </Link>
-          <Link href="/register" className="text-nus-blue-ink underline-offset-4 hover:underline">
+          <Link href="/register" className={authLinkClass}>
             Create account
           </Link>
-        </div>
+        </AuthLinks>
       </AuthCard>
     </AuthShell>
   );

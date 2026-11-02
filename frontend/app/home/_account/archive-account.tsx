@@ -2,10 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { api } from "@/lib/api";
-import { Button } from "@/components/ui/button";
+import { api, errorText } from "@/lib/api";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { FormError } from "@/components/ui/field";
+import { List, ListRow } from "@/components/ui/layout";
 
 export function ArchiveAccount() {
   const router = useRouter();
@@ -21,21 +21,25 @@ export function ArchiveAccount() {
     if (res.ok) router.push("/login");
     else {
       setConfirming(false);
-      setError(`${res.status} ${res.message ?? res.code ?? "Could not archive your account."}`);
+      setError(errorText(res, "Could not archive your account."));
     }
   }
 
   return (
-    <section className="rounded-2xl border border-danger/30 bg-danger/[0.03] p-5 sm:p-6">
-      <h2 className="text-lg font-semibold text-danger">Archive account</h2>
-      <p className="mt-1 mb-4 text-sm text-muted">
+    <section>
+      <List>
+        <ListRow
+          title={<span className="block text-center">Archive account</span>}
+          tone="danger"
+          chevron={false}
+          onClick={() => setConfirming(true)}
+        />
+      </List>
+      <p className="mt-1.5 px-4 text-[13px] text-muted">
         Archiving signs you out and deactivates your account. An admin can restore it later.
       </p>
-      <Button intent="danger-outline" size="sm" onClick={() => setConfirming(true)}>
-        Archive my account
-      </Button>
       {error && (
-        <div className="mt-3">
+        <div className="mt-2 px-4">
           <FormError>{error}</FormError>
         </div>
       )}
@@ -43,8 +47,8 @@ export function ArchiveAccount() {
         open={confirming}
         onOpenChange={(open) => !pending && setConfirming(open)}
         title="Archive your account?"
-        description="You will be signed out straight away. Only an admin can restore the account."
-        confirmLabel="Yes, archive it"
+        description="You'll be signed out straight away. Only an admin can restore the account."
+        confirmLabel="Archive"
         intent="danger"
         pending={pending}
         onConfirm={() => void archive()}

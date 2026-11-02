@@ -1,8 +1,10 @@
 "use client";
 
 import { AlertDialog } from "@base-ui/react/alert-dialog";
-import { Button, type ButtonVariants } from "./button";
+import { clsx } from "clsx";
+import type { ButtonVariants } from "./button";
 
+// System-style alert: centred text, full-width buttons split by hairlines; Cancel is bold, a destructive action is red.
 export function ConfirmDialog({
   open,
   onOpenChange,
@@ -22,21 +24,35 @@ export function ConfirmDialog({
   pending?: boolean;
   onConfirm: () => void;
 }) {
+  const destructive = intent === "danger" || intent === "danger-outline";
   return (
     <AlertDialog.Root open={open} onOpenChange={onOpenChange}>
       <AlertDialog.Portal>
-        <AlertDialog.Backdrop className="dialog-backdrop fixed inset-0 z-50" />
-        <AlertDialog.Viewport className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <AlertDialog.Popup className="dialog-popup w-full max-w-sm rounded-2xl border border-border bg-background p-6 outline-none">
-            <AlertDialog.Title className="text-lg font-semibold">{title}</AlertDialog.Title>
-            <AlertDialog.Description className="mt-1.5 text-sm text-muted">{description}</AlertDialog.Description>
-            <div className="mt-6 flex justify-end gap-2">
-              <AlertDialog.Close render={<Button intent="outline" size="sm" disabled={pending} />}>
+        <AlertDialog.Backdrop className="dialog-backdrop fixed inset-0 z-[70]" />
+        <AlertDialog.Viewport className="fixed inset-0 z-[70] flex items-center justify-center p-6">
+          <AlertDialog.Popup className="dialog-popup material-sidebar w-full max-w-[300px] overflow-hidden rounded-[18px] text-center text-foreground shadow-overlay outline-none">
+            <div className="px-5 pt-5 pb-4">
+              <AlertDialog.Title className="text-[17px] font-semibold">{title}</AlertDialog.Title>
+              <AlertDialog.Description className="mt-1 text-[13px] text-foreground/80">{description}</AlertDialog.Description>
+            </div>
+            <div className="grid grid-cols-2 border-t border-border">
+              <AlertDialog.Close
+                disabled={pending}
+                className="row-press h-11 border-r border-border text-[17px] font-semibold text-nus-orange disabled:opacity-40"
+              >
                 Cancel
               </AlertDialog.Close>
-              <Button intent={intent} size="sm" disabled={pending} onClick={onConfirm}>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={onConfirm}
+                className={clsx(
+                  "row-press h-11 truncate px-2 text-[17px] disabled:opacity-40",
+                  destructive ? "text-danger" : "text-nus-orange",
+                )}
+              >
                 {pending ? "Working…" : confirmLabel}
-              </Button>
+              </button>
             </div>
           </AlertDialog.Popup>
         </AlertDialog.Viewport>
