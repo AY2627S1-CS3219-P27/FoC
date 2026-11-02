@@ -163,9 +163,11 @@ export function ErrandDetail({
             <div className="min-w-0 flex-1">
               <StatusBadge status={errand.status} />
               <p className="mt-2 text-sm text-muted">Reward</p>
-              <p className="tabular text-2xl font-bold break-words text-nus-orange">
-                {errand.rewardCredits.toLocaleString()}
-                <span className="ml-1 text-sm font-medium text-muted">credits</span>
+              <p className="tabular flex flex-wrap items-baseline gap-x-1 text-2xl font-bold text-nus-orange">
+                <span className="min-w-0 break-all">{errand.rewardCredits.toLocaleString()}</span>
+                <span className="text-sm font-medium whitespace-nowrap text-muted">
+                  {errand.rewardCredits === 1 ? "credit" : "credits"}
+                </span>
               </p>
             </div>
             <div className="shrink-0 text-right text-sm">
@@ -182,7 +184,7 @@ export function ErrandDetail({
           <dl className="mt-5 grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-4 gap-y-3 text-sm">
             <dt className="text-muted">Pickup</dt>
             <dd className="break-words">
-              {errand.pickupName ?? supplier?.displayName ?? shortId(errand.supplierId)}
+              {errand.pickupName ?? supplier?.displayName ?? "Unknown supplier"}
               {errand.pickupLocation ? ` · ${errand.pickupLocation}` : ""}
               {errand.pickupDescription && (
                 <span className="block text-xs text-muted">{errand.pickupDescription}</span>

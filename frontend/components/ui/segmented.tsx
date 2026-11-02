@@ -13,13 +13,14 @@ const STYLES = {
   // Full-width strip under the header on phones.
   strip: {
     list: "relative flex w-full",
-    tab: "relative z-10 h-11 flex-1 px-1 text-sm font-medium text-white/65 transition-colors duration-150 data-active:text-white",
+    tab: "relative z-10 h-11 min-w-0 flex-1 truncate px-1 text-sm font-medium max-[360px]:text-xs text-white/65 transition-colors duration-150 data-active:text-white",
     indicator: "tab-indicator absolute bottom-0 h-0.5 rounded-full bg-nus-orange",
   },
   // A segmented control on the page.
   pill: {
-    list: "relative inline-flex max-w-full gap-1 overflow-x-auto rounded-xl border border-border bg-surface p-1",
-    tab: "relative z-10 h-8 shrink-0 rounded-lg px-3 text-sm font-medium whitespace-nowrap text-muted transition-colors duration-150 hover:text-foreground data-active:text-white",
+    // Fills the row on phones, each tab sized to its label, so no label hides in a scroll area.
+    list: "relative flex w-full gap-1 overflow-x-auto rounded-xl border border-border bg-surface p-1 sm:inline-flex sm:w-auto",
+    tab: "relative z-10 h-8 min-w-0 flex-auto truncate rounded-lg px-1.5 text-[0.8125rem] font-medium whitespace-nowrap text-muted sm:flex-none sm:shrink-0 sm:px-3 sm:text-sm transition-colors duration-150 hover:text-foreground data-active:text-white",
     indicator: "tab-indicator absolute inset-y-1 rounded-lg bg-nus-orange shadow-card",
   },
 };
@@ -41,7 +42,7 @@ export function Segmented<T extends string>({
 }) {
   const s = STYLES[variant];
   return (
-    <Tabs.Root value={value} onValueChange={(v) => onChange(v as T)} className={className}>
+    <Tabs.Root value={value} onValueChange={(v) => onChange(v as T)} className={clsx("min-w-0 max-w-full", className)}>
       <Tabs.List aria-label={label} className={s.list}>
         {items.map(([v, text]) => (
           <Tabs.Tab key={v} value={v} className={clsx("btn-press", s.tab)}>

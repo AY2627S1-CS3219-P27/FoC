@@ -1,4 +1,5 @@
 import { clsx } from "clsx";
+import { Button } from "./button";
 import { AlertIcon, InboxIcon } from "./icons";
 
 export function PageHeader({
@@ -82,6 +83,37 @@ export function EmptyState({
       <p className="font-semibold">{title}</p>
       {body && <p className="mt-1 max-w-sm text-sm break-words text-muted">{body}</p>}
       {action && <div className="mt-4">{action}</div>}
+    </div>
+  );
+}
+
+export function LoadMore({
+  shown,
+  total,
+  hasMore,
+  loading,
+  onLoadMore,
+  noun,
+}: {
+  shown: number;
+  total: number | null;
+  hasMore: boolean;
+  loading: boolean;
+  onLoadMore: () => void;
+  noun: string;
+}) {
+  if (!hasMore && (total === null || total <= shown)) return null;
+  return (
+    <div className="mt-6 flex flex-col items-center gap-2">
+      <p className="text-sm text-muted tabular">
+        Showing {shown.toLocaleString()}
+        {total !== null && ` of ${total.toLocaleString()}`} {noun}
+      </p>
+      {hasMore && (
+        <Button intent="outline" size="sm" disabled={loading} onClick={onLoadMore}>
+          {loading ? "Loading…" : "Load more"}
+        </Button>
+      )}
     </div>
   );
 }

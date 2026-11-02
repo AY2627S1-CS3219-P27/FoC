@@ -305,7 +305,8 @@ function data(dataset: Dataset) {
 // Mirrors each service's default and maximum page size, so "huge" shows what the UI really receives.
 function page<T>(items: T[], params: URLSearchParams, defaultLimit: number, maxLimit: number) {
   const limit = Math.min(Number(params.get("limit") ?? defaultLimit), maxLimit);
-  return { items: items.slice(0, limit), total: items.length, limit, offset: 0 };
+  const offset = Number(params.get("offset") ?? 0);
+  return { items: items.slice(offset, offset + limit), total: items.length, limit, offset };
 }
 
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
@@ -327,7 +328,7 @@ export function fixtureResponse(dataset: Dataset, input: string, init: RequestIn
   }
 
   if (path === "/api/users/me") return json(d.me);
-  if (path === "/api/users") return json(page(d.users, q, 25, 100));
+  if (path === "/api/users") return json(page(d.users, q, 25, 1000));
   if (path === "/api/credits/balance") return json(d.balance);
   if (path === "/api/buildings") return json(d.buildings);
   if (path === "/api/categories") return json(d.categories);

@@ -3,9 +3,10 @@
 import NumberFlow from "@number-flow/react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import { api, type ApiResult } from "@/lib/api";
+import { fetchFirst } from "@/lib/paging";
 import { ArrowRightIcon, ClockIcon } from "@/components/ui/icons";
-import { EmptyState, PageHeader, SkeletonGrid } from "@/components/ui/layout";
+import { EmptyState, LoadMore, PageHeader, SkeletonGrid } from "@/components/ui/layout";
 import { Segmented } from "@/components/ui/segmented";
 import { CreateErrandForm } from "./create-errand-form";
 import { ErrandDetail } from "./errand-detail";
@@ -16,9 +17,11 @@ import {
   type Page,
   type SupplierOption,
 } from "./types";
-import { inputClass, StatusBadge, timeLeft } from "./ui";
+import { formatCredits, inputClass, StatusBadge, timeLeft } from "./ui";
 
 const POLL_MS = 5000;
+const PAGE_SIZE = 20;
+const MAX_PAGE_SIZE = 50; // order-service caps limit at 50
 
 type View = "browse" | "mine" | "new";
 
@@ -63,6 +66,13 @@ export function ErrandsTab({
     if (res.ok) setBalance(res.data);
   }, []);
 
+  // "Load more" grows this; changing the view or a filter starts again from one page.
+  const listKey = JSON.stringify([view, pickupBuilding, deliveryBuilding, minCredits, sort, mineRole, mineStatus]);
+  const [paging, setPaging] = useState({ key: listKey, count: PAGE_SIZE });
+  const count = paging.key === listKey ? paging.count : PAGE_SIZE;
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+
   const loadList = useCallback(
     async (quiet: boolean) => {
       if (view === "new") return;
@@ -77,17 +87,29 @@ export function ErrandsTab({
         if (mineStatus) params.set("status", mineStatus);
       }
       const path = view === "browse" ? "/api/errands" : "/api/errands/mine";
-      const res = await api<Page<Errand>>("GET", `${path}?${params}`, { quiet });
+      let failed: ApiResult | null = null;
+      const loaded = await fetchFirst(count, MAX_PAGE_SIZE, async (offset, limit) => {
+        params.set("offset", String(offset));
+        params.set("limit", String(limit));
+        const res = await api<Page<Errand>>("GET", `${path}?${params}`, { quiet });
+        if (res.ok && res.data) return res.data;
+        failed = res;
+        return null;
+      });
       setLoading(false);
-      if (res.ok && res.data) {
-        setItems(res.data.items);
+      setLoadingMore(false);
+      if (loaded) {
+        setItems(loaded.items);
+        setHasMore(loaded.hasMore);
         setListError("");
       } else {
+        const res = failed as ApiResult | null;
         setItems([]);
-        setListError(`${res.status} ${res.code ?? ""}: ${res.message ?? "Could not load errands."}`);
+        setHasMore(false);
+        setListError(`${res?.status} ${res?.code ?? ""}: ${res?.message ?? "Could not load errands."}`);
       }
     },
-    [view, pickupBuilding, deliveryBuilding, minCredits, sort, mineRole, mineStatus],
+    [view, pickupBuilding, deliveryBuilding, minCredits, sort, mineRole, mineStatus, count],
   );
 
   useEffect(() => {
@@ -106,9 +128,15 @@ export function ErrandsTab({
   }, [loadList, loadBalance]);
 
   useEffect(() => {
-    api<Page<SupplierOption>>("GET", "/api/suppliers?status=Active&limit=100", { quiet: true }).then(
-      (res) => setSuppliers(res.data?.items ?? []),
-    );
+    // Every active supplier, so the pickup picker is never cut off at one page.
+    void fetchFirst(Infinity, 1000, async (offset, limit) => {
+      const res = await api<{ items: SupplierOption[]; total: number }>(
+        "GET",
+        `/api/suppliers?status=Active&offset=${offset}&limit=${limit}`,
+        { quiet: true },
+      );
+      return res.data;
+    }).then((loaded) => setSuppliers(loaded?.items ?? []));
   }, []);
 
   const refresh = () => {
@@ -116,7 +144,7 @@ export function ErrandsTab({
     void loadBalance();
   };
 
-  const supplierName = (id: string) => suppliers.find((s) => s.id === id)?.displayName ?? "Supplier";
+  const supplierName = (id: string) => suppliers.find((s) => s.id === id)?.displayName ?? "Unknown supplier";
 
   return (
     <div>
@@ -134,6 +162,7 @@ export function ErrandsTab({
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <Segmented
           label="Errand views"
+          className="w-full sm:w-auto"
           value={view}
           items={VIEWS}
           onChange={(v) => {
@@ -236,23 +265,36 @@ export function ErrandsTab({
             }
           />
         ) : (
-          <div className="stagger grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {items.map((e) => (
-              <ErrandCard
-                key={e.id}
-                errand={e}
-                title={e.pickupName ?? supplierName(e.supplierId)}
-                footer={
-                  view === "mine"
-                    ? e.requesterId === me
-                      ? "You requested"
-                      : "You deliver"
-                    : timeLeft(e.expiresAt)
-                }
-                onOpen={() => setSelected(e.id)}
-              />
-            ))}
-          </div>
+          <>
+            <div className="stagger grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {items.map((e) => (
+                <ErrandCard
+                  key={e.id}
+                  errand={e}
+                  title={e.pickupName ?? supplierName(e.supplierId)}
+                  footer={
+                    view === "mine"
+                      ? e.requesterId === me
+                        ? "You requested"
+                        : "You deliver"
+                      : timeLeft(e.expiresAt)
+                  }
+                  onOpen={() => setSelected(e.id)}
+                />
+              ))}
+            </div>
+            <LoadMore
+              noun="errands"
+              shown={items.length}
+              total={null}
+              hasMore={hasMore}
+              loading={loadingMore}
+              onLoadMore={() => {
+                setLoadingMore(true);
+                setPaging({ key: listKey, count: count + PAGE_SIZE });
+              }}
+            />
+          </>
         ))}
 
       {selected && (
@@ -305,14 +347,15 @@ function ErrandCard({
         <StatusBadge status={errand.status} />
       </div>
       <p className="mb-2 flex min-w-0 items-center gap-1.5 text-sm text-muted">
-        <span className="truncate">{errand.pickupLocation ?? "—"}</span>
+        {/* A building short name (at most 20 characters) stays whole; the free-text delivery spot truncates. */}
+        <span className="max-w-[60%] shrink-0 truncate">{errand.pickupLocation ?? "—"}</span>
         <ArrowRightIcon size={14} className="shrink-0" />
         <span className="truncate">{errand.deliveryLocation}</span>
       </p>
       <p className="mb-4 text-sm break-words line-clamp-2">{errand.collectionItems}</p>
       <div className="mt-auto flex items-center justify-between gap-3 border-t border-border pt-3 text-sm">
         <span className="tabular truncate font-semibold text-nus-orange">
-          {errand.rewardCredits.toLocaleString()} credits
+          {formatCredits(errand.rewardCredits)}
         </span>
         <span className="flex shrink-0 items-center gap-1 text-muted">
           <ClockIcon size={14} />

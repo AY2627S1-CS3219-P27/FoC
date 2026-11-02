@@ -18,11 +18,12 @@ import { ArchiveAccount } from "./_account/archive-account";
 import { MyRequests } from "./_suppliers/my-requests";
 import { SupplierForm } from "./_suppliers/supplier-form";
 import { authFetch, refreshSession, setSessionExpiredHandler } from "@/lib/api";
+import { fetchFirst } from "@/lib/paging";
 import { Avatar } from "@/components/ui/avatar";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Field, inputClass } from "@/components/ui/field";
 import { PinIcon, PlusIcon, SearchIcon } from "@/components/ui/icons";
-import { Card, EmptyState, PageHeader, Pill, SkeletonGrid } from "@/components/ui/layout";
+import { Card, EmptyState, LoadMore, PageHeader, Pill, SkeletonGrid } from "@/components/ui/layout";
 import { Segmented } from "@/components/ui/segmented";
 import { Sheet } from "@/components/ui/sheet";
 import { DataToggle } from "@/components/dev/data-toggle";
@@ -88,6 +89,8 @@ const ADMIN_TABS: Tab[] = ["users", "requests"];
 const isTab = (value: string | null): value is Tab => TAB_ORDER.includes(value as Tab);
 
 const MAX_CARD_CATEGORIES = 3;
+const SUPPLIER_PAGE = 24; // fills whole rows of the 2- and 3-column grids
+const USERS_PAGE = 100;
 
 async function errorMessage(res: Response, fallback: string): Promise<string> {
   try {
@@ -137,6 +140,7 @@ function Home() {
   const [allUsers, setAllUsers] = useState<UserListItem[]>([]);
   const [usersTotal, setUsersTotal] = useState(0);
   const [usersLoading, setUsersLoading] = useState(false);
+  const [usersCount, setUsersCount] = useState(USERS_PAGE);
   const isAdmin = user?.isAdmin ?? false;
 
   // The URL is the source of truth, so a refresh or shared link lands on the same section.
@@ -195,8 +199,18 @@ function Home() {
       .finally(() => setUserLoading(false));
   }, [loadCreditBalance, router]);
 
+  // "Load more" grows the count; a new search or filter starts again from one page.
+  const supplierKey = JSON.stringify([searchName, filterBuilding, filterKind]);
+  const [supplierPaging, setSupplierPaging] = useState({ key: supplierKey, count: SUPPLIER_PAGE });
+  const suppliersCount = supplierPaging.key === supplierKey ? supplierPaging.count : SUPPLIER_PAGE;
+  const [suppliersPage, setSuppliersPage] = useState<{ total: number | null; hasMore: boolean }>({
+    total: null,
+    hasMore: false,
+  });
+
   const loadSuppliers = useCallback(async () => {
-    setSuppliersLoading(true);
+    // Only a fresh list shows the skeleton; loading more keeps the cards on screen.
+    if (suppliersCount === SUPPLIER_PAGE) setSuppliersLoading(true);
     try {
       const params = new URLSearchParams();
       // Admins also see Inactive suppliers, so they can reactivate them.
@@ -204,16 +218,21 @@ function Home() {
       if (searchName) params.set("name", searchName);
       if (filterBuilding) params.set("buildingId", filterBuilding);
       if (filterKind) params.set("kind", filterKind);
-      const res = await authFetch(`/api/suppliers?${params}`);
-      if (res.ok) {
-        const data = await res.json();
-        setSuppliers(data.items);
+      const loaded = await fetchFirst<SupplierItem>(suppliersCount, 1000, async (offset, limit) => {
+        params.set("offset", String(offset));
+        params.set("limit", String(limit));
+        const res = await authFetch(`/api/suppliers?${params}`);
+        return res.ok ? res.json() : null;
+      });
+      if (loaded) {
+        setSuppliers(loaded.items);
+        setSuppliersPage({ total: loaded.total, hasMore: loaded.hasMore });
       }
     } catch {
       /* supplier service might not be running */
     }
     setSuppliersLoading(false);
-  }, [searchName, filterBuilding, filterKind, isAdmin]);
+  }, [searchName, filterBuilding, filterKind, isAdmin, suppliersCount]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -284,19 +303,21 @@ function Home() {
   }
 
   const loadAllUsers = useCallback(async () => {
-    setUsersLoading(true);
+    if (usersCount === USERS_PAGE) setUsersLoading(true);
     try {
-      const res = await authFetch("/api/users?limit=100");
-      if (res.ok) {
-        const data = await res.json();
-        setAllUsers(data.items);
-        setUsersTotal(data.total);
+      const loaded = await fetchFirst<UserListItem>(usersCount, 1000, async (offset, limit) => {
+        const res = await authFetch(`/api/users?offset=${offset}&limit=${limit}`);
+        return res.ok ? res.json() : null;
+      });
+      if (loaded) {
+        setAllUsers(loaded.items);
+        setUsersTotal(loaded.total ?? loaded.items.length);
       }
     } catch {
       /* user service might not be running */
     }
     setUsersLoading(false);
-  }, []);
+  }, [usersCount]);
 
   useEffect(() => {
     if ((tab === "users" || tab === "requests") && user?.isAdmin) {
@@ -347,6 +368,8 @@ function Home() {
         ] as [Tab, string][])
       : []),
   ];
+  // Five tabs share a phone's width, so the strip uses the shorter label.
+  const stripTabs = tabs.map(([t, label]): [Tab, string] => [t, t === "profile" ? "Account" : label]);
 
   return (
     <div className="flex min-h-full flex-col">
@@ -362,7 +385,7 @@ function Home() {
               value={tab}
               onChange={goTo}
               items={tabs}
-              className="hidden sm:block"
+              className="hidden md:block"
             />
           </div>
           <div className="flex min-w-0 items-center gap-2.5">
@@ -374,7 +397,7 @@ function Home() {
                 className="ring-2 ring-white/30"
               />
             )}
-            <span className="hidden max-w-40 truncate text-sm text-white/85 md:inline" title={user?.displayName}>
+            <span className="hidden max-w-40 truncate text-sm text-white/85 lg:inline" title={user?.displayName}>
               {user?.displayName}
             </span>
             {user?.isAdmin && (
@@ -392,8 +415,8 @@ function Home() {
             </button>
           </div>
         </div>
-        <div className="border-t border-white/10 sm:hidden">
-          <Segmented variant="strip" label="Sections" value={tab} onChange={goTo} items={tabs} />
+        <div className="border-t border-white/10 md:hidden">
+          <Segmented variant="strip" label="Sections" value={tab} onChange={goTo} items={stripTabs} />
         </div>
       </header>
 
@@ -438,6 +461,18 @@ function Home() {
               isAdmin={isAdmin}
               onSuppliersChanged={loadSuppliers}
               onCategoriesChanged={loadCategories}
+              footer={
+                <LoadMore
+                  noun="suppliers"
+                  shown={suppliers.length}
+                  total={suppliersPage.total}
+                  hasMore={suppliersPage.hasMore}
+                  loading={suppliers.length < suppliersCount && suppliersPage.hasMore}
+                  onLoadMore={() =>
+                    setSupplierPaging({ key: supplierKey, count: suppliersCount + SUPPLIER_PAGE })
+                  }
+                />
+              }
             />
           )}
 
@@ -454,6 +489,16 @@ function Home() {
                 setAllUsers((prev) => [created, ...prev]);
                 setUsersTotal((t) => t + 1);
               }}
+              footer={
+                <LoadMore
+                  noun="users"
+                  shown={allUsers.length}
+                  total={usersTotal}
+                  hasMore={allUsers.length < usersTotal}
+                  loading={allUsers.length < usersCount && allUsers.length < usersTotal}
+                  onLoadMore={() => setUsersCount((c) => c + USERS_PAGE)}
+                />
+              }
             />
           )}
 
@@ -622,6 +667,7 @@ function SuppliersTab({
   isAdmin,
   onSuppliersChanged,
   onCategoriesChanged,
+  footer,
 }: {
   suppliers: SupplierItem[];
   buildings: BuildingItem[];
@@ -638,6 +684,7 @@ function SuppliersTab({
   isAdmin: boolean;
   onSuppliersChanged: () => void;
   onCategoriesChanged: () => void;
+  footer: React.ReactNode;
 }) {
   const selected = suppliers.find((s) => s.id === selectedSupplier);
   const [panel, setPanel] = useState<SupplierPanel>(null);
@@ -803,6 +850,7 @@ function SuppliersTab({
           })}
         </div>
       )}
+      {!loading && suppliers.length > 0 && footer}
 
       {selected && (
         <SupplierSheet
@@ -831,6 +879,7 @@ function UsersTab({
   currentUserId,
   onUserUpdated,
   onUserCreated,
+  footer,
 }: {
   users: UserListItem[];
   total: number;
@@ -838,6 +887,7 @@ function UsersTab({
   currentUserId: string;
   onUserUpdated: (user: UserListItem) => void;
   onUserCreated: (user: UserListItem) => void;
+  footer: React.ReactNode;
 }) {
   const [errandsOf, setErrandsOf] = useState<UserListItem | null>(null);
   const [creating, setCreating] = useState(false);
@@ -878,79 +928,110 @@ function UsersTab({
       ) : users.length === 0 ? (
         <EmptyState title="No users found" />
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-card">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[56rem] text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-xs tracking-wide text-muted uppercase">
-                  <th className="px-4 py-3 font-medium">User</th>
-                  <th className="px-4 py-3 font-medium">Roles</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 font-medium">Errands</th>
-                  <th className="px-4 py-3 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((u) => (
-                  <tr
-                    key={u.uuid}
-                    className="border-b border-border transition-colors duration-150 last:border-b-0 hover:bg-background/60"
-                  >
-                    <td className="max-w-[22rem] px-4 py-3">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <Avatar url={u.profilePictureUrl} name={u.displayName} size={32} />
-                        <div className="min-w-0">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <span className="truncate font-medium" title={u.displayName}>
-                              {u.displayName}
-                            </span>
-                            {u.isAdmin && <Pill tone="orange" className="shrink-0">Admin</Pill>}
-                            {u.uuid === currentUserId && <Pill className="shrink-0">You</Pill>}
-                          </div>
-                          <div className="truncate text-xs text-muted" title={u.email}>
-                            {u.email}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1">
-                        {u.roles.length > 0 ? (
-                          u.roles.map((role) => (
-                            <Pill key={role} tone="blue" className="capitalize">
-                              {role}
-                            </Pill>
-                          ))
-                        ) : (
-                          <span className="text-xs text-muted">None</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <UserStatus user={u} />
-                    </td>
-                    <td className="px-4 py-3">
-                      <Button intent="link" size="sm" onClick={() => setErrandsOf(u)}>
-                        View errands
-                      </Button>
-                    </td>
-                    <td className="px-4 py-3">
-                      <UserAdminActions
-                        user={u}
-                        isSelf={u.uuid === currentUserId}
-                        onUpdated={onUserUpdated}
-                      />
-                    </td>
+        <>
+          {/* Phones: one stacked row per user, so every action stays on screen. */}
+          <ul className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface shadow-card sm:hidden">
+            {users.map((u) => (
+              <li key={u.uuid} className="space-y-3 px-4 py-4">
+                <UserIdentity user={u} isSelf={u.uuid === currentUserId} />
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pl-11">
+                  <UserRoles roles={u.roles} />
+                  <UserStatus user={u} />
+                </div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pl-11">
+                  <Button intent="link" size="sm" onClick={() => setErrandsOf(u)}>
+                    View errands
+                  </Button>
+                  <UserAdminActions user={u} isSelf={u.uuid === currentUserId} onUpdated={onUserUpdated} />
+                </div>
+              </li>
+            ))}
+          </ul>
+
+          <div className="hidden overflow-hidden rounded-2xl border border-border bg-surface shadow-card sm:block">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[48rem] text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-xs tracking-wide text-muted uppercase">
+                    <th className="px-4 py-3 font-medium">User</th>
+                    <th className="px-4 py-3 font-medium">Roles</th>
+                    <th className="px-4 py-3 font-medium">Status</th>
+                    <th className="px-4 py-3 font-medium">Errands</th>
+                    <th className="px-4 py-3 font-medium">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {users.map((u) => (
+                    <tr
+                      key={u.uuid}
+                      className="border-b border-border transition-colors duration-150 last:border-b-0 hover:bg-background/60"
+                    >
+                      <td className="max-w-[22rem] px-4 py-3">
+                        <UserIdentity user={u} isSelf={u.uuid === currentUserId} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <UserRoles roles={u.roles} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <UserStatus user={u} />
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <Button intent="link" size="sm" onClick={() => setErrandsOf(u)}>
+                          View errands
+                        </Button>
+                      </td>
+                      <td className="px-4 py-3">
+                        <UserAdminActions
+                          user={u}
+                          isSelf={u.uuid === currentUserId}
+                          onUpdated={onUserUpdated}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+          {footer}
+        </>
       )}
       {errandsOf && (
         <AdminUserErrands user={errandsOf} onClose={() => setErrandsOf(null)} />
       )}
+    </div>
+  );
+}
+
+function UserIdentity({ user, isSelf }: { user: UserListItem; isSelf: boolean }) {
+  return (
+    <div className="flex min-w-0 items-center gap-3">
+      <Avatar url={user.profilePictureUrl} name={user.displayName} size={32} />
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate font-medium" title={user.displayName}>
+            {user.displayName}
+          </span>
+          {user.isAdmin && <Pill tone="orange" className="shrink-0">Admin</Pill>}
+          {isSelf && <Pill className="shrink-0">You</Pill>}
+        </div>
+        <div className="truncate text-xs text-muted" title={user.email}>
+          {user.email}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function UserRoles({ roles }: { roles: string[] }) {
+  if (roles.length === 0) return <span className="text-xs text-muted">No roles</span>;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {roles.map((role) => (
+        <Pill key={role} tone="blue" className="capitalize">
+          {role}
+        </Pill>
+      ))}
     </div>
   );
 }
@@ -1008,15 +1089,16 @@ function ProfileTab({
       <PageHeader title="My account" />
 
       <Card aria-labelledby="profile-heading">
-        <div className="flex items-center gap-4">
-          <Avatar url={user.profilePictureUrl} name={user.displayName} size={64} />
-          <div className="min-w-0 flex-1">
-            <h2 id="profile-heading" className="text-lg font-semibold break-words">
-              {user.displayName}
-            </h2>
-            <p className="truncate text-sm text-muted" title={user.email}>
-              {user.email}
-            </p>
+        {/* Edit wraps under the name on narrow screens instead of squeezing it mid-word. */}
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex min-w-0 flex-1 basis-60 items-center gap-4">
+            <Avatar url={user.profilePictureUrl} name={user.displayName} size={56} />
+            <div className="min-w-0 flex-1">
+              <h2 id="profile-heading" className="text-lg font-semibold break-words">
+                {user.displayName}
+              </h2>
+              <p className="text-sm text-muted [overflow-wrap:anywhere]">{user.email}</p>
+            </div>
           </div>
           {!editingProfile && (
             <Button

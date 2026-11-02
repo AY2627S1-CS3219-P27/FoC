@@ -3,11 +3,18 @@
 import { clsx } from "clsx";
 import { useState } from "react";
 
+const LETTER = /\p{L}/u;
+
+// First letter of the first and last words that contain a letter, so "🦊 Fox" gives "F", not "🦊F".
 function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  const first = Array.from(parts[0])[0] ?? "";
-  const last = parts.length > 1 ? (Array.from(parts[parts.length - 1])[0] ?? "") : "";
+  const letters = name
+    .trim()
+    .split(/\s+/)
+    .map((word) => Array.from(word).find((ch) => LETTER.test(ch)))
+    .filter((ch): ch is string => !!ch);
+  if (letters.length === 0) return Array.from(name.trim())[0] ?? "?";
+  const first = letters[0];
+  const last = letters.length > 1 ? letters[letters.length - 1] : "";
   return (first + last).toUpperCase();
 }
 

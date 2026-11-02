@@ -37,6 +37,19 @@ export interface RequestSupplier {
   categories: { id: string; name: string }[];
 }
 
+// Readable names for the request fields, which arrive as API keys.
+const FIELD_LABELS: Record<string, string> = {
+  name: "Name",
+  kind: "Type",
+  categoryIds: "Categories",
+  buildingId: "Building",
+  floor: "Floor",
+  locationDescription: "Location",
+  coordinates: "Coordinates",
+  photoUrl: "Photo URL",
+  status: "Status",
+};
+
 const TYPE_LABELS: Record<RequestType, string> = {
   Create: "New supplier",
   Update: "Edit supplier",
@@ -88,7 +101,7 @@ export function SupplierRequestsTab({
     category: (id: unknown) => categories.find((c) => c.id === id)?.name ?? String(id),
     user: (id: string) => {
       const u = users.find((x) => x.uuid === id);
-      return u ? `${u.displayName} (${u.email})` : id.slice(0, 8);
+      return u ? `${u.displayName} (${u.email})` : "Unknown user";
     },
   };
 
@@ -173,7 +186,8 @@ function RequestCard({
   }, [request.supplierId]);
 
   function show(key: string, value: unknown): string {
-    if (value === null || value === undefined || value === "") return "—";
+    const empty = value === null || value === undefined || value === "";
+    if (empty || (Array.isArray(value) && value.length === 0)) return "—";
     if (key === "buildingId") return label.building(value);
     if (key === "categoryIds" && Array.isArray(value)) return value.map(label.category).join(", ");
     if (key === "coordinates" && typeof value === "object") {
@@ -227,7 +241,7 @@ function RequestCard({
         <table className="w-full table-fixed text-sm">
           <thead>
             <tr className="text-left text-xs tracking-wide text-muted uppercase">
-              <th className="w-1/4 py-1 pr-3 font-medium">Field</th>
+              <th className="w-24 py-1 pr-3 font-medium sm:w-1/4">Field</th>
               {showCurrent && <th className="py-1 pr-3 font-medium">Current</th>}
               <th className="py-1 font-medium">{request.type === "Create" ? "Value" : "Requested"}</th>
             </tr>
@@ -235,7 +249,7 @@ function RequestCard({
           <tbody>
             {Object.entries(request.values).map(([key, value]) => (
               <tr key={key} className="border-t border-border align-top">
-                <td className="py-2 pr-3 break-words text-muted">{key}</td>
+                <td className="py-2 pr-3 break-words text-muted">{FIELD_LABELS[key] ?? key}</td>
                 {showCurrent && <td className="py-2 pr-3 break-words">{show(key, current(key))}</td>}
                 <td className="py-2 font-medium break-words">{show(key, value)}</td>
               </tr>

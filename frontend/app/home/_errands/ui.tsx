@@ -27,6 +27,7 @@ export function timeLeft(expiresAt: string | null): string {
   const ms = new Date(expiresAt).getTime() - Date.now();
   if (Number.isNaN(ms)) return "—";
   if (ms <= 0) return "expired";
+  if (ms < 60_000) return "under 1 min left";
   const minutes = Math.round(ms / 60_000);
   if (minutes < 60) return `${minutes} min left`;
   const hours = Math.floor(minutes / 60);
@@ -42,4 +43,8 @@ export function formatTime(iso: string | null | undefined): string {
 
 export function shortId(id: string | null | undefined): string {
   return id ? id.slice(0, 8) : "—";
+}
+
+export function formatCredits(n: number): string {
+  return `${n.toLocaleString()} ${n === 1 ? "credit" : "credits"}`;
 }
