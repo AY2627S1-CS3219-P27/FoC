@@ -21,8 +21,11 @@ export type {
   CreditReleaseSuccessEvent,
   CreditTransferRejectedEvent,
   CreditTransferSucceededEvent,
+  CourierCancelledEvent,
+  ErrandAcceptedEvent,
   ErrandCancelledEvent,
   ErrandCompletedEvent,
+  ErrandDeliveredEvent,
   CreditReservationAdjustmentEvent,
   CreditReservationAdjustmentRejectedEvent,
   CreditReservationAdjustmentSuccessEvent,
@@ -78,6 +81,16 @@ export {
 } from './domain-events/events/credit-reservation/v1/contract.js';
 export type { CreditReservationPayload } from './domain-events/events/credit-reservation/v1/contract.js';
 export {
+  ORDER_COURIER_CANCELLED_V1_ROUTING_KEY,
+  courierCancelledV1Contract,
+} from './domain-events/events/courier-cancelled/v1/contract.js';
+export type { CourierCancelledPayload } from './domain-events/events/courier-cancelled/v1/contract.js';
+export {
+  ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY,
+  errandAcceptedV1Contract,
+} from './domain-events/events/errand-accepted/v1/contract.js';
+export type { ErrandAcceptedPayload } from './domain-events/events/errand-accepted/v1/contract.js';
+export {
   ORDER_ERRAND_COMPLETED_V1_ROUTING_KEY,
   errandCompletedV1Contract,
 } from './domain-events/events/errand-completed/v1/contract.js';
@@ -87,6 +100,11 @@ export {
   errandCancelledV1Contract,
 } from './domain-events/events/errand-cancelled/v1/contract.js';
 export type { ErrandCancelledPayload } from './domain-events/events/errand-cancelled/v1/contract.js';
+export {
+  ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
+  errandDeliveredV1Contract,
+} from './domain-events/events/errand-delivered/v1/contract.js';
+export type { ErrandDeliveredPayload } from './domain-events/events/errand-delivered/v1/contract.js';
 export {
   CREDIT_TRANSFER_SUCCEEDED_V1_ROUTING_KEY,
   creditTransferSucceededV1Contract,
