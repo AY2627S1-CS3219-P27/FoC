@@ -8,6 +8,11 @@ all environments: use explicit TypeORM migrations. PostgreSQL is authoritative;
 Redis may only support future cross-replica Socket.IO delivery. The service
 must never publish domain events to `foc.events`.
 
+Root broker definitions own the four lifecycle primary queues and their
+`foc.events` bindings. Communication Service must not declare those queues or
+touch the shared exchange; it owns only `foc.comms.*`, retry queues, return
+bindings, and DLQs through its idempotent startup provisioner.
+
 Package 1 currently provides infrastructure only. Do not add lifecycle
 consumers, chat APIs, a Socket.IO namespace, or archive workers until their
 roadmap packages are implemented.

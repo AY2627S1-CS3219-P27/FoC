@@ -59,3 +59,37 @@ service. `JWT_PUBLIC_KEY_FILE`, `DB_PASSWORD_FILE`, and
 `SOCKET_PATH`, `SOCKET_ALLOWED_ORIGINS`, and the fixed WebSocket-only transport
 are validated now so deployment configuration remains stable. No socket server
 is registered in this package.
+
+## RabbitMQ topology
+
+Root `rabbitmq/definitions.json` owns only the non-administrator identity,
+four durable primary lifecycle queues, and their four `foc.events` bindings.
+Those queues exist before Order Service publishes, so notices remain retained
+while Communication Service is offline.
+
+On startup, Communication Service creates `foc.comms.retry`,
+`foc.comms.back`, and `foc.comms.dlx`; five durable retry queues per stream
+using 1, 2, 4, 8, and 16 second delays; the retry-return bindings; and one
+durable DLQ per stream. Provisioning is idempotent and fails startup when an
+infrastructure-owned primary queue is missing. The service never declares a
+primary queue or accesses `foc.events`.
+
+The broker user can configure only service exchanges and retry/DLQ queues. It
+can read the four queue families and write them as required to create bindings,
+but cannot configure, read, or write `foc.events` or another service's
+resources. RabbitMQ queue-write permission also permits default-exchange
+publication to those queue names; Communication Service code must publish only
+through `foc.comms.retry`, `foc.comms.back`, and `foc.comms.dlx`.
+
+The committed RabbitMQ password hash matches
+`secrets/rabbitmq_password.secret.example`. Replace the example password for a
+real deployment and regenerate the definitions hash with
+`rabbitmqctl hash_password` at the same time. Never commit the resulting live
+secret.
+
+With the isolated broker running and `.env` configured, verify the effective
+allow/deny boundary with:
+
+```powershell
+npm run test:rabbitmq-permissions
+```

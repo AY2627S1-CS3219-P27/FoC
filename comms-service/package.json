@@ -30,6 +30,7 @@
     "pretest": "npm run shared:prepare",
     "test": "vitest run",
     "test:integration": "vitest run --config ./vitest.config.integration.ts",
+    "test:rabbitmq-permissions": "node scripts/verify-rabbitmq-permissions.mjs",
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",
     "typeorm": "typeorm-ts-node-esm",

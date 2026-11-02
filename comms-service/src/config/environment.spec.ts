@@ -35,6 +35,25 @@ describe('environmentSchema', () => {
       'http://localhost:3000',
     ]);
     expect(environment.SOCKET_TRANSPORT).toBe('websocket');
+    expect(environment.RABBITMQ_EXCHANGE).toBe('foc.events');
+    expect(environment.RABBITMQ_ORDER_ERRAND_ACCEPTED_QUEUE).toBe(
+      'comms-service.order-errand-accepted.v1',
+    );
+    expect(environment.RABBITMQ_ORDER_ERRAND_DELIVERED_QUEUE).toBe(
+      'comms-service.order-errand-delivered.v1',
+    );
+    expect(environment.RABBITMQ_ORDER_COURIER_CANCELLED_QUEUE).toBe(
+      'comms-service.order-courier-cancelled.v1',
+    );
+    expect(environment.RABBITMQ_ORDER_ERRAND_CANCELLED_QUEUE).toBe(
+      'comms-service.order-errand-cancelled.v1',
+    );
+    expect(environment.RABBITMQ_RETRY_EXCHANGE).toBe('foc.comms.retry');
+    expect(environment.RABBITMQ_RETRY_RETURN_EXCHANGE).toBe('foc.comms.back');
+    expect(environment.RABBITMQ_DEAD_LETTER_EXCHANGE).toBe('foc.comms.dlx');
+    expect(environment.RABBITMQ_RETRY_DELAYS_MS).toEqual([
+      1_000, 2_000, 4_000, 8_000, 16_000,
+    ]);
   });
 
   it('parses and de-duplicates allowed origins', () => {
@@ -81,5 +100,20 @@ describe('environmentSchema', () => {
         SOCKET_ALLOWED_ORIGINS: 'https://foc.example',
       }).SOCKET_ALLOWED_ORIGINS,
     ).toEqual(['https://foc.example']);
+  });
+
+  it.each([
+    ['RABBITMQ_EXCHANGE', 'foc.other'],
+    ['RABBITMQ_ORDER_ERRAND_ACCEPTED_QUEUE', 'comms-service.other.v1'],
+    ['RABBITMQ_ORDER_ERRAND_DELIVERED_QUEUE', 'comms-service.other.v1'],
+    ['RABBITMQ_ORDER_COURIER_CANCELLED_QUEUE', 'comms-service.other.v1'],
+    ['RABBITMQ_ORDER_ERRAND_CANCELLED_QUEUE', 'comms-service.other.v1'],
+    ['RABBITMQ_RETRY_EXCHANGE', 'foc.other.retry'],
+    ['RABBITMQ_RETRY_RETURN_EXCHANGE', 'foc.other.back'],
+    ['RABBITMQ_DEAD_LETTER_EXCHANGE', 'foc.other.dlx'],
+    ['RABBITMQ_RETRY_DELAYS_MS', '1000,2000,4000,8000'],
+    ['RABBITMQ_RETRY_DELAYS_MS', '1000,2000,4000,8000,32000'],
+  ])('rejects noncanonical topology setting %s', (name, value) => {
+    expect(() => validate({ [name]: value })).toThrow();
   });
 });

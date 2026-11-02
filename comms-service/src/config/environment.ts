@@ -1,4 +1,19 @@
 import Joi from 'joi';
+import {
+  COMMS_DEAD_LETTER_EXCHANGE,
+  COMMS_DOMAIN_EXCHANGE,
+  COMMS_LIFECYCLE_STREAMS,
+  COMMS_RETRY_DELAYS_MS,
+  COMMS_RETRY_EXCHANGE,
+  COMMS_RETRY_RETURN_EXCHANGE,
+} from '../messaging/rabbitmq-topology.js';
+
+const [
+  acceptedStream,
+  deliveredStream,
+  courierCancelledStream,
+  cancelledStream,
+] = COMMS_LIFECYCLE_STREAMS;
 
 export interface EnvironmentVariables {
   NODE_ENV: 'development' | 'test' | 'production';
@@ -16,6 +31,15 @@ export interface EnvironmentVariables {
   RABBITMQ_PORT: number;
   RABBITMQ_VHOST: string;
   RABBITMQ_PASSWORD_FILE: string;
+  RABBITMQ_EXCHANGE: typeof COMMS_DOMAIN_EXCHANGE;
+  RABBITMQ_ORDER_ERRAND_ACCEPTED_QUEUE: typeof acceptedStream.queue;
+  RABBITMQ_ORDER_ERRAND_DELIVERED_QUEUE: typeof deliveredStream.queue;
+  RABBITMQ_ORDER_COURIER_CANCELLED_QUEUE: typeof courierCancelledStream.queue;
+  RABBITMQ_ORDER_ERRAND_CANCELLED_QUEUE: typeof cancelledStream.queue;
+  RABBITMQ_RETRY_EXCHANGE: typeof COMMS_RETRY_EXCHANGE;
+  RABBITMQ_RETRY_RETURN_EXCHANGE: typeof COMMS_RETRY_RETURN_EXCHANGE;
+  RABBITMQ_DEAD_LETTER_EXCHANGE: typeof COMMS_DEAD_LETTER_EXCHANGE;
+  RABBITMQ_RETRY_DELAYS_MS: number[];
   REDIS_HOST: string;
   REDIS_PORT: number;
   REDIS_USERNAME: string;
@@ -55,6 +79,23 @@ const origins = Joi.any()
     return [...new Set(value)];
   }, 'absolute HTTP origins');
 
+const retryDelays = Joi.any()
+  .default([...COMMS_RETRY_DELAYS_MS])
+  .custom((value: unknown, helpers) => {
+    if (Array.isArray(value)) return value;
+    if (typeof value !== 'string') return helpers.error('any.invalid');
+    return value.split(',').map((delay) => Number(delay.trim()));
+  }, 'comma-separated retry delays')
+  .custom((value: number[], helpers) => {
+    if (
+      value.length !== COMMS_RETRY_DELAYS_MS.length ||
+      value.some((delay, index) => delay !== COMMS_RETRY_DELAYS_MS[index])
+    ) {
+      return helpers.error('any.invalid');
+    }
+    return value;
+  }, 'canonical retry delays');
+
 export const environmentSchema = Joi.object<EnvironmentVariables>({
   NODE_ENV: Joi.string()
     .valid('development', 'test', 'production')
@@ -77,6 +118,31 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
   RABBITMQ_PORT: Joi.number().integer().min(1).max(65_535).required(),
   RABBITMQ_VHOST: Joi.string().min(1).required(),
   RABBITMQ_PASSWORD_FILE: Joi.string().min(1).required(),
+  RABBITMQ_EXCHANGE: Joi.string()
+    .valid(COMMS_DOMAIN_EXCHANGE)
+    .default(COMMS_DOMAIN_EXCHANGE),
+  RABBITMQ_ORDER_ERRAND_ACCEPTED_QUEUE: Joi.string()
+    .valid(acceptedStream.queue)
+    .default(acceptedStream.queue),
+  RABBITMQ_ORDER_ERRAND_DELIVERED_QUEUE: Joi.string()
+    .valid(deliveredStream.queue)
+    .default(deliveredStream.queue),
+  RABBITMQ_ORDER_COURIER_CANCELLED_QUEUE: Joi.string()
+    .valid(courierCancelledStream.queue)
+    .default(courierCancelledStream.queue),
+  RABBITMQ_ORDER_ERRAND_CANCELLED_QUEUE: Joi.string()
+    .valid(cancelledStream.queue)
+    .default(cancelledStream.queue),
+  RABBITMQ_RETRY_EXCHANGE: Joi.string()
+    .valid(COMMS_RETRY_EXCHANGE)
+    .default(COMMS_RETRY_EXCHANGE),
+  RABBITMQ_RETRY_RETURN_EXCHANGE: Joi.string()
+    .valid(COMMS_RETRY_RETURN_EXCHANGE)
+    .default(COMMS_RETRY_RETURN_EXCHANGE),
+  RABBITMQ_DEAD_LETTER_EXCHANGE: Joi.string()
+    .valid(COMMS_DEAD_LETTER_EXCHANGE)
+    .default(COMMS_DEAD_LETTER_EXCHANGE),
+  RABBITMQ_RETRY_DELAYS_MS: retryDelays,
   REDIS_HOST: Joi.string().hostname().required(),
   REDIS_PORT: Joi.number().integer().min(1).max(65_535).required(),
   REDIS_USERNAME: Joi.string().min(1).default('default'),
