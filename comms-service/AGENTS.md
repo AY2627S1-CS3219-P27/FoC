@@ -26,3 +26,7 @@ Useful commands:
 - `npm run migration:show`
 - `npm run migration:run`
 - `npm run migration:revert`
+- `npm run db:test:up` / `npm run db:test:down`
+- `npm run rabbitmq:test:up` / `npm run rabbitmq:test:down`
+- `npm run test:integration`
+- `npm run test:rabbitmq-permissions`

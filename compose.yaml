@@ -23,7 +23,10 @@ include:
     env_file:
       - env/shared.env
       - env/credit-service.env
-  - path: frontend/compose.yml
+  - path: comms-service/compose.yml
+    env_file:
+      - env/shared.env
+      - env/comms-service.env
 
 services:
   rabbitmq:
@@ -160,6 +163,13 @@ services:
   credit-service:
     depends_on:
       rabbitmq:
+        condition: service_healthy
+
+  comms-service:
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   supplier-service:

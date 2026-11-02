@@ -26,6 +26,44 @@ npm test
 npm run start:dev
 ```
 
+## Compose and secrets
+
+Create the local secret files before starting the service:
+
+```powershell
+Copy-Item secrets/comms_db_password.secret.example secrets/comms_db_password.secret
+Copy-Item secrets/rabbitmq_password.secret.example secrets/rabbitmq_password.secret
+Copy-Item .env.example .env
+Copy-Item ../env/comms-service.env.example ../env/comms-service.env
+```
+
+User Service owns the JWT signing key pair. Communication Service mounts only
+`user-service/secrets/jwt_public_key.secret`; generate the User Service keys
+using its documented setup before starting the root stack. Shared Redis,
+RabbitMQ, observability, and logging settings remain in `env/shared.env`.
+Service-specific database, queue-name, socket, and host-port settings live in
+`env/comms-service.env`.
+
+Apply the schema explicitly before starting the application. From the
+repository root:
+
+```powershell
+docker compose -f comms-service/compose.yml up -d --wait comms-db
+docker compose -f comms-service/compose.yml run --rm comms-service npm run migration:run
+```
+
+Then start the versioned stack with:
+
+```powershell
+./scripts/build-images.sh up -d --wait
+```
+
+Plain `docker compose up -d --wait` uses the `dev` image tag. Communication
+Service is published on host port `3006`; its PostgreSQL database is published
+on `5437`. The root Compose dependency gates startup on healthy PostgreSQL,
+RabbitMQ, and Redis. PostgreSQL remains authoritative; Redis is only shared
+delivery infrastructure for a later realtime package.
+
 TypeORM never synchronizes the schema. Migrations are always explicit:
 
 ```powershell
@@ -51,10 +89,27 @@ npm run test:integration
 
 The suite refuses to reset a database whose name does not end in `_test`.
 
-Create local secret files from the templates introduced with platform wiring,
-then combine `env/shared.env` and `env/comms-service.env` when starting the
-service. `JWT_PUBLIC_KEY_FILE`, `DB_PASSWORD_FILE`, and
-`RABBITMQ_PASSWORD_FILE` contain file paths, never secret values.
+The isolated test services are opt-in and do not use persistent volumes:
+
+```powershell
+npm run db:test:up
+npm run test:integration
+npm run db:test:down
+
+npm run rabbitmq:test:up
+npm run test:rabbitmq-permissions
+npm run rabbitmq:test:down
+```
+
+The disposable PostgreSQL service listens on host port `5440`. The isolated
+RabbitMQ service listens on `5678` (AMQP) and `15678` (management). The latter
+imports the same infrastructure-owned identity, primary queues, permissions,
+and domain bindings as the root broker; starting Communication Service against
+it provisions only the service-owned retry topology.
+
+`JWT_PUBLIC_KEY_FILE`, `DB_PASSWORD_FILE`, and `RABBITMQ_PASSWORD_FILE`
+contain container file paths, never secret values. The corresponding secret
+files are mounted read-only under `/run/secrets`.
 
 `SOCKET_PATH`, `SOCKET_ALLOWED_ORIGINS`, and the fixed WebSocket-only transport
 are validated now so deployment configuration remains stable. No socket server
