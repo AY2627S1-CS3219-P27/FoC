@@ -3,8 +3,8 @@
 import NumberFlow from "@number-flow/react";
 import { clsx } from "clsx";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AdminUserErrands } from "./_errands/admin-user-errands";
 import { ApiLogPanel } from "./_errands/api-log-panel";
@@ -82,6 +82,9 @@ interface UserListItem {
 type Tab = "errands" | "suppliers" | "profile" | "users" | "requests";
 
 const TAB_ORDER: Tab[] = ["errands", "suppliers", "profile", "users", "requests"];
+const ADMIN_TABS: Tab[] = ["users", "requests"];
+
+const isTab = (value: string | null): value is Tab => TAB_ORDER.includes(value as Tab);
 
 const MAX_CARD_CATEGORIES = 3;
 
@@ -95,11 +98,20 @@ async function errorMessage(res: Response, fallback: string): Promise<string> {
   return fallback;
 }
 
+// Reading ?tab= needs a Suspense boundary, since the page is prerendered without search params.
 export default function HomePage() {
+  return (
+    <Suspense>
+      <Home />
+    </Suspense>
+  );
+}
+
+function Home() {
   const router = useRouter();
   const [user, setUser] = useState<UserProfile | null>(null);
   const [userLoading, setUserLoading] = useState(true);
-  const [tab, setTab] = useState<Tab>("errands");
+  const searchParams = useSearchParams();
   const [tabDir, setTabDir] = useState<"left" | "right">("right");
   const [signingOut, setSigningOut] = useState(false);
   const [creditBalance, setCreditBalance] = useState<CreditBalance | null>(null);
@@ -125,6 +137,15 @@ export default function HomePage() {
   const [usersTotal, setUsersTotal] = useState(0);
   const [usersLoading, setUsersLoading] = useState(false);
   const isAdmin = user?.isAdmin ?? false;
+
+  // The URL is the source of truth, so a refresh or shared link lands on the same section.
+  const requestedTab = searchParams.get("tab");
+  const tab: Tab =
+    isTab(requestedTab) && (isAdmin || !ADMIN_TABS.includes(requestedTab))
+      ? requestedTab
+      : isAdmin && user?.roles.length === 0
+        ? "users"
+        : "errands";
 
   const loadCreditBalance = useCallback(async () => {
     setCreditBalanceStatus("loading");
@@ -167,7 +188,6 @@ export default function HomePage() {
       .then((data: UserProfile) => {
         setUser(data);
         setSelectedRoles(data.roles);
-        if (data.isAdmin && data.roles.length === 0) setTab("users");
         void loadCreditBalance();
       })
       .catch(() => router.push("/login"))
@@ -288,7 +308,8 @@ export default function HomePage() {
 
   function goTo(next: Tab) {
     setTabDir(TAB_ORDER.indexOf(next) < TAB_ORDER.indexOf(tab) ? "left" : "right");
-    setTab(next);
+    // Replace rather than push, so Back leaves the app instead of stepping through sections.
+    window.history.replaceState(null, "", `?tab=${next}`);
   }
 
   async function signOut() {
