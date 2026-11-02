@@ -388,7 +388,7 @@ function Home() {
           />
         )}
       </div>
-      {process.env.NODE_ENV === "development" && <DataToggle />}
+      {process.env.NODE_ENV === "development" && process.env.NEXT_PUBLIC_FOC_FIXTURES === "1" && <DataToggle />}
     </AppShell>
   );
 }
