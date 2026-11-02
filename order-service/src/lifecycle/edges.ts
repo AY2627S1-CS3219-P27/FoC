@@ -1,3 +1,8 @@
+import {
+  ORDER_COURIER_CANCELLED_V1_ROUTING_KEY,
+  ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY,
+  ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
+} from '@foc/contracts';
 import type { NoticeBuilder } from './notice.js';
 import type { Status } from './status.js';
 
@@ -47,6 +52,30 @@ export interface Edge {
 const release: NoticeBuilder = (c) => ({
   key: 'order.errand-cancelled.v1',
   payload: { errandId: c.errandId },
+});
+const accepted: NoticeBuilder = (c) => ({
+  key: ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY,
+  payload: {
+    errandId: c.errandId,
+    requesterUserId: c.requesterId,
+    courierUserId: c.courierId,
+  },
+});
+const delivered: NoticeBuilder = (c) => ({
+  key: ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
+  payload: {
+    errandId: c.errandId,
+    requesterUserId: c.requesterId,
+    courierUserId: c.courierId,
+  },
+});
+const courierCancelled: NoticeBuilder = (c) => ({
+  key: ORDER_COURIER_CANCELLED_V1_ROUTING_KEY,
+  payload: {
+    errandId: c.errandId,
+    requesterUserId: c.requesterId,
+    courierUserId: c.actorUserId,
+  },
 });
 const cancel = (
   who: Role[],
@@ -104,6 +133,7 @@ export const EDGES: Partial<
       clears: [],
       who: ['other'],
       unexpiredOnly: true,
+      notice: accepted,
     },
     // New amount rides in the payload.
     'Adjusting-Credit': plain('AdjustmentRequested', ['requester'], (c) => ({
@@ -125,10 +155,10 @@ export const EDGES: Partial<
   Accepted: {
     'Picked Up': { type: 'ErrandPickedUp', sets: ['pickedUpAt'], clears: [], who: ['courier'] },
     // No Cancelled edge: the requester cannot cancel once accepted; the courier withdraws instead.
-    Open: { type: 'CourierWithdrew', sets: [], clears: ['courierId'], who: ['courier'] },
+    Open: { type: 'CourierWithdrew', sets: [], clears: ['courierId'], who: ['courier'], notice: courierCancelled },
   },
   'Picked Up': {
-    Delivered: { type: 'ErrandDelivered', sets: ['deliveredAt'], clears: [], who: ['courier'] },
+    Delivered: { type: 'ErrandDelivered', sets: ['deliveredAt'], clears: [], who: ['courier'], notice: delivered },
     // System only (the 24h timer): the requester cannot cancel once picked up.
     Cancelled: cancel(sys, ['PICKUP_TIME_EXCEEDED']),
   },

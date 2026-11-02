@@ -394,6 +394,7 @@ async function apply(
     errandId: i.errandId,
     requesterId: row.row.requesterId,
     courierId: row.row.courierId,
+    actorUserId: actor,
     rewardCredits: row.row.rewardCredits,
     payload: { ...i.payload, ...i.set },
   });
