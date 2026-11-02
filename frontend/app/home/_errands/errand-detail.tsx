@@ -1,14 +1,14 @@
 "use client";
 
-import { clsx } from "clsx";
 import { useCallback, useEffect, useState } from "react";
-import { api, type ApiResult } from "@/lib/api";
+import { toast } from "sonner";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { FormError } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
 import {
   ACTION_LABELS,
-  ALL_ACTIONS,
   availableActions,
   type ActionName,
   type Errand,
@@ -32,29 +32,33 @@ const CONFIRM: Partial<Record<ActionName, { title: string; description: string }
   },
 };
 
+const DONE: Record<ActionName, string> = {
+  accept: "Errand accepted",
+  pickup: "Marked as picked up",
+  deliver: "Marked as delivered",
+  withdraw: "You withdrew from this errand",
+  confirm: "Delivery confirmed",
+  incomplete: "Reported as incomplete",
+  adjust: "Reward updated",
+  cancel: "Errand cancelled",
+};
+
 interface SentAction {
   action: ActionName;
   key: string;
   body?: unknown;
 }
 
-function describe(res: ApiResult): string {
-  if (res.ok) return `${res.status} OK${res.replayed ? " (replayed, nothing new written)" : ""}`;
-  return `${res.status} ${res.code ?? ""}${res.message ? `: ${res.message}` : ""}`;
-}
-
 export function ErrandDetail({
   errandId,
   me,
   suppliers,
-  showAllActions,
   onChanged,
   onClose,
 }: {
   errandId: string;
   me: string;
   suppliers: SupplierOption[];
-  showAllActions: boolean;
   onChanged: () => void;
   onClose: () => void;
 }) {
@@ -63,30 +67,27 @@ export function ErrandDetail({
   const [reason, setReason] = useState("");
   const [newAmount, setNewAmount] = useState(0);
   const [pending, setPending] = useState(false);
-  const [result, setResult] = useState<{ text: string; ok: boolean } | null>(null);
+  const [actionError, setActionError] = useState("");
   const [confirming, setConfirming] = useState<ActionName | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const load = useCallback(
-    async (quiet: boolean) => {
-      const res = await api<Errand>("GET", `/api/errands/${errandId}`, { quiet });
-      if (res.ok && res.data) {
-        setErrand(res.data);
-        setLoadError("");
-      } else if (res.status === 404) {
-        // Taken by another courier, or expired: non-parties can no longer see it.
-        setErrand(null);
-        setLoadError("This errand is no longer available.");
-      } else {
-        setLoadError(describe(res));
-      }
-    },
-    [errandId],
-  );
+  const load = useCallback(async () => {
+    const res = await api<Errand>("GET", `/api/errands/${errandId}`);
+    if (res.ok && res.data) {
+      setErrand(res.data);
+      setLoadError("");
+    } else if (res.status === 404) {
+      // Taken by another courier, or expired: non-parties can no longer see it.
+      setErrand(null);
+      setLoadError("This errand is no longer available.");
+    } else {
+      setLoadError(res.message ?? "Could not load this errand.");
+    }
+  }, [errandId]);
 
   useEffect(() => {
-    const first = setTimeout(() => void load(false), 0);
-    const timer = setInterval(() => void load(true), POLL_MS);
+    const first = setTimeout(() => void load(), 0);
+    const timer = setInterval(() => void load(), POLL_MS);
     return () => {
       clearTimeout(first);
       clearInterval(timer);
@@ -95,13 +96,15 @@ export function ErrandDetail({
 
   async function send(sent: SentAction) {
     setPending(true);
+    setActionError("");
     const res = await api("POST", `/api/errands/${errandId}/${sent.action}`, {
       idempotencyKey: sent.key,
       body: sent.body,
     });
     setPending(false);
-    setResult({ text: `${ACTION_LABELS[sent.action]}: ${describe(res)}`, ok: res.ok });
-    await load(true);
+    if (res.ok) toast.success(DONE[sent.action]);
+    else setActionError(res.message ?? `Could not ${ACTION_LABELS[sent.action].toLowerCase()}.`);
+    await load();
     onChanged();
   }
 
@@ -112,11 +115,7 @@ export function ErrandDetail({
   }
 
   const supplier = errand ? suppliers.find((s) => s.id === errand.supplierId) : undefined;
-  const actions = errand
-    ? showAllActions
-      ? ALL_ACTIONS
-      : availableActions(errand, me)
-    : [];
+  const actions = errand ? availableActions(errand, me) : [];
   const role =
     errand?.requesterId === me
       ? "You are the requester"
@@ -124,17 +123,7 @@ export function ErrandDetail({
         ? "You are the courier"
         : "You are not a party to this errand";
 
-  const resultLine = result && (
-    <p
-      role="status"
-      className={clsx(
-        "fade-in rounded-xl px-3 py-2 text-sm break-words",
-        result.ok ? "bg-success/10 text-success" : "bg-danger/10 text-danger",
-      )}
-    >
-      {result.text}
-    </p>
-  );
+  const resultLine = actionError && <FormError>{actionError}</FormError>;
 
   return (
     <Sheet

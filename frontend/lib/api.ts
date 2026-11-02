@@ -1,53 +1,12 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
-
 export interface ApiResult<T = unknown> {
   ok: boolean;
   status: number;
   data: T | null;
   code: string | null;
   message: string | null;
-  replayed: boolean;
   etag: string | null;
-}
-
-export interface ApiLogEntry {
-  id: number;
-  at: Date;
-  method: string;
-  path: string;
-  status: number;
-  code: string | null;
-  message: string | null;
-  replayed: boolean;
-  idempotencyKey: string | null;
-}
-
-const MAX_LOG = 50;
-let log: ApiLogEntry[] = [];
-let nextId = 1;
-const listeners = new Set<() => void>();
-
-function record(entry: Omit<ApiLogEntry, "id" | "at">) {
-  log = [{ ...entry, id: nextId++, at: new Date() }, ...log].slice(0, MAX_LOG);
-  listeners.forEach((l) => l());
-}
-
-export function clearApiLog() {
-  log = [];
-  listeners.forEach((l) => l());
-}
-
-export function useApiLog(): ApiLogEntry[] {
-  return useSyncExternalStore(
-    (l) => {
-      listeners.add(l);
-      return () => listeners.delete(l);
-    },
-    () => log,
-    () => log,
-  );
 }
 
 // Nest errors are { code, message } from order-service, or { message: string | string[] } from pipes and guards.
@@ -109,7 +68,7 @@ export async function authFetch(input: string, init: RequestInit = {}): Promise<
 export async function api<T = unknown>(
   method: "GET" | "POST" | "PATCH" | "PUT",
   path: string,
-  options: { body?: unknown; idempotencyKey?: string; ifMatch?: string; quiet?: boolean } = {},
+  options: { body?: unknown; idempotencyKey?: string; ifMatch?: string } = {},
 ): Promise<ApiResult<T>> {
   const headers: Record<string, string> = {};
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
@@ -118,7 +77,6 @@ export async function api<T = unknown>(
 
   let status = 0;
   let body: unknown = null;
-  let replayed = false;
   let etag: string | null = null;
   try {
     const res = await authFetch(path, {
@@ -127,7 +85,6 @@ export async function api<T = unknown>(
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
     });
     status = res.status;
-    replayed = res.headers.get("Idempotent-Replayed") === "true";
     etag = res.headers.get("ETag");
     body = await res.json().catch(() => null);
   } catch {
@@ -136,16 +93,5 @@ export async function api<T = unknown>(
 
   const ok = status >= 200 && status < 300;
   const { code, message } = ok ? { code: null, message: null } : readError(body);
-  if (!options.quiet) {
-    record({
-      method,
-      path,
-      status,
-      code,
-      message,
-      replayed,
-      idempotencyKey: options.idempotencyKey ?? null,
-    });
-  }
-  return { ok, status, data: ok ? (body as T) : null, code, message, replayed, etag };
+  return { ok, status, data: ok ? (body as T) : null, code, message, etag };
 }

@@ -79,7 +79,6 @@ export function SupplierRequestsTab({
     const res = await api<{ items: SupplierRequest[]; total: number }>(
       "GET",
       `/api/supplier-requests?limit=50${type ? `&type=${type}` : ""}`,
-      { quiet: true },
     );
     setLoading(false);
     if (res.ok && res.data) {
@@ -180,7 +179,7 @@ function RequestCard({
   // The list view leaves out fields such as locationDescription, so read the full supplier for the comparison.
   useEffect(() => {
     if (!request.supplierId) return;
-    api<Record<string, unknown>>("GET", `/api/suppliers/${request.supplierId}`, { quiet: true }).then(
+    api<Record<string, unknown>>("GET", `/api/suppliers/${request.supplierId}`).then(
       (res) => setDetail(res.data),
     );
   }, [request.supplierId]);

@@ -84,9 +84,8 @@ export const ACTION_LABELS: Record<ActionName, string> = {
   cancel: "Cancel errand",
 };
 
-export const ALL_ACTIONS = Object.keys(ACTION_LABELS) as ActionName[];
 
-// Mirrors the backend's edges so normal mode only shows what should succeed.
+// Mirrors the backend's edges so only actions that should succeed are shown.
 export function availableActions(errand: Errand, me: string): ActionName[] {
   const isRequester = errand.requesterId === me;
   const isCourier = !!errand.courierId && errand.courierId === me;

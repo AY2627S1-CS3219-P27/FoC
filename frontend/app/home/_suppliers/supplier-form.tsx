@@ -117,7 +117,7 @@ export function SupplierForm({
   useEffect(() => {
     if (!editing || !supplierId) return;
     let stale = false;
-    api<SupplierDetail>("GET", `/api/suppliers/${supplierId}`, { quiet: true }).then((res) => {
+    api<SupplierDetail>("GET", `/api/suppliers/${supplierId}`).then((res) => {
       // A superseded load must not overwrite what the user has typed since.
       if (stale) return;
       setLoading(false);

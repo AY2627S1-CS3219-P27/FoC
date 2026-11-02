@@ -46,7 +46,6 @@ export function ErrandsTab({
   buildings: BuildingOption[];
 }) {
   const [view, setView] = useState<View>(roles.includes("courier") ? "browse" : "mine");
-  const [showAllActions, setShowAllActions] = useState(false);
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
   const [balance, setBalance] = useState<Balance | null>(null);
   const [items, setItems] = useState<Errand[]>([]);
@@ -62,7 +61,7 @@ export function ErrandsTab({
   const [mineStatus, setMineStatus] = useState("");
 
   const loadBalance = useCallback(async () => {
-    const res = await api<Balance>("GET", "/api/credits/balance", { quiet: true });
+    const res = await api<Balance>("GET", "/api/credits/balance");
     if (res.ok) setBalance(res.data);
   }, []);
 
@@ -74,7 +73,7 @@ export function ErrandsTab({
   const [loadingMore, setLoadingMore] = useState(false);
 
   const loadList = useCallback(
-    async (quiet: boolean) => {
+    async () => {
       if (view === "new") return;
       const params = new URLSearchParams();
       if (view === "browse") {
@@ -91,7 +90,7 @@ export function ErrandsTab({
       const loaded = await fetchFirst(count, MAX_PAGE_SIZE, async (offset, limit) => {
         params.set("offset", String(offset));
         params.set("limit", String(limit));
-        const res = await api<Page<Errand>>("GET", `${path}?${params}`, { quiet });
+        const res = await api<Page<Errand>>("GET", `${path}?${params}`);
         if (res.ok && res.data) return res.data;
         failed = res;
         return null;
@@ -114,11 +113,11 @@ export function ErrandsTab({
 
   useEffect(() => {
     const first = setTimeout(() => {
-      void loadList(false);
+      void loadList();
       void loadBalance();
     }, 0);
     const timer = setInterval(() => {
-      void loadList(true);
+      void loadList();
       void loadBalance();
     }, POLL_MS);
     return () => {
@@ -133,14 +132,13 @@ export function ErrandsTab({
       const res = await api<{ items: SupplierOption[]; total: number }>(
         "GET",
         `/api/suppliers?status=Active&offset=${offset}&limit=${limit}`,
-        { quiet: true },
       );
       return res.data;
     }).then((loaded) => setSuppliers(loaded?.items ?? []));
   }, []);
 
   const refresh = () => {
-    void loadList(true);
+    void loadList();
     void loadBalance();
   };
 
@@ -159,7 +157,7 @@ export function ErrandsTab({
         }
       />
 
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-5">
         <Segmented
           label="Errand views"
           className="w-full sm:w-auto"
@@ -170,15 +168,6 @@ export function ErrandsTab({
             setView(v);
           }}
         />
-        <label className="flex cursor-pointer items-center gap-2 text-sm text-muted select-none">
-          <input
-            type="checkbox"
-            checked={showAllActions}
-            onChange={(e) => setShowAllActions(e.target.checked)}
-            className="size-4 accent-nus-orange"
-          />
-          Demo: show all actions (the backend decides)
-        </label>
       </div>
 
       {view === "new" && (
@@ -303,7 +292,6 @@ export function ErrandsTab({
           errandId={selected}
           me={me}
           suppliers={suppliers}
-          showAllActions={showAllActions}
           onChanged={refresh}
           onClose={() => setSelected(null)}
         />

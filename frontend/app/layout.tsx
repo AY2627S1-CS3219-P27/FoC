@@ -26,7 +26,6 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full flex flex-col">
         {children}
-        {/* Top centre keeps toasts clear of the API log panel in the bottom-right corner. */}
         <Toaster position="top-center" theme="system" richColors closeButton />
       </body>
     </html>

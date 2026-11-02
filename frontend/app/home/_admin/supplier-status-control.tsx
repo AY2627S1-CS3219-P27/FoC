@@ -23,7 +23,7 @@ export function SupplierStatusControl({
     setPending(true);
     setError("");
     // The status change needs the current version in If-Match, which the detail read returns as its ETag.
-    const current = await api("GET", `/api/suppliers/${supplierId}`, { quiet: true });
+    const current = await api("GET", `/api/suppliers/${supplierId}`);
     if (!current.etag) {
       setPending(false);
       setError(`${current.status} ${current.message ?? "Could not read the supplier's version."}`);

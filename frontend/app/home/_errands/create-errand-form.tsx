@@ -82,7 +82,6 @@ export function CreateErrandForm({
     const timer = setTimeout(() => {
       void api<CreditSufficiencyResponse>("POST", "/api/credits/sufficiency", {
         body: { userId, amount },
-        quiet: true,
       }).then((res) => {
         if (!active || sufficiencyRequestVersion.current !== requestVersion) return;
 

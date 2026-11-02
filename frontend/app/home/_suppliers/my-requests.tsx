@@ -36,7 +36,7 @@ export function MyRequests({
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    const res = await api<{ items: MyRequest[] }>("GET", "/api/supplier-requests/mine?limit=50", { quiet: true });
+    const res = await api<{ items: MyRequest[] }>("GET", "/api/supplier-requests/mine?limit=50");
     setLoading(false);
     if (res.ok && res.data) {
       setItems(res.data.items);

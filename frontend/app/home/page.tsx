@@ -7,7 +7,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AdminUserErrands } from "./_errands/admin-user-errands";
-import { ApiLogPanel } from "./_errands/api-log-panel";
 import { ErrandsTab } from "./_errands/errands-tab";
 import { SupplierRequestsTab } from "./_admin/supplier-requests-tab";
 import { SupplierStatusControl } from "./_admin/supplier-status-control";
@@ -420,7 +419,7 @@ function Home() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 pt-6 pb-24 sm:pt-8">
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 pt-6 pb-16 sm:pt-8">
         <div key={tab} className="tab-enter" data-dir={tabDir}>
           {tab === "errands" && user && user.roles.length > 0 && (
             <ErrandsTab me={user.uuid} roles={user.roles} buildings={buildings} />
@@ -532,7 +531,6 @@ function Home() {
           )}
         </div>
       </main>
-      <ApiLogPanel />
       {process.env.NODE_ENV === "development" && <DataToggle />}
     </div>
   );
