@@ -92,6 +92,12 @@ export function refreshSession(): Promise<boolean> {
 
 // fetch that renews an expired access token once and retries; a failed renewal ends the session.
 export async function authFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  // Dev-only: /home?data=worst etc. answers from fixtures instead of the services (see break-ui toggle).
+  if (process.env.NODE_ENV === "development") {
+    const { isDataset } = await import("./dev-datasets");
+    const dataset = new URLSearchParams(window.location.search).get("data");
+    if (isDataset(dataset)) return (await import("./dev-fixtures")).fixtureResponse(dataset, input, init);
+  }
   const send = () => fetch(input, { credentials: "same-origin", ...init });
   const res = await send();
   if (res.status !== 401) return res;

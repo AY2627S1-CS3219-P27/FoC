@@ -25,6 +25,7 @@ import { PinIcon, PlusIcon, SearchIcon } from "@/components/ui/icons";
 import { Card, EmptyState, PageHeader, Pill, SkeletonGrid } from "@/components/ui/layout";
 import { Segmented } from "@/components/ui/segmented";
 import { Sheet } from "@/components/ui/sheet";
+import { DataToggle } from "@/components/dev/data-toggle";
 
 interface UserProfile {
   uuid: string;
@@ -309,7 +310,9 @@ function Home() {
   function goTo(next: Tab) {
     setTabDir(TAB_ORDER.indexOf(next) < TAB_ORDER.indexOf(tab) ? "left" : "right");
     // Replace rather than push, so Back leaves the app instead of stepping through sections.
-    window.history.replaceState(null, "", `?tab=${next}`);
+    const params = new URLSearchParams(window.location.search);
+    params.set("tab", next);
+    window.history.replaceState(null, "", `?${params}`);
   }
 
   async function signOut() {
@@ -485,6 +488,7 @@ function Home() {
         </div>
       </main>
       <ApiLogPanel />
+      {process.env.NODE_ENV === "development" && <DataToggle />}
     </div>
   );
 }
