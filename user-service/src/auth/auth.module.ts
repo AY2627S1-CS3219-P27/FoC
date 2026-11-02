@@ -32,5 +32,6 @@ import { RefreshToken } from './refresh-token.entity.js';
   ],
   controllers: [AuthController],
   providers: [AuthService, RedisProvider],
+  exports: [AuthService],
 })
 export class AuthModule {}
