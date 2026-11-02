@@ -34,8 +34,7 @@ services:
   papercut:
     image: changemakerstudiosus/papercut-smtp:latest
     ports:
-      - '3050:8080'
-      - '25:2525'
+      - '127.0.0.1:3050:8080' # mail UI, loopback only; SMTP stays internal
 secrets:
   smtp_password:
     file: secrets/smtp_password.secret

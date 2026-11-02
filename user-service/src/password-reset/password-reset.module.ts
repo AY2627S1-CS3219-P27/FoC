@@ -4,9 +4,10 @@ import { PasswordResetController } from './password-reset.controller.js';
 import { RedisProvider } from '../redis/redis.provider.js';
 import { BrokerModule } from '../broker/broker.module.js';
 import { UsersModule } from '../users/users.module.js';
+import { AuthModule } from '../auth/auth.module.js';
 
 @Module({
-  imports: [BrokerModule, UsersModule],
+  imports: [BrokerModule, UsersModule, AuthModule],
   providers: [PasswordResetService, RedisProvider],
   controllers: [PasswordResetController],
 })

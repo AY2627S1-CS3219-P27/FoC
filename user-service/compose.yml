@@ -7,8 +7,6 @@ services:
       target: development
     image: ${FOC_IMAGE_PREFIX:-foc}/user-service:${USER_SERVICE_IMAGE_TAG:-dev}
     command: npm run start:dev
-    ports:
-      - '3000:3000'
     depends_on:
       user-db:
         condition: service_healthy
@@ -117,8 +115,6 @@ services:
   user-db:
     image: postgres:18-alpine
     restart: on-failure:3
-    ports:
-      - '${USER_SERVICE_DB_PORT}:5432'
     environment:
       - POSTGRES_USER=${USER_SERVICE_DB_USERNAME}
       - POSTGRES_PASSWORD_FILE=/run/secrets/db_password
@@ -137,8 +133,6 @@ services:
   redis:
     image: redis:latest
     restart: on-failure:3
-    ports:
-      - '${REDIS_PORT}:6379'
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
