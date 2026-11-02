@@ -52,7 +52,7 @@ export default function ForgotPasswordPage() {
           <Button type="submit" size="lg" block disabled={pending}>
             {pending ? "Sending…" : "Send reset link"}
           </Button>
-          <Link href="/login" className="text-center text-sm text-nus-blue underline-offset-4 hover:underline">
+          <Link href="/login" className="text-center text-sm text-nus-blue-ink underline-offset-4 hover:underline">
             Back to sign in
           </Link>
         </AuthCard>

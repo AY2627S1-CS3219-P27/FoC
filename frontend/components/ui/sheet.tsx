@@ -20,6 +20,7 @@ export function Sheet({
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(true);
+  const [scrolled, setScrolled] = useState(false);
 
   return (
     <Drawer.Root
@@ -37,7 +38,10 @@ export function Sheet({
               wide ? "max-w-3xl" : "max-w-md",
             )}
           >
-            <header className="flex items-start justify-between gap-4 border-b border-border px-6 pt-5 pb-4">
+            <header
+              data-scrolled={scrolled || undefined}
+              className="sheet-header flex items-start justify-between gap-4 px-6 pt-5 pb-4"
+            >
               <div className="min-w-0">
                 <Drawer.Title className="text-lg font-semibold break-words">{title}</Drawer.Title>
                 {description && (
@@ -48,12 +52,15 @@ export function Sheet({
               </div>
               <Drawer.Close
                 aria-label="Close"
-                className="btn-press -mr-1.5 flex size-9 shrink-0 items-center justify-center rounded-full text-muted hover:bg-surface hover:text-foreground"
+                className="btn-press -mr-1.5 flex size-9 shrink-0 pointer-coarse:size-11 items-center justify-center rounded-full text-muted hover:bg-surface hover:text-foreground"
               >
                 <CloseIcon />
               </Drawer.Close>
             </header>
-            <Drawer.Content className="flex-1 overflow-y-auto overscroll-contain px-6 py-5">
+            <Drawer.Content
+              onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 0)}
+              className="flex-1 overflow-y-auto overscroll-contain px-6 pt-1 pb-6"
+            >
               {children}
             </Drawer.Content>
           </Drawer.Popup>

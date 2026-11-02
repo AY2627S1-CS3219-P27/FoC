@@ -102,7 +102,7 @@ export function Pill({
         {
           neutral: "bg-muted/12 text-muted",
           orange: "bg-nus-orange/12 text-nus-orange",
-          blue: "bg-nus-blue/10 text-nus-blue dark:bg-nus-blue-light/25 dark:text-sky-200",
+          blue: "bg-nus-blue-ink/12 text-nus-blue-ink",
           success: "bg-success/12 text-success",
           danger: "bg-danger/12 text-danger",
         }[tone],

@@ -81,6 +81,8 @@ interface UserListItem {
 
 type Tab = "errands" | "suppliers" | "profile" | "users" | "requests";
 
+const TAB_ORDER: Tab[] = ["errands", "suppliers", "profile", "users", "requests"];
+
 const MAX_CARD_CATEGORIES = 3;
 
 async function errorMessage(res: Response, fallback: string): Promise<string> {
@@ -98,6 +100,8 @@ export default function HomePage() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [userLoading, setUserLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("errands");
+  const [tabDir, setTabDir] = useState<"left" | "right">("right");
+  const [signingOut, setSigningOut] = useState(false);
   const [creditBalance, setCreditBalance] = useState<CreditBalance | null>(null);
   const [creditBalanceStatus, setCreditBalanceStatus] =
     useState<CreditBalanceStatus>("loading");
@@ -282,6 +286,18 @@ export default function HomePage() {
     }
   }, [tab, user?.isAdmin, loadAllUsers]);
 
+  function goTo(next: Tab) {
+    setTabDir(TAB_ORDER.indexOf(next) < TAB_ORDER.indexOf(tab) ? "left" : "right");
+    setTab(next);
+  }
+
+  async function signOut() {
+    setSigningOut(true);
+    // Revoke the refresh token server-side; leave even if that fails.
+    await authFetch("/api/auth/sessions/current", { method: "DELETE" }).catch(() => null);
+    router.push("/login");
+  }
+
   function toggleRole(role: string) {
     setSelectedRoles((prev) =>
       prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]
@@ -320,7 +336,7 @@ export default function HomePage() {
               variant="nav"
               label="Sections"
               value={tab}
-              onChange={setTab}
+              onChange={goTo}
               items={tabs}
               className="hidden sm:block"
             />
@@ -342,21 +358,23 @@ export default function HomePage() {
                 Admin
               </span>
             )}
-            <Link
-              href="/login"
-              className="btn-press shrink-0 rounded-lg px-2 py-1.5 text-sm text-white/75 hover:bg-white/10 hover:text-white"
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              disabled={signingOut}
+              className="btn-press shrink-0 rounded-lg px-2 py-1.5 text-sm text-white/75 hover:bg-white/10 hover:text-white disabled:opacity-60 pointer-coarse:py-2.5"
             >
-              Sign out
-            </Link>
+              {signingOut ? "Signing out…" : "Sign out"}
+            </button>
           </div>
         </div>
         <div className="border-t border-white/10 sm:hidden">
-          <Segmented variant="strip" label="Sections" value={tab} onChange={setTab} items={tabs} />
+          <Segmented variant="strip" label="Sections" value={tab} onChange={goTo} items={tabs} />
         </div>
       </header>
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 pt-6 pb-24 sm:pt-8">
-        <div key={tab} className="fade-in">
+        <div key={tab} className="tab-enter" data-dir={tabDir}>
           {tab === "errands" && user && user.roles.length > 0 && (
             <ErrandsTab me={user.uuid} roles={user.roles} buildings={buildings} />
           )}
@@ -372,7 +390,7 @@ export default function HomePage() {
                     ? "Admin accounts have no requester or courier role. Use the Users tab to view any user's errands."
                     : "Pick a role (requester or courier) on My Account, then sign in again to request or deliver errands."}
                 </p>
-                <Button onClick={() => setTab(user.isAdmin ? "users" : "profile")}>
+                <Button onClick={() => goTo(user.isAdmin ? "users" : "profile")}>
                   {user.isAdmin ? "Go to Users" : "Go to My Account"}
                 </Button>
               </Card>

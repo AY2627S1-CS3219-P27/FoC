@@ -21,7 +21,7 @@ export function ApiLogPanel() {
         open ? "w-[min(30rem,calc(100vw-2rem))]" : "w-auto",
       )}
     >
-      <div className="overflow-hidden rounded-2xl border border-border bg-background/95 shadow-raised backdrop-blur">
+      <div className="glass-panel overflow-hidden rounded-2xl border border-border shadow-raised">
         <div className="flex items-center justify-between gap-3 px-3 py-2">
           <button
             onClick={() => setOpen((o) => !o)}

@@ -40,7 +40,7 @@ function OtpSlot({ char, isActive, hasFakeCaret }: SlotProps) {
     >
       {char}
       {hasFakeCaret && (
-        <span aria-hidden="true" className="absolute h-5 w-px animate-pulse bg-foreground" />
+        <span aria-hidden="true" className="absolute h-5 w-px animate-pulse bg-foreground motion-reduce:animate-none" />
       )}
     </div>
   );
@@ -193,7 +193,7 @@ export default function RegisterPage() {
           {pending ? "Please wait…" : step === "details" ? "Create account" : "Continue"}
         </Button>
 
-        <Link href="/login" className="text-center text-sm text-nus-blue underline-offset-4 hover:underline">
+        <Link href="/login" className="text-center text-sm text-nus-blue-ink underline-offset-4 hover:underline">
           Already have an account? Sign in
         </Link>
       </AuthCard>

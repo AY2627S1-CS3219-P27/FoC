@@ -49,7 +49,7 @@ function ResetForm() {
         </p>
         <Link
           href="/forgot-password"
-          className="mt-4 inline-block text-sm text-nus-blue underline-offset-4 hover:underline"
+          className="mt-4 inline-block text-sm text-nus-blue-ink underline-offset-4 hover:underline"
         >
           Request a new reset link
         </Link>

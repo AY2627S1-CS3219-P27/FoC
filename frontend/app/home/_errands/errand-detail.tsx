@@ -4,6 +4,7 @@ import { clsx } from "clsx";
 import { useCallback, useEffect, useState } from "react";
 import { api, type ApiResult } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Sheet } from "@/components/ui/sheet";
 import {
   ACTION_LABELS,
@@ -18,6 +19,18 @@ import { formatTime, inputClass, shortId, StatusBadge, timeLeft } from "./ui";
 const POLL_MS = 3000;
 
 const DESTRUCTIVE: ActionName[] = ["cancel", "incomplete", "withdraw"];
+
+// Irreversible, so they ask first. Withdraw already needs a typed reason.
+const CONFIRM: Partial<Record<ActionName, { title: string; description: string }>> = {
+  cancel: {
+    title: "Cancel this errand?",
+    description: "Couriers can no longer see it and your reserved credits are released. This cannot be undone.",
+  },
+  incomplete: {
+    title: "Report this delivery as incomplete?",
+    description: "The errand closes as incomplete. This cannot be undone.",
+  },
+};
 
 interface SentAction {
   action: ActionName;
@@ -51,6 +64,8 @@ export function ErrandDetail({
   const [newAmount, setNewAmount] = useState(0);
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState<{ text: string; ok: boolean } | null>(null);
+  const [confirming, setConfirming] = useState<ActionName | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const load = useCallback(
     async (quiet: boolean) => {
@@ -238,7 +253,12 @@ export function ErrandDetail({
                     key={a}
                     size="sm"
                     disabled={pending}
-                    onClick={() => run(a)}
+                    onClick={() => {
+                      if (CONFIRM[a]) {
+                        setConfirming(a);
+                        setConfirmOpen(true);
+                      } else run(a);
+                    }}
                     intent={DESTRUCTIVE.includes(a) ? "danger-outline" : "primary"}
                   >
                     {ACTION_LABELS[a]}
@@ -251,6 +271,18 @@ export function ErrandDetail({
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title={(confirming && CONFIRM[confirming]?.title) ?? ""}
+        description={(confirming && CONFIRM[confirming]?.description) ?? ""}
+        confirmLabel={confirming ? ACTION_LABELS[confirming] : ""}
+        intent="danger"
+        onConfirm={() => {
+          setConfirmOpen(false);
+          if (confirming) run(confirming);
+        }}
+      />
     </Sheet>
   );
 }

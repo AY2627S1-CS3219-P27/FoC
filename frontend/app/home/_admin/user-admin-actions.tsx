@@ -89,23 +89,16 @@ export function UserAdminActions<U extends AdminUserFlags>({
         intent={user.isArchived ? "success-outline" : "danger-outline"}
         disabled={pending}
         onClick={() =>
-          ask(
-            user.isArchived
-              ? {
-                  change: { isArchived: false },
-                  title: "Restore this account?",
-                  description: "They will be able to sign in again.",
-                  confirmLabel: "Unarchive",
-                  danger: false,
-                }
-              : {
-                  change: { isArchived: true },
-                  title: "Archive this account?",
-                  description: "They are signed out and cannot sign in until an admin restores the account.",
-                  confirmLabel: "Archive",
-                  danger: true,
-                },
-          )
+          // Restoring is safe and easy to undo, so only archiving asks first.
+          user.isArchived
+            ? void update({ isArchived: false })
+            : ask({
+                change: { isArchived: true },
+                title: "Archive this account?",
+                description: "They are signed out and cannot sign in until an admin restores the account.",
+                confirmLabel: "Archive",
+                danger: true,
+              })
         }
       >
         {user.isArchived ? "Unarchive" : "Archive"}
