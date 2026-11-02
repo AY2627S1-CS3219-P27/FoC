@@ -46,7 +46,6 @@ export function ErrandDetail({
   const [newAmount, setNewAmount] = useState(0);
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState<{ text: string; ok: boolean } | null>(null);
-  const [lastSent, setLastSent] = useState<SentAction | null>(null);
 
   const load = useCallback(
     async (quiet: boolean) => {
@@ -76,7 +75,6 @@ export function ErrandDetail({
 
   async function send(sent: SentAction) {
     setPending(true);
-    setLastSent(sent);
     const res = await api("POST", `/api/errands/${errandId}/${sent.action}`, {
       idempotencyKey: sent.key,
       body: sent.body,
@@ -241,15 +239,6 @@ export function ErrandDetail({
                 </p>
               )}
 
-              {lastSent && (
-                <button
-                  disabled={pending}
-                  onClick={() => void send(lastSent)}
-                  className="btn-press text-sm text-nus-blue hover:underline disabled:opacity-50"
-                >
-                  Send “{ACTION_LABELS[lastSent.action]}” again with the same Idempotency-Key
-                </button>
-              )}
             </div>
           </>
         )}

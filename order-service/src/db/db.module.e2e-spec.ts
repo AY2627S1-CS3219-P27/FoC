@@ -13,7 +13,7 @@ const boot = async (database: string, migrationsRun: boolean) => {
         load: [
           () => ({
             DB_HOST: process.env.DB_HOST ?? 'localhost',
-            DB_PORT: Number(process.env.DB_PORT ?? 5436),
+            DB_PORT: Number(process.env.DB_PORT ?? 5440),
             DB_USERNAME: process.env.DB_USERNAME ?? 'order_service',
             DB_PASSWORD_FILE: process.env.DB_PASSWORD_FILE ?? './secrets/order_db_password.secret',
             DB_DATABASE: database,

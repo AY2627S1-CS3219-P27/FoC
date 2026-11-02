@@ -641,6 +641,26 @@ describe('UsersService', () => {
 
       await expect(service.getUserByUuid(FIXED_UUID)).resolves.toBeNull();
     });
+  });
+
+  describe('getActiveUserByUuid', () => {
+    it('returns an active account', async () => {
+      userRepository.findOneBy.mockResolvedValue({ ...registeredUser, roles: [] });
+
+      await expect(service.getActiveUserByUuid(FIXED_UUID)).resolves.toMatchObject({
+        uuid: FIXED_UUID,
+      });
+    });
+
+    it.each([
+      ['missing', null],
+      ['archived', { ...registeredUser, roles: [], isArchived: true }],
+      ['locked', { ...registeredUser, roles: [], isLocked: true }],
+    ])('returns null for a %s account', async (_, row) => {
+      userRepository.findOneBy.mockResolvedValue(row);
+
+      await expect(service.getActiveUserByUuid(FIXED_UUID)).resolves.toBeNull();
+    });
 
     it('treats a missing roles value as an empty set', async () => {
       userRepository.findOneBy.mockResolvedValue({

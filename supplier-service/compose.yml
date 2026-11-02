@@ -11,8 +11,6 @@ services:
       target: development
     image: ${FOC_IMAGE_PREFIX:-foc}/supplier-service:${SUPPLIER_IMAGE_TAG:-dev}
     command: npm run start:dev
-    ports:
-      - '${SUPPLIER_SERVICE_HOST_PORT:-3002}:3000'
     depends_on:
       supplier-db:
         condition: service_healthy
@@ -94,8 +92,6 @@ services:
 
   supplier-db:
     image: postgres:18-alpine
-    ports:
-      - '${SUPPLIER_DB_HOST_PORT:-5438}:5432'
     environment:
       POSTGRES_USER: ${SUPPLIER_DB_USERNAME:-supplier_service}
       POSTGRES_DB: ${SUPPLIER_DB_DATABASE:-supplier_service}
