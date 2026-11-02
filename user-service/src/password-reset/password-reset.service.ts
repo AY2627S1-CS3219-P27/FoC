@@ -15,6 +15,7 @@ import {
   resetTokenRecordKey,
 } from '../common/hash/token-keys.js';
 import { UsersService } from '../users/users.service.js';
+import { AuthService } from '../auth/auth.service.js';
 
 export const CREATE_RESET_TOKEN_SCRIPT = getCreateResetTokenScript();
 export const RESET_PASSWORD_SCRIPT = getResetPasswordScript();
@@ -27,6 +28,7 @@ export class PasswordResetService {
     private secretService: SecretService,
     private configService: ConfigService,
     private usersService: UsersService,
+    private authService: AuthService,
   ) {}
 
   private readonly ResetTokenBytes = 32;
@@ -85,7 +87,9 @@ export class PasswordResetService {
   /**
    * Redeems a reset token: on success the token's consumption is recorded
    * atomically and the account's password is replaced with a freshly
-   * hashed one. Additionally clears the account's lock.
+   * hashed one. Additionally clears the account's lock, and revokes every
+   * refresh token the account holds so pre-reset sessions cannot outlive
+   * the password they were minted under.
    *
    * Every rejected condition surfaces as the same generic error.
    */
@@ -117,6 +121,10 @@ export class PasswordResetService {
       throw new BadRequestException('Invalid or expired reset token.');
     }
     await this.usersService.updatePassword(user.uuid, password);
+
+    // Revoked only after the credentials actually changed: sessions are
+    // killed by the reset, not by a mere redemption attempt.
+    await this.authService.revokeAllRefreshTokens(user.uuid);
   }
 
   private buildResetLink(token: string): string {
