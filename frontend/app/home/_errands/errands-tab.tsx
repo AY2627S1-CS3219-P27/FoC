@@ -8,7 +8,7 @@ import { api, errorText, type ApiResult } from "@/lib/api";
 import { fetchFirst } from "@/lib/paging";
 import { Button } from "@/components/ui/button";
 import { FilterSelect } from "@/components/ui/field";
-import { ArrowRightIcon, BoxIcon, ChevronRightIcon, PlusIcon } from "@/components/ui/icons";
+import { BoxIcon, ChevronRightIcon, PlusIcon } from "@/components/ui/icons";
 import { EmptyState, IconTile, LoadMore, PageHeader, SkeletonList } from "@/components/ui/layout";
 import { Segmented } from "@/components/ui/segmented";
 import { Sheet } from "@/components/ui/sheet";
@@ -162,7 +162,8 @@ export function ErrandsTab({
         }
       />
 
-      <section aria-label="Credits" className="mb-6 grid grid-cols-2 overflow-hidden rounded-2xl bg-surface">
+      {/* Side by side only when both full amounts fit; phones stack them rather than cut a number. */}
+      <section aria-label="Credits" className="mb-6 grid grid-cols-1 overflow-hidden rounded-2xl bg-surface sm:grid-cols-2">
         <BalanceCell label="Available" value={balance?.creditBalance} accent />
         <BalanceCell label="Reserved" value={balance?.reservedBalance} />
       </section>
@@ -331,9 +332,9 @@ export function ErrandsTab({
 
 function BalanceCell({ label, value, accent = false }: { label: string; value: number | undefined; accent?: boolean }) {
   return (
-    <div className="min-w-0 px-4 py-3.5 first:border-r first:border-border">
+    <div className="min-w-0 border-border px-4 py-3.5 first:border-b sm:first:border-r sm:first:border-b-0">
       <p className="text-[13px] text-muted">{label}</p>
-      <p className={clsx("tabular mt-0.5 truncate text-[22px] font-semibold tracking-tight", accent && "text-nus-orange")}>
+      <p className={clsx("tabular mt-0.5 text-[22px] font-semibold tracking-tight [overflow-wrap:anywhere]", accent && "text-nus-orange")}>
         {value === undefined ? "—" : <NumberFlow value={value} />}
       </p>
     </div>
@@ -360,25 +361,23 @@ function ErrandRow({
           </IconTile>
         </span>
         <span className="row-content ml-3 flex min-w-0 flex-1 items-center gap-2 border-border py-3 pr-3">
+          {/* Title gets the full width; the reward sits at the end of the status line so it never squeezes the title. */}
           <span className="min-w-0 flex-1">
-            <span className="flex items-baseline justify-between gap-3">
-              <span className="truncate text-[15px] font-semibold">{title}</span>
-              <span className="tabular shrink-0 text-[15px] font-semibold text-nus-orange">
-                {formatCredits(errand.rewardCredits)}
-              </span>
-            </span>
-            <span className="mt-0.5 flex items-center justify-between gap-3 text-[13px] text-muted">
-              <span className="flex min-w-0 items-center gap-1">
-                {/* A building short name (at most 20 characters) stays whole; the free-text delivery spot truncates. */}
-                <span className="max-w-[60%] shrink-0 truncate">{errand.pickupLocation ?? "—"}</span>
-                <ArrowRightIcon size={12} className="shrink-0" />
-                <span className="truncate">{errand.deliveryLocation}</span>
+            <span className="line-clamp-2 text-[15px] font-semibold break-words">{title}</span>
+            <span className="mt-0.5 flex items-start justify-between gap-3 text-[13px] text-muted">
+              {/* The route wraps to a second line instead of cutting the pickup building short. */}
+              <span className="line-clamp-2 min-w-0 break-words">
+                {errand.pickupLocation ?? "—"} → {errand.deliveryLocation}
               </span>
               <span className="shrink-0">{meta}</span>
             </span>
-            <span className="mt-1.5 flex min-w-0 items-center gap-2">
+            {/* When a large reward can't fit beside the badge, it drops to its own line rather than being cut. */}
+            <span className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
               <StatusBadge status={errand.status} />
-              <span className="truncate text-[13px] text-muted">{errand.collectionItems}</span>
+              <span className="min-w-16 flex-1 truncate text-[13px] text-muted">{errand.collectionItems}</span>
+              <span className="tabular ml-auto shrink-0 text-[15px] font-semibold text-nus-orange">
+                {formatCredits(errand.rewardCredits)}
+              </span>
             </span>
           </span>
           <ChevronRightIcon size={14} strokeWidth={2.5} className="shrink-0 text-muted/60" />

@@ -172,8 +172,10 @@ export function SuppliersTab({
                   title={<span className="line-clamp-2 font-medium">{s.displayName}</span>}
                   subtitle={
                     <>
-                      <span className="block truncate">
-                        {s.building?.shortName ?? "—"} · Floor {s.floor}
+                      {/* The floor is short and the useful part, so the building name gives way first. */}
+                      <span className="flex min-w-0">
+                        <span className="truncate">{s.building?.shortName ?? "—"}</span>
+                        <span className="shrink-0 whitespace-pre"> · Floor {s.floor}</span>
                       </span>
                       {cats && (
                         <span className="block truncate">
