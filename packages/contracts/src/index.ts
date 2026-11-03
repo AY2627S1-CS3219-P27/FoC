@@ -156,6 +156,7 @@ export {
   supplierValidationCompletedV1Contract,
 } from './domain-events/events/supplier-validation-completed/v1/contract.js';
 export type {
+  DeliveryBuildingSnapshot,
   SupplierValidationCompletedPayload,
   SupplierValidationOutcome,
   SupplierValidationSnapshot,

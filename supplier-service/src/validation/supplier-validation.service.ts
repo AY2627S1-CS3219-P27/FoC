@@ -4,6 +4,7 @@ import {
   SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY,
   type SupplierValidationCompletedEvent,
   type SupplierValidationRequestedEvent,
+  type SupplierValidationOutcome,
   type SupplierValidationRequestedPayload,
   type SupplierValidationSnapshot,
 } from '@foc/contracts';
@@ -16,7 +17,11 @@ import { SupplierQueriesService } from '../suppliers/supplier-queries.service.js
 import type { SupplierDetail } from '../suppliers/supplier-view.js';
 
 export type SupplierValidationResult =
-  | { status: 'answered'; replyEventId: string; outcome: 'FOUND' | 'NOT_FOUND' }
+  | {
+      status: 'answered';
+      replyEventId: string;
+      outcome: SupplierValidationOutcome;
+    }
   | { status: 'duplicate-event'; replyEventId: string }
   | { status: 'event-id-conflict'; eventId: string };
 
