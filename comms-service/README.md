@@ -132,7 +132,7 @@ npm run test:rabbitmq-permissions
 npm run rabbitmq:test:down
 ```
 
-The disposable PostgreSQL service listens on loopback host port `5440`. The
+The disposable PostgreSQL service listens on loopback host port `5441`. The
 isolated RabbitMQ service listens on loopback ports `5678` (AMQP) and `15678`
 (management). The latter imports the same infrastructure-owned identity,
 primary queues, permissions, and domain bindings as the root broker; starting

@@ -58,11 +58,21 @@ jobs:
           jq -e '
             (.services["comms-db-test"].ports | length == 1)
             and (.services["comms-rabbitmq-test"].ports | length == 2)
+            and (.services["comms-db-test"].ports[0] |
+              .host_ip == "127.0.0.1" and .published == "5441" and .target == 5432)
             and (all(
               .services["comms-db-test"].ports[],
               .services["comms-rabbitmq-test"].ports[];
               .host_ip == "127.0.0.1"))
           ' /tmp/comms-test.json
+
+          docker compose --profile test config --format json > /tmp/compose-test.json
+          jq -e '
+            (.services["order-db-test"].ports[0] |
+              .host_ip == "127.0.0.1" and .published == "5440" and .target == 5432)
+            and (.services["comms-db-test"].ports[0] |
+              .host_ip == "127.0.0.1" and .published == "5441" and .target == 5432)
+          ' /tmp/compose-test.json
 
       - name: Start databases and broker
         run: docker compose up -d --wait rabbitmq credit-db order-db comms-db

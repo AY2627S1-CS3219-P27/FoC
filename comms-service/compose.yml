@@ -135,7 +135,7 @@ services:
     image: postgres:18-alpine
     profiles: ['test']
     ports:
-      - '127.0.0.1:${COMMS_SERVICE_DB_TEST_HOST_PORT:-5440}:5432'
+      - '127.0.0.1:${COMMS_SERVICE_DB_TEST_HOST_PORT:-5441}:5432'
     environment:
       POSTGRES_USER: ${DB_USERNAME:-comms_service}
       POSTGRES_DB: ${DB_DATABASE:-comms_service_test}
