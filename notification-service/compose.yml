@@ -1,0 +1,71 @@
+services:
+  notification-service:
+    restart: on-failure:3
+    build: .
+    image: ${FOC_IMAGE_PREFIX:-foc}/notification-service:${NOTIFICATION_SERVICE_IMAGE_TAG:-dev}
+    depends_on:
+      notification-db:
+        condition: service_healthy
+    environment:
+      - PORT=${NOTIFICATION_SERVICE_PORT:-3000}
+      - LOG_LEVEL=${LOG_LEVEL}
+      - RABBITMQ_USER=${NOTIFICATION_SERVICE_RABBITMQ_USER}
+      - RABBITMQ_HOST=${RABBITMQ_HOST}
+      - RABBITMQ_PORT=${RABBITMQ_PORT}
+      - RABBITMQ_VHOST=${RABBITMQ_VHOST}
+      - RABBITMQ_PASSWORD_FILE=/run/secrets/rabbitmq_notification_password
+      - DB_HOST=${NOTIFICATION_SERVICE_DB_HOST}
+      - DB_PORT=${NOTIFICATION_SERVICE_DB_PORT}
+      - DB_USERNAME=${NOTIFICATION_SERVICE_DB_USERNAME}
+      - DB_DATABASE=${NOTIFICATION_SERVICE_DB_DATABASE}
+      - DB_PASSWORD_FILE=/run/secrets/notification_db_password
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'wget --no-verbose --tries=1 --spider "http://127.0.0.1:3000/health"',
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+    develop:
+      watch:
+        - action: sync+restart
+          path: .
+          target: /usr/src/app
+          ignore:
+            - node_modules/
+            - '*.secret'
+    secrets:
+      - rabbitmq_notification_password
+      - notification_db_password
+
+  notification-db:
+    image: postgres:18-alpine
+    environment:
+      - POSTGRES_USER=${NOTIFICATION_SERVICE_DB_USERNAME}
+      - POSTGRES_PASSWORD_FILE=/run/secrets/notification_db_password
+      - POSTGRES_DB=${NOTIFICATION_SERVICE_DB_DATABASE}
+    volumes:
+      - notification-db-data:/var/lib/postgresql
+    secrets:
+      - notification_db_password
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  notification-db-data:
+
+secrets:
+  rabbitmq_notification_password:
+    file: secrets/rabbitmq_notification_password.secret
+  notification_db_password:
+    file: secrets/notification_db_password.secret

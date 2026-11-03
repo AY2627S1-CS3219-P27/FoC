@@ -1,0 +1,28 @@
+{
+  "name": "notification-service",
+  "version": "1.0.0",
+  "description": "Notification service for Friend on Campus",
+  "author": "",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "start": "node app.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "amqplib": "^2.2.0",
+    "drizzle-orm": "^0.45.3",
+    "fastify": "^5.0.0",
+    "pg": "^8.23.0",
+    "pino": "^10.3.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "^0.31.11",
+    "vitest": "^5.0.1"
+  }
+}
