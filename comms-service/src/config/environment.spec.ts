@@ -65,6 +65,12 @@ describe('environmentSchema', () => {
     ).toEqual(['https://foc.example', 'http://localhost:5173']);
   });
 
+  it('accepts the configured canonical Socket.IO path', () => {
+    expect(validate({ SOCKET_PATH: '/socket.io' }).SOCKET_PATH).toBe(
+      '/socket.io',
+    );
+  });
+
   it.each([
     ['DB_PORT', 0],
     ['DB_PASSWORD_FILE', ''],
@@ -73,6 +79,9 @@ describe('environmentSchema', () => {
     ['RABBITMQ_PASSWORD_FILE', ''],
     ['REDIS_DB_INDEX', -1],
     ['SOCKET_PATH', 'socket.io'],
+    ['SOCKET_PATH', '/socket io'],
+    ['SOCKET_PATH', '/socket.io?transport=websocket'],
+    ['SOCKET_PATH', '/socket.io#fragment'],
     ['SOCKET_ALLOWED_ORIGINS', 'https://foc.example/path'],
     ['SOCKET_TRANSPORT', 'polling'],
   ])('rejects invalid %s', (name, value) => {

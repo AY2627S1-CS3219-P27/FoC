@@ -148,7 +148,7 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
   REDIS_USERNAME: Joi.string().min(1).default('default'),
   REDIS_DB_INDEX: Joi.number().integer().min(0).max(15).default(0),
   SOCKET_PATH: Joi.string()
-    .pattern(/^\/[A-Za-z0-9/_-]*$/)
+    .pattern(/^\/[A-Za-z0-9/_.-]*$/)
     .default('/socket.io'),
   SOCKET_ALLOWED_ORIGINS: origins,
   SOCKET_TRANSPORT: Joi.string().valid('websocket').default('websocket'),
