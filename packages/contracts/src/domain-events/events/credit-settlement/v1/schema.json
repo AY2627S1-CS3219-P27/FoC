@@ -56,8 +56,8 @@
             }
           },
           "anyOf": [
-            { "properties": { "courierAmount": { "minimum": 1 } } },
-            { "properties": { "requesterAmount": { "minimum": 1 } } }
+            { "properties": { "courierAmount": { "type": "integer", "minimum": 1 } } },
+            { "properties": { "requesterAmount": { "type": "integer", "minimum": 1 } } }
           ]
         }
       }

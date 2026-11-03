@@ -35,7 +35,8 @@ const succeeded = () =>
     courierUserId: id(),
     courierAmount: 30,
     requesterAmount: 20,
-    creditTransactionId: id(),
+    courierCreditTransactionId: id(),
+    requesterCreditTransactionId: id(),
   });
 const rejected = () =>
   envelope('CreditSettlementRejected', 'credit-service', {
@@ -98,7 +99,8 @@ describe('credit settlement event contracts', () => {
     [REQUEST, request, 'attempt'],
     [SUCCEEDED, succeeded, 'courierAmount'],
     [SUCCEEDED, succeeded, 'requesterAmount'],
-    [SUCCEEDED, succeeded, 'creditTransactionId'],
+    [SUCCEEDED, succeeded, 'courierCreditTransactionId'],
+    [SUCCEEDED, succeeded, 'requesterCreditTransactionId'],
     [REJECTED, rejected, 'rejectionReason'],
   ] as const)('requires %s payload field %s', (key, make, field) => {
     const event = make();
