@@ -30,15 +30,16 @@ jobs:
         run: bash scripts/ci-stack-secrets.sh
 
       - name: Start databases and broker
-        run: docker compose up -d --wait rabbitmq credit-db order-db
+        run: docker compose up -d --wait rabbitmq credit-db order-db comms-db
 
-      # Neither service migrates on startup; order-service's outbox relay
+      # These services do not migrate on startup; order-service's outbox relay
       # crashes the app on its first poll if its tables are missing.
       - name: Run migrations
         run: |
-          docker compose build credit-service order-service
+          docker compose build credit-service order-service comms-service
           docker compose run --rm credit-service npm run migration:run
           docker compose run --rm --no-deps order-service npm run db:migrate
+          docker compose run --rm --no-deps comms-service npm run migration:run
 
       - name: Start full stack
         run: docker compose up -d --build --wait

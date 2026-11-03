@@ -175,6 +175,7 @@ services:
         condition: service_healthy
 
   comms-service:
+    networks: [internal]
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -203,6 +204,8 @@ services:
   order-db:
     networks: [internal]
   credit-db:
+    networks: [internal]
+  comms-db:
     networks: [internal]
 
 # Communication isolation: the browser talks only to the frontend (public);
