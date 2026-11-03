@@ -143,6 +143,28 @@ already created (F15.5).
 - **Both messages use the repo's standard wrapper** (`eventId`, `eventType`,
   `timestamp`, `publisher`, `payload`), and unknown fields are rejected.
 
+## Amendment (2026-11-03): the delivery building
+
+Order Service no longer takes the delivery location as free text; it sends a
+building id, and asks Supplier Service (which owns buildings) to check it in
+the same round trip (Order Service ADR 0011). The v1 messages changed in
+place, in the shared contracts:
+
+- **The question** gains a required `deliveryBuildingId` (UUID). A resend of
+  the same question carries the same id; an `eventId` reused with a different
+  building is treated as a conflict and dead-lettered, like any reused id.
+- **The answer** has three outcomes:
+  - `FOUND`: as before, plus `deliveryBuilding` (`id`, `shortName`,
+    `canonicalName`).
+  - `NOT_FOUND`: the supplier does not exist. It wins when the building is
+    unknown too, so the building is only checked for a supplier that exists.
+  - `BUILDING_NOT_FOUND`: the supplier exists but the building does not. No
+    `supplier` or `deliveryBuilding` is sent.
+- A **retired building** is answered like an unknown one: Order Service only
+  needs to tell the requester to pick another building.
+- As with `NOT_FOUND`, `BUILDING_NOT_FOUND` only ever means "does not exist":
+  a database failure is retried, never reported as a missing building (F15.7.5).
+
 ## Who does what
 
 | Order Service | Supplier Service |
