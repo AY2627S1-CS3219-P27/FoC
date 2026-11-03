@@ -64,11 +64,10 @@ export class BuildingsService {
    * The non-retired building with this id; null when it is unknown or
    * retired. Given a manager, it reads on that transaction's connection.
    */
-  findInUseById(
-    id: string,
-    manager?: EntityManager,
-  ): Promise<Building | null> {
-    const repository = manager ? manager.getRepository(Building) : this.buildings;
+  findInUseById(id: string, manager?: EntityManager): Promise<Building | null> {
+    const repository = manager
+      ? manager.getRepository(Building)
+      : this.buildings;
     return repository.findOneBy({ id, retiredAt: IsNull() });
   }
 

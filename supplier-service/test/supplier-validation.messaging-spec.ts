@@ -232,6 +232,24 @@ describe('supplier validation through a real broker (F15.7)', () => {
     expect(await nextMessage(channel, REPLIES, 1_500)).toBe(false);
   });
 
+  it('answers BUILDING_NOT_FOUND for an unknown delivery building', async () => {
+    const asked = question(supplierId, randomUUID());
+    ask(asked);
+
+    const reply = await nextMessage(channel, REPLIES);
+    expect(reply).not.toBe(false);
+    const answer = JSON.parse((reply as GetMessage).content.toString('utf8'));
+    expect(answer).toMatchObject({
+      payload: {
+        errandId: asked.payload.errandId,
+        supplierId,
+        outcome: 'BUILDING_NOT_FOUND',
+      },
+    });
+    expect(answer.payload).not.toHaveProperty('supplier');
+    expect(answer.payload).not.toHaveProperty('deliveryBuilding');
+  });
+
   it('answers a redelivered question only once (F15.7.4)', async () => {
     const asked = question(supplierId, buildingId);
     ask(asked);
@@ -242,7 +260,10 @@ describe('supplier validation through a real broker (F15.7)', () => {
   });
 
   it('dead-letters a malformed question, without a retry or a reply (F15.7.6)', async () => {
-    const malformed = question(supplierId, buildingId) as Record<string, unknown>;
+    const malformed = question(supplierId, buildingId) as Record<
+      string,
+      unknown
+    >;
     (malformed.payload as Record<string, unknown>).supplierId = 'not-a-uuid';
     ask(malformed);
 

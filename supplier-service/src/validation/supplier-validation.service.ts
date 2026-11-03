@@ -10,18 +10,22 @@ import {
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DataSource, type EntityManager } from 'typeorm';
+import { BuildingsService } from '../buildings/buildings.service.js';
 import type { EnvironmentVariables } from '../config/environment.schema.js';
 import {
   type Building,
   InboxEvent,
   OutboxEvent,
 } from '../database/entities/index.js';
-import { BuildingsService } from '../buildings/buildings.service.js';
 import { SupplierQueriesService } from '../suppliers/supplier-queries.service.js';
 import type { SupplierDetail } from '../suppliers/supplier-view.js';
 
 export type SupplierValidationResult =
-  | { status: 'answered'; replyEventId: string; outcome: 'FOUND' | 'NOT_FOUND' | 'BUILDING_NOT_FOUND' }
+  | {
+      status: 'answered';
+      replyEventId: string;
+      outcome: 'FOUND' | 'NOT_FOUND' | 'BUILDING_NOT_FOUND';
+    }
   | { status: 'duplicate-event'; replyEventId: string }
   | { status: 'event-id-conflict'; eventId: string };
 

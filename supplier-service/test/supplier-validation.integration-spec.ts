@@ -126,7 +126,7 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
   const outbox = () => dataSource.getRepository(OutboxEvent).find();
   const inbox = () => dataSource.getRepository(InboxEvent).find();
 
-  it('answers on the transaction\'s own connection, so one pooled connection is enough', async () => {
+  it("answers on the transaction's own connection, so one pooled connection is enough", async () => {
     const { id } = await coolSpot();
     // A pool of one: a lookup on a second connection would wait for the
     // transaction's connection, and fail after the acquire timeout.
@@ -235,7 +235,7 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
     ).not.toHaveProperty('supplier');
   });
 
-  it('answers BUILDING_NOT_FOUND, without a snapshot, for a supplier in a building the errand does not use but an unknown delivery building', async () => {
+  it('answers BUILDING_NOT_FOUND, without a snapshot, when the supplier exists but the delivery building is unknown', async () => {
     const { id } = await coolSpot();
 
     const result = await validation.process(request(id, randomUUID()));
@@ -353,9 +353,9 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
       config,
     );
 
-    await expect(failing.process(request(randomUUID(), com2.id))).rejects.toThrow(
-      'connection terminated',
-    );
+    await expect(
+      failing.process(request(randomUUID(), com2.id)),
+    ).rejects.toThrow('connection terminated');
     await expect(outbox()).resolves.toHaveLength(0);
     await expect(inbox()).resolves.toHaveLength(0);
   });
