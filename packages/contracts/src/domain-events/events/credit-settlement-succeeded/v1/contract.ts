@@ -10,7 +10,8 @@ export interface CreditSettlementSucceededPayload {
   courierUserId: string;
   courierAmount: number;
   requesterAmount: number;
-  creditTransactionId: string;
+  courierCreditTransactionId: string | null;
+  requesterCreditTransactionId: string | null;
 }
 
 export const creditSettlementSucceededV1Contract =
