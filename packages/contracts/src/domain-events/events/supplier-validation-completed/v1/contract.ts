@@ -9,7 +9,20 @@ import schema from './schema.json' with { type: 'json' };
 export const SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY =
   'supplier.validation-completed.v1';
 
-export type SupplierValidationOutcome = 'FOUND' | 'NOT_FOUND';
+/**
+ * NOT_FOUND: the supplier does not exist (it wins when the building is unknown
+ * too). BUILDING_NOT_FOUND: the supplier exists but the delivery building does not.
+ */
+export type SupplierValidationOutcome =
+  | 'FOUND'
+  | 'NOT_FOUND'
+  | 'BUILDING_NOT_FOUND';
+
+export interface DeliveryBuildingSnapshot {
+  id: string;
+  shortName: string;
+  canonicalName: string;
+}
 
 /** The supplier's current details, enough for a consumer's own copy (F15.1). */
 export interface SupplierValidationSnapshot {
@@ -27,8 +40,13 @@ export type SupplierValidationCompletedPayload = {
   errandId: string;
   supplierId: string;
 } & (
-  | { outcome: 'FOUND'; supplier: SupplierValidationSnapshot }
+  | {
+      outcome: 'FOUND';
+      supplier: SupplierValidationSnapshot;
+      deliveryBuilding: DeliveryBuildingSnapshot;
+    }
   | { outcome: 'NOT_FOUND' }
+  | { outcome: 'BUILDING_NOT_FOUND' }
 );
 
 export const supplierValidationCompletedV1Contract =
