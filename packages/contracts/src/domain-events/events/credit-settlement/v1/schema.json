@@ -54,7 +54,11 @@
               "minimum": 1,
               "maximum": 9007199254740991
             }
-          }
+          },
+          "anyOf": [
+            { "properties": { "courierAmount": { "minimum": 1 } } },
+            { "properties": { "requesterAmount": { "minimum": 1 } } }
+          ]
         }
       }
     }
