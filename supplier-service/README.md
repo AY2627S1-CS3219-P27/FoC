@@ -659,6 +659,7 @@ sequenceDiagram
 **The rules:**
 - **Facts only.** An Inactive supplier is `FOUND` with `status: "Inactive"`; Order Service decides what that means for the errand (F15.2).
 - **Exactly one answer per question.** `inbox_events` records each answered request, keyed by its event id, with the reply it produced, in the same transaction as the reply in `outbox_events` (F15.7.3). A redelivery is acknowledged without a second reply (F15.7.4); an event id reused for different content is dead-lettered.
+- **Temporary rollout bridge.** Until Order Service's change is in main, the contract makes `deliveryBuildingId` (and the `FOUND` reply's `deliveryBuilding`) optional. A question without a building id is answered the old way: `FOUND` with no building check. This is removed, with its tests, when the contract makes the field required again (marked `TODO(rollout)` in `src/validation/supplier-validation.service.ts`).
 - **Delivery building checked in the same round trip** (Order Service ADR 0011). The building is checked only for a supplier that exists: `NOT_FOUND` (no supplier) wins over `BUILDING_NOT_FOUND`. A retired building counts as unknown, so Order Service only needs to say "pick another building".
 - **`NOT_FOUND` and `BUILDING_NOT_FOUND` mean "does not exist"**, never "couldn't read the database" (F15.7.5).
 - **Bad questions aren't retried:** missing or unknown fields, or not from `order-service`, go straight to the dead-letter queue and are logged (F15.7.6, F13.7).

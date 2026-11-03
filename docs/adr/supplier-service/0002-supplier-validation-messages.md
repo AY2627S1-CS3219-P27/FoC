@@ -160,6 +160,11 @@ place, in the shared contracts:
     unknown too, so the building is only checked for a supplier that exists.
   - `BUILDING_NOT_FOUND`: the supplier exists but the building does not. No
     `supplier` or `deliveryBuilding` is sent.
+- **Rollout:** `deliveryBuildingId` and the `FOUND` reply's `deliveryBuilding` are
+  temporarily optional in the contract (PR #759), so the two services can adopt
+  them independently. Without a building id, Supplier Service answers as before
+  (`FOUND`, no building check). The fields become required once both services
+  use them.
 - A **retired building** is answered like an unknown one: Order Service only
   needs to tell the requester to pick another building.
 - As with `NOT_FOUND`, `BUILDING_NOT_FOUND` only ever means "does not exist":
