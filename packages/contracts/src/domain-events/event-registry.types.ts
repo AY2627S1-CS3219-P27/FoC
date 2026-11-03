@@ -35,6 +35,11 @@ export type CreditTransferRejectedEvent =
   EventOf<'credit.transfer-rejected.v1'>;
 export type CreditReleaseSuccessEvent = EventOf<'credit.release-success.v1'>;
 export type CreditReleaseRejectedEvent = EventOf<'credit.release-rejected.v1'>;
+export type CreditSettlementEvent = EventOf<'credit.settlement.v1'>;
+export type CreditSettlementSucceededEvent =
+  EventOf<'credit.settlement-succeeded.v1'>;
+export type CreditSettlementRejectedEvent =
+  EventOf<'credit.settlement-rejected.v1'>;
 export type SupplierValidationRequestedEvent =
   EventOf<'order.supplier-validation-requested.v1'>;
 export type SupplierValidationCompletedEvent =

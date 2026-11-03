@@ -19,6 +19,9 @@ export type {
   CreditAccountInitialisedEvent,
   CreditReleaseRejectedEvent,
   CreditReleaseSuccessEvent,
+  CreditSettlementEvent,
+  CreditSettlementRejectedEvent,
+  CreditSettlementSucceededEvent,
   CreditTransferRejectedEvent,
   CreditTransferSucceededEvent,
   ErrandCancelledEvent,
@@ -113,6 +116,24 @@ export {
   creditReleaseSuccessV1Contract,
 } from './domain-events/events/credit-release-success/v1/contract.js';
 export type { CreditReleaseSuccessPayload } from './domain-events/events/credit-release-success/v1/contract.js';
+export {
+  CREDIT_SETTLEMENT_V1_ROUTING_KEY,
+  creditSettlementV1Contract,
+} from './domain-events/events/credit-settlement/v1/contract.js';
+export type { CreditSettlementPayload } from './domain-events/events/credit-settlement/v1/contract.js';
+export {
+  CREDIT_SETTLEMENT_SUCCEEDED_V1_ROUTING_KEY,
+  creditSettlementSucceededV1Contract,
+} from './domain-events/events/credit-settlement-succeeded/v1/contract.js';
+export type { CreditSettlementSucceededPayload } from './domain-events/events/credit-settlement-succeeded/v1/contract.js';
+export {
+  CREDIT_SETTLEMENT_REJECTED_V1_ROUTING_KEY,
+  creditSettlementRejectedV1Contract,
+} from './domain-events/events/credit-settlement-rejected/v1/contract.js';
+export type {
+  CreditSettlementRejectedPayload,
+  CreditSettlementRejectionReason,
+} from './domain-events/events/credit-settlement-rejected/v1/contract.js';
 export {
   USER_REGISTERED_V1_ROUTING_KEY,
   userRegisteredV1Contract,

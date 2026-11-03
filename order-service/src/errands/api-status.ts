@@ -3,7 +3,7 @@ import type { Status } from '../lifecycle/status.js';
 // The read side's only view of status: client-facing name -> internal
 // statuses behind it. Feeds both the response mapper and the `status` filter,
 // so sub-states (Pending-Supplier, Reserving-Credit, Adjusting-Credit,
-// Transferring-Credit) never reach a client. ARCHITECTURE.md §2.
+// Transferring-Credit, Settling-Credit) never reach a client. ARCHITECTURE.md §2.
 export const INTERNAL_STATUSES_OF = {
   'Pending': ['Pending-Supplier', 'Reserving-Credit'],
   'Open': ['Open', 'Adjusting-Credit'],
@@ -12,7 +12,8 @@ export const INTERNAL_STATUSES_OF = {
   'Delivered': ['Delivered'],
   'Completed': ['Completed', 'Transferring-Credit'],
   'Cancelled': ['Cancelled'],
-  'Incomplete': ['Incomplete'],
+  'Incomplete': ['Incomplete', 'Settling-Credit'],
+  'Resolved': ['Resolved'],
 } as const satisfies Record<string, readonly Status[]>;
 
 export type ApiStatus = keyof typeof INTERNAL_STATUSES_OF;

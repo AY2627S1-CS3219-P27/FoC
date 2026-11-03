@@ -57,7 +57,7 @@ describe('blockRoles', () => {
     expect(await isRoleBlocked(t.db, userId, Role.Courier)).toBe(true);
   });
 
-  const TERMINAL: Status[] = ['Completed', 'Cancelled', 'Incomplete'];
+  const TERMINAL: Status[] = ['Completed', 'Cancelled', 'Resolved'];
   it.each(STATUSES.map((s) => [s]))('requester with an errand in %s', async (status) => {
     const userId = randomUUID();
     await errandIn(status, userId);
@@ -69,6 +69,19 @@ describe('blockRoles', () => {
     await errandIn(status, randomUUID(), userId);
     expect((await block(userId, [Role.Courier])).ok).toBe(status !== 'Accepted' && status !== 'Picked Up');
   });
+
+  it.each<Status>(['Incomplete', 'Settling-Credit'])(
+    'an errand in dispute (%s) blocks the requester role',
+    async (status) => {
+      const userId = randomUUID();
+      await errandIn(status, userId);
+      expect(await block(userId, [Role.Requester])).toEqual({
+        ok: false,
+        reason: 'ROLE_IN_USE',
+        inUse: [Role.Requester],
+      });
+    },
+  );
 
   it('blocks nothing when one of two roles is in use', async () => {
     const userId = randomUUID();
