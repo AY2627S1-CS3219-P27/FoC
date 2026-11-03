@@ -18,6 +18,11 @@ Package 1 currently provides infrastructure only. Do not add lifecycle
 consumers, chat APIs, a Socket.IO namespace, or archive workers until their
 roadmap packages are implemented.
 
+The root stack keeps Communication Service and its PostgreSQL database on the
+private `internal` network without host ports. Use the opt-in
+`compose.debug.yaml` overlay for loopback-only direct access. Test-profile
+PostgreSQL and RabbitMQ ports must also remain bound to `127.0.0.1`.
+
 Useful commands:
 
 - `npm run build`

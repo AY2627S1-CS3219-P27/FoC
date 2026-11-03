@@ -81,10 +81,19 @@ Then start the versioned stack with:
 ```
 
 Plain `docker compose up -d --wait` uses the `dev` image tag. Communication
-Service is published on host port `3006`; its PostgreSQL database is published
-on `5437`. The root Compose dependency gates startup on healthy PostgreSQL,
-RabbitMQ, and Redis. PostgreSQL remains authoritative; Redis is only shared
-delivery infrastructure for a later realtime package.
+Service and its PostgreSQL database remain private on the root stack's
+`internal` network. The frontend or deployment ingress is the application
+access path, including the future same-site Socket.IO route. The root Compose
+dependency gates startup on healthy PostgreSQL, RabbitMQ, and Redis.
+PostgreSQL remains authoritative; Redis is only shared delivery infrastructure
+for a later realtime package.
+
+For loopback-only direct access to health/OpenAPI on port `3006` and PostgreSQL
+on port `5437`, opt into the repository debug overlay:
+
+```powershell
+docker compose -f compose.yaml -f compose.debug.yaml up -d --wait
+```
 
 TypeORM never synchronizes the schema. Migrations are always explicit:
 
@@ -123,11 +132,12 @@ npm run test:rabbitmq-permissions
 npm run rabbitmq:test:down
 ```
 
-The disposable PostgreSQL service listens on host port `5440`. The isolated
-RabbitMQ service listens on `5678` (AMQP) and `15678` (management). The latter
-imports the same infrastructure-owned identity, primary queues, permissions,
-and domain bindings as the root broker; starting Communication Service against
-it provisions only the service-owned retry topology.
+The disposable PostgreSQL service listens on loopback host port `5440`. The
+isolated RabbitMQ service listens on loopback ports `5678` (AMQP) and `15678`
+(management). The latter imports the same infrastructure-owned identity,
+primary queues, permissions, and domain bindings as the root broker; starting
+Communication Service against it provisions only the service-owned retry
+topology.
 
 `JWT_PUBLIC_KEY_FILE`, `DB_PASSWORD_FILE`, and `RABBITMQ_PASSWORD_FILE`
 contain container file paths, never secret values. The corresponding secret

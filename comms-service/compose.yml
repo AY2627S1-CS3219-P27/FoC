@@ -7,8 +7,6 @@ services:
     image: ${FOC_IMAGE_PREFIX:-foc}/comms-service:${COMMS_SERVICE_IMAGE_TAG:-dev}
     command: npm run start:dev
     restart: unless-stopped
-    ports:
-      - '${COMMS_SERVICE_HOST_PORT:-3006}:${COMMS_SERVICE_PORT:-3000}'
     depends_on:
       comms-db:
         condition: service_healthy
@@ -118,8 +116,6 @@ services:
   comms-db:
     image: postgres:18-alpine
     restart: unless-stopped
-    ports:
-      - '${COMMS_SERVICE_DB_HOST_PORT:-5437}:5432'
     environment:
       POSTGRES_USER: ${COMMS_SERVICE_DB_USERNAME:-comms_service}
       POSTGRES_DB: ${COMMS_SERVICE_DB_DATABASE:-comms_service}
@@ -139,7 +135,7 @@ services:
     image: postgres:18-alpine
     profiles: ['test']
     ports:
-      - '${COMMS_SERVICE_DB_TEST_HOST_PORT:-5440}:5432'
+      - '127.0.0.1:${COMMS_SERVICE_DB_TEST_HOST_PORT:-5440}:5432'
     environment:
       POSTGRES_USER: ${DB_USERNAME:-comms_service}
       POSTGRES_DB: ${DB_DATABASE:-comms_service_test}
@@ -159,8 +155,8 @@ services:
     image: rabbitmq:4.3.6-management-alpine
     profiles: ['test']
     ports:
-      - '${COMMS_RABBITMQ_TEST_HOST_PORT:-5678}:5672'
-      - '${COMMS_RABBITMQ_TEST_MANAGEMENT_HOST_PORT:-15678}:15672'
+      - '127.0.0.1:${COMMS_RABBITMQ_TEST_HOST_PORT:-5678}:5672'
+      - '127.0.0.1:${COMMS_RABBITMQ_TEST_MANAGEMENT_HOST_PORT:-15678}:15672'
     volumes:
       - ../rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
       - ../rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
