@@ -54,6 +54,22 @@ describe('SupplierValidationMessageHandler', () => {
     expect(process).toHaveBeenCalledWith(body);
   });
 
+  it('rollout bridge: accepts a request without a delivery building id', async () => {
+    const body = request({
+      payload: { errandId: randomUUID(), supplierId: randomUUID() },
+    });
+    process.mockResolvedValue({
+      status: 'answered',
+      replyEventId: randomUUID(),
+      outcome: 'FOUND',
+    });
+
+    await expect(handler.handle(delivery(body))).resolves.toEqual({
+      outcome: 'ack',
+    });
+    expect(process).toHaveBeenCalledWith(body);
+  });
+
   it('acknowledges a redelivered request without answering again (F15.7.4)', async () => {
     process.mockResolvedValue({
       status: 'duplicate-event',
@@ -70,13 +86,6 @@ describe('SupplierValidationMessageHandler', () => {
       'a missing supplier id',
       request({
         payload: { errandId: randomUUID(), deliveryBuildingId: randomUUID() },
-      }),
-      'INVALID_PAYLOAD',
-    ],
-    [
-      'a missing delivery building id',
-      request({
-        payload: { errandId: randomUUID(), supplierId: randomUUID() },
       }),
       'INVALID_PAYLOAD',
     ],

@@ -11,8 +11,12 @@ export const ORDER_SUPPLIER_VALIDATION_REQUESTED_V1_ROUTING_KEY =
 export interface SupplierValidationRequestedPayload {
   errandId: string;
   supplierId: string;
-  /** Supplier Service checks it exists; */
-  deliveryBuildingId: string;
+  /**
+   * Supplier Service checks it exists. Optional during the rollout so order-
+   * and supplier-service can adopt it independently.
+   * TODO: make required once both services send and handle it.
+   */
+  deliveryBuildingId?: string;
 }
 
 export const supplierValidationRequestedV1Contract =

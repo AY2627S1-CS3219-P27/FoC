@@ -295,6 +295,26 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
     });
   });
 
+  it('rollout bridge: a question without a delivery building id is answered FOUND without a building', async () => {
+    const { id } = await coolSpot();
+    const question = request(id, com2.id);
+    delete (question.payload as { deliveryBuildingId?: string })
+      .deliveryBuildingId;
+
+    const result = await validation.process(question);
+
+    expect(result).toMatchObject({ status: 'answered', outcome: 'FOUND' });
+    const [reply] = await outbox();
+    const payload = (reply.envelope as { payload: Record<string, unknown> })
+      .payload;
+    expect(payload).toMatchObject({ outcome: 'FOUND' });
+    expect(payload).not.toHaveProperty('deliveryBuilding');
+    expect(
+      contracts.validate('supplier.validation-completed.v1', reply.envelope)
+        .valid,
+    ).toBe(true);
+  });
+
   it('answers a redelivered request only once (F15.7.4)', async () => {
     const { id } = await coolSpot();
     const question = request(id, com2.id);

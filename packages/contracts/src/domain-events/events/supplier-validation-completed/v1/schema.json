@@ -142,7 +142,7 @@
               "supplier": true,
               "deliveryBuilding": true
             },
-            "required": ["supplier", "deliveryBuilding"]
+            "required": ["supplier"]
           },
           "else": {
             "type": "object",

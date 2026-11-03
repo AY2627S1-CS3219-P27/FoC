@@ -43,7 +43,8 @@ export type SupplierValidationCompletedPayload = {
   | {
       outcome: 'FOUND';
       supplier: SupplierValidationSnapshot;
-      deliveryBuilding: DeliveryBuildingSnapshot;
+      /** Optional during rollout; TODO: required once both services adopt it. */
+      deliveryBuilding?: DeliveryBuildingSnapshot;
     }
   | { outcome: 'NOT_FOUND' }
   | { outcome: 'BUILDING_NOT_FOUND' }
