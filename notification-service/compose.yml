@@ -1,7 +1,9 @@
 services:
   notification-service:
     restart: on-failure:3
-    build: .
+    build:
+      context: ..
+      dockerfile: notification-service/Dockerfile
     image: ${FOC_IMAGE_PREFIX:-foc}/notification-service:${NOTIFICATION_SERVICE_IMAGE_TAG:-dev}
     depends_on:
       notification-db:
@@ -19,6 +21,8 @@ services:
       - DB_USERNAME=${NOTIFICATION_SERVICE_DB_USERNAME}
       - DB_DATABASE=${NOTIFICATION_SERVICE_DB_DATABASE}
       - DB_PASSWORD_FILE=/run/secrets/notification_db_password
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4318}
+      - OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:-http://loki:3100/otlp/v1/logs}
     healthcheck:
       test:
         [

@@ -29,4 +29,12 @@ describe('http surface', () => {
     expect(res.json()).toEqual({ status: 'ok' });
     await app.close();
   });
+
+  it('serves Prometheus metrics on GET /metrics', async () => {
+    const app = buildServer();
+    const res = await app.inject({ method: 'GET', url: '/metrics' });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('foc_');
+    await app.close();
+  });
 });

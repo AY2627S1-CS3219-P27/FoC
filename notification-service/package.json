@@ -8,6 +8,12 @@
   "type": "module",
   "scripts": {
     "start": "node app.ts",
+    "obs:deps": "npm install --no-audit --no-fund --prefix ../packages/observability",
+    "obs:build": "npm run build --prefix ../packages/observability",
+    "obs:link": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('node_modules/@foc/observability', { recursive: true, force: true })\" && npm install --install-links --no-save --no-audit --no-fund ../packages/observability",
+    "postinstall": "npm run obs:deps",
+    "prestart": "npm run obs:build && npm run obs:link",
+    "pretest": "npm run obs:build && npm run obs:link",
     "test": "vitest run",
     "test:watch": "vitest"
   },
