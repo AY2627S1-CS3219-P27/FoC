@@ -79,12 +79,16 @@ async function nextMessage(
   return false;
 }
 
-const question = (supplierId: string, eventId = randomUUID()) => ({
+const question = (
+  supplierId: string,
+  deliveryBuildingId: string,
+  eventId = randomUUID(),
+) => ({
   eventId,
   eventType: 'SupplierValidationRequested',
   timestamp: new Date().toISOString(),
   publisher: 'order-service',
-  payload: { errandId: randomUUID(), supplierId },
+  payload: { errandId: randomUUID(), supplierId, deliveryBuildingId },
 });
 
 describe('supplier validation through a real broker (F15.7)', () => {
@@ -96,6 +100,7 @@ describe('supplier validation through a real broker (F15.7)', () => {
   let publisher: RabbitMqOutboxPublisher;
   let relay: OutboxRelay;
   let supplierId: string;
+  let buildingId: string;
 
   beforeAll(async () => {
     dataSource = new DataSource(
@@ -112,17 +117,19 @@ describe('supplier validation through a real broker (F15.7)', () => {
     await dataSource.dropDatabase();
     await dataSource.runMigrations({ transaction: 'all' });
 
-    const building = await new BuildingsService(
+    const buildings = new BuildingsService(
       dataSource,
       dataSource.getRepository(Building),
       dataSource.getRepository(BuildingNameKey),
-    ).create({
+    );
+    const building = await buildings.create({
       canonicalName: 'Computing 2',
       shortName: 'COM2',
       aliases: [],
       latitude: 1.2939,
       longitude: 103.7742,
     });
+    buildingId = building.id;
     const food = await new CategoriesService(
       dataSource.getRepository(Category),
     ).create('Food');
@@ -156,6 +163,7 @@ describe('supplier validation through a real broker (F15.7)', () => {
       new SupplierValidationService(
         dataSource,
         new SupplierQueriesService(dataSource, config),
+        buildings,
         contracts,
         config,
       ),
@@ -200,7 +208,7 @@ describe('supplier validation through a real broker (F15.7)', () => {
     });
 
   it('answers a question with exactly one FOUND reply carrying the snapshot (F15.7.2)', async () => {
-    const asked = question(supplierId);
+    const asked = question(supplierId, buildingId);
     ask(asked);
 
     const reply = await nextMessage(channel, REPLIES);
@@ -218,13 +226,14 @@ describe('supplier validation through a real broker (F15.7)', () => {
           version: 1,
           displayName: 'Cool Spot @ COM2',
         },
+        deliveryBuilding: { id: buildingId, shortName: 'COM2' },
       },
     });
     expect(await nextMessage(channel, REPLIES, 1_500)).toBe(false);
   });
 
   it('answers a redelivered question only once (F15.7.4)', async () => {
-    const asked = question(supplierId);
+    const asked = question(supplierId, buildingId);
     ask(asked);
     ask(structuredClone(asked));
 
@@ -233,7 +242,7 @@ describe('supplier validation through a real broker (F15.7)', () => {
   });
 
   it('dead-letters a malformed question, without a retry or a reply (F15.7.6)', async () => {
-    const malformed = question(supplierId) as Record<string, unknown>;
+    const malformed = question(supplierId, buildingId) as Record<string, unknown>;
     (malformed.payload as Record<string, unknown>).supplierId = 'not-a-uuid';
     ask(malformed);
 

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { BuildingsModule } from '../buildings/buildings.module.js';
 import { ContractsModule } from '../contracts/contracts.module.js';
 import { MessagingModule } from '../messaging/messaging.module.js';
 import { SuppliersModule } from '../suppliers/suppliers.module.js';
@@ -8,7 +9,7 @@ import { SupplierValidationService } from './supplier-validation.service.js';
 
 /** Wires Order Service's supplier-validation requests to their answers (F15.7). */
 @Module({
-  imports: [ContractsModule, MessagingModule, SuppliersModule],
+  imports: [BuildingsModule, ContractsModule, MessagingModule, SuppliersModule],
   providers: [
     SupplierValidationService,
     SupplierValidationMessageHandler,
