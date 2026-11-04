@@ -22,6 +22,7 @@ import {
   SupplierKind,
   SupplierStatus,
 } from '../src/database/entities/index.js';
+import { SupplierRequestsService } from '../src/requests/supplier-requests.service.js';
 import { SuppliersService } from '../src/suppliers/suppliers.service.js';
 
 const VALUES: Record<string, unknown> = {
@@ -35,12 +36,14 @@ const config = {
   get: (key: string) => VALUES[key],
 } as unknown as ConfigService<EnvironmentVariables, true>;
 
+const BASIC_USER = '42424242-4242-4242-8242-424242424242';
 const ADMIN = '01010101-0101-4101-8101-010101010101';
 const OTHER_ADMIN = '02020202-0202-4202-8202-020202020202';
 
 describe('the audit log across the writes (real PostgreSQL, F14.4, F14.5)', () => {
   let dataSource: DataSource;
   let suppliers: SuppliersService;
+  let requests: SupplierRequestsService;
   let buildings: BuildingsService;
   let categories: CategoriesService;
   let brands: BrandsService;
@@ -63,6 +66,7 @@ describe('the audit log across the writes (real PostgreSQL, F14.4, F14.5)', () =
     await dataSource.runMigrations({ transaction: 'all' });
 
     suppliers = new SuppliersService(dataSource, config);
+    requests = new SupplierRequestsService(dataSource, suppliers);
     buildings = new BuildingsService(
       dataSource,
       dataSource.getRepository(Building),
@@ -309,6 +313,222 @@ describe('the audit log across the writes (real PostgreSQL, F14.4, F14.5)', () =
         'supplier.created',
         'supplier.updated',
       ]);
+    });
+  });
+
+  describe('requests', () => {
+    const entriesOfType = (type: string) =>
+      dataSource
+        .getRepository(AuditEntry)
+        .find({
+          where: { targetType: type as 'request' },
+          order: { id: 'ASC' },
+        });
+
+    it('records filing a creation request, by the user, with no before (F14.4)', async () => {
+      const filed = await withActor(BASIC_USER, () =>
+        requests.submitCreation(coolSpot(), BASIC_USER),
+      );
+
+      const [entry, ...others] = await entriesFor(filed.id);
+
+      expect(others).toEqual([]);
+      expect(entry).toMatchObject({
+        actorId: BASIC_USER,
+        action: 'request.submitted',
+        targetType: 'request',
+        before: null,
+        version: null,
+        after: {
+          id: filed.id,
+          type: 'Create',
+          state: 'Pending',
+          submittedBy: BASIC_USER,
+          resolvedBy: null,
+          values: { name: 'Cool Spot' },
+        },
+      });
+    });
+
+    it('records filing an edit request and a status-change request', async () => {
+      const { id } = await suppliers.create(coolSpot());
+
+      const edit = await withActor(BASIC_USER, () =>
+        requests.submitUpdate(id, 1, { floor: '2' }, BASIC_USER),
+      );
+      const status = await withActor(BASIC_USER, () =>
+        requests.submitStatusChange(
+          id,
+          SupplierStatus.Inactive,
+          'Closed',
+          BASIC_USER,
+        ),
+      );
+
+      expect((await entriesFor(edit.id))[0]).toMatchObject({
+        action: 'request.submitted',
+        after: { type: 'Update', supplierId: id, values: { floor: '2' } },
+      });
+      expect((await entriesFor(status.id))[0]).toMatchObject({
+        action: 'request.submitted',
+        after: {
+          type: 'StatusChange',
+          values: { status: 'Inactive', reason: 'Closed' },
+        },
+      });
+    });
+
+    it('records a denial with the reason, from Pending to Denied', async () => {
+      const filed = await requests.submitCreation(coolSpot(), BASIC_USER);
+
+      await withActor(ADMIN, () => requests.deny(filed.id, ADMIN, 'Not now'));
+
+      const denial = (await entriesFor(filed.id)).at(-1)!;
+      expect(denial).toMatchObject({
+        actorId: ADMIN,
+        action: 'request.denied',
+        before: { state: 'Pending', denialReason: null },
+        after: {
+          state: 'Denied',
+          resolvedBy: ADMIN,
+          denialReason: 'Not now',
+        },
+      });
+    });
+
+    it('records a withdrawal by the submitter', async () => {
+      const filed = await requests.submitCreation(coolSpot(), BASIC_USER);
+
+      await withActor(BASIC_USER, () =>
+        requests.withdraw(filed.id, BASIC_USER),
+      );
+
+      expect((await entriesFor(filed.id)).at(-1)).toMatchObject({
+        actorId: BASIC_USER,
+        action: 'request.withdrawn',
+        before: { state: 'Pending' },
+        after: { state: 'Withdrawn', resolvedBy: BASIC_USER },
+      });
+    });
+
+    it('records an approval of a creation as two entries by the admin: the request and the new supplier', async () => {
+      const filed = await withActor(BASIC_USER, () =>
+        requests.submitCreation(coolSpot(), BASIC_USER),
+      );
+
+      const approved = await withActor(ADMIN, () =>
+        requests.approve(filed.id, ADMIN),
+      );
+
+      const requestEntry = (await entriesFor(filed.id)).at(-1)!;
+      const [supplierEntry] = await entriesFor(approved.createdSupplierId!);
+      expect(requestEntry).toMatchObject({
+        actorId: ADMIN,
+        action: 'request.approved',
+        before: { state: 'Pending', createdSupplierId: null },
+        after: {
+          state: 'Approved',
+          resolvedBy: ADMIN,
+          createdSupplierId: approved.createdSupplierId,
+        },
+      });
+      // The supplier was created by the admin's approval, not by the user.
+      expect(supplierEntry).toMatchObject({
+        actorId: ADMIN,
+        action: 'supplier.created',
+        version: 1,
+      });
+      // Both in one transaction: the supplier's entry comes first.
+      expect(BigInt(supplierEntry!.id)).toBeLessThan(BigInt(requestEntry.id));
+    });
+
+    it('records the supplier change an approved edit and an approved status change make', async () => {
+      const { id } = await suppliers.create(coolSpot());
+      const edit = await requests.submitUpdate(
+        id,
+        1,
+        { floor: '2' },
+        BASIC_USER,
+      );
+      await withActor(ADMIN, () => requests.approve(edit.id, ADMIN));
+      const status = await requests.submitStatusChange(
+        id,
+        SupplierStatus.Inactive,
+        undefined,
+        BASIC_USER,
+      );
+      await withActor(ADMIN, () => requests.approve(status.id, ADMIN));
+
+      const actions = (await entriesFor(id)).map((e) => [e.action, e.actorId]);
+      expect(actions).toEqual([
+        ['supplier.created', null],
+        ['supplier.updated', ADMIN],
+        ['supplier.status_changed', ADMIN],
+      ]);
+    });
+
+    it('records nothing when an approval is refused, for either record (F14.4)', async () => {
+      const { id } = await suppliers.create(coolSpot());
+      const filed = await requests.submitUpdate(
+        id,
+        1,
+        { floor: '2' },
+        BASIC_USER,
+      );
+      await suppliers.update(id, 1, { locationDescription: 'Near the lift' });
+      const before = await total();
+
+      // The supplier changed since the request was filed: refused, Pending.
+      const refused = await failure(
+        withActor(ADMIN, () => requests.approve(filed.id, ADMIN)),
+      );
+
+      expect(refused).toBeInstanceOf(ConflictException);
+      expect(await total()).toBe(before);
+      expect((await entriesFor(filed.id)).map((e) => e.action)).toEqual([
+        'request.submitted',
+      ]);
+    });
+
+    it('records nothing for a request that is refused when filed, or acted on twice', async () => {
+      const filed = await requests.submitCreation(coolSpot(), BASIC_USER);
+      await requests.deny(filed.id, ADMIN, 'No');
+      const before = await total();
+
+      const duplicate = await failure(
+        requests.submitCreation({ ...coolSpot(), floor: 'Z' }, BASIC_USER),
+      );
+      const again = await failure(requests.approve(filed.id, ADMIN));
+
+      expect(duplicate).toBeInstanceOf(BadRequestException);
+      expect(again).toBeInstanceOf(ConflictException);
+      expect(await total()).toBe(before);
+    });
+
+    it('lets only one of an approval and a withdrawal at the same time leave an entry', async () => {
+      const filed = await requests.submitCreation(coolSpot(), BASIC_USER);
+
+      await Promise.allSettled([
+        withActor(ADMIN, () => requests.approve(filed.id, ADMIN)),
+        withActor(BASIC_USER, () => requests.withdraw(filed.id, BASIC_USER)),
+      ]);
+
+      const resolutions = (await entriesFor(filed.id)).filter(
+        (e) => e.action !== 'request.submitted',
+      );
+      expect(resolutions).toHaveLength(1);
+    });
+
+    it('covers every request action', async () => {
+      const filed = await requests.submitCreation(coolSpot(), BASIC_USER);
+      await requests.withdraw(filed.id, BASIC_USER);
+
+      const actions = new Set(
+        (await entriesOfType('request')).map((e) => e.action),
+      );
+
+      expect(actions).toContain('request.submitted');
+      expect(actions).toContain('request.withdrawn');
     });
   });
 });
