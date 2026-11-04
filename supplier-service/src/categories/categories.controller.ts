@@ -1,8 +1,19 @@
 import { AdminGuard, JwtAuthGuard } from '@foc/auth';
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
+import { uuidParam } from '../common/validation/parse-uuid.pipe.js';
 import type { Category } from '../database/entities/index.js';
 import { CategoriesService } from './categories.service.js';
 import { CreateCategoryDto } from './dto/create-category.dto.js';
+import { RenameCategoryDto } from './dto/rename-category.dto.js';
 
 export interface CategoryView {
   id: string;
@@ -34,5 +45,32 @@ export class CategoriesController {
   @UseGuards(AdminGuard)
   async create(@Body() body: CreateCategoryDto): Promise<CategoryView> {
     return toView(await this.categories.create(body.name));
+  }
+
+  /**
+   * Renames a category (F11.2). Admin only. A name already used by a
+   * non-retired category is 409 DUPLICATE_NAME (F11.2.1), a retired category
+   * cannot be renamed (409), an unknown id is 404.
+   */
+  @Patch(':id')
+  @UseGuards(AdminGuard)
+  async rename(
+    @Param('id', uuidParam('id')) id: string,
+    @Body() body: RenameCategoryDto,
+  ): Promise<CategoryView> {
+    return toView(await this.categories.rename(id, body.name));
+  }
+
+  /**
+   * Retires a category (F11.2, F11.3). Admin only. Suppliers keep it, but it
+   * is no longer listed or selectable (F11.3.1). Retiring twice is harmless.
+   */
+  @Post(':id/retire')
+  @UseGuards(AdminGuard)
+  @HttpCode(200)
+  async retire(
+    @Param('id', uuidParam('id')) id: string,
+  ): Promise<CategoryView> {
+    return toView(await this.categories.retire(id));
   }
 }
