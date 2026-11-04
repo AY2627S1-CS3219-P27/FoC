@@ -275,6 +275,88 @@ the corrected event with `@foc/contracts`, and acknowledges the DLQ copy only
 after publisher confirmation. It must use a dedicated operator identity, never
 the runtime Communication Service credentials.
 
+## Publish lifecycle fixtures
+
+The committed fixtures exercise Communication Service's upstream RabbitMQ
+boundary without inserting database rows or starting Order Service. This is a
+local smoke-test facility, not a replacement for testing Order's transactional
+outbox through the complete stack.
+
+Copy the local configuration and example secrets, then start fresh disposable
+PostgreSQL and RabbitMQ containers:
+
+```powershell
+Copy-Item .env.example .env
+Copy-Item secrets/comms_db_password.secret.example secrets/comms_db_password.secret
+Copy-Item secrets/rabbitmq_password.secret.example secrets/rabbitmq_password.secret
+npm run fixtures:test:up
+```
+
+`RABBITMQ_FIXTURE_URL` uses the disposable broker's loopback-only test
+administrator. It is deliberately separate from the Communication Service
+connection: the runtime `comms-service` identity remains unable to publish to
+`foc.events`. Never use the example fixture URL in deployment. When manually
+targeting another broker, supply an approved test/operator or producer identity
+that may publish the four Order routes; never commit the resulting `.env` or
+secret files.
+
+Run the automated real-broker/real-database workflow with:
+
+```powershell
+npm run test:fixtures
+```
+
+It proves buffered delivery before consumer startup, atomic chat creation,
+exact duplicate convergence, reacceptance, terminal evidence, invalid-contract
+DLQs, and event-ID conflict preservation. The suite resets only a database
+whose name ends in `_test`; always recreate the test broker so its queues start
+empty.
+
+For manual testing, run Communication Service against a broker and database,
+then list or publish the fixed samples:
+
+```powershell
+npm run event:fixtures:list
+npm run event:publish:errand-accepted
+npm run event:publish:errand-reaccepted
+npm run event:publish:errand-delivered
+```
+
+Inspect the resulting state with read-only SQL:
+
+```sql
+SELECT * FROM inbox_events ORDER BY received_at DESC;
+SELECT * FROM chat_lifecycle_events ORDER BY occurred_at DESC;
+SELECT id, acceptance_event_id, errand_id, requester_user_id,
+       courier_user_id, state, next_sequence, created_at
+FROM chats ORDER BY created_at DESC;
+```
+
+Publishing `errand-accepted` twice is the duplicate test. The conflict and
+invalid selectors intentionally enter the accepted-stream DLQ:
+
+```powershell
+npm run event:publish:errand-accepted-conflict
+npm run event:publish:errand-accepted-unknown-field
+npm run event:publish:errand-accepted-wrong-publisher
+```
+
+Custom fixture files require an explicit allowlisted route:
+
+```powershell
+node scripts/publish-lifecycle-fixture.mjs C:\secure\event.json `
+  --routing-key order.errand-accepted.v1
+```
+
+The publisher checks but never declares `foc.events`, publishes exact bytes
+persistently with mandatory routing and confirms, and rejects unroutable
+messages. Never publish fixtures directly to a primary queue, retry exchange,
+or retry-return exchange. Tear down the disposable services after testing:
+
+```powershell
+npm run fixtures:test:down
+```
+
 ## Deferred roadmap behavior
 
 The current Package 2 slice consumes lifecycle messages, creates accepted
