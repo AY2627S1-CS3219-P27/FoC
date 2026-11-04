@@ -24,11 +24,13 @@ services:
       - RABBITMQ_PORT=${RABBITMQ_PORT}
       - RABBITMQ_VHOST=${RABBITMQ_VHOST}
       - RABBITMQ_PASSWORD_FILE=/run/secrets/rabbitmq_notification_password
+      - JWT_PUBLIC_KEY_FILE=/run/secrets/jwt_public_key_notification_service
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4318}
       - OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:-http://loki:3100/otlp/v1/logs}
     secrets:
       - notification_db_password
       - rabbitmq_notification_password
+      - jwt_public_key_notification_service
     healthcheck:
       test:
         [
@@ -97,3 +99,7 @@ secrets:
     file: secrets/notification_db_password.secret
   rabbitmq_notification_password:
     file: secrets/rabbitmq_notification_password.secret
+  # Read-only copy of user-service's verification key, exactly as the other
+  # token-consuming services mount it.
+  jwt_public_key_notification_service:
+    file: ../user-service/secrets/jwt_public_key.secret
