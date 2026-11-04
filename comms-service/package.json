@@ -31,6 +31,7 @@
     "test": "vitest run",
     "test:integration": "vitest run --config ./vitest.config.integration.ts",
     "test:rabbitmq-permissions": "node scripts/verify-rabbitmq-permissions.mjs",
+    "dlq:operator": "node scripts/comms-dlq.mjs",
     "db:test:up": "docker compose --profile test up -d --wait comms-db-test",
     "db:test:down": "docker compose --profile test rm -sfv comms-db-test",
     "rabbitmq:test:up": "docker compose --profile test up -d --wait --force-recreate comms-rabbitmq-test",

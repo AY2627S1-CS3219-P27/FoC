@@ -23,6 +23,7 @@ import {
   COMMS_RETRY_EXCHANGE,
   COMMS_RETRY_RETURN_EXCHANGE,
 } from './rabbitmq-topology.js';
+import { commsMetrics } from '../observability/comms-metrics.js';
 
 const CONSUMER_PREFETCH = 10;
 const MAX_RETRY_COUNT = COMMS_RETRY_DELAYS_MS.length;
@@ -396,6 +397,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
     });
 
     let result: LifecycleMessageHandlingResult;
+    const handlerStarted = process.hrtime.bigint();
     try {
       result = await subscription.handler.handle({
         body,
@@ -414,8 +416,19 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       };
     }
 
+    commsMetrics.observeLifecycleHandler(
+      subscription.routingKey,
+      result.outcome,
+      Number(process.hrtime.bigint() - handlerStarted) / 1_000_000_000,
+    );
+
     if (result.outcome === 'processed' || result.outcome === 'duplicate') {
-      await this.ackOrReplace(message, consumerChannel, subscription);
+      if (await this.ackOrReplace(message, consumerChannel, subscription)) {
+        commsMetrics.lifecycleDelivery(
+          subscription.routingKey,
+          result.outcome === 'processed' ? 'successful' : 'duplicate',
+        );
+      }
       return;
     }
     if (result.outcome === 'permanent-failure') {
@@ -451,14 +464,16 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
     message: ConsumeMessage,
     channel: Channel,
     subscription: LifecycleSubscription,
-  ): Promise<void> {
+  ): Promise<boolean> {
     try {
       channel.ack(message);
+      return true;
     } catch (error) {
       this.logger.error(
         `Unable to acknowledge event from ${subscription.queue}: ${String(error)}`,
       );
       await this.replaceConsumer(subscription, channel);
+      return false;
     }
   }
 
@@ -484,6 +499,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
         }),
       );
       consumerChannel.ack(message);
+      commsMetrics.lifecycleDelivery(subscription.routingKey, 'retried');
     } catch (error) {
       this.logger.error(
         `Unable to confirm retry publication for event ${eventId ?? 'unknown'}: ${String(error)}`,
@@ -507,6 +523,12 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
         this.publishOptions(message, failure),
       );
       consumerChannel.ack(message);
+      commsMetrics.lifecycleDelivery(
+        subscription.routingKey,
+        failure.category === 'IDENTITY_CONFLICT'
+          ? 'conflicting'
+          : 'dead_lettered',
+      );
       this.logger.warn(
         `Dead-lettered event ${failure.eventId ?? 'unknown'} from ${subscription.queue}: ${failure.category}`,
       );

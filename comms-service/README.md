@@ -254,6 +254,27 @@ returns messages in ascending per-chat sequence order and derives `UNREAD` or
 and modified, malformed, or cross-endpoint values return 400. An unknown,
 archived, or unauthorized history target always returns the same sanitized 404.
 
+## Metrics and recovery operations
+
+`/metrics` exposes Package 2 delivery outcomes, handler latency, committed chat
+creation, normalized chat API latency, and HTTP status classes. Labels are
+limited to stream, outcome, normalized route, status class, and fixed source;
+participant, errand, chat, event, cursor, and token values are never labels.
+
+Malformed or contract-invalid notices are confirmed into their stream DLQ.
+Transient handler failures enter the five-stage retry chain and are confirmed
+into the DLQ after exhaustion. Exact inbox duplicates are acknowledged without
+another fact or chat, while event-ID conflicts preserve the established
+evidence and are isolated in the DLQ.
+
+The complete inspection, one-message corrected redrive, monitoring, rollout,
+and rollback procedure is in
+[`docs/runbooks/comms-service-package-2.md`](../docs/runbooks/comms-service-package-2.md).
+The redrive tool publishes only through the normal `foc.events` route, validates
+the corrected event with `@foc/contracts`, and acknowledges the DLQ copy only
+after publisher confirmation. It must use a dedicated operator identity, never
+the runtime Communication Service credentials.
+
 ## Deferred roadmap behavior
 
 The current Package 2 slice consumes lifecycle messages, creates accepted

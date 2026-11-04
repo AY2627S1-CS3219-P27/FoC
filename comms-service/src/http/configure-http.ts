@@ -6,6 +6,7 @@ import {
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import type { ValidationError } from 'class-validator';
 import cookieParser from 'cookie-parser';
+import { chatApiMetricsMiddleware } from '../observability/comms-metrics.js';
 import { SanitizedExceptionFilter } from './sanitized-exception.filter.js';
 
 export const OPENAPI_DOCUMENT_PATH = '/docs-json';
@@ -33,6 +34,7 @@ function validationReasons(
 }
 
 export function configureHttp(app: INestApplication): void {
+  app.use(chatApiMetricsMiddleware);
   app.use(cookieParser());
   app.useGlobalFilters(new SanitizedExceptionFilter());
   app.useGlobalPipes(

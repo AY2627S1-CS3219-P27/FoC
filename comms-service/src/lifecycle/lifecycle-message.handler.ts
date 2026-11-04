@@ -14,6 +14,7 @@ import type {
   LifecycleMessageHandler,
   LifecycleMessageHandlingResult,
 } from '../messaging/rabbitmq-message.types.js';
+import { commsMetrics } from '../observability/comms-metrics.js';
 import {
   type LifecycleEvent,
   hasDistinctParticipants,
@@ -113,6 +114,7 @@ export class LifecycleMessageDispatcher implements LifecycleMessageHandler {
     );
     switch (result.status) {
       case 'recorded':
+        if (result.chatId !== undefined) commsMetrics.chatCreated();
         return { outcome: 'processed' };
       case 'duplicate':
         return { outcome: 'duplicate' };

@@ -21,6 +21,12 @@ Participant-only chat listing and message history are exposed at `/v1/chats`.
 Socket.IO, message/read mutations, grace transitions, and archive workers remain
 deferred to their roadmap steps.
 
+Package 2 metrics use bounded operational labels only; never add participant,
+errand, chat, event, cursor, or token values as labels. DLQ inspection and
+redrive follow `../docs/runbooks/comms-service-package-2.md`: corrected messages
+return through `foc.events` with a dedicated operator identity and normal
+contract validation, never through a primary queue or direct database edits.
+
 The root stack keeps Communication Service and its PostgreSQL database on the
 private `internal` network without host ports. Use the opt-in
 `compose.debug.yaml` overlay for loopback-only direct access. Test-profile
