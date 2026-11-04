@@ -36,6 +36,13 @@
       "user": "supplier-service",
       "vhost": "/foc",
       "write": "^(foc\\.events|foc\\.supplier\\.(retry|back|dlx)|supplier-service\\..+)$"
+    },
+    {
+      "configure": "^(foc\\.(retry|dlq|back)|notify_retry_\\d+s|notification-service\\..+)$",
+      "read": "^(foc\\.events|foc\\.(retry|dlq|back)|notify_retry_\\d+s|notification-service\\..+)$",
+      "user": "notification-service",
+      "vhost": "/foc",
+      "write": "^(foc\\.(events|retry|dlq|back)|notify_retry_\\d+s|notification-service\\..+)$"
     }
   ],
   "rabbitmq_version": "4.3.6",
@@ -119,6 +126,13 @@
       "limits": {},
       "name": "supplier-service",
       "password_hash": "rTkSnNbZYg1Jtp5Ojf1MF/CyRaH7RONwDGlzemoaA4ro/DIr",
+      "tags": []
+    },
+    {
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "limits": {},
+      "name": "notification-service",
+      "password_hash": "qHxhs8bV11HO60JAdFAQR5sZbJw7nxrpgeiPnEomgDXm2prZ",
       "tags": []
     }
   ],
