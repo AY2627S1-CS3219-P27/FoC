@@ -419,6 +419,70 @@
       "name": "comms-service.order-errand-cancelled.v1",
       "type": "classic",
       "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "auto_delete": false,
+      "durable": true,
+      "name": "notification-service.notify.v1",
+      "type": "classic",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "auto_delete": false,
+      "durable": true,
+      "name": "notification-service.notify.v1.dlq",
+      "type": "classic",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {
+        "x-dead-letter-exchange": "foc.back",
+        "x-message-ttl": 60000,
+        "x-queue-type": "classic"
+      },
+      "auto_delete": false,
+      "durable": true,
+      "name": "notify_retry_60s",
+      "type": "classic",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {
+        "x-dead-letter-exchange": "foc.back",
+        "x-message-ttl": 120000,
+        "x-queue-type": "classic"
+      },
+      "auto_delete": false,
+      "durable": true,
+      "name": "notify_retry_120s",
+      "type": "classic",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {
+        "x-dead-letter-exchange": "foc.back",
+        "x-message-ttl": 240000,
+        "x-queue-type": "classic"
+      },
+      "auto_delete": false,
+      "durable": true,
+      "name": "notify_retry_240s",
+      "type": "classic",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {
+        "x-dead-letter-exchange": "foc.back",
+        "x-message-ttl": 480000,
+        "x-queue-type": "classic"
+      },
+      "auto_delete": false,
+      "durable": true,
+      "name": "notify_retry_480s",
+      "type": "classic",
+      "vhost": "/foc"
     }
   ],
   "bindings": [
@@ -644,6 +708,90 @@
       "destination_type": "queue",
       "routing_key": "order.errand-cancelled.v1",
       "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "notification-service.notify.v1",
+      "destination_type": "queue",
+      "routing_key": "notification.notify.v1",
+      "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {
+        "x-match": "all",
+        "foc-delay": "60000"
+      },
+      "destination": "notify_retry_60s",
+      "destination_type": "queue",
+      "routing_key": "",
+      "source": "foc.retry",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {
+        "x-match": "all",
+        "foc-delay": "120000"
+      },
+      "destination": "notify_retry_120s",
+      "destination_type": "queue",
+      "routing_key": "",
+      "source": "foc.retry",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {
+        "x-match": "all",
+        "foc-delay": "240000"
+      },
+      "destination": "notify_retry_240s",
+      "destination_type": "queue",
+      "routing_key": "",
+      "source": "foc.retry",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {
+        "x-match": "all",
+        "foc-delay": "480000"
+      },
+      "destination": "notify_retry_480s",
+      "destination_type": "queue",
+      "routing_key": "",
+      "source": "foc.retry",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "notification-service.notify.v1",
+      "destination_type": "queue",
+      "routing_key": "notification.notify.v1",
+      "source": "foc.back",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "notification-service.notify.v1",
+      "destination_type": "queue",
+      "routing_key": "notification.notify-retry.v1",
+      "source": "foc.back",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "notification-service.notify.v1.dlq",
+      "destination_type": "queue",
+      "routing_key": "notification.notify.v1",
+      "source": "foc.dlq",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "notification-service.notify.v1.dlq",
+      "destination_type": "queue",
+      "routing_key": "notification.notify-retry.v1",
+      "source": "foc.dlq",
       "vhost": "/foc"
     }
   ]
