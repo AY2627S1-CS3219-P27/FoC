@@ -42,7 +42,7 @@ D2 asks for Supplier Service **"significant progress"**: Part 2 points 1-4 of th
 - opening hours (F2): built after D2, see [Opening hours](#opening-hours-f2)
 - brands (F3): built after D2, see [Brands](#brands-f3)
 - Order validation over RabbitMQ (F15.7)
-- safe retries (F14.2): built after D2, see [Safe retries](#safe-retries-idempotency-keys-f142); audit log and rate limits (F14.4, F16) are later
+- safe retries (F14.2): built after D2, see [Safe retries](#safe-retries-idempotency-keys-f142); the audit log (F14.4, F14.5) is built too, see [Audit log](#audit-log-f144-f145); rate limits (F16) are not built (future work)
 - images (F17)
 - hard delete (F10)
 
@@ -148,6 +148,17 @@ erDiagram
         uuid supplier_id PK, FK
         uuid category_id PK, FK
     }
+    AUDIT_ENTRIES {
+        bigint id PK "identity: orders the log"
+        timestamptz occurred_at
+        uuid actor_id "null = the system (the seed)"
+        varchar action "e.g. supplier.updated"
+        varchar target_type "supplier | request | category | brand | building"
+        uuid target_id "no foreign key: survives hard delete"
+        jsonb before "null for a creation"
+        jsonb after
+        int version "supplier version, where applicable"
+    }
     SUPPLIER_OPENING_INTERVALS {
         uuid supplier_id PK, FK
         smallint day PK "0 = Monday to 6 = Sunday"
@@ -180,6 +191,7 @@ erDiagram
 | `suppliers` | One row per pickup point | `UNIQUE (name_key, building_id, floor)` blocks duplicates, even when two requests race (F1.5, F1.5.2). CHECKs on name length, floor format, non-blank location and coordinate ranges. `building_id` must exist. |
 | `buildings` | The controlled list of campus buildings (F4) | Coordinate range CHECKs |
 | `building_name_keys` | Every name, short name and alias of each in-use building, normalised | The primary key makes two in-use buildings sharing a name impossible (F4.2). Looking up a building by any name is one key lookup (F4.5). |
+| `audit_entries` (✅ step 17, migration `1791331200000-add-audit-entries.ts`) | One append-only row per committed change to a supplier, request, category, brand or building (F14.4). **No foreign keys**, so entries outlive the records they describe (F14.5) | Triggers refuse `UPDATE`, `DELETE` and `TRUNCATE`, so not even a bug in the service can alter the log (F14.5). CHECKs: the target type is one of the five, and the action is not blank. |
 | `brands` (✅ step 14, migration `1791158400000-add-brands.ts`) | The controlled list of brands: businesses with several outlets (F3). `suppliers.brand_id` is optional, at most one (F3.4) | Partial unique index on `name_key` among non-retired brands (F3.2, a retired brand's name can be reused), non-blank name CHECK. The foreign key refuses deleting a brand that suppliers hold, so brands are retired, never deleted (F1.8). |
 | `categories` | The controlled list of categories (F11) | Partial unique index on `name_key` among non-retired categories (F11.2.1) |
 | `supplier_categories` | Which categories each supplier has (many-to-many) | The primary key stops the same category being added twice (F1.2.3). A category in use can't be removed. |
@@ -308,6 +320,26 @@ Repeatable filters are passed by repeating the parameter, e.g. `?categoryId=a&ca
 
 It also returns the version in an `ETag` header (e.g. `"3"`), which an admin edit must send back as `If-Match` (step 6). A malformed id answers 400 (`VALIDATION_FAILED`, field `id`); an unknown one 404 `SUPPLIER_NOT_FOUND`. This response is also what other services rely on: it has enough detail for them to keep their own copy (F15.1). The endpoint is read-only, so it is safe to retry (F15.4).
 
+### Audit log (F14.4, F14.5)
+
+✅ step 17. Every committed change to a **supplier, request, category, brand or building** writes an **audit entry**: who did it, what it was, which record, the record's values **before and after**, the supplier's resulting version, and when (F14.4). Think of a bank statement: every transaction gets a line in the same moment the money moves, and nobody can edit or tear out past lines.
+
+| Record | Actions recorded |
+|---|---|
+| Supplier | `supplier.created`, `supplier.updated`, `supplier.status_changed` |
+| Request | `request.submitted` (creation, edit or status change), `request.approved`, `request.denied`, `request.withdrawn` |
+| Category | `category.created`, `category.renamed`, `category.retired` |
+| Brand | `brand.created`, `brand.renamed`, `brand.retired` |
+| Building | `building.created`, `building.updated`, `building.retired` |
+
+- **Same transaction as the change.** The entry is written inside the transaction of the change it describes, so an entry exists **if and only if** the change committed: a refused change (a validation error, a duplicate, a stale version, a lost race) leaves no entry, and a change cannot commit without one. Approving a request writes two entries in one transaction: the request's, and the supplier change it caused (for example `supplier.created`), both by the approving admin. Retiring something already retired changes nothing and records nothing.
+- **Who.** The actor is the verified token's `sub`, never anything in the body (F13.1). A global interceptor, which runs after the login guard, puts it in an `AsyncLocalStorage` context for the whole request, so none of the write methods needs an extra parameter. The seed import records its entries with **no actor** (`actor_id` is null: the system).
+- **Before and after** are full snapshots of the record as plain JSON: for a supplier its name, kind, building, brand, categories, floor, location, coordinates, photo, opening hours, status and version. A creation has no `before`.
+- **Append-only (F14.5).** Database triggers refuse `UPDATE`, `DELETE` and `TRUNCATE` on `audit_entries`, so the log cannot be altered even by a bug. There is **no foreign key** to the audited record, so entries are **kept after it is hard-deleted** (a hard delete would write its own entry).
+- **Reading it.** `GET /audit-entries` is for **admins only**, newest first, with the filters `targetType`, `targetId`, `actorId` and `action`, paged like every listing (`offset`, `limit`, with `total` and `hasMore`). An unknown parameter is a 400. There is no route to write, change or delete an entry.
+- **Same principle as User Service's `user_update_audit`** (written in the same transaction, actor and target ids, the changes as JSON). Differences: ours covers five kinds of record with before and after snapshots, and the database itself enforces append-only, where theirs relies on the code never updating rows.
+- **How it is built:** `src/audit/` (the actor context and interceptor, `recordAudit`, the snapshot mappers, the read endpoint) and the `audit_entries` table. Each write method calls `recordAudit` on its own transaction. Categories and brands now save inside a transaction opened from the repository's own manager, so their constructors are unchanged.
+
 ### Safe retries: idempotency keys (F14.2)
 
 ✅ step 16. If a client sends a create and the connection drops before the reply, it can't tell whether the record exists. With an `Idempotency-Key` header it can simply send the request again: a repeat returns the **original answer** and nothing is created twice.
@@ -383,6 +415,7 @@ It also returns the version in an `ETag` header (e.g. `"3"`), which an admin edi
 | POST | `/categories` | **admin** | Create a category | F11.2 |
 | PATCH | `/categories/{id}` | **admin** | Rename: `{"name": "..."}`; 409 `DUPLICATE_NAME` if another in-use category has it, 409 if retired | F11.2, F11.2.1 |
 | POST | `/categories/{id}/retire` | **admin** | Retire: suppliers keep it, it is no longer listed or selectable; retiring twice is harmless | F11.3, F11.3.1 |
+| GET | `/audit-entries` | **admin** | The audit log, newest first: filters `targetType`, `targetId`, `actorId`, `action`; paged | F14.4 |
 | GET | `/brands` | any logged-in user | Non-retired brands, by name: `{id, name}` | F3.5 |
 | POST | `/brands` | **admin** | Create a brand: `{"name": "..."}` (1-100 chars); 409 `DUPLICATE_NAME` if a non-retired brand has it | F3.1-F3.3 |
 | PATCH | `/brands/{id}` | **admin** | Rename: `{"name": "..."}`; 409 `DUPLICATE_NAME` if another non-retired brand has it, 409 if retired | F3.2, F3.3 |
@@ -635,6 +668,8 @@ Branches are few and large: one per area, each merged into `supplier-service` by
 | 13 | Opening hours | F1.2.8, F2.1-F2.5, F2.7, F12.2.3, F5.4.7 (not F2.6, overrides) | `moderation` (same branch) | ✅ built |
 | 14 | Brands | F1.2.10, F3.1-F3.5, F5.4.6, F5.4.1 (brand name), F5.1 (brand) (no logo) | `moderation` (same branch) | ✅ built |
 | 16 | Safe retries: idempotency keys | F14.2, F14.2.1, F14.2.2 | `moderation` (same branch) | ✅ built |
+| 17 | Audit log | F14.4, F14.5 | `moderation` (same branch) | ✅ built |
+| 18 | Rate limits | F16 | none | ✗ not built (future work) |
 | 15b | Supplier validation for Order Service over RabbitMQ | F15.7-F15.7.8, F13.7 | `order-integration` (+ `contracts`, PR #642) | ✅ built and switched on ([§11](#11-supplier-validation-for-order-service-rabbitmq)); Order Service's side to come |
 
 ---
