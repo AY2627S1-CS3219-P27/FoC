@@ -1,18 +1,21 @@
 # Communication Service
 
-This directory contains the deployable NestJS foundation for Friend on
-Campus private errand chat. It uses PostgreSQL with TypeORM, RabbitMQ, Redis,
+This directory contains the deployable NestJS Communication Service for Friend
+on Campus private errand chat. It uses PostgreSQL with TypeORM, RabbitMQ, Redis,
 the shared User Service JWT verifier, and the repository observability package.
 
-The current foundation intentionally exposes only:
+The current HTTP surface intentionally exposes only:
 
 - `GET /health/live` for process liveness;
 - `GET /health/ready` for PostgreSQL, RabbitMQ, and Redis readiness;
 - `/docs` and `/docs-json` for the health-only OpenAPI document; and
 - `/metrics` for Prometheus metrics.
 
-Lifecycle consumers, chat APIs, Socket.IO connections, messages, grace-period
-handling, and archives are deferred to later roadmap packages.
+In the background, four independently retried RabbitMQ consumers validate and
+deduplicate Order lifecycle notices. Accepted notices create one private chat
+per event identity; delivered and cancellation notices are retained as
+immutable facts for later deadline reconciliation. Chat APIs, Socket.IO
+connections, messages, grace-period transitions, and archives remain deferred.
 
 ## Lifecycle contracts and publication
 
@@ -205,9 +208,10 @@ Deploy the foundation in this order:
 3. Create environment and secret files, start PostgreSQL and Redis, and apply
    the Communication Service migration explicitly.
 4. Start Communication Service. Its startup provisioner creates or adopts the
-   compatible retry exchanges, retry chains, return bindings, and DLQs.
+   compatible retry exchanges, retry chains, return bindings, and DLQs, then
+   starts all four lifecycle consumers.
 5. Enable Order Service lifecycle publication only after the primary queues
-   exist. Until Package 2, published notices accumulate durably.
+   exist. Retained notices are consumed idempotently after service startup.
 
 To roll back, disable Order Service publication first and stop Communication
 Service without deleting its database, queues, or retained messages. Revert a
@@ -215,7 +219,7 @@ migration only after confirming the schema contains no required retained
 evidence and receiving explicit approval. Broker definitions removal is
 non-destructive and is not a reason to delete queues during ordinary rollback.
 
-## Foundation verification
+## Verification
 
 Run the non-container quality gates from this directory:
 
@@ -236,11 +240,11 @@ service, PostgreSQL, RabbitMQ, Redis, and observability dependencies healthy.
 
 ## Deferred roadmap behavior
 
-Package 1 does not consume or acknowledge lifecycle messages, create chats,
-expose chat or archive APIs, open a Socket.IO namespace, send or read messages,
-apply grace periods, or run an archive worker. Packages 2–5 add those behaviors
-in dependency order. The reserved socket configuration is not evidence of an
-available realtime endpoint.
+The current Package 2 slice consumes lifecycle messages and creates accepted
+chats, but does not expose chat or archive APIs, open a Socket.IO namespace,
+send or read messages, transition chats into grace, or run an archive worker.
+Later roadmap steps add those behaviors in dependency order. The reserved
+socket configuration is not evidence of an available realtime endpoint.
 
 The governing decisions are recorded under
 `docs/adr/comms-service/0001`–`0004`: PostgreSQL authority and message

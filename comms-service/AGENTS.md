@@ -14,9 +14,11 @@ Root broker definitions own the four lifecycle primary queues and their
 touch the shared exchange; it owns only `foc.comms.*`, retry queues, return
 bindings, and DLQs through its idempotent startup provisioner.
 
-Package 1 currently provides infrastructure only. Do not add lifecycle
-consumers, chat APIs, a Socket.IO namespace, or archive workers until their
-roadmap packages are implemented.
+Package 2 lifecycle ingestion is active: four independently retried consumers
+validate shared contracts, record inbox/lifecycle evidence, and create one chat
+per accepted-event identity. Authenticated chat APIs, Socket.IO, message/read
+handling, grace transitions, and archive workers remain deferred to their
+roadmap steps.
 
 The root stack keeps Communication Service and its PostgreSQL database on the
 private `internal` network without host ports. Use the opt-in
