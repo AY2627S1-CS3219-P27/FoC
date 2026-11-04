@@ -8,13 +8,13 @@ Owns every errand from creation to a terminal state: validates it, gets its supp
 
 ## Client-facing states
 
-`Pending` · `Open` · `Accepted` · `Picked Up` · `Delivered` · `Completed` · `Cancelled` · `Incomplete`
+`Pending` · `Open` · `Accepted` · `Picked Up` · `Delivered` · `Completed` · `Cancelled` · `Incomplete` · `Resolved`
 
 `Pending` is internally `Pending-Supplier` (supplier not yet confirmed) then `Reserving-Credit` (reservation outstanding). Callers only ever see `Pending`.
 
-In-flight credit statuses ([ADR 0006](../docs/adr/order-service/0006-in-flight-credit-statuses.md)): `Reserving-Credit` (the `Pending` sub-state above), `Transferring-Credit` (shown as `Completed`) and `Adjusting-Credit` (shown as `Open`) are internal while credit-service confirms a step. Cancelling does not wait on credit.
+In-flight credit statuses ([ADR 0006](../docs/adr/order-service/0006-in-flight-credit-statuses.md)): `Reserving-Credit` (the `Pending` sub-state above), `Transferring-Credit` (shown as `Completed`), `Adjusting-Credit` (shown as `Open`) and `Settling-Credit` (shown as `Incomplete`) are internal while credit-service confirms a step. Cancelling does not wait on credit.
 
-Terminal: `Completed`, `Cancelled`, `Incomplete`. There is no `Expired` state: an `Open` errand whose deadline passes is `Cancelled` with reason `ERRAND_EXPIRED`. `Incomplete` is reached from `Delivered` when the requester rejects the delivery, or from `Transferring-Credit` when credit-service rejects the transfer. The full transition list is in [`ARCHITECTURE.md`](./ARCHITECTURE.md) §2.
+Terminal: `Completed`, `Cancelled`, `Resolved`. `Incomplete` is not terminal: an admin settles it to `Resolved`. There is no `Expired` state: an `Open` errand whose deadline passes is `Cancelled` with reason `ERRAND_EXPIRED`. `Incomplete` is reached from `Delivered` when the requester rejects the delivery, or from `Transferring-Credit` when credit-service rejects the transfer. The full transition list is in [`ARCHITECTURE.md`](./ARCHITECTURE.md) §2.
 
 ## Terms specific to this service
 
@@ -28,4 +28,8 @@ Terminal: `Completed`, `Cancelled`, `Incomplete`. There is no `Expired` state: a
 - **Role block**: a short-lived bar on a user's new activity in one participant role (requester: create; courier: accept), placed by Order Service only after confirming they have no ongoing errands in that role. Used for role change and archival. It expires after the access-token lifetime plus skew, by which time a refreshed token no longer carries the role, and can be removed early ([ADR 0010](../docs/adr/order-service/0010-role-block-with-ttl.md)). Not the same as user-service's account lock (`isLocked`, after repeated failed logins), which acts on the whole account.
 - **System actor**: the acting user recorded on transitions made by a sweep rather than a person (also credit and supplier replies); the explicit `SYSTEM` actor in code, stored as a null `actor_id`. Never a default for a missing actor.
 - **Outbox**: the `outbox_events` table. A notice for another service is inserted there in the same transaction as the state change, and a relay publishes it to the broker afterwards, so a crash cannot lose it. Delivery is at least once ([ADR 0008](../docs/adr/order-service/0008-transactional-outbox-and-broker-access.md)).
+- **Dispute**: an errand in `Incomplete` (including in-flight `Settling-Credit`), its credits still held, waiting for an admin.
+- **Report**: one optional, immutable text account (max 2,000 characters) a party files on a dispute. The other party never sees it; the admin does. Locked for good once a settlement is first requested. Not a lifecycle transition: no event. No attachments yet.
+- **Settlement**: the admin's decision on a dispute: the courier's share of the reward, an integer `0..rewardCredits` (the requester gets the rest), plus a required note. Moves the errand through `Settling-Credit` to `Resolved`; credit-service rejecting it returns it to `Incomplete` for a retry (3 rejections per rolling hour). The parties see the amount and note only once `Resolved`.
+- **Resolved**: terminal client-facing status after a settlement succeeded. Distinct from `Completed`.
 - **Courier lock**: a courier may hold only one Accepted or Picked Up Errand at a time.

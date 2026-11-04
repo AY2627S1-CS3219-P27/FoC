@@ -19,6 +19,8 @@ describe('toApiStatus', () => {
     ['Delivered', 'Delivered'],
     ['Cancelled', 'Cancelled'],
     ['Incomplete', 'Incomplete'],
+    ['Settling-Credit', 'Incomplete'],
+    ['Resolved', 'Resolved'],
   ] as const)('%s is shown as %s', (internal, api) => {
     expect(toApiStatus(internal)).toBe(api);
   });
@@ -41,7 +43,7 @@ describe('isApiStatus', () => {
   });
 
   it('rejects internal sub-state names and junk', () => {
-    for (const s of ['Pending-Supplier', 'Reserving-Credit', 'Adjusting-Credit', 'Transferring-Credit', 'open', '', 42, null]) {
+    for (const s of ['Pending-Supplier', 'Reserving-Credit', 'Adjusting-Credit', 'Transferring-Credit', 'Settling-Credit', 'open', '', 42, null]) {
       expect(isApiStatus(s)).toBe(false);
     }
   });

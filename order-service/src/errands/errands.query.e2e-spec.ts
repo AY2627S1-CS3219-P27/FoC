@@ -315,6 +315,53 @@ describe('GET /v1/errands/:id', () => {
   });
 });
 
+describe('settlement visibility', () => {
+  const settled = { settlementAmount: 3, settlementNote: 'Split it' };
+  const view = async (id: string, sub: string, roles = [Role.Requester]) =>
+    (await get(`/${id}`, roles, sub)).json();
+
+  it('shows the amount and note to both parties on a Resolved errand, detail and /mine', async () => {
+    const e = await seed({ status: 'Resolved', courierId: courier, ...settled });
+    for (const [sub, roles] of [[e.requesterId, [Role.Requester]], [courier, [Role.Courier]]] as const) {
+      expect(await view(e.id, sub, [...roles])).toMatchObject({ status: 'Resolved', ...settled });
+      const mine = await (await get('/mine?status=Resolved', [...roles], sub)).json();
+      expect(mine.items[0]).toMatchObject({ id: e.id, ...settled });
+    }
+  });
+
+  it('keeps them off the open list, from non-parties, and from any status but Resolved', async () => {
+    const e = await seed({ status: 'Resolved', courierId: randomUUID(), ...settled });
+    expect((await get(`/${e.id}`, [Role.Courier], courier)).status).toBe(404);
+    const open = await seed({ ...settled });
+    expect((await list()).body.items[0]).not.toHaveProperty('settlementAmount');
+    expect(await view(open.id, courier, [Role.Courier])).not.toHaveProperty('settlementNote');
+    expect(await view(open.id, open.requesterId)).not.toHaveProperty('settlementAmount');
+  });
+
+  it('shows nothing after a rejection (columns cleared), and Settling-Credit as Incomplete', async () => {
+    const rejected = await seed({ status: 'Incomplete', courierId: courier });
+    const inFlight = await seed({ status: 'Settling-Credit', courierId: courier, ...settled });
+    const a = await view(rejected.id, rejected.requesterId);
+    expect(a.status).toBe('Incomplete');
+    expect(a).not.toHaveProperty('settlementAmount');
+    const b = await view(inFlight.id, inFlight.requesterId);
+    expect(b.status).toBe('Incomplete');
+    expect(b).not.toHaveProperty('settlementAmount');
+    expect(b).not.toHaveProperty('settlementNote');
+  });
+
+  it('filters /mine by Resolved, and Incomplete includes Settling-Credit', async () => {
+    const me = randomUUID();
+    const done = await seed({ requesterId: me, status: 'Resolved', ...settled });
+    const stuck = await seed({ requesterId: me, status: 'Settling-Credit' });
+    const incomplete = await seed({ requesterId: me, status: 'Incomplete' });
+    const mine = async (q: string) =>
+      ids(await (await get(`/mine?status=${q}`, [Role.Requester], me)).json());
+    expect(await mine('Resolved')).toEqual([done.id]);
+    expect(new Set(await mine('Incomplete'))).toEqual(new Set([stuck.id, incomplete.id]));
+  });
+});
+
 describe('GET /v1/admin/users/:userId/errands', () => {
   const target = randomUUID();
   const adminUrl = (path: string) => `${base.replace('/v1/errands', '/v1/admin')}${path}`;
@@ -336,6 +383,12 @@ describe('GET /v1/admin/users/:userId/errands', () => {
 
   it('rejects a malformed user id', async () => {
     expect((await admin('/users/nope/errands')).status).toBe(400);
+  });
+
+  it('shows the settlement fields to an admin on a Resolved errand', async () => {
+    await seed({ requesterId: target, status: 'Resolved', courierId: randomUUID(), settlementAmount: 3, settlementNote: 'Split it' });
+    const { body } = await userErrands();
+    expect(body.items[0]).toMatchObject({ status: 'Resolved', settlementAmount: 3, settlementNote: 'Split it' });
   });
 
   it("lists the user's errands on both sides with the internal sub-state and party fields", async () => {

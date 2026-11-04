@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://foc.local/schemas/credit-settlement-rejected.v1.schema.json",
+  "title": "CreditSettlementRejectedV1",
+  "allOf": [
+    {
+      "$ref": "https://foc.local/schemas/event-envelope.v1.schema.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "const": "CreditSettlementRejected"
+        },
+        "publisher": {
+          "const": "credit-service"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "errandId",
+            "requesterUserId",
+            "courierUserId",
+            "rejectionReason"
+          ],
+          "properties": {
+            "errandId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "requesterUserId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "courierUserId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "rejectionReason": {
+              "enum": [
+                "AMOUNT_MISMATCH",
+                "DESTINATION_ARCHIVED",
+                "RESERVATION_NOT_FOUND",
+                "RESERVATION_RELEASED",
+                "RESERVATION_USER_MISMATCH"
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+}
