@@ -130,6 +130,28 @@ describe('supplier and building endpoints (e2e)', () => {
       );
     });
 
+    it('passes the openNow filter through as a boolean (F5.4.7)', async () => {
+      await request(app.getHttpServer())
+        .get('/suppliers?openNow=true')
+        .set('Cookie', cookie)
+        .expect(200);
+
+      expect(stubs.queries.list).toHaveBeenLastCalledWith(
+        expect.objectContaining({ openNow: true }),
+      );
+    });
+
+    it('rejects an openNow that is not true or false', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/suppliers?openNow=maybe')
+        .set('Cookie', cookie)
+        .expect(400);
+
+      expect(response.body.violations).toEqual([
+        { field: 'openNow', reason: 'openNow must be true or false' },
+      ]);
+    });
+
     it('rejects unknown and malformed parameters, listing each (F5.8)', async () => {
       const response = await request(app.getHttpServer())
         .get('/suppliers?colour=red&limit=5000&kind=Shop')
