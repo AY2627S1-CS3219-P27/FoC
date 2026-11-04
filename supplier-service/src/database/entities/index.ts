@@ -3,6 +3,7 @@ import { BuildingNameKey } from './building-name-key.entity.js';
 import { Brand } from './brand.entity.js';
 import { Building } from './building.entity.js';
 import { Category } from './category.entity.js';
+import { IdempotencyKey } from './idempotency-key.entity.js';
 import { InboxEvent } from './inbox-event.entity.js';
 import { SupplierCategory } from './supplier-category.entity.js';
 import { SupplierOpeningInterval } from './supplier-opening-interval.entity.js';
@@ -13,6 +14,7 @@ export { Brand } from './brand.entity.js';
 export { BuildingNameKey } from './building-name-key.entity.js';
 export { Building } from './building.entity.js';
 export { Category } from './category.entity.js';
+export { IdempotencyKey } from './idempotency-key.entity.js';
 export { InboxEvent } from './inbox-event.entity.js';
 export { OutboxEvent } from '@foc/outbox/outbox-event.entity';
 export { SupplierCategory } from './supplier-category.entity.js';
@@ -31,6 +33,7 @@ export const databaseEntities: Function[] = [
   Building,
   BuildingNameKey,
   Category,
+  IdempotencyKey,
   Supplier,
   SupplierCategory,
   SupplierOpeningInterval,
