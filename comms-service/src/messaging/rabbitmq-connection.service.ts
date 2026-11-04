@@ -40,7 +40,19 @@ export class RabbitMqConnectionService
   }
 
   private getConnection(): Promise<RecoveringChannelModel> {
-    this.connectionPromise ??= connect(this.url, { recovery: true });
+    if (!this.connectionPromise) {
+      let connectionPromise: Promise<RecoveringChannelModel>;
+      connectionPromise = connect(this.url, { recovery: true }).catch(
+        (error: unknown) => {
+          if (this.connectionPromise === connectionPromise) {
+            this.connectionPromise = undefined;
+          }
+          throw error;
+        },
+      );
+      this.connectionPromise = connectionPromise;
+    }
+
     return this.connectionPromise;
   }
 }

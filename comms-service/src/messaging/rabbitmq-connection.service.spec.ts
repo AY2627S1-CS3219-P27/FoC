@@ -4,6 +4,8 @@ import { RabbitMqConnectionService } from './rabbitmq-connection.service.js';
 vi.mock('amqplib', () => ({ connect: vi.fn() }));
 
 describe('RabbitMqConnectionService', () => {
+  beforeEach(() => vi.clearAllMocks());
+
   it('shares one in-flight connection across startup and channel creation', async () => {
     const channel = { close: vi.fn().mockResolvedValue(undefined) };
     const connection = {
@@ -43,5 +45,26 @@ describe('RabbitMqConnectionService', () => {
 
     expect(connection.createChannel).toHaveBeenCalledOnce();
     expect(channel.close).toHaveBeenCalledOnce();
+  });
+
+  it('clears a terminally rejected connection so a later call can retry', async () => {
+    const error = new Error('terminal connection failure');
+    const channel = { close: vi.fn().mockResolvedValue(undefined) };
+    const connection = {
+      createChannel: vi.fn().mockResolvedValue(channel),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+    vi.mocked(connect)
+      .mockRejectedValueOnce(error)
+      .mockResolvedValueOnce(connection as never);
+    const service = new RabbitMqConnectionService('amqp://example');
+
+    await expect(service.onModuleInit()).rejects.toBe(error);
+    await expect(service.createChannel()).resolves.toBe(channel);
+
+    expect(connect).toHaveBeenCalledTimes(2);
+    expect(connection.createChannel).toHaveBeenCalledOnce();
+    await service.onApplicationShutdown();
+    expect(connection.close).toHaveBeenCalledOnce();
   });
 });
