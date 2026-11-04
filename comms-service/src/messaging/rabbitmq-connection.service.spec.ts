@@ -67,7 +67,7 @@ describe('RabbitMqConnectionService', () => {
     await service.onApplicationShutdown();
     expect(connection.close).toHaveBeenCalledOnce();
   });
-  
+
   it('creates confirm channels and drains registered users before closing', async () => {
     const confirmChannel = {};
     const connection = {

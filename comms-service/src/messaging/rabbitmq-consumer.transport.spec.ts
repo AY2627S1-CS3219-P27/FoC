@@ -76,6 +76,7 @@ class FakePublisherChannel extends EventEmitter {
   waitForConfirms = vi.fn().mockResolvedValue(undefined);
   closed = false;
   autoConfirm = true;
+  returnOnPublish = false;
   confirmationError: Error | null = null;
 
   publish(
@@ -85,15 +86,31 @@ class FakePublisherChannel extends EventEmitter {
     options: Options.Publish,
     callback: (error: Error | null) => void,
   ) {
-    this.publications.push({
+    const publication = {
       exchange,
       routingKey,
       content,
       options,
       callback,
-    });
+    };
+    this.publications.push(publication);
+    if (this.returnOnPublish) {
+      this.returnPublication(this.publications.length - 1);
+    }
     if (this.autoConfirm) callback(this.confirmationError);
     return true;
+  }
+
+  returnPublication(index: number) {
+    const publication = this.publications[index];
+    this.emit('return', {
+      content: publication.content,
+      fields: {
+        exchange: publication.exchange,
+        routingKey: publication.routingKey,
+      },
+      properties: publication.options,
+    });
   }
 
   async close() {
@@ -323,6 +340,7 @@ describe('RabbitMqConsumerTransport', () => {
       expect(publication.routingKey).toBe(`${acceptedStream.queue}.dlq`);
       expect(publication.options).toEqual(
         expect.objectContaining({
+          mandatory: true,
           persistent: true,
           headers: expect.objectContaining({ 'x-failure-category': category }),
         }),
@@ -348,6 +366,7 @@ describe('RabbitMqConsumerTransport', () => {
     expect(publication.routingKey).toBe(`${acceptedStream.queue}.retry.1`);
     expect(publication.options).toEqual(
       expect.objectContaining({
+        mandatory: true,
         persistent: true,
         headers: expect.objectContaining({
           'x-retry-count': 1,
@@ -413,11 +432,15 @@ describe('RabbitMqConsumerTransport', () => {
         authorization: 'secret',
         'x-custom': 'not-forwarded',
         'x-retry-count': 0,
+        'x-comms-publication-id': 'untrusted-upstream-value',
       },
     });
     await deliver(connection, delivery);
 
     const headers = connection.publisher.publications[0].options.headers;
+    expect(connection.publisher.publications[0].options.correlationId).toBe(
+      'correlation-id',
+    );
     expect(headers).toEqual(
       expect.objectContaining({
         traceparent: '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01',
@@ -427,6 +450,84 @@ describe('RabbitMqConsumerTransport', () => {
     );
     expect(headers).not.toHaveProperty('authorization');
     expect(headers).not.toHaveProperty('x-custom');
+    expect(headers?.['x-comms-publication-id']).toEqual(expect.any(String));
+    expect(headers?.['x-comms-publication-id']).not.toBe(
+      'untrusted-upstream-value',
+    );
+  });
+
+  it('leaves the original recoverable when a retry publication is returned', async () => {
+    const { connection, subscription, transport } = harness({
+      outcome: 'transient-failure',
+      reason: 'temporary',
+    });
+    connection.publisher.returnOnPublish = true;
+    await transport.subscribe(subscription);
+    const delivery = message();
+    connection.consumers[0].consumeCallback?.(delivery);
+
+    await vi.waitFor(() => expect(connection.consumers).toHaveLength(2));
+    expect(connection.publisher.publications[0].options.mandatory).toBe(true);
+    expect(connection.consumers[0].acknowledged).toHaveLength(0);
+    expect(connection.consumers[0].closed).toBe(true);
+  });
+
+  it('leaves the original recoverable when a dead-letter publication is returned', async () => {
+    const { connection, subscription, transport } = harness({
+      outcome: 'permanent-failure',
+      category: 'INVALID_PAYLOAD',
+      reason: 'invalid payload',
+    });
+    connection.publisher.returnOnPublish = true;
+    await transport.subscribe(subscription);
+    const delivery = message();
+    connection.consumers[0].consumeCallback?.(delivery);
+
+    await vi.waitFor(() => expect(connection.consumers).toHaveLength(2));
+    expect(connection.publisher.publications[0].options.mandatory).toBe(true);
+    expect(connection.consumers[0].acknowledged).toHaveLength(0);
+    expect(connection.consumers[0].closed).toBe(true);
+  });
+
+  it('correlates a returned publication without failing concurrent publications', async () => {
+    const { connection, handler, transport } = harness({
+      outcome: 'transient-failure',
+      reason: 'temporary',
+    });
+    connection.publisher.autoConfirm = false;
+    await transport.subscribeAll(
+      COMMS_LIFECYCLE_STREAMS.slice(0, 2).map((stream) => ({
+        ...stream,
+        handler,
+      })),
+    );
+    const acceptedDelivery = message();
+    const deliveredDelivery = message({
+      routingKey: COMMS_LIFECYCLE_STREAMS[1].routingKey,
+    });
+    connection.consumers[0].consumeCallback?.(acceptedDelivery);
+    connection.consumers[1].consumeCallback?.(deliveredDelivery);
+
+    await vi.waitFor(() =>
+      expect(connection.publisher.publications).toHaveLength(2),
+    );
+    const returnedIndex = connection.publisher.publications.findIndex(
+      ({ routingKey }) => routingKey === `${acceptedStream.queue}.retry.1`,
+    );
+    const successfulIndex = connection.publisher.publications.findIndex(
+      ({ routingKey }) =>
+        routingKey === `${COMMS_LIFECYCLE_STREAMS[1].queue}.retry.1`,
+    );
+    connection.publisher.returnPublication(returnedIndex);
+    connection.publisher.publications[returnedIndex].callback(null);
+    connection.publisher.publications[successfulIndex].callback(null);
+
+    await vi.waitFor(() => expect(connection.consumers).toHaveLength(3));
+    await vi.waitFor(() =>
+      expect(connection.consumers[1].acknowledged).toEqual([deliveredDelivery]),
+    );
+    expect(connection.consumers[0].acknowledged).toHaveLength(0);
+    expect(connection.consumers[0].closed).toBe(true);
   });
 
   it('leaves the original unacknowledged and replaces only its consumer when publication is nacked', async () => {

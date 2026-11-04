@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { TextDecoder } from 'node:util';
 import { annotateConsumeSpan } from '@foc/observability';
@@ -6,6 +7,7 @@ import type {
   Channel,
   ConfirmChannel,
   ConsumeMessage,
+  Message,
   MessageProperties,
   Options,
 } from 'amqplib';
@@ -29,6 +31,7 @@ const CONSUMER_PREFETCH = 10;
 const MAX_RETRY_COUNT = COMMS_RETRY_DELAYS_MS.length;
 const MAX_FAILURE_REASON_LENGTH = 512;
 const MAX_AMQP_SHORT_STRING_BYTES = 255;
+const PUBLICATION_ID_HEADER = 'x-comms-publication-id';
 const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true });
 const SAFE_TRACE_HEADERS = new Set(['traceparent', 'tracestate']);
 const TRANSPORT_HEADERS = new Set([
@@ -37,7 +40,15 @@ const TRANSPORT_HEADERS = new Set([
   'x-failure-category',
   'x-failure-reason',
   'x-failure-timestamp',
+  PUBLICATION_ID_HEADER,
 ]);
+
+class UnroutablePublicationError extends Error {
+  constructor(exchange: string, routingKey: string) {
+    super(`RabbitMQ publication was unroutable on ${exchange}:${routingKey}`);
+    this.name = 'UnroutablePublicationError';
+  }
+}
 
 type TransportFailureCategory =
   | 'INVALID_CONTENT_METADATA'
@@ -58,6 +69,12 @@ interface FailureMetadata {
   reason: string;
   retryCount: number;
   eventId?: string;
+}
+
+interface PendingPublication {
+  channel: ConfirmChannel;
+  resolveRouting: () => void;
+  rejectRouting: (error: Error) => void;
 }
 
 function safeAmqpShortString(value: unknown): string | undefined {
@@ -109,6 +126,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
   private readonly subscriptions = new Map<string, LifecycleSubscription>();
   private readonly consumers = new Map<string, ConsumerState>();
   private readonly inFlight = new Set<Promise<void>>();
+  private readonly pendingPublications = new Map<string, PendingPublication>();
   private publisherChannel?: ConfirmChannel;
   private publisherPromise?: Promise<ConfirmChannel>;
   private mutation: Promise<void> = Promise.resolve();
@@ -222,11 +240,16 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
         .then((channel) => {
           this.publisherChannel = channel;
           channel.on('error', (error) =>
-            this.logger.error(
-              `RabbitMQ publisher channel error: ${error.message}`,
-            ),
+            this.handlePublisherChannelError(channel, error),
+          );
+          channel.on('return', (message) =>
+            this.handleReturnedPublication(message),
           );
           channel.on('close', () => {
+            this.rejectPendingPublications(
+              channel,
+              new Error('RabbitMQ publisher channel closed'),
+            );
             if (this.publisherChannel === channel) {
               this.publisherChannel = undefined;
               this.publisherPromise = undefined;
@@ -502,7 +525,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       commsMetrics.lifecycleDelivery(subscription.routingKey, 'retried');
     } catch (error) {
       this.logger.error(
-        `Unable to confirm retry publication for event ${eventId ?? 'unknown'}: ${String(error)}`,
+        `Unable to safely publish retry for event ${eventId ?? 'unknown'}: ${String(error)}`,
       );
       await this.replaceConsumer(subscription, consumerChannel);
     }
@@ -534,7 +557,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       );
     } catch (error) {
       this.logger.error(
-        `Unable to confirm dead-letter publication for event ${failure.eventId ?? 'unknown'}: ${String(error)}`,
+        `Unable to safely publish dead letter for event ${failure.eventId ?? 'unknown'}: ${String(error)}`,
       );
       await this.replaceConsumer(subscription, consumerChannel);
     }
@@ -587,11 +610,23 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
     content: Buffer,
     options: Options.Publish,
   ): Promise<void> {
+    const publicationId = randomUUID();
     let resolveConfirmation!: () => void;
     let rejectConfirmation!: (error: unknown) => void;
     const confirmation = new Promise<void>((resolve, reject) => {
       resolveConfirmation = resolve;
       rejectConfirmation = reject;
+    });
+    let resolveRouting!: () => void;
+    let rejectRouting!: (error: Error) => void;
+    const routed = new Promise<void>((resolve, reject) => {
+      resolveRouting = resolve;
+      rejectRouting = reject;
+    });
+    this.pendingPublications.set(publicationId, {
+      channel,
+      resolveRouting,
+      rejectRouting,
     });
 
     let writable = true;
@@ -600,14 +635,74 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
         exchange,
         routingKey,
         content,
-        options,
-        (error) => (error ? rejectConfirmation(error) : resolveConfirmation()),
+        {
+          ...options,
+          mandatory: true,
+          headers: {
+            ...options.headers,
+            [PUBLICATION_ID_HEADER]: publicationId,
+          },
+        },
+        (error) => {
+          if (error) {
+            rejectConfirmation(error);
+            rejectRouting(error);
+            return;
+          }
+          resolveConfirmation();
+          resolveRouting();
+        },
       );
     } catch (error) {
       rejectConfirmation(error);
+      rejectRouting(error instanceof Error ? error : new Error(String(error)));
     }
     const drained = writable ? Promise.resolve() : once(channel, 'drain');
-    await Promise.all([confirmation, drained]);
+    try {
+      await Promise.all([confirmation, routed, drained]);
+    } finally {
+      this.pendingPublications.delete(publicationId);
+    }
+  }
+
+  private handleReturnedPublication(message: Message): void {
+    const publicationId = safeAmqpShortString(
+      message.properties.headers?.[PUBLICATION_ID_HEADER],
+    );
+    if (!publicationId) {
+      this.logger.error(
+        'RabbitMQ returned a replacement publication without a valid publication ID',
+      );
+      return;
+    }
+    const pending = this.pendingPublications.get(publicationId);
+    if (!pending) {
+      this.logger.error('RabbitMQ returned an unknown replacement publication');
+      return;
+    }
+    pending.rejectRouting(
+      new UnroutablePublicationError(
+        message.fields.exchange,
+        message.fields.routingKey,
+      ),
+    );
+  }
+
+  private handlePublisherChannelError(
+    channel: ConfirmChannel,
+    error: Error,
+  ): void {
+    this.logger.error(`RabbitMQ publisher channel error: ${error.message}`);
+    this.rejectPendingPublications(channel, error);
+  }
+
+  private rejectPendingPublications(
+    channel: ConfirmChannel,
+    error: Error,
+  ): void {
+    for (const pending of this.pendingPublications.values()) {
+      if (pending.channel === channel) pending.rejectRouting(error);
+    }
   }
 
   private async replaceConsumer(
