@@ -110,6 +110,31 @@ describe('seed import (real PostgreSQL)', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  it('records what it imports in the audit log, as the system (F14.4)', async () => {
+    const [{ last }] = await dataSource.query<{ last: string }[]>(
+      `SELECT coalesce(max(id), 0)::text AS last FROM audit_entries`,
+    );
+
+    await seed.importSeed(SEED_FILE);
+
+    const added = await dataSource.query<
+      { action: string; actor_id: string | null; n: number }[]
+    >(
+      `SELECT action, actor_id, count(*)::int AS n
+       FROM audit_entries WHERE id > $1 GROUP BY action, actor_id`,
+      [last],
+    );
+    // 14 buildings, 4 categories and 21 suppliers, none by a user.
+    expect(Object.fromEntries(added.map((row) => [row.action, row.n]))).toEqual(
+      {
+        'building.created': 14,
+        'category.created': 4,
+        'supplier.created': 21,
+      },
+    );
+    expect(added.every((row) => row.actor_id === null)).toBe(true);
+  });
+
   it('is safe to run again: nothing duplicated, nothing failed (F12.1)', async () => {
     await seed.importSeed(SEED_FILE);
 

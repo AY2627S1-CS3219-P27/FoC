@@ -5,7 +5,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, type Repository } from 'typeorm';
+import { type EntityManager, IsNull, type Repository } from 'typeorm';
+import { recordAudit } from '../audit/record-audit.js';
+import { brandSnapshot } from '../audit/snapshots.js';
 import { ErrorCode } from '../common/errors/error-response.js';
 import { nameKey } from '../common/normalise/normalise.js';
 import { Brand } from '../database/entities/index.js';
@@ -39,24 +41,46 @@ export class BrandsService {
       nameKey: nameKey(name),
       retiredAt: null,
     });
-    return this.withDuplicateNameMapped(() => this.brands.save(brand));
+    // Saved with its audit entry in one transaction (F14.4).
+    return this.withDuplicateNameMapped(() =>
+      this.brands.manager.transaction(async (manager) => {
+        const saved = await manager.save(brand);
+        await recordAudit(manager, {
+          action: 'brand.created',
+          targetType: 'brand',
+          targetId: saved.id,
+          after: brandSnapshot(saved),
+        });
+        return saved;
+      }),
+    );
   }
 
   async rename(id: string, name: string): Promise<Brand> {
-    const brand = await this.brands.findOneBy({ id });
-    if (!brand) {
-      throw brandNotFound(id);
-    }
-    // Retired brands are frozen, as retired categories and buildings are.
-    if (brand.retiredAt) {
-      throw new ConflictException({
-        code: ErrorCode.Conflict,
-        message: 'A retired brand cannot be renamed.',
-      });
-    }
-    brand.name = name.trim();
-    brand.nameKey = nameKey(name);
-    return this.withDuplicateNameMapped(() => this.brands.save(brand));
+    return this.withDuplicateNameMapped(() =>
+      this.brands.manager.transaction(async (manager) => {
+        const brand = await this.lock(manager, id);
+        // Retired brands are frozen, as retired categories and buildings are.
+        if (brand.retiredAt) {
+          throw new ConflictException({
+            code: ErrorCode.Conflict,
+            message: 'A retired brand cannot be renamed.',
+          });
+        }
+        const before = brandSnapshot(brand);
+        brand.name = name.trim();
+        brand.nameKey = nameKey(name);
+        const saved = await manager.save(brand);
+        await recordAudit(manager, {
+          action: 'brand.renamed',
+          targetType: 'brand',
+          targetId: id,
+          before,
+          after: brandSnapshot(saved),
+        });
+        return saved;
+      }),
+    );
   }
 
   /**
@@ -64,15 +88,35 @@ export class BrandsService {
    * selectable (F3.3.1). Retiring twice is a no-op.
    */
   async retire(id: string): Promise<Brand> {
-    const brand = await this.brands.findOneBy({ id });
+    return this.brands.manager.transaction(async (manager) => {
+      const brand = await this.lock(manager, id);
+      if (brand.retiredAt !== null) {
+        return brand; // already retired: nothing changed, nothing recorded
+      }
+      const before = brandSnapshot(brand);
+      brand.retiredAt = new Date();
+      const saved = await manager.save(brand);
+      await recordAudit(manager, {
+        action: 'brand.retired',
+        targetType: 'brand',
+        targetId: id,
+        before,
+        after: brandSnapshot(saved),
+      });
+      return saved;
+    });
+  }
+
+  /** The brand, locked until the transaction ends; 404 if unknown. */
+  private async lock(manager: EntityManager, id: string): Promise<Brand> {
+    const brand = await manager.findOne(Brand, {
+      where: { id },
+      lock: { mode: 'pessimistic_write' },
+    });
     if (!brand) {
       throw brandNotFound(id);
     }
-    if (brand.retiredAt !== null) {
-      return brand;
-    }
-    brand.retiredAt = new Date();
-    return this.brands.save(brand);
+    return brand;
   }
 
   private async withDuplicateNameMapped<T>(work: () => Promise<T>): Promise<T> {

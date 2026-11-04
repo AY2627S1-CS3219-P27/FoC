@@ -5,7 +5,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, type Repository } from 'typeorm';
+import { type EntityManager, IsNull, type Repository } from 'typeorm';
+import { recordAudit } from '../audit/record-audit.js';
+import { categorySnapshot } from '../audit/snapshots.js';
 import { ErrorCode } from '../common/errors/error-response.js';
 import { nameKey } from '../common/normalise/normalise.js';
 import { Category } from '../database/entities/index.js';
@@ -66,24 +68,46 @@ export class CategoriesService {
       nameKey: nameKey(name),
       retiredAt: null,
     });
-    return this.withDuplicateNameMapped(() => this.categories.save(category));
+    // Saved with its audit entry in one transaction (F14.4).
+    return this.withDuplicateNameMapped(() =>
+      this.categories.manager.transaction(async (manager) => {
+        const saved = await manager.save(category);
+        await recordAudit(manager, {
+          action: 'category.created',
+          targetType: 'category',
+          targetId: saved.id,
+          after: categorySnapshot(saved),
+        });
+        return saved;
+      }),
+    );
   }
 
   async rename(id: string, name: string): Promise<Category> {
-    const category = await this.categories.findOneBy({ id });
-    if (!category) {
-      throw categoryNotFound(id);
-    }
-    // Retired categories are frozen, as retired buildings are.
-    if (category.retiredAt) {
-      throw new ConflictException({
-        code: ErrorCode.Conflict,
-        message: 'A retired category cannot be renamed.',
-      });
-    }
-    category.name = name.trim();
-    category.nameKey = nameKey(name);
-    return this.withDuplicateNameMapped(() => this.categories.save(category));
+    return this.withDuplicateNameMapped(() =>
+      this.categories.manager.transaction(async (manager) => {
+        const category = await this.lock(manager, id);
+        // Retired categories are frozen, as retired buildings are.
+        if (category.retiredAt) {
+          throw new ConflictException({
+            code: ErrorCode.Conflict,
+            message: 'A retired category cannot be renamed.',
+          });
+        }
+        const before = categorySnapshot(category);
+        category.name = name.trim();
+        category.nameKey = nameKey(name);
+        const saved = await manager.save(category);
+        await recordAudit(manager, {
+          action: 'category.renamed',
+          targetType: 'category',
+          targetId: id,
+          before,
+          after: categorySnapshot(saved),
+        });
+        return saved;
+      }),
+    );
   }
 
   /**
@@ -91,15 +115,35 @@ export class CategoriesService {
    * listed or selectable (F11.3.1). Retiring twice is a no-op.
    */
   async retire(id: string): Promise<Category> {
-    const category = await this.categories.findOneBy({ id });
+    return this.categories.manager.transaction(async (manager) => {
+      const category = await this.lock(manager, id);
+      if (category.retiredAt !== null) {
+        return category; // already retired: nothing changed, nothing recorded
+      }
+      const before = categorySnapshot(category);
+      category.retiredAt = new Date();
+      const saved = await manager.save(category);
+      await recordAudit(manager, {
+        action: 'category.retired',
+        targetType: 'category',
+        targetId: id,
+        before,
+        after: categorySnapshot(saved),
+      });
+      return saved;
+    });
+  }
+
+  /** The category, locked until the transaction ends; 404 if unknown. */
+  private async lock(manager: EntityManager, id: string): Promise<Category> {
+    const category = await manager.findOne(Category, {
+      where: { id },
+      lock: { mode: 'pessimistic_write' },
+    });
     if (!category) {
       throw categoryNotFound(id);
     }
-    if (category.retiredAt !== null) {
-      return category;
-    }
-    category.retiredAt = new Date();
-    return this.categories.save(category);
+    return category;
   }
 
   private async withDuplicateNameMapped<T>(work: () => Promise<T>): Promise<T> {

@@ -318,12 +318,10 @@ describe('the audit log across the writes (real PostgreSQL, F14.4, F14.5)', () =
 
   describe('requests', () => {
     const entriesOfType = (type: string) =>
-      dataSource
-        .getRepository(AuditEntry)
-        .find({
-          where: { targetType: type as 'request' },
-          order: { id: 'ASC' },
-        });
+      dataSource.getRepository(AuditEntry).find({
+        where: { targetType: type as 'request' },
+        order: { id: 'ASC' },
+      });
 
     it('records filing a creation request, by the user, with no before (F14.4)', async () => {
       const filed = await withActor(BASIC_USER, () =>
@@ -529,6 +527,127 @@ describe('the audit log across the writes (real PostgreSQL, F14.4, F14.5)', () =
 
       expect(actions).toContain('request.submitted');
       expect(actions).toContain('request.withdrawn');
+    });
+  });
+
+  describe('categories, brands and buildings', () => {
+    it.each([
+      ['category', 'Snacks', 'Treats'],
+      ['brand', 'Cheers', 'Cheers Plus'],
+    ])(
+      'records creating, renaming and retiring a %s',
+      async (kind, name, renamed) => {
+        const service = kind === 'category' ? categories : brands;
+
+        const created = await withActor(ADMIN, () => service.create(name));
+        await withActor(OTHER_ADMIN, () => service.rename(created.id, renamed));
+        await withActor(ADMIN, () => service.retire(created.id));
+
+        const entries = await entriesFor(created.id);
+        expect(entries.map((e) => [e.action, e.actorId])).toEqual([
+          [`${kind}.created`, ADMIN],
+          [`${kind}.renamed`, OTHER_ADMIN],
+          [`${kind}.retired`, ADMIN],
+        ]);
+        expect(entries[0]).toMatchObject({
+          before: null,
+          after: { id: created.id, name, retiredAt: null },
+        });
+        expect(entries[1]).toMatchObject({
+          before: { name },
+          after: { name: renamed },
+        });
+        expect(entries[2]).toMatchObject({
+          before: { retiredAt: null },
+          after: { retiredAt: expect.any(String) },
+        });
+      },
+    );
+
+    it.each([
+      ['category', 'Snacks'],
+      ['brand', 'Cheers'],
+    ])(
+      'records nothing for a %s change that is refused or changes nothing',
+      async (kind, name) => {
+        const service = kind === 'category' ? categories : brands;
+        const first = await service.create(name);
+        const other = await service.create(`${name} Two`);
+        await service.retire(other.id);
+        const before = await total();
+
+        const duplicate = await failure(service.create(name.toLowerCase()));
+        const clash = await failure(service.rename(other.id, 'Anything'));
+        const missing = await failure(
+          service.rename('11111111-1111-4111-8111-111111111111', 'X'),
+        );
+        await service.retire(other.id); // already retired: a no-op
+
+        expect(duplicate).toBeInstanceOf(ConflictException);
+        expect(clash).toBeInstanceOf(ConflictException);
+        expect(missing).toBeInstanceOf(NotFoundException);
+        expect(await total()).toBe(before);
+        expect((await entriesFor(first.id)).map((e) => e.action)).toEqual([
+          `${kind}.created`,
+        ]);
+      },
+    );
+
+    it('records creating, editing and retiring a building', async () => {
+      const created = await withActor(ADMIN, () =>
+        buildings.create({
+          canonicalName: 'Science Library',
+          shortName: 'SL',
+          aliases: ['Sci Lib'],
+          latitude: 1.2966,
+          longitude: 103.7803,
+        }),
+      );
+      await withActor(OTHER_ADMIN, () =>
+        buildings.updateNames(created.id, { shortName: 'SCL', aliases: [] }),
+      );
+      await withActor(ADMIN, () => buildings.retire(created.id));
+
+      const entries = await entriesFor(created.id);
+      expect(entries.map((e) => [e.action, e.actorId])).toEqual([
+        ['building.created', ADMIN],
+        ['building.updated', OTHER_ADMIN],
+        ['building.retired', ADMIN],
+      ]);
+      expect(entries[0]!.after).toMatchObject({
+        canonicalName: 'Science Library',
+        aliases: ['Sci Lib'],
+        coordinates: { latitude: 1.2966, longitude: 103.7803 },
+      });
+      expect(entries[1]).toMatchObject({
+        before: { shortName: 'SL', aliases: ['Sci Lib'] },
+        after: { shortName: 'SCL', aliases: [] },
+      });
+    });
+
+    it('records nothing for a building change that is refused', async () => {
+      const created = await buildings.create({
+        canonicalName: 'Science Library',
+        shortName: 'SL',
+        aliases: [],
+        latitude: 1.2966,
+        longitude: 103.7803,
+      });
+      const before = await total();
+
+      // A name already used by Computing 2, and an unknown building.
+      const clash = await failure(
+        buildings.updateNames(created.id, { shortName: 'com2' }),
+      );
+      const missing = await failure(
+        buildings.updateNames('11111111-1111-4111-8111-111111111111', {
+          shortName: 'X',
+        }),
+      );
+
+      expect(clash).toBeInstanceOf(ConflictException);
+      expect(missing).toBeInstanceOf(NotFoundException);
+      expect(await total()).toBe(before);
     });
   });
 });
