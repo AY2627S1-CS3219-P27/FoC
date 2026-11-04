@@ -2936,6 +2936,597 @@
           }
         }
       ]
+    },
+    {
+      "name": "6 Opening hours (after D2)",
+      "description": "Weekly hours in Singapore time (F2): create with hours, the computed isOpenNow and nextChangeAt, validation errors with their paths, overnight and open-24-hours, editing and removing, the openNow filter, and a user proposing hours in a request. Run folder 1 first (it saves the Food category and the COM3 building ids). Names are timestamped, so it can be re-run.",
+      "item": [
+        {
+          "name": "Admin creates a supplier with weekly hours (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers",
+            "description": "Weekly hours in Singapore time (F2.1): two intervals on Monday (a lunch break), Saturday morning, and no Sunday, so Sunday is closed (F2.1.2).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{hoursName}}\",\n  \"kind\": \"Store\",\n  \"categoryIds\": [\n    \"{{foodCategoryId}}\"\n  ],\n  \"buildingId\": \"{{com3BuildingId}}\",\n  \"floor\": \"2\",\n  \"locationDescription\": \"Next to the lift\",\n  \"coordinates\": {\n    \"latitude\": 1.2944,\n    \"longitude\": 103.7726\n  },\n  \"openingHours\": {\n    \"days\": {\n      \"mon\": [\n        {\n          \"opens\": \"09:00\",\n          \"closes\": \"12:00\"\n        },\n        {\n          \"opens\": \"13:00\",\n          \"closes\": \"18:00\"\n        }\n      ],\n      \"tue\": [\n        {\n          \"opens\": \"09:00\",\n          \"closes\": \"18:00\"\n        }\n      ],\n      \"wed\": [\n        {\n          \"opens\": \"09:00\",\n          \"closes\": \"18:00\"\n        }\n      ],\n      \"thu\": [\n        {\n          \"opens\": \"09:00\",\n          \"closes\": \"18:00\"\n        }\n      ],\n      \"fri\": [\n        {\n          \"opens\": \"09:00\",\n          \"closes\": \"18:00\"\n        }\n      ],\n      \"sat\": [\n        {\n          \"opens\": \"09:00\",\n          \"closes\": \"13:00\"\n        }\n      ]\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('hoursName', `Hours Stall ${Date.now()}`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const s = pm.response.json();",
+                  "pm.environment.set('hoursSupplierId', s.id);",
+                  "pm.environment.set('hoursSupplierEtag', pm.response.headers.get('ETag'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Read it: hours, isOpenNow and nextChangeAt (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{hoursSupplierId}}",
+            "description": "isOpenNow and nextChangeAt are computed from the clock in Singapore time on every read, so they change through the day."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test('hours returned in canonical form, Sunday left out', () => { pm.expect(Object.keys(s.openingHours.days)).to.eql(['mon','tue','wed','thu','fri','sat']); pm.expect(s.openingHours.days.mon).to.eql([{ opens: '09:00', closes: '12:00' }, { opens: '13:00', closes: '18:00' }]); });",
+                  "pm.test('isOpenNow is a boolean, worked out when asked (F2.5)', () => pm.expect(s.isOpenNow).to.be.a('boolean'));",
+                  "pm.test('nextChangeAt is a time', () => pm.expect(Date.parse(s.nextChangeAt)).to.be.a('number').and.not.NaN);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Hours with several problems (400, every path listed)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers",
+            "description": "An invalid time, equal opening and closing, and an overlap, all reported together (F2.4, F1.6.1). Nothing is saved.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{hoursName}} bad\",\n  \"kind\": \"Store\",\n  \"categoryIds\": [\n    \"{{foodCategoryId}}\"\n  ],\n  \"buildingId\": \"{{com3BuildingId}}\",\n  \"floor\": \"2\",\n  \"locationDescription\": \"Next to the lift\",\n  \"coordinates\": {\n    \"latitude\": 1.2944,\n    \"longitude\": 103.7726\n  },\n  \"openingHours\": {\n    \"days\": {\n      \"mon\": [\n        {\n          \"opens\": \"25:00\",\n          \"closes\": \"18:00\"\n        }\n      ],\n      \"tue\": [\n        {\n          \"opens\": \"10:00\",\n          \"closes\": \"10:00\"\n        }\n      ],\n      \"wed\": [\n        {\n          \"opens\": \"09:00\",\n          \"closes\": \"13:00\"\n        },\n        {\n          \"opens\": \"12:00\",\n          \"closes\": \"18:00\"\n        }\n      ]\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "const fields = pm.response.json().violations.map((v) => v.field);",
+                  "pm.test('each problem has its path', () => pm.expect(fields).to.include.members(['openingHours.days.mon[0].opens', 'openingHours.days.tue[0]', 'openingHours.days.wed[1]']));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Open 24 hours cannot be combined with days (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers",
+            "description": "F2.2.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{hoursName}} both\",\n  \"kind\": \"Store\",\n  \"categoryIds\": [\n    \"{{foodCategoryId}}\"\n  ],\n  \"buildingId\": \"{{com3BuildingId}}\",\n  \"floor\": \"2\",\n  \"locationDescription\": \"Next to the lift\",\n  \"coordinates\": {\n    \"latitude\": 1.2944,\n    \"longitude\": 103.7726\n  },\n  \"openingHours\": {\n    \"open24Hours\": true,\n    \"days\": {\n      \"mon\": [\n        {\n          \"opens\": \"09:00\",\n          \"closes\": \"18:00\"\n        }\n      ]\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Admin edits the hours (200, version 2)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "If-Match",
+                "value": "{{hoursSupplierEtag}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{hoursSupplierId}}",
+            "description": "An edit that mentions openingHours replaces the whole schedule and bumps the version (F14.3). The Friday interval is overnight: open until 02:00 on Saturday (F2.3).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"openingHours\": {\n    \"days\": {\n      \"fri\": [\n        {\n          \"opens\": \"22:00\",\n          \"closes\": \"02:00\"\n        }\n      ]\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('version 2, only the hours changed', () => { const r = pm.response.json(); pm.expect(r.version).to.eql(2); });"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "The schedule was replaced",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{hoursSupplierId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('only Friday now, overnight', () => { const s = pm.response.json(); pm.expect(s.openingHours).to.eql({ days: { fri: [{ opens: '22:00', closes: '02:00' }] } }); pm.expect(s.version).to.eql(2); });"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Admin sets open 24 hours (200)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "If-Match",
+                "value": "\"2\""
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{hoursSupplierId}}",
+            "description": "F2.2: a flag, not intervals.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"openingHours\": {\n    \"open24Hours\": true\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Open 24 hours: always open now, never changes",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{hoursSupplierId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('open now, no next change', () => { const s = pm.response.json(); pm.expect(s.openingHours).to.eql({ open24Hours: true }); pm.expect(s.isOpenNow).to.eql(true); pm.expect(s.nextChangeAt).to.eql(null); });"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Filter: open now (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers?openNow=true&limit=1000",
+            "description": "F5.4.7: only suppliers open at this moment, with correct totals and paging, combined with the other filters (F5.5)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const page = pm.response.json();",
+                  "pm.test('our 24-hour supplier is open, whatever the time', () => pm.expect(page.items.some((s) => s.id === pm.environment.get('hoursSupplierId'))).to.be.true);",
+                  "pm.test('every item is open now', () => pm.expect(page.items.every((s) => s.isOpenNow === true)).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "openNow with a bad value (400)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers?openNow=maybe"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Basic user asks to add a supplier with hours (201, Pending)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/creations",
+            "description": "Hours are an ordinary supplier field, so a user can include them in a request. They are validated like an admin's (F2.4).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{hoursRequestName}}\",\n  \"kind\": \"Store\",\n  \"categoryIds\": [\n    \"{{foodCategoryId}}\"\n  ],\n  \"buildingId\": \"{{com3BuildingId}}\",\n  \"floor\": \"2\",\n  \"locationDescription\": \"Next to the lift\",\n  \"coordinates\": {\n    \"latitude\": 1.2944,\n    \"longitude\": 103.7726\n  },\n  \"openingHours\": {\n    \"days\": {\n      \"mon\": [\n        {\n          \"opens\": \"08:00\",\n          \"closes\": \"17:00\"\n        }\n      ]\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('hoursRequestName', `Proposed Hours Stall ${Date.now()}`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const r = pm.response.json();",
+                  "pm.test('the proposed hours are recorded', () => pm.expect(r.values.openingHours.days.mon).to.eql([{ opens: '08:00', closes: '17:00' }]));",
+                  "pm.environment.set('hoursRequestId', r.id);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Admin approves it (200, hours go live)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/{{hoursRequestId}}/approve"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.environment.set('hoursRequestedSupplierId', pm.response.json().createdSupplierId);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "The approved supplier has the proposed hours",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{hoursRequestedSupplierId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Monday 08:00-17:00', () => pm.expect(pm.response.json().openingHours).to.eql({ days: { mon: [{ opens: '08:00', closes: '17:00' }] } }));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Admin removes the hours with null (200)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "If-Match",
+                "value": "\"1\""
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{hoursRequestedSupplierId}}",
+            "description": "null removes the schedule: the supplier has no fixed opening hours (F1.2.8).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"openingHours\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "No hours: isOpenNow is not applicable",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{hoursRequestedSupplierId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('all three are null (F2.5.1)', () => { const s = pm.response.json(); pm.expect(s.openingHours).to.eql(null); pm.expect(s.isOpenNow).to.eql(null); pm.expect(s.nextChangeAt).to.eql(null); });"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Opening hours never change the status (F2.7)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{hoursSupplierId}}",
+            "description": "Hours are informational only: they never change a supplier's status or block anything."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('still Active', () => pm.expect(pm.response.json().status).to.eql('Active'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        }
+      ]
     }
   ]
 }

@@ -39,7 +39,7 @@ D2 asks for Supplier Service **"significant progress"**: Part 2 points 1-4 of th
 **Not in D2** (designed, built later):
 
 - **the rest of moderation:** admins amending a request before approving it (F7.4, F8.5) is not planned for D4. Requests to *add*, *edit* or *change the status of* a supplier, and following and withdrawing your own, are built (F6.1-F6.8, F7.1-F7.3.1, F8.1-F8.4.1, F9.3-F9.4, F13.6).
-- opening hours (F2)
+- opening hours (F2): built after D2, see [Opening hours](#opening-hours-f2)
 - brands (F3)
 - Order validation over RabbitMQ (F15.7)
 - safe retries, audit log and rate limits (F14.2, F14.4, F16)
@@ -92,6 +92,7 @@ erDiagram
     BUILDINGS ||--o{ SUPPLIERS : "houses"
     SUPPLIERS ||--|{ SUPPLIER_CATEGORIES : "has"
     CATEGORIES ||--o{ SUPPLIER_CATEGORIES : "tags"
+    SUPPLIERS ||--o{ SUPPLIER_OPENING_INTERVALS : "is open during"
 
     BUILDINGS {
         uuid id PK
@@ -127,6 +128,7 @@ erDiagram
         double latitude
         double longitude
         varchar photo_url "optional"
+        boolean open_24_hours "open around the clock (F2.2)"
         enum status "Active | Inactive"
         int version "starts at 1, +1 per change"
         timestamptz created_at
@@ -135,6 +137,12 @@ erDiagram
     SUPPLIER_CATEGORIES {
         uuid supplier_id PK, FK
         uuid category_id PK, FK
+    }
+    SUPPLIER_OPENING_INTERVALS {
+        uuid supplier_id PK, FK
+        smallint day PK "0 = Monday to 6 = Sunday"
+        smallint opens_at PK "minutes since midnight, Singapore time"
+        smallint closes_at "earlier than opens_at = overnight (F2.3)"
     }
     SUPPLIERS |o--o{ SUPPLIER_REQUESTS : "is the target of"
     BUILDINGS ||--o{ SUPPLIER_REQUESTS : "is proposed in"
@@ -164,12 +172,14 @@ erDiagram
 | `building_name_keys` | Every name, short name and alias of each in-use building, normalised | The primary key makes two in-use buildings sharing a name impossible (F4.2). Looking up a building by any name is one key lookup (F4.5). |
 | `categories` | The controlled list of categories (F11) | Partial unique index on `name_key` among non-retired categories (F11.2.1) |
 | `supplier_categories` | Which categories each supplier has (many-to-many) | The primary key stops the same category being added twice (F1.2.3). A category in use can't be removed. |
+| `supplier_opening_intervals` (✅ step 13, migration `1791072000000-add-opening-hours.ts`) | One row per interval of a supplier's regular weekly hours (F2.1), plus `suppliers.open_24_hours` for open around the clock (F2.2). No rows and no flag means no fixed hours (F1.2.8) | CHECKs: day 0-6, minutes 0-1439, and opening minute different from closing minute (F2.4.2). The foreign key deletes the intervals with their supplier. |
 | `supplier_requests` (✅ step 8, migration `1790640000000-create-supplier-requests.ts`) | A basic user's request to add (and later edit or change the status of) a supplier, moderated by an admin (F6) | A partial unique index on `(name_key, building_id, floor)` among **Pending Create** requests: two identical requests can't both be pending, even when filed at the same moment (F7.2). Another on `(supplier_id, type)` among Pending non-Create requests: one pending edit per supplier (F8.3; migration `1790726400000-add-pending-target-index.ts`). CHECKs: a Create carries the duplicate key and no target supplier, the other types the reverse; Pending means no resolver, and a resolved request always records who and when; only a Denied request has a reason, never blank (F6.4). |
 
 Rules the database **can't** express are checked in the service, inside the same transaction:
 - **"at least one category"** (F1.2.3)
 - **"coordinates inside the NUS campus box"** (F1.2.7): the box comes from configuration, which a DB CHECK can't read
 - **"only non-retired buildings and categories for new values"** (F1.8)
+- **"no two opening intervals overlap"**, including an overnight interval running into the next day (F2.4.3): SQL can't compare ranges across rows this simply, so `checkOpeningHours` does it, before anything is written
 
 **System-managed fields** (`id`, `status`, `version`, `created_at`, `updated_at`) are set only by the server. A request that tries to set one is rejected (F1.3, F1.3.2).
 
@@ -210,7 +220,7 @@ Rules the database **can't** express are checked in the service, inside the same
 - **"Food/Coffee"** becomes two categories, created if missing (F12.2.2).
 - **Bad characters** from Windows-1252 encoding are repaired, e.g. `George\x92s` → `George’s` (F12.3).
 - **A bad row** is skipped and logged with its row number, field and reason; it never stops the import (F12.4).
-- **Photos** are stored where the ImageURL cell has one, otherwise none (F12.2.4). **Opening hours** in the file are ignored until step 13.
+- **Photos** are stored where the ImageURL cell has one, otherwise none (F12.2.4). **Opening hours** come from StartingTime and ClosingTime: the same interval on all seven days, `0000hrs` to `2359hrs` meaning open 24 hours, and an overnight pair such as `1100hrs` to `0200hrs` (Supersnacks) kept as it is (F12.2.3). Blank times mean no fixed hours; an unreadable time or equal times reject the row, and the log names the cell (F12.4).
 
 ---
 
@@ -234,6 +244,7 @@ Built so far ✅: `GET /health`; `GET`/`POST /categories` (step 2); `GET /suppli
 | By category | `GET /suppliers?categoryId={id}` (repeatable; matches any) | F5.4.2 |
 | By kind | `GET /suppliers?kind=Store` (repeatable) | F5.4.4 |
 | By status | `GET /suppliers?status=Active` (default: both) | F5.4.5, F5.7 |
+| Open now | `GET /suppliers?openNow=true`: only suppliers open at this moment in Singapore time (`false` is the same as leaving it out) | F5.4.7 |
 | Combined | `GET /suppliers?categoryId={food}&buildingId={com3}&status=Active`: filters are ANDed | F5.5 |
 | Sort | Default: display name A→Z, then id, or `?sort=name\|building\|createdAt\|updatedAt&order=asc\|desc`, always ending with id as the tie-breaker | F5.3, F5.3.1 |
 | Pages | `?offset=0&limit=25` (max 1000) | F5.2, N3.1 |
@@ -261,7 +272,7 @@ Repeatable filters are passed by repeating the parameter, e.g. `?categoryId=a&ca
       "building": { "id": "…", "shortName": "COM3" },
       "floor": "1",
       "status": "Active",
-      "isOpenNow": null,
+      "isOpenNow": true,
       "thumbnailUrl": null
     }
   ],
@@ -273,17 +284,42 @@ Repeatable filters are passed by repeating the parameter, e.g. `?categoryId=a&ca
 ```
 
 - `brand` stays `null` until brands (step 14).
-- `isOpenNow` stays `null` ("not applicable", F2.5.1) until opening hours (step 13).
+- `isOpenNow` is `true` or `false`, worked out when you ask, in Singapore time (F2.5), or `null` ("not applicable", F2.5.1) for a supplier without opening hours.
 - With no photo, `thumbnailUrl` is the placeholder link from the `PLACEHOLDER_IMAGE_URL` setting (F1.2.9). The setting is blank until images are hosted (step 19), so for now it is `null`.
 
 **Single supplier (`GET /suppliers/{id}`)** returns every list field plus:
 
 - `building.canonicalName`, `locationDescription`, `coordinates {latitude, longitude}`
-- `openingHours`, `nextChangeAt` (null for now)
+- `openingHours` (see [Opening hours](#opening-hours-f2); `null` when there are none) and `nextChangeAt`, the time of the next opening or closing (`null` when it never changes, or without hours)
 - `images: {original, thumbnail}`: the photo for both until thumbnails exist (F17.3), the placeholder when there's no photo, or `null` when neither is set
 - `version`, `createdAt`, `updatedAt`
 
 It also returns the version in an `ETag` header (e.g. `"3"`), which an admin edit must send back as `If-Match` (step 6). A malformed id answers 400 (`VALIDATION_FAILED`, field `id`); an unknown one 404 `SUPPLIER_NOT_FOUND`. This response is also what other services rely on: it has enough detail for them to keep their own copy (F15.1). The endpoint is read-only, so it is safe to retry (F15.4).
+
+### Opening hours (F2)
+
+✅ step 13. `openingHours` is an optional field of a supplier, in the same body as every other field of `POST /suppliers`, `PATCH /suppliers/{id}`, `POST /supplier-requests/creations` and the `changes` of `POST /supplier-requests/updates`. A user can propose hours in a request; an admin approving it makes them live with the rest.
+
+```json
+"openingHours": { "open24Hours": true }
+
+"openingHours": { "days": {
+  "mon": [{ "opens": "09:00", "closes": "12:00" }, { "opens": "13:00", "closes": "18:00" }],
+  "sat": [{ "opens": "09:00", "closes": "13:00" }],
+  "fri": [{ "opens": "22:00", "closes": "02:00" }]
+} }
+```
+
+- **Days and times (F2.1):** days are `mon` to `sun`, times are 24-hour `HH:MM` in Singapore time. A day left out, or with no intervals, is **closed** (F2.1.2). A day may have several intervals, for example a lunch break.
+- **Overnight (F2.3):** an interval closing earlier than it opens runs into the next day and belongs to the day it opens: the Friday interval above is open until 02:00 on Saturday.
+- **Open around the clock (F2.2):** `{ "open24Hours": true }`, never combined with `days`.
+- **No hours:** leave the field out (a creation), or send `null` on an edit to remove them (F1.2.8). An empty schedule such as `{ "days": {} }` is refused.
+- **Rejected (F2.4):** a time that isn't valid `HH:MM`, opening equal to closing, and overlapping intervals, including an overnight one running into the next day (across Sunday into Monday too). Intervals that only touch (12:00 closing, 12:00 opening) are fine. Every problem comes back in one 400 with its path, e.g. `openingHours.days.mon[1]` (F1.6.1). At most 10 intervals per day.
+- **Editing:** an edit that mentions `openingHours` replaces the whole schedule and raises the supplier's version like any change, so a stale edit is still caught (F14.3). An edit that doesn't mention it leaves the hours alone.
+- **Reading (F2.5):** `GET /suppliers/{id}` returns `openingHours`, `isOpenNow` and `nextChangeAt`; the list returns `isOpenNow`. Adjacent intervals count as one, so `nextChangeAt` skips a handover with no gap. Open around the clock gives `isOpenNow: true` and `nextChangeAt: null`. Without hours, all three are `null` (F2.5.1).
+- **Filter (F5.4.7):** `openNow=true` is done in SQL, so `total` and paging are right, and it combines with the other filters (F5.5).
+
+**What opening hours do and don't do (F2.7).** They are informational only. The system never changes a supplier's status because of them, and never blocks anything. In particular, Order Service's validation reply carries only whether the supplier exists, its status and its details (§11), so an errand can still be created against a supplier that is closed right now. A frontend can show "Closed, opens 09:00" from `isOpenNow` and `nextChangeAt`; making a supplier unavailable on purpose is what Inactive is for. Checking opening hours during validation is possible future work: it needs a contract change agreed with Order Service, and the answer would only be true at validation time.
 
 ### Endpoints
 
@@ -292,8 +328,8 @@ It also returns the version in an `ETag` header (e.g. `"3"`), which an admin edi
 | GET | `/health` | anyone, no login | Is the service up? ✅ | |
 | GET | `/suppliers` | any logged-in user | List / search / filter / sort / paginate | F5 |
 | GET | `/suppliers/{id}` | any logged-in user | One supplier in full | F5.9, F15.1 |
-| POST | `/suppliers` | **admin** | Create (starts Active) | F7.5, F9.1 |
-| PATCH | `/suppliers/{id}` | **admin** | Edit some fields; needs `If-Match` | F8.6, F14.3 |
+| POST | `/suppliers` | **admin** | Create (starts Active); optional `openingHours` | F7.5, F9.1, F2 |
+| PATCH | `/suppliers/{id}` | **admin** | Edit some fields (`openingHours` replaces the schedule, `null` removes it); needs `If-Match` | F8.6, F14.3, F2 |
 | PUT | `/suppliers/{id}/status` | **admin** | Set Active / Inactive; needs `If-Match` | F9.2, F9.5 |
 | GET | `/categories` | any logged-in user | In-use categories | F11.4 |
 | POST | `/categories` | **admin** | Create a category | F11.2 |
@@ -543,6 +579,7 @@ Branches are few and large: one per area, each merged into `supplier-service` by
 | 10 | "Edit supplier" requests | F8.1-F8.4.1 | `crud` | ✅ built (F8.5 amend: after D2) |
 | 12 | My requests, withdraw | F6.5, F6.6, F13.6 | `crud` | ✅ built |
 | 11 | "Change status" requests | F9.3, F9.3.1, F9.3.2, F9.4 | `moderation` | ✅ built |
+| 13 | Opening hours | F1.2.8, F2.1-F2.5, F2.7, F12.2.3, F5.4.7 (not F2.6, overrides) | `moderation` (same branch) | ✅ built |
 | 15b | Supplier validation for Order Service over RabbitMQ | F15.7-F15.7.8, F13.7 | `order-integration` (+ `contracts`, PR #642) | ✅ built and switched on ([§11](#11-supplier-validation-for-order-service-rabbitmq)); Order Service's side to come |
 
 ---
