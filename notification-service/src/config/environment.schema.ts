@@ -30,6 +30,10 @@ export const environmentSchema = Joi.object({
   // user-service's RS256 verification key, mounted from its public-key secret.
   JWT_PUBLIC_KEY_FILE: Joi.string().min(1).required(),
 
+  // VAPID public key browsers pass to pushManager.subscribe. Not sensitive;
+  // the private key is a mounted secret used by the sending side.
+  VAPID_PUBLIC_KEY: Joi.string().min(1).required(),
+
   // RabbitMQ broker identity; consumed once the consumer module lands.
   RABBITMQ_USER: Joi.string().min(1).required(),
   RABBITMQ_HOST: Joi.string().hostname().required(),
