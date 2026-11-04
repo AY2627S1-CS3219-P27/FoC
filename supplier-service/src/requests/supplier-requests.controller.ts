@@ -17,6 +17,7 @@ import type { Page } from '../suppliers/supplier-view.js';
 import { DenyRequestDto } from './dto/deny-request.dto.js';
 import { ListMyRequestsQueryDto } from './dto/list-my-requests-query.dto.js';
 import { ListRequestsQueryDto } from './dto/list-requests-query.dto.js';
+import { SubmitStatusChangeRequestDto } from './dto/submit-status-change-request.dto.js';
 import { SubmitUpdateRequestDto } from './dto/submit-update-request.dto.js';
 import type { RequestView } from './request-view.js';
 import { SupplierRequestsService } from './supplier-requests.service.js';
@@ -59,6 +60,23 @@ export class SupplierRequestsController {
       body.supplierId,
       parseIfMatch(ifMatch),
       body.changes,
+      actingUserId(request),
+    );
+  }
+
+  /**
+   * Files a request to activate or deactivate a supplier (F9.3). No If-Match:
+   * the request records the supplier's version when it is filed (F6.2).
+   */
+  @Post('status-changes')
+  submitStatusChange(
+    @Body() body: SubmitStatusChangeRequestDto,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<RequestView> {
+    return this.requests.submitStatusChange(
+      body.supplierId,
+      body.status,
+      body.reason,
       actingUserId(request),
     );
   }

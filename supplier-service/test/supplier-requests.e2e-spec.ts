@@ -18,6 +18,7 @@ function fakes() {
   return {
     submitCreation: vi.fn(async () => view('Pending')),
     submitUpdate: vi.fn(async () => view('Pending')),
+    submitStatusChange: vi.fn(async () => view('Pending')),
     listPending: vi.fn(async (query: { offset: number; limit: number }) => ({
       items: [],
       total: 0,
@@ -112,6 +113,53 @@ describe('supplier request endpoints (e2e)', () => {
       { floor: '2' },
       TEST_USER_ID,
     );
+  });
+
+  it('lets a basic user file a status change, as themselves (F9.3, F13.1)', async () => {
+    const supplierId = randomUUID();
+    const response = await request(app.getHttpServer())
+      .post('/supplier-requests/status-changes')
+      .set('Cookie', cookie)
+      .send({
+        supplierId: supplierId.toUpperCase(),
+        status: 'Inactive',
+        reason: 'Closed',
+      })
+      .expect(201);
+
+    // The submitter comes from the token, and the id is lower-cased.
+    expect(stub.submitStatusChange).toHaveBeenCalledWith(
+      supplierId,
+      'Inactive',
+      'Closed',
+      TEST_USER_ID,
+    );
+    expect(response.body).toMatchObject({ state: 'Pending' });
+  });
+
+  it('refuses a status change that tries to name its own submitter (F13.1)', async () => {
+    await request(app.getHttpServer())
+      .post('/supplier-requests/status-changes')
+      .set('Cookie', cookie)
+      .send({
+        supplierId: randomUUID(),
+        status: 'Inactive',
+        submittedBy: 'someone-else',
+      })
+      .expect(400);
+
+    expect(stub.submitStatusChange).not.toHaveBeenCalled();
+  });
+
+  it('rejects a status change with an unknown status, without calling the service (F9.3)', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/supplier-requests/status-changes')
+      .set('Cookie', cookie)
+      .send({ supplierId: randomUUID(), status: 'Closed' })
+      .expect(400);
+
+    expect(response.body.code).toBe('VALIDATION_FAILED');
+    expect(stub.submitStatusChange).not.toHaveBeenCalled();
   });
 
   it('answers 428 for an edit request without If-Match (F14.3)', async () => {

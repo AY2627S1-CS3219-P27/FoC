@@ -292,10 +292,47 @@ export class SuppliersService {
     await this.inTransaction(within, async (manager) => {
       const supplier = await lockForChange(manager, id, expectedVersion);
       if (supplier.status === status) {
-        throw new ConflictException({
-          code: ErrorCode.InvalidStatusTransition,
-          message: `The supplier is already ${status}.`,
-        });
+        throw alreadyInStatus(status);
+      }
+      await bumpVersion(manager, id, { status });
+    });
+  }
+
+  /**
+   * Checks that a status-change request can be filed (F9.3.1): the supplier
+   * exists (404) and does not already have the requested status (409). It is
+   * share-locked until the request is saved, and its version is returned so
+   * the request can record it (F6.2).
+   */
+  async checkStatusChange(
+    id: string,
+    status: SupplierStatus,
+    within?: EntityManager,
+  ): Promise<{ version: number }> {
+    return this.inTransaction(within, async (manager) => {
+      const supplier = await lockSupplier(manager, id, 'pessimistic_read');
+      if (supplier.status === status) {
+        throw alreadyInStatus(status);
+      }
+      return { version: supplier.version };
+    });
+  }
+
+  /**
+   * Sets the status of a supplier whatever its version, for approving a
+   * status-change request (F9.4): only the status must differ, so a supplier
+   * edited since the request was filed does not block it. The version still
+   * goes up by one.
+   */
+  async setStatus(
+    id: string,
+    status: SupplierStatus,
+    within?: EntityManager,
+  ): Promise<void> {
+    await this.inTransaction(within, async (manager) => {
+      const supplier = await lockSupplier(manager, id, 'pessimistic_write');
+      if (supplier.status === status) {
+        throw alreadyInStatus(status);
       }
       await bumpVersion(manager, id, { status });
     });
@@ -321,6 +358,24 @@ async function lockForChange(
   expectedVersion: number,
   mode: 'pessimistic_write' | 'pessimistic_read' = 'pessimistic_write',
 ): Promise<Supplier> {
+  const supplier = await lockSupplier(manager, id, mode);
+  if (supplier.version !== expectedVersion) {
+    throw new ConflictException({
+      code: ErrorCode.VersionConflict,
+      message:
+        'The supplier has changed since you loaded it. Reload it and try again.',
+      currentVersion: supplier.version,
+    });
+  }
+  return supplier;
+}
+
+/** Loads the supplier with a row lock held until the transaction ends; 404 if it does not exist. */
+async function lockSupplier(
+  manager: EntityManager,
+  id: string,
+  mode: 'pessimistic_write' | 'pessimistic_read',
+): Promise<Supplier> {
   const supplier = await manager.findOne(Supplier, {
     where: { id },
     lock: { mode },
@@ -331,15 +386,14 @@ async function lockForChange(
       message: `Supplier ${id} does not exist.`,
     });
   }
-  if (supplier.version !== expectedVersion) {
-    throw new ConflictException({
-      code: ErrorCode.VersionConflict,
-      message:
-        'The supplier has changed since you loaded it. Reload it and try again.',
-      currentVersion: supplier.version,
-    });
-  }
   return supplier;
+}
+
+function alreadyInStatus(status: SupplierStatus): ConflictException {
+  return new ConflictException({
+    code: ErrorCode.InvalidStatusTransition,
+    message: `The supplier is already ${status}.`,
+  });
 }
 
 /** The building and categories the supplier references now (F1.8). */

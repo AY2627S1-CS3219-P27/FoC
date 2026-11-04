@@ -12,6 +12,7 @@ import {
   RequestState,
   RequestType,
   SupplierRequest,
+  type SupplierStatus,
 } from '../database/entities/index.js';
 import { isUniqueViolation } from '../database/postgres-errors.js';
 import type { Page } from '../suppliers/supplier-view.js';
@@ -119,6 +120,47 @@ export class SupplierRequestsService {
             string,
             unknown
           >,
+          nameKey: null,
+          buildingId: null,
+          floor: null,
+          submittedBy: userId,
+          resolvedBy: null,
+          resolvedAt: null,
+          denialReason: null,
+          createdSupplierId: null,
+        });
+        return toRequestView(await manager.save(request));
+      }),
+    );
+  }
+
+  /**
+   * Files a request to activate or deactivate a supplier (F9.3). It is
+   * refused if the supplier does not exist, or already has the requested
+   * status (F9.3.1), or already has a Pending status-change request (F9.3.2,
+   * enforced by the unique index). The live supplier is unchanged until an
+   * admin approves.
+   */
+  async submitStatusChange(
+    supplierId: string,
+    status: SupplierStatus,
+    reason: string | undefined,
+    userId: string,
+  ): Promise<RequestView> {
+    return withPendingDuplicateMapped(() =>
+      this.dataSource.transaction(async (manager) => {
+        const supplier = await this.suppliers.checkStatusChange(
+          supplierId,
+          status,
+          manager,
+        );
+        const request = manager.create(SupplierRequest, {
+          id: randomUUID(),
+          type: RequestType.StatusChange,
+          state: RequestState.Pending,
+          supplierId,
+          supplierVersion: supplier.version,
+          payload: { status, ...(reason !== undefined && { reason }) },
           nameKey: null,
           buildingId: null,
           floor: null,
@@ -246,12 +288,17 @@ export class SupplierRequestsService {
             ),
           );
           break;
-        default:
-          // StatusChange requests cannot be filed yet.
-          throw new ConflictException({
-            code: ErrorCode.Conflict,
-            message: `${request.type} requests cannot be approved yet.`,
-          });
+        case RequestType.StatusChange:
+          // Only the status must differ (F9.4): a supplier edited since the
+          // request was filed does not block it.
+          await whenApplicable(() =>
+            this.suppliers.setStatus(
+              request.supplierId!,
+              request.payload.status as SupplierStatus,
+              manager,
+            ),
+          );
+          break;
       }
 
       request.state = RequestState.Approved;

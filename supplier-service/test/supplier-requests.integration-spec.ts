@@ -19,6 +19,7 @@ import {
   Supplier,
   SupplierKind,
   SupplierRequest,
+  SupplierStatus,
 } from '../src/database/entities/index.js';
 import { ListMyRequestsQueryDto } from '../src/requests/dto/list-my-requests-query.dto.js';
 import { ListRequestsQueryDto } from '../src/requests/dto/list-requests-query.dto.js';
@@ -585,6 +586,217 @@ describe('supplier requests (real PostgreSQL)', () => {
         state: RequestState.Pending,
       });
       await expect(queries.get(id)).resolves.toMatchObject({ version: 1 });
+    });
+  });
+
+  describe('filing a status change (F9.3, F9.3.1, F9.3.2)', () => {
+    it('files it Pending, recording the supplier version, the status and the reason', async () => {
+      const { id } = await suppliers.create(coolSpot());
+
+      const filed = await requests.submitStatusChange(
+        id,
+        SupplierStatus.Inactive,
+        'Closed for renovation',
+        BASIC_USER,
+      );
+
+      expect(filed).toMatchObject({
+        type: RequestType.StatusChange,
+        state: RequestState.Pending,
+        supplierId: id,
+        supplierVersion: 1,
+        submittedBy: BASIC_USER,
+        values: { status: 'Inactive', reason: 'Closed for renovation' },
+      });
+      // The live supplier is unchanged until an admin approves.
+      await expect(queries.get(id)).resolves.toMatchObject({
+        status: 'Active',
+        version: 1,
+      });
+    });
+
+    it('accepts a request without a reason', async () => {
+      const { id } = await suppliers.create(coolSpot());
+
+      const filed = await requests.submitStatusChange(
+        id,
+        SupplierStatus.Inactive,
+        undefined,
+        BASIC_USER,
+      );
+
+      expect(filed.values).toEqual({ status: 'Inactive' });
+    });
+
+    it('refuses a supplier that does not exist (F9.3.1)', async () => {
+      const { status, body } = await failure(
+        requests.submitStatusChange(
+          '11111111-1111-4111-8111-111111111111',
+          SupplierStatus.Inactive,
+          undefined,
+          BASIC_USER,
+        ),
+      );
+
+      expect(status).toBe(404);
+      expect(body.code).toBe('SUPPLIER_NOT_FOUND');
+    });
+
+    it("refuses the supplier's current status (F9.3.1)", async () => {
+      const { id } = await suppliers.create(coolSpot());
+
+      const { status, body } = await failure(
+        requests.submitStatusChange(
+          id,
+          SupplierStatus.Active,
+          undefined,
+          BASIC_USER,
+        ),
+      );
+
+      expect(status).toBe(409);
+      expect(body.code).toBe('INVALID_STATUS_TRANSITION');
+      await expect(pending()).resolves.toMatchObject({ total: 0 });
+    });
+
+    it('refuses a second Pending status change for the supplier, from anyone (F9.3.2)', async () => {
+      const { id } = await suppliers.create(coolSpot());
+      await requests.submitStatusChange(
+        id,
+        SupplierStatus.Inactive,
+        undefined,
+        BASIC_USER,
+      );
+
+      const { status, body } = await failure(
+        requests.submitStatusChange(
+          id,
+          SupplierStatus.Inactive,
+          'Same again',
+          OTHER_USER,
+        ),
+      );
+
+      expect(status).toBe(409);
+      expect(body.code).toBe('DUPLICATE_REQUEST');
+    });
+
+    it('still allows a Pending edit and a Pending status change for one supplier', async () => {
+      const { id } = await suppliers.create(coolSpot());
+      await requests.submitUpdate(id, 1, { floor: '2' }, BASIC_USER);
+
+      await expect(
+        requests.submitStatusChange(
+          id,
+          SupplierStatus.Inactive,
+          undefined,
+          BASIC_USER,
+        ),
+      ).resolves.toMatchObject({ state: RequestState.Pending });
+    });
+
+    it('lets only one of two simultaneous requests through (F9.3.2)', async () => {
+      const { id } = await suppliers.create(coolSpot());
+
+      const results = await Promise.allSettled([
+        requests.submitStatusChange(
+          id,
+          SupplierStatus.Inactive,
+          undefined,
+          BASIC_USER,
+        ),
+        requests.submitStatusChange(
+          id,
+          SupplierStatus.Inactive,
+          undefined,
+          OTHER_USER,
+        ),
+      ]);
+
+      expect(results.map((r) => r.status).sort()).toEqual([
+        'fulfilled',
+        'rejected',
+      ]);
+      await expect(pending()).resolves.toMatchObject({ total: 1 });
+    });
+  });
+
+  describe('approving a status change (F9.4, F9.6)', () => {
+    it('sets the status and bumps the version, in the same step as the approval', async () => {
+      const { id } = await suppliers.create(coolSpot());
+      const filed = await requests.submitStatusChange(
+        id,
+        SupplierStatus.Inactive,
+        undefined,
+        BASIC_USER,
+      );
+
+      const approved = await requests.approve(filed.id, ADMIN);
+
+      expect(approved).toMatchObject({
+        state: RequestState.Approved,
+        resolvedBy: ADMIN,
+      });
+      await expect(queries.get(id)).resolves.toMatchObject({
+        status: 'Inactive',
+        version: 2,
+      });
+    });
+
+    it('is not blocked by an edit made since filing: only the status must differ', async () => {
+      const { id } = await suppliers.create(coolSpot());
+      const filed = await requests.submitStatusChange(
+        id,
+        SupplierStatus.Inactive,
+        undefined,
+        BASIC_USER,
+      );
+      await suppliers.update(id, 1, { locationDescription: 'Near the lift' });
+
+      await requests.approve(filed.id, ADMIN);
+
+      await expect(queries.get(id)).resolves.toMatchObject({
+        status: 'Inactive',
+        locationDescription: 'Near the lift',
+        version: 3,
+      });
+    });
+
+    it('refuses the approval if the supplier already has the status, leaving it Pending', async () => {
+      const { id } = await suppliers.create(coolSpot());
+      const filed = await requests.submitStatusChange(
+        id,
+        SupplierStatus.Inactive,
+        undefined,
+        BASIC_USER,
+      );
+      await suppliers.changeStatus(id, 1, SupplierStatus.Inactive);
+
+      const { status, body } = await failure(requests.approve(filed.id, ADMIN));
+
+      expect(status).toBe(409);
+      expect(body.code).toBe('INVALID_STATUS_TRANSITION');
+      await expect(stored(filed.id)).resolves.toMatchObject({
+        state: RequestState.Pending,
+      });
+      await expect(queries.get(id)).resolves.toMatchObject({ version: 2 });
+    });
+
+    it('can be denied with a reason, leaving the supplier unchanged', async () => {
+      const { id } = await suppliers.create(coolSpot());
+      const filed = await requests.submitStatusChange(
+        id,
+        SupplierStatus.Inactive,
+        undefined,
+        BASIC_USER,
+      );
+
+      await requests.deny(filed.id, ADMIN, 'Still open');
+
+      await expect(queries.get(id)).resolves.toMatchObject({
+        status: 'Active',
+        version: 1,
+      });
     });
   });
 

@@ -225,6 +225,7 @@ describe('authentication and roles (e2e)', () => {
         { method: 'put', path: '/suppliers/:id/status' },
         { method: 'post', path: '/supplier-requests/creations' },
         { method: 'post', path: '/supplier-requests/updates' },
+        { method: 'post', path: '/supplier-requests/status-changes' },
         { method: 'get', path: '/supplier-requests' },
         { method: 'get', path: '/supplier-requests/mine' },
         { method: 'get', path: '/supplier-requests/:id' },
