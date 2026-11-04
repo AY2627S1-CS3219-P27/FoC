@@ -1,0 +1,130 @@
+import { NotFoundException } from '@nestjs/common';
+import type { DataSource } from 'typeorm';
+import { ChatCursorCodec } from './chat-cursor.codec.js';
+import { ChatQueryService } from './chat-query.service.js';
+
+describe('ChatQueryService', () => {
+  const callerId = '11111111-1111-4111-8111-111111111111';
+  const chatId = '22222222-2222-4222-8222-222222222222';
+  const query = vi.fn();
+  const service = new ChatQueryService(
+    { query } as unknown as DataSource,
+    new ChatCursorCodec(),
+  );
+
+  beforeEach(() => query.mockReset());
+
+  it('lists only participant live chats and returns a stable cursor', async () => {
+    query.mockResolvedValue([
+      {
+        chat_id: chatId,
+        errand_id: '33333333-3333-4333-8333-333333333333',
+        requester_user_id: callerId,
+        courier_user_id: '44444444-4444-4444-8444-444444444444',
+        state: 'ACTIVE',
+        closes_at: null,
+        close_reason: null,
+        updated_at: new Date('2026-11-04T02:00:00.000Z'),
+        message_id: null,
+        sequence: null,
+        sender_id: null,
+        content: null,
+        committed_at: null,
+        read_at: null,
+        unread: false,
+      },
+      {
+        chat_id: '55555555-5555-4555-8555-555555555555',
+        errand_id: '66666666-6666-4666-8666-666666666666',
+        requester_user_id: callerId,
+        courier_user_id: '77777777-7777-4777-8777-777777777777',
+        state: 'GRACE',
+        closes_at: new Date('2026-11-05T00:00:00.000Z'),
+        close_reason: 'ERRAND_DELIVERED',
+        updated_at: new Date('2026-11-04T01:00:00.000Z'),
+        message_id: '88888888-8888-4888-8888-888888888888',
+        sequence: '2',
+        sender_id: '77777777-7777-4777-8777-777777777777',
+        content: 'Hello',
+        committed_at: new Date('2026-11-04T00:30:00.000Z'),
+        read_at: null,
+        unread: true,
+      },
+    ]);
+
+    const result = await service.list(callerId, undefined, 1);
+
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("c.state IN ('ACTIVE', 'GRACE')"),
+      [callerId, null, null, 2],
+    );
+    expect(result).toMatchObject({
+      items: [{ chatId, lastMessage: null, unread: false }],
+      hasMore: true,
+    });
+    expect(result.nextCursor).toEqual(expect.any(String));
+  });
+
+  it('maps history status and paginates by ascending sequence', async () => {
+    query.mockResolvedValue([
+      {
+        authorized: true,
+        message_id: '33333333-3333-4333-8333-333333333333',
+        sequence: '1',
+        sender_id: callerId,
+        content: 'One',
+        committed_at: new Date('2026-11-04T01:00:00.000Z'),
+        read_at: new Date('2026-11-04T01:01:00.000Z'),
+      },
+      {
+        authorized: true,
+        message_id: '44444444-4444-4444-8444-444444444444',
+        sequence: '2',
+        sender_id: callerId,
+        content: 'Two',
+        committed_at: new Date('2026-11-04T01:02:00.000Z'),
+        read_at: null,
+      },
+    ]);
+
+    const result = await service.history(callerId, chatId, undefined, 1);
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining('m.sequence > $3::bigint'),
+      [chatId, callerId, 0, 2],
+    );
+    expect(result).toMatchObject({
+      items: [{ sequence: 1, status: 'READ' }],
+      hasMore: true,
+    });
+    expect(result.nextCursor).toEqual(expect.any(String));
+  });
+
+  it('returns an empty page for an authorized chat with no remaining rows', async () => {
+    query.mockResolvedValue([
+      {
+        authorized: true,
+        message_id: null,
+        sequence: null,
+        sender_id: null,
+        content: null,
+        committed_at: null,
+        read_at: null,
+      },
+    ]);
+    await expect(
+      service.history(callerId, chatId, undefined, 20),
+    ).resolves.toEqual({ items: [], hasMore: false, nextCursor: null });
+  });
+
+  it('uses the same not-found response for absent and unauthorized chats', async () => {
+    query.mockResolvedValue([]);
+    await expect(
+      service.history(callerId, chatId, undefined, 20),
+    ).rejects.toEqual(
+      new NotFoundException({
+        code: 'CHAT_NOT_FOUND',
+        message: 'Chat not found',
+      }),
+    );
+  });
+});

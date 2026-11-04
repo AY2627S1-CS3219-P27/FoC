@@ -4,18 +4,23 @@ This directory contains the deployable NestJS Communication Service for Friend
 on Campus private errand chat. It uses PostgreSQL with TypeORM, RabbitMQ, Redis,
 the shared User Service JWT verifier, and the repository observability package.
 
-The current HTTP surface intentionally exposes only:
+The current HTTP surface exposes:
 
 - `GET /health/live` for process liveness;
 - `GET /health/ready` for PostgreSQL, RabbitMQ, and Redis readiness;
-- `/docs` and `/docs-json` for the health-only OpenAPI document; and
+- `GET /v1/chats` for the authenticated participant's active/grace chats;
+- `GET /v1/chats/:chatId/messages` for participant-only cursor-paginated
+  history;
+- `/docs` and `/docs-json` for the implemented OpenAPI document; and
 - `/metrics` for Prometheus metrics.
 
 In the background, four independently retried RabbitMQ consumers validate and
 deduplicate Order lifecycle notices. Accepted notices create one private chat
 per event identity; delivered and cancellation notices are retained as
-immutable facts for later deadline reconciliation. Chat APIs, Socket.IO
-connections, messages, grace-period transitions, and archives remain deferred.
+immutable facts for later deadline reconciliation. Both chat routes verify the
+shared User Service JWT, use opaque keyset cursors, and conceal absent chats
+from non-participants. Socket.IO connections, message/read mutations,
+grace-period transitions, and archives remain deferred.
 
 ## Lifecycle contracts and publication
 
@@ -238,13 +243,25 @@ root stack health check. From the repository root,
 `COMMS_SERVICE_IMAGE_TAG`; `docker compose up -d --wait` must report the
 service, PostgreSQL, RabbitMQ, Redis, and observability dependencies healthy.
 
+## Authenticated chat reads
+
+Both `/v1/chats` routes accept the shared `access_token` cookie or supported
+Bearer token. List responses contain only the caller's `ACTIVE` and `GRACE`
+chats, including their latest message and caller-relative unread state. History
+returns messages in ascending per-chat sequence order and derives `UNREAD` or
+`READ` from the persisted read timestamp. Both endpoints accept an opaque
+`cursor` and a `limit` from 1 to 50 (default 20). Cursors are endpoint-specific
+and modified, malformed, or cross-endpoint values return 400. An unknown,
+archived, or unauthorized history target always returns the same sanitized 404.
+
 ## Deferred roadmap behavior
 
-The current Package 2 slice consumes lifecycle messages and creates accepted
-chats, but does not expose chat or archive APIs, open a Socket.IO namespace,
-send or read messages, transition chats into grace, or run an archive worker.
-Later roadmap steps add those behaviors in dependency order. The reserved
-socket configuration is not evidence of an available realtime endpoint.
+The current Package 2 slice consumes lifecycle messages, creates accepted
+chats, and exposes participant-only live chat reads. It does not expose archive
+APIs, open a Socket.IO namespace, send messages, change read state, transition
+chats into grace, or run an archive worker. Later roadmap steps add those
+behaviors in dependency order. The reserved socket configuration is not
+evidence of an available realtime endpoint.
 
 The governing decisions are recorded under
 `docs/adr/comms-service/0001`–`0004`: PostgreSQL authority and message
