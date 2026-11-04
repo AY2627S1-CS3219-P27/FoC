@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -8,7 +9,11 @@ import {
   IsUrl,
   MaxLength,
   Min,
+  Validate,
   ValidateNested,
+  ValidationArguments,
+  ValidatorConstraint,
+  type ValidatorConstraintInterface,
 } from 'class-validator';
 import {
   SubscriptionChannel,
@@ -73,9 +78,75 @@ export class RegisterWebPushSubscriptionDto {
   expirationTime?: number | null;
 }
 
-export class UnregisterWebPushQueryDto {
+@ValidatorConstraint({ name: 'atLeastOneUpdateField', async: false })
+class AtLeastOneUpdateFieldConstraint implements ValidatorConstraintInterface {
+  validate(_value: unknown, args: ValidationArguments): boolean {
+    return (args.object as UpdateWebPushSubscriptionDto).hasUpdate;
+  }
+
+  defaultMessage(): string {
+    return 'at least one of status, keys or expirationTime must be provided';
+  }
+}
+
+/**
+ * Partial update of an existing subscription.
+ *
+ * The browser can only present *live* push subscriptions, so `status` is
+ * constrained to "active": a re-presented subscription reconciles the row to
+ * active, optionally with the fresh keys the browser handed back. Deactivation
+ * stays on DELETE.
+ */
+export class UpdateWebPushSubscriptionDto {
+  @ApiPropertyOptional({
+    enum: ['active'],
+    description:
+      'Reactivates a soft-deleted row. Omit to update only credentials.',
+  })
+  @IsOptional()
+  @IsIn(['active'])
+  status?: 'active';
+
+  @ApiPropertyOptional({
+    type: WebPushKeysDto,
+    description:
+      'Fresh encryption keys when the browser re-issued the same endpoint with new keys.',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WebPushKeysDto)
+  keys?: WebPushKeysDto;
+
+  @ApiPropertyOptional({
+    description:
+      'PushSubscription.expirationTime (epoch milliseconds); null clears it.',
+    example: null,
+    nullable: true,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  expirationTime?: number | null;
+
+  /**
+   * Class-level rule expressed on a phantom getter: class-validator runs it on
+   * every request, so an empty PATCH fails loudly instead of silently
+   * no-opping.
+   */
+  @Validate(AtLeastOneUpdateFieldConstraint)
+  get hasUpdate(): boolean {
+    return (
+      this.status !== undefined ||
+      this.keys !== undefined ||
+      this.expirationTime !== undefined
+    );
+  }
+}
+
+export class WebPushEndpointQueryDto {
   @ApiProperty({
-    description: 'The endpoint to deactivate for the authenticated user.',
+    description:
+      'The subscription endpoint for the authenticated user (the pair is the natural key).',
     example: EXAMPLE_ENDPOINT,
     maxLength: 2048,
   })
@@ -101,6 +172,16 @@ export class ApiErrorResponseDto {
 
   @ApiPropertyOptional({ type: [ApiErrorReasonDto] })
   reasons?: ApiErrorReasonDto[];
+}
+
+export class VapidPublicKeyResponseDto {
+  @ApiProperty({
+    description:
+      'Base64url VAPID public key to pass as applicationServerKey when subscribing.',
+    example:
+      'BCwlfM3d0eD3zBSTPRk3OhG-Xux7zbEumbHGLFOLdYh8CPG35a0Ws0BaMwe7F8R6CGHy03EnOSiRkw3BHzHJuoI',
+  })
+  publicKey: string;
 }
 
 export class SubscriptionResponseDto {

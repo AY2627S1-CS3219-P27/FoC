@@ -2,22 +2,27 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   HttpCode,
   HttpStatus,
+  Patch,
   Post,
   Query,
   Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiBody,
+  ApiConflictResponse,
   ApiCreatedResponse,
   ApiExtraModels,
   ApiNoContentResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiProduces,
@@ -37,7 +42,9 @@ import {
   ApiErrorResponseDto,
   RegisterWebPushSubscriptionDto,
   SubscriptionResponseDto,
-  UnregisterWebPushQueryDto,
+  UpdateWebPushSubscriptionDto,
+  VapidPublicKeyResponseDto,
+  WebPushEndpointQueryDto,
 } from './subscriptions.dto.js';
 import { SubscriptionsService } from './subscriptions.service.js';
 
@@ -87,33 +94,73 @@ function toResponse(subscription: Subscription): SubscriptionResponseDto {
 }
 
 @ApiTags('subscriptions')
-@ApiExtraModels(ApiErrorResponseDto, SubscriptionResponseDto)
-@ApiProduces('application/json')
-@ApiBearerAuth(BEARER_SECURITY_SCHEME)
-@ApiSecurity(ACCESS_TOKEN_COOKIE_SECURITY_SCHEME)
-@ApiUnauthorizedResponse(
-  errorResponse('The access token is missing or invalid.', {
-    code: 'INVALID_ACCESS_TOKEN',
-    message: 'Invalid access token',
-  }),
+@ApiExtraModels(
+  ApiErrorResponseDto,
+  SubscriptionResponseDto,
+  VapidPublicKeyResponseDto,
 )
+@ApiProduces('application/json')
 @Controller('v1/subscriptions')
-@UseGuards(JwtAuthGuard)
 export class SubscriptionsController {
-  constructor(private readonly subscriptions: SubscriptionsService) {}
+  private readonly vapidPublicKey: string;
+
+  constructor(
+    private readonly subscriptions: SubscriptionsService,
+    config: ConfigService,
+  ) {
+    // Validated by the environment schema at boot; a missing key must not
+    // surface lazily as a confusing subscribe failure in the browser.
+    this.vapidPublicKey = config.getOrThrow<string>('VAPID_PUBLIC_KEY');
+  }
+
+  /**
+   * Public by design: the VAPID public key is handed to every browser that
+   * subscribes, and the private half never leaves the sending side.
+   */
+  @Get('vapid-public-key')
+  @ApiOperation({
+    summary: 'Get the VAPID public key',
+    description:
+      'The base64url key a browser passes as applicationServerKey when calling pushManager.subscribe. Public information; no token required.',
+  })
+  @ApiOkResponse({
+    description: 'The VAPID public key for push subscriptions.',
+    content: {
+      'application/json': {
+        schema: { $ref: getSchemaPath(VapidPublicKeyResponseDto) },
+        example: {
+          publicKey:
+            'BCwlfM3d0eD3zBSTPRk3OhG-Xux7zbEumbHGLFOLdYh8CPG35a0Ws0BaMwe7F8R6CGHy03EnOSiRkw3BHzHJuoI',
+        },
+      },
+    },
+  })
+  getVapidPublicKey(): VapidPublicKeyResponseDto {
+    return { publicKey: this.vapidPublicKey };
+  }
 
   @Post('web')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth(BEARER_SECURITY_SCHEME)
+  @ApiSecurity(ACCESS_TOKEN_COOKIE_SECURITY_SCHEME)
+  @ApiUnauthorizedResponse(
+    errorResponse('The access token is missing or invalid.', {
+      code: 'INVALID_ACCESS_TOKEN',
+      message: 'Invalid access token',
+    }),
+  )
   @ApiOperation({
-    summary: 'Register a Web Push subscription',
+    summary: 'Create a Web Push subscription',
     description:
-      'Registers the browser PushSubscription for the authenticated user. Posting an endpoint that already exists for this user refreshes its keys and reactivates it; a new endpoint returns 201. The user is always the token subject — the body cannot select one.',
+      'Creates the subscription for a new endpoint owned by the authenticated user. An endpoint that already exists for this user is a conflict — re-present a live subscription with PATCH instead. The user is always the token subject: the body cannot select one.',
   })
   @ApiBody({ type: RegisterWebPushSubscriptionDto })
   @ApiCreatedResponse(successResponse('A new push endpoint was registered.'))
-  @ApiOkResponse(
-    successResponse(
-      'The endpoint was already known and has been refreshed/reactivated.',
-    ),
+  @ApiConflictResponse(
+    errorResponse('The authenticated user already registered this endpoint.', {
+      code: 'SUBSCRIPTION_ALREADY_EXISTS',
+      message: 'A subscription for this endpoint already exists',
+    }),
   )
   @ApiBadRequestResponse(
     errorResponse('The subscription payload is malformed.', {
@@ -127,29 +174,91 @@ export class SubscriptionsController {
       ],
     }),
   )
-  async registerWebPush(
+  async createWebPush(
     @Req() request: AuthenticatedRequest,
     @Body() body: RegisterWebPushSubscriptionDto,
     @Res({ passthrough: true }) response: Response,
   ): Promise<SubscriptionResponseDto> {
-    const result = await this.subscriptions.registerWebPush(
+    const subscription = await this.subscriptions.createWebPush(
       request.user.sub,
       body,
     );
 
-    response.status(result.created ? HttpStatus.CREATED : HttpStatus.OK);
-    if (result.created) {
-      response.location(
-        `/v1/subscriptions/web?endpoint=${encodeURIComponent(
-          result.subscription.endpoint,
-        )}`,
-      );
-    }
+    response.location(
+      `/v1/subscriptions/web?endpoint=${encodeURIComponent(
+        subscription.endpoint,
+      )}`,
+    );
 
-    return toResponse(result.subscription);
+    return toResponse(subscription);
+  }
+
+  @Patch('web')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth(BEARER_SECURITY_SCHEME)
+  @ApiSecurity(ACCESS_TOKEN_COOKIE_SECURITY_SCHEME)
+  @ApiUnauthorizedResponse(
+    errorResponse('The access token is missing or invalid.', {
+      code: 'INVALID_ACCESS_TOKEN',
+      message: 'Invalid access token',
+    }),
+  )
+  @ApiOperation({
+    summary: 'Update or reactivate a Web Push subscription',
+    description:
+      'Reconciles the stored row with a live subscription the browser re-presented: status "active" reactivates a soft-deleted row, fresh keys/expirationTime overwrite the stored credentials. Omitted fields are left unchanged; the endpoint itself is immutable.',
+  })
+  @ApiQuery({
+    name: 'endpoint',
+    required: true,
+    type: String,
+    description: 'The endpoint to update for the authenticated user.',
+  })
+  @ApiBody({ type: UpdateWebPushSubscriptionDto })
+  @ApiOkResponse(successResponse('The stored subscription after the update.'))
+  @ApiNotFoundResponse(
+    errorResponse('No subscription exists for this endpoint.', {
+      code: 'SUBSCRIPTION_NOT_FOUND',
+      message: 'No subscription exists for this endpoint',
+    }),
+  )
+  @ApiBadRequestResponse(
+    errorResponse('The update payload is empty or malformed.', {
+      code: 'VALIDATION_ERROR',
+      message: 'Request validation failed',
+      reasons: [
+        {
+          field: 'hasUpdate',
+          reason:
+            'at least one of status, keys or expirationTime must be provided',
+        },
+      ],
+    }),
+  )
+  async updateWebPush(
+    @Req() request: AuthenticatedRequest,
+    @Query() query: WebPushEndpointQueryDto,
+    @Body() body: UpdateWebPushSubscriptionDto,
+  ): Promise<SubscriptionResponseDto> {
+    const subscription = await this.subscriptions.updateWebPush(
+      request.user.sub,
+      query.endpoint,
+      body,
+    );
+
+    return toResponse(subscription);
   }
 
   @Delete('web')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth(BEARER_SECURITY_SCHEME)
+  @ApiSecurity(ACCESS_TOKEN_COOKIE_SECURITY_SCHEME)
+  @ApiUnauthorizedResponse(
+    errorResponse('The access token is missing or invalid.', {
+      code: 'INVALID_ACCESS_TOKEN',
+      message: 'Invalid access token',
+    }),
+  )
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
     summary: 'Unregister a Web Push subscription',
@@ -179,7 +288,7 @@ export class SubscriptionsController {
   )
   async unregisterWebPush(
     @Req() request: AuthenticatedRequest,
-    @Query() query: UnregisterWebPushQueryDto,
+    @Query() query: WebPushEndpointQueryDto,
   ): Promise<void> {
     await this.subscriptions.deactivateWebPush(
       request.user.sub,

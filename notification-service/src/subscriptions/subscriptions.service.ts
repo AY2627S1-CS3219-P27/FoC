@@ -1,4 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
 import {
@@ -6,13 +10,10 @@ import {
   SubscriptionChannel,
   SubscriptionStatus,
 } from '../database/entities/subscription.entity.js';
-import type { RegisterWebPushSubscriptionDto } from './subscriptions.dto.js';
-
-export interface RegisterWebPushResult {
-  /** True when this call inserted the row, false when it refreshed one. */
-  created: boolean;
-  subscription: Subscription;
-}
+import type {
+  RegisterWebPushSubscriptionDto,
+  UpdateWebPushSubscriptionDto,
+} from './subscriptions.dto.js';
 
 const POSTGRES_UNIQUE_VIOLATION = '23505';
 
@@ -40,64 +41,83 @@ export class SubscriptionsService {
   ) {}
 
   /**
-   * Creates, reactivates or refreshes the row for `(userId, endpoint)`.
+   * Inserts a new subscription for `(userId, endpoint)`.
    *
-   * The browser re-posts the same PushSubscription whenever it rotates keys,
-   * so an existing active row is refreshed in place; an inactive row is
-   * brought back for the same reason. Only a first-time pair inserts.
+   * A pair that already exists is a conflict: re-presenting a subscription is
+   * a PATCH, not another create. The unique-violation race (two tabs
+   * registering the same endpoint) maps to the same conflict.
    */
-  async registerWebPush(
+  async createWebPush(
     userId: string,
     input: RegisterWebPushSubscriptionDto,
-  ): Promise<RegisterWebPushResult> {
-    const existing = await this.subscriptions.findOne({
-      where: { userId, endpoint: input.endpoint },
+  ): Promise<Subscription> {
+    const created = this.subscriptions.create({
+      userId,
+      channel: SubscriptionChannel.WebPush,
+      endpoint: input.endpoint,
+      credentials: {
+        p256dh: input.keys.p256dh,
+        auth: input.keys.auth,
+      },
+      expirationTime: toExpirationDate(input.expirationTime),
+      status: SubscriptionStatus.Active,
+      deactivatedAt: null,
     });
 
-    if (existing === null) {
-      const created = this.subscriptions.create({
-        userId,
-        channel: SubscriptionChannel.WebPush,
-        endpoint: input.endpoint,
-        credentials: {
-          p256dh: input.keys.p256dh,
-          auth: input.keys.auth,
-        },
-        expirationTime: toExpirationDate(input.expirationTime),
-        status: SubscriptionStatus.Active,
-        deactivatedAt: null,
-      });
-
-      try {
-        return {
-          created: true,
-          subscription: await this.subscriptions.save(created),
-        };
-      } catch (error) {
-        // Two tabs (or a retry) registering one endpoint can race the insert;
-        // the loser refreshes the row the winner created.
-        if (!isUniqueViolation(error)) {
-          throw error;
-        }
+    try {
+      return await this.subscriptions.save(created);
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        throw new ConflictException({
+          code: 'SUBSCRIPTION_ALREADY_EXISTS',
+          message: 'A subscription for this endpoint already exists',
+        });
       }
+      throw error;
+    }
+  }
+
+  /**
+   * Reconciles a re-presented live subscription with its stored row.
+   *
+   * The browser can only hand back live PushSubscriptions, so `status:
+   * "active"` reactivates a soft-deleted row (clearing `deactivated_at`) and
+   * fresh `keys`/`expirationTime` overwrite the stored credentials. The
+   * endpoint is identity and is never changed here.
+   */
+  async updateWebPush(
+    userId: string,
+    endpoint: string,
+    patch: UpdateWebPushSubscriptionDto,
+  ): Promise<Subscription> {
+    const subscription = await this.subscriptions.findOne({
+      where: { userId, endpoint },
+    });
+
+    if (subscription === null) {
+      throw new NotFoundException({
+        code: 'SUBSCRIPTION_NOT_FOUND',
+        message: 'No subscription exists for this endpoint',
+      });
     }
 
-    const subscription = await this.subscriptions.findOneOrFail({
-      where: { userId, endpoint: input.endpoint },
-    });
-    subscription.channel = SubscriptionChannel.WebPush;
-    subscription.credentials = {
-      p256dh: input.keys.p256dh,
-      auth: input.keys.auth,
-    };
-    subscription.expirationTime = toExpirationDate(input.expirationTime);
-    subscription.status = SubscriptionStatus.Active;
-    subscription.deactivatedAt = null;
+    if (patch.status !== undefined) {
+      subscription.status = SubscriptionStatus.Active;
+      subscription.deactivatedAt = null;
+    }
 
-    return {
-      created: false,
-      subscription: await this.subscriptions.save(subscription),
-    };
+    if (patch.keys !== undefined) {
+      subscription.credentials = {
+        p256dh: patch.keys.p256dh,
+        auth: patch.keys.auth,
+      };
+    }
+
+    if (patch.expirationTime !== undefined) {
+      subscription.expirationTime = toExpirationDate(patch.expirationTime);
+    }
+
+    return this.subscriptions.save(subscription);
   }
 
   /**
