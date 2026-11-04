@@ -18,8 +18,11 @@ Package 2 lifecycle ingestion and authenticated reads are active: one unified
 Order-event consumer dispatches four lifecycle contracts, records
 inbox/lifecycle evidence, and create one chat per accepted-event identity.
 Participant-only chat listing and message history are exposed at `/v1/chats`.
-Socket.IO, message/read mutations, grace transitions, and archive workers remain
-deferred to their roadmap steps.
+Package 3's authenticated `/chat` Socket.IO namespace and participant-only
+`chat:join` admission are active with WebSocket-only transport. Transactional
+`message:send` commands allocate ordered sequences, deduplicate sender retries,
+and emit only committed messages. Read mutations, Redis adapter fan-out, grace
+transitions, and archive workers remain deferred to their roadmap steps.
 
 Package 2 metrics use bounded operational labels only; never add participant,
 errand, chat, event, cursor, or token values as labels. DLQ inspection and

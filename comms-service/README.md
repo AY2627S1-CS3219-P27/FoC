@@ -11,6 +11,8 @@ The current HTTP surface exposes:
 - `GET /v1/chats` for the authenticated participant's active/grace chats;
 - `GET /v1/chats/:chatId/messages` for participant-only cursor-paginated
   history;
+- `/chat` as the authenticated Socket.IO namespace on `SOCKET_PATH` for
+  participant-only `chat:join` admission;
 - `/docs` and `/docs-json` for the implemented OpenAPI document; and
 - `/metrics` for Prometheus metrics.
 
@@ -19,8 +21,10 @@ dispatches four lifecycle notices for validation and deduplication. Accepted not
 per event identity; delivered and cancellation notices are retained as
 immutable facts for later deadline reconciliation. Both chat routes verify the
 shared User Service JWT, use opaque keyset cursors, and conceal absent chats
-from non-participants. Socket.IO connections, message/read mutations,
-grace-period transitions, and archives remain deferred.
+from non-participants. Socket.IO authentication, participant room admission,
+expiry disconnects, and transactional message sends are active; read
+mutations, Redis fan-out, grace-period transitions, and archives remain
+deferred.
 
 ## Lifecycle contracts and publication
 
@@ -152,8 +156,12 @@ contain container file paths, never secret values. The corresponding secret
 files are mounted read-only under `/run/secrets`.
 
 `SOCKET_PATH`, `SOCKET_ALLOWED_ORIGINS`, and the fixed WebSocket-only transport
-are validated now so deployment configuration remains stable. No socket server
-is registered in this package.
+configure the authenticated `/chat` namespace. The handshake accepts the
+HTTP-only `access_token` cookie from an exact allowed origin, disconnects at
+the token's validated expiry, and admits a participant to one user-scoped chat
+room. `message:send` validates content, locks and reauthorizes the chat,
+deduplicates client retries, commits the next sequence, and only then
+acknowledges and emits `message:new`. Read mutations are not registered yet.
 
 ## RabbitMQ topology
 
@@ -357,11 +365,11 @@ npm run fixtures:test:down
 ## Deferred roadmap behavior
 
 The current Package 2 slice consumes lifecycle messages, creates accepted
-chats, and exposes participant-only live chat reads. It does not expose archive
-APIs, open a Socket.IO namespace, send messages, change read state, transition
-chats into grace, or run an archive worker. Later roadmap steps add those
-behaviors in dependency order. The reserved socket configuration is not
-evidence of an available realtime endpoint.
+chats, and exposes participant-only live chat reads. Package 3 has activated
+the authenticated Socket.IO namespace, participant room admission, and ordered
+idempotent message sending. It does not yet change read state or activate Redis
+adapter fan-out. Archive APIs, grace transitions, and the archive worker also
+remain deferred. Later roadmap steps add those behaviors in dependency order.
 
 The governing decisions are recorded under
 `docs/adr/comms-service/0001`–`0004`: PostgreSQL authority and message
