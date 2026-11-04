@@ -11,7 +11,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-services=(user-service credit-service order-service supplier-service email-service frontend)
+services=(user-service credit-service order-service supplier-service email-service notification-service frontend)
 
 # Map a service dir to its compose tag variable. Supplier uses the shorter
 # SUPPLIER_* prefix convention in its compose file.
