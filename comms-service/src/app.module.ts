@@ -13,6 +13,7 @@ import { HealthController } from './health/health.controller.js';
 import { LifecycleModule } from './lifecycle/lifecycle.module.js';
 import { MessagingModule } from './messaging/messaging.module.js';
 import { RedisModule } from './redis/redis.module.js';
+import { SocketModule } from './socket/socket.module.js';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { RedisModule } from './redis/redis.module.js';
     ContractsModule,
     LifecycleModule,
     ChatsModule,
+    SocketModule,
     AuthKeyModule,
     FocAuthModule.registerAsync({
       imports: [AuthKeyModule],

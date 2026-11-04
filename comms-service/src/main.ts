@@ -21,6 +21,9 @@ async function bootstrap(): Promise<void> {
   app.use('/metrics', createMetricsHandler());
 
   const config = app.get(ConfigService);
+  const { ChatSocketIoAdapter } =
+    await import('./socket/chat-socket.adapter.js');
+  app.useWebSocketAdapter(new ChatSocketIoAdapter(app, config));
   await app.listen(config.getOrThrow<number>('PORT'), '0.0.0.0');
 }
 
