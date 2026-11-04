@@ -25,6 +25,7 @@ services:
       - RABBITMQ_VHOST=${RABBITMQ_VHOST}
       - RABBITMQ_PASSWORD_FILE=/run/secrets/rabbitmq_notification_password
       - JWT_PUBLIC_KEY_FILE=/run/secrets/jwt_public_key_notification_service
+      - VAPID_PUBLIC_KEY=${NOTIFICATION_SERVICE_VAPID_PUBLIC_KEY}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4318}
       - OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:-http://loki:3100/otlp/v1/logs}
     secrets:
