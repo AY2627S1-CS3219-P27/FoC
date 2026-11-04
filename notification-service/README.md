@@ -46,6 +46,29 @@ The schema is currently created by TypeORM `synchronize` in development
 index are written so an explicit initial migration can be generated when the
 service adopts the migration discipline used by credit-service.
 
+## Delivery pipeline (Notify / RetryNotify)
+
+The service consumes `notification.notify.v1` from `foc.events`
+(`notification-service.notify.v1` queue). A fan-out event
+`{ notificationGuid, userId, content }` creates one `notifications` row per
+active `(guid, subscription_id)` pair and performs attempt 1. Failures publish a
+per-pair `notification.notify-retry.v1` copy into the `foc.retry` parking lots
+(60/120/240/480 s), which return through `foc.back` to the same queue.
+
+A retry is only delivered when its `x-foc-attempt` header matches the row's
+`attempt_count` and the `(guid, subscription_id)` pair exists (NS3.1.1/NS3.1.2);
+everything else is acknowledged and dropped, so a stale duplicate can never send
+a second push. After attempt 5 the pair is marked `failed` and dead-lettered to
+`notification-service.notify.v1.dlq`.
+
+Upstream events with their own shapes can be tapped through the transformer
+registry (`src/notifications/notify-transformer.registry.ts`, empty by default):
+one binding plus one transformer per event.
+
+Delivery itself is stubbed (`StubNotificationSender` logs); NS2 replaces it with
+Web Push behind the `NotificationSender` interface. See
+[the pipeline ADR](../docs/adr/notification-service/0001-notify-retry-pipeline.md).
+
 ## Configuration
 
 Copy `../env/notification-service.env.example` to `../env/notification-service.env`.

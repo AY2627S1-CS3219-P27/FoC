@@ -5,7 +5,9 @@ import { FocAuthModule } from '@foc/auth';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { environmentSchema } from './config/environment.schema.js';
+import { Notification } from './database/entities/notification.entity.js';
 import { Subscription } from './database/entities/subscription.entity.js';
+import { MessagingModule } from './messaging/messaging.module.js';
 import { SecretModule } from './secret/secret.module.js';
 import { SecretService } from './secret/secret.service.js';
 import { HealthController } from './health/health.controller.js';
@@ -39,11 +41,12 @@ import { SubscriptionsModule } from './subscriptions/subscriptions.module.js';
         username: configService.get<string>('DB_USERNAME'),
         password: secretService.getDbPassword(),
         database: configService.get<string>('DB_DATABASE'),
-        entities: [Subscription],
+        entities: [Subscription, Notification],
         synchronize: configService.get<boolean>('DB_SYNCHRONIZE'),
       }),
     }),
     SubscriptionsModule,
+    MessagingModule,
   ],
   controllers: [HealthController],
 })
