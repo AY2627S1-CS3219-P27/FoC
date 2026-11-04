@@ -46,6 +46,8 @@ describe('foldEvents', () => {
       pickedUpAt: null,
       deliveredAt: null,
       cancellationReason: null,
+      settlementAmount: null,
+      settlementNote: null,
     });
   });
 

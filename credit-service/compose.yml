@@ -7,8 +7,6 @@ services:
     image: ${FOC_IMAGE_PREFIX:-foc}/credit-service:${CREDIT_SERVICE_IMAGE_TAG:-dev}
     command: npm run start:dev
     restart: unless-stopped
-    ports:
-      - '${CREDIT_SERVICE_HOST_PORT:-3003}:${CREDIT_SERVICE_PORT:-3000}'
     depends_on:
       credit-db:
         condition: service_healthy
@@ -140,8 +138,6 @@ services:
   credit-db:
     image: postgres:18-alpine
     restart: unless-stopped
-    ports:
-      - '${CREDIT_SERVICE_DB_HOST_PORT:-5435}:5432'
     environment:
       POSTGRES_USER: ${CREDIT_SERVICE_DB_USERNAME:-credit_service}
       POSTGRES_DB: ${CREDIT_SERVICE_DB_DATABASE:-credit_service}

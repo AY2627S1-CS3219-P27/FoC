@@ -1,5 +1,5 @@
 {
-  "id": "0e1a254f-523a-4136-9909-760453b6a43f",
+  "id": "4e09732d-f9a0-4515-8d30-2b6dee39da9b",
   "prevId": "39d08f37-d591-4727-93e4-30b31f56dc10",
   "version": "7",
   "dialect": "postgresql",
@@ -175,23 +175,11 @@
           "primaryKey": false,
           "notNull": false
         },
-        "delivery_building_id": {
-          "name": "delivery_building_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "delivery_detail": {
-          "name": "delivery_detail",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
         "delivery_location": {
           "name": "delivery_location",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "reward_credits": {
           "name": "reward_credits",
@@ -225,6 +213,18 @@
         },
         "cancellation_reason": {
           "name": "cancellation_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "settlement_amount": {
+          "name": "settlement_amount",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "settlement_note": {
+          "name": "settlement_note",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -383,7 +383,7 @@
       "checkConstraints": {
         "errands_cancellation_reason_valid": {
           "name": "errands_cancellation_reason_valid",
-          "value": "\"errands\".\"cancellation_reason\" IN ('SUPPLIER_UNAVAILABLE', 'BUILDING_UNAVAILABLE', 'SUPPLIER_VALIDATION_TIMEOUT', 'INSUFFICIENT_CREDITS', 'MISSING_BALANCE', 'CREDIT_TIMEOUT', 'ERRAND_EXPIRED', 'PICKUP_TIME_EXCEEDED', 'REQUESTER_CANCELLED')"
+          "value": "\"errands\".\"cancellation_reason\" IN ('SUPPLIER_UNAVAILABLE', 'SUPPLIER_VALIDATION_TIMEOUT', 'INSUFFICIENT_CREDITS', 'MISSING_BALANCE', 'CREDIT_TIMEOUT', 'ERRAND_EXPIRED', 'PICKUP_TIME_EXCEEDED', 'REQUESTER_CANCELLED')"
         }
       },
       "isRLSEnabled": false
@@ -675,7 +675,9 @@
         "Adjusting-Credit",
         "Completed",
         "Cancelled",
-        "Incomplete"
+        "Incomplete",
+        "Settling-Credit",
+        "Resolved"
       ]
     }
   },

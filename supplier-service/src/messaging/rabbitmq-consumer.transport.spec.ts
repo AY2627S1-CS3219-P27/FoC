@@ -18,6 +18,7 @@ const configuration: EnvironmentVariables = {
   NODE_ENV: 'test',
   PORT: 3000,
   LOG_LEVEL: 'error',
+  OTEL_EXPORTER_OTLP_ENDPOINT: 'http://localhost:4318',
   DB_HOST: 'supplier-db',
   DB_PORT: 5432,
   DB_USERNAME: 'supplier_service',

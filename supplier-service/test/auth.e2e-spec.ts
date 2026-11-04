@@ -41,7 +41,9 @@ function registeredRoutes(app: INestApplication) {
   return stack.flatMap((layer) => {
     const route = (layer as { route?: { path: string; methods: object } })
       .route;
-    return route
+    // The logger middleware (nestjs-pino) registers a catch-all "{/*splat}"
+    // layer; it is not a controller route and has no URL to call.
+    return route && !route.path.includes('*')
       ? Object.keys(route.methods).map((method) => ({
           method,
           path: route.path,

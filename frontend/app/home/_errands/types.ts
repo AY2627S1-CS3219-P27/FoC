@@ -54,7 +54,7 @@ export interface SupplierOption {
   id: string;
   displayName: string;
   building: { id: string; shortName: string } | null;
-  locationDescription: string;
+  floor: string;
 }
 
 export interface BuildingOption {
