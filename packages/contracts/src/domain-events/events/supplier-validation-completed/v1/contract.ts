@@ -55,5 +55,6 @@ export const supplierValidationCompletedV1Contract =
     routingKey: SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY,
     eventType: 'SupplierValidationCompleted',
     publisher: 'supplier-service',
+    kind: 'event',
     schema,
   });
