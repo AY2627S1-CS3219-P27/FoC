@@ -3527,6 +3527,900 @@
           }
         }
       ]
+    },
+    {
+      "name": "7 Brands (after D2)",
+      "description": "Brands group the outlets of one business (F3): list and manage brands, give suppliers an optional brand, filter and search by brand, a user proposing a brand in a request, renaming, removing and retiring (a supplier keeps a retired brand). Run folder 1 first (it saves the Food category and the PGP and COM3 building ids). Names are timestamped, so it can be re-run.",
+      "item": [
+        {
+          "name": "Basic user lists the brands (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/brands",
+            "description": "Any logged-in user can list the non-retired brands (F3.5), for example to fill a picker."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('a list of {id, name}', () => { const list = pm.response.json(); pm.expect(list).to.be.an('array'); list.forEach((b) => pm.expect(Object.keys(b).sort()).to.eql(['id', 'name'])); });"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Basic user creates a brand (403)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/brands",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Not Allowed\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 403', () => pm.response.to.have.status(403));",
+                  "pm.test('code FORBIDDEN', () => pm.expect(pm.response.json().code).to.eql('FORBIDDEN'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Admin creates a brand (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/brands",
+            "description": "F3.3. Names are 1-100 characters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{demoBrandName}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('demoBrandName', `Demo Brand ${Date.now() % 100000000}`);",
+                  "pm.environment.set('brandOutlet1', `Branch One ${Date.now() % 100000000}`);",
+                  "pm.environment.set('brandOutlet2', `Branch Two ${Date.now() % 100000000}`);",
+                  "pm.environment.set('brandRequestName', `Proposed Branch ${Date.now() % 100000000}`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.environment.set('demoBrandId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Same name in another case (409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/brands",
+            "description": "Case-insensitive among non-retired brands (F3.2); the same name with a different case is refused by the database's partial unique index.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{demoBrandName}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 409', () => pm.response.to.have.status(409));",
+                  "pm.test('code DUPLICATE_NAME', () => pm.expect(pm.response.json().code).to.eql('DUPLICATE_NAME'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "A logo field is not accepted (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/brands",
+            "description": "Logos are out of scope (images, F17), so only the name is accepted.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"With Logo\",\n  \"logoUrl\": \"https://example.com/logo.png\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('logoUrl named as unknown', () => pm.expect(pm.response.json().violations.map((v) => v.field)).to.include('logoUrl'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Admin creates the first outlet with the brand (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers",
+            "description": "A supplier may have at most one brand (F3.4). The brand is optional (F1.2.10).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{brandOutlet1}}\",\n  \"kind\": \"Store\",\n  \"categoryIds\": [\n    \"{{foodCategoryId}}\"\n  ],\n  \"buildingId\": \"{{com3BuildingId}}\",\n  \"floor\": \"1\",\n  \"locationDescription\": \"Demo outlet\",\n  \"coordinates\": {\n    \"latitude\": 1.2944,\n    \"longitude\": 103.7726\n  },\n  \"brandId\": \"{{demoBrandId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const s = pm.response.json();",
+                  "pm.environment.set('brandOutlet1Id', s.id);",
+                  "pm.environment.set('brandOutlet1Etag', pm.response.headers.get('ETag'));",
+                  "pm.test('brand is {id, name}', () => pm.expect(s.brand).to.eql({ id: pm.environment.get('demoBrandId'), name: pm.environment.get('demoBrandName') }));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Second outlet of the same brand in another building (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers",
+            "description": "Outlets of one brand are told apart by building, floor and display name (F3.4).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{brandOutlet2}}\",\n  \"kind\": \"Store\",\n  \"categoryIds\": [\n    \"{{foodCategoryId}}\"\n  ],\n  \"buildingId\": \"{{pgpBuildingId}}\",\n  \"floor\": \"1\",\n  \"locationDescription\": \"Demo outlet\",\n  \"coordinates\": {\n    \"latitude\": 1.2944,\n    \"longitude\": 103.7726\n  },\n  \"brandId\": \"{{demoBrandId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.environment.set('brandOutlet2Id', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Unknown brand when creating a supplier (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Ghost Brand Outlet\",\n  \"kind\": \"Store\",\n  \"categoryIds\": [\n    \"{{foodCategoryId}}\"\n  ],\n  \"buildingId\": \"{{com3BuildingId}}\",\n  \"floor\": \"1\",\n  \"locationDescription\": \"Demo outlet\",\n  \"coordinates\": {\n    \"latitude\": 1.2944,\n    \"longitude\": 103.7726\n  },\n  \"brandId\": \"11111111-1111-4111-8111-111111111111\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('brandId named', () => pm.expect(pm.response.json().violations).to.eql([{ field: 'brandId', reason: 'brand does not exist' }]));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Filter the suppliers by brand (200, two outlets)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers?brandId={{demoBrandId}}",
+            "description": "F5.4.6. Repeat the parameter to match several brands."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const page = pm.response.json();",
+                  "pm.test('both outlets, each showing the brand', () => { pm.expect(page.total).to.eql(2); page.items.forEach((s) => pm.expect(s.brand.name).to.eql(pm.environment.get('demoBrandName'))); });"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Brand and building combined (200, one outlet)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers?brandId={{demoBrandId}}&buildingId={{pgpBuildingId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('only the PGP outlet (F5.5)', () => { const page = pm.response.json(); pm.expect(page.total).to.eql(1); pm.expect(page.items[0].id).to.eql(pm.environment.get('brandOutlet2Id')); });"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Search by the brand's name (200, both outlets)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers?name={{demoBrandName}}",
+            "description": "The name search also matches the supplier's brand name (F5.4.1)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('found through the brand name, though their own names differ (F5.4.1)', () => { const ids = pm.response.json().items.map((s) => s.id); pm.expect(ids).to.include.members([pm.environment.get('brandOutlet1Id'), pm.environment.get('brandOutlet2Id')]); });"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Filter by a brand that does not exist (400)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers?brandId=11111111-1111-4111-8111-111111111111"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('brandId named (F5.8)', () => pm.expect(pm.response.json().violations[0].field).to.eql('brandId'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Basic user asks to add a supplier with the brand (201, Pending)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/creations",
+            "description": "A user can propose a brand from the existing ones. Only admins create brands.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{brandRequestName}}\",\n  \"kind\": \"Store\",\n  \"categoryIds\": [\n    \"{{foodCategoryId}}\"\n  ],\n  \"buildingId\": \"{{com3BuildingId}}\",\n  \"floor\": \"2\",\n  \"locationDescription\": \"Demo outlet\",\n  \"coordinates\": {\n    \"latitude\": 1.2944,\n    \"longitude\": 103.7726\n  },\n  \"brandId\": \"{{demoBrandId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const r = pm.response.json();",
+                  "pm.test('the proposed brand is recorded', () => pm.expect(r.values.brandId).to.eql(pm.environment.get('demoBrandId')));",
+                  "pm.environment.set('brandRequestId', r.id);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Admin approves it (200)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/{{brandRequestId}}/approve"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.environment.set('brandRequestedSupplierId', pm.response.json().createdSupplierId);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "The approved supplier has the brand",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{brandRequestedSupplierId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('brand set', () => pm.expect(pm.response.json().brand.name).to.eql(pm.environment.get('demoBrandName')));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Admin renames the brand (200)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/brands/{{demoBrandId}}",
+            "description": "One rename updates every outlet, because suppliers reference the brand by id.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Renamed {{demoBrandName}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('renamed', () => pm.expect(pm.response.json().name).to.match(/^Renamed /));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Every outlet shows the new name",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{brandOutlet1Id}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('new name', () => pm.expect(pm.response.json().brand.name).to.match(/^Renamed /));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Admin removes the brand from one outlet (200, version 2)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "If-Match",
+                "value": "{{brandOutlet1Etag}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{brandOutlet1Id}}",
+            "description": "null removes the brand. Leaving the field out keeps it. Any change raises the version.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"brandId\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('version 2', () => pm.expect(pm.response.json().version).to.eql(2));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "That outlet has no brand now",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{brandOutlet1Id}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('no brand', () => pm.expect(pm.response.json().brand).to.eql(null));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Admin retires the brand (200)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/brands/{{demoBrandId}}/retire",
+            "description": "Suppliers keep it (F1.8), but it can no longer be chosen (F3.3.1)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Retired brand is no longer listed",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/brands"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('not listed', () => pm.expect(pm.response.json().some((b) => b.id === pm.environment.get('demoBrandId'))).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Filtering by the retired brand returns nothing (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers?brandId={{demoBrandId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('empty, though outlets keep it (F5.8.1)', () => { const page = pm.response.json(); pm.expect(page.total).to.eql(0); pm.expect(page.items).to.eql([]); });"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "An outlet still shows its retired brand (F1.8)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers/{{brandOutlet2Id}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('brand kept', () => pm.expect(pm.response.json().brand.id).to.eql(pm.environment.get('demoBrandId')));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "A retired brand cannot be newly chosen (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Late Outlet\",\n  \"kind\": \"Store\",\n  \"categoryIds\": [\n    \"{{foodCategoryId}}\"\n  ],\n  \"buildingId\": \"{{com3BuildingId}}\",\n  \"floor\": \"1\",\n  \"locationDescription\": \"Demo outlet\",\n  \"coordinates\": {\n    \"latitude\": 1.2944,\n    \"longitude\": 103.7726\n  },\n  \"brandId\": \"{{demoBrandId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('retired brand refused', () => pm.expect(pm.response.json().violations).to.eql([{ field: 'brandId', reason: 'brand is retired and cannot be chosen' }]));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "A retired brand cannot be renamed (409)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/brands/{{demoBrandId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Too Late\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 409', () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        }
+      ]
     }
   ]
 }

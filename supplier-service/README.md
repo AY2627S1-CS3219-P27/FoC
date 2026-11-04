@@ -40,7 +40,7 @@ D2 asks for Supplier Service **"significant progress"**: Part 2 points 1-4 of th
 
 - **the rest of moderation:** admins amending a request before approving it (F7.4, F8.5) is not planned for D4. Requests to *add*, *edit* or *change the status of* a supplier, and following and withdrawing your own, are built (F6.1-F6.8, F7.1-F7.3.1, F8.1-F8.4.1, F9.3-F9.4, F13.6).
 - opening hours (F2): built after D2, see [Opening hours](#opening-hours-f2)
-- brands (F3)
+- brands (F3): built after D2, see [Brands](#brands-f3)
 - Order validation over RabbitMQ (F15.7)
 - safe retries, audit log and rate limits (F14.2, F14.4, F16)
 - images (F17)
@@ -92,6 +92,7 @@ erDiagram
     BUILDINGS ||--o{ SUPPLIERS : "houses"
     SUPPLIERS ||--|{ SUPPLIER_CATEGORIES : "has"
     CATEGORIES ||--o{ SUPPLIER_CATEGORIES : "tags"
+    BRANDS |o--o{ SUPPLIERS : "groups outlets of"
     SUPPLIERS ||--o{ SUPPLIER_OPENING_INTERVALS : "is open during"
 
     BUILDINGS {
@@ -109,6 +110,14 @@ erDiagram
         text key PK "normalised name, short name or alias"
         uuid building_id FK
     }
+    BRANDS {
+        uuid id PK
+        varchar name "1-100 chars, e.g. Cheers"
+        text name_key "lower-cased, unique among non-retired"
+        timestamptz retired_at "null = in use"
+        timestamptz created_at
+        timestamptz updated_at
+    }
     CATEGORIES {
         uuid id PK
         varchar name "e.g. Food"
@@ -123,6 +132,7 @@ erDiagram
         text name_key "normalised name"
         enum kind "Store | Facility | Landmark"
         uuid building_id FK
+        uuid brand_id FK "optional, at most one (F3.4)"
         varchar floor "B1-B9, 1-99, M"
         varchar location_description "e.g. Next to LT19"
         double latitude
@@ -170,6 +180,7 @@ erDiagram
 | `suppliers` | One row per pickup point | `UNIQUE (name_key, building_id, floor)` blocks duplicates, even when two requests race (F1.5, F1.5.2). CHECKs on name length, floor format, non-blank location and coordinate ranges. `building_id` must exist. |
 | `buildings` | The controlled list of campus buildings (F4) | Coordinate range CHECKs |
 | `building_name_keys` | Every name, short name and alias of each in-use building, normalised | The primary key makes two in-use buildings sharing a name impossible (F4.2). Looking up a building by any name is one key lookup (F4.5). |
+| `brands` (✅ step 14, migration `1791158400000-add-brands.ts`) | The controlled list of brands: businesses with several outlets (F3). `suppliers.brand_id` is optional, at most one (F3.4) | Partial unique index on `name_key` among non-retired brands (F3.2, a retired brand's name can be reused), non-blank name CHECK. The foreign key refuses deleting a brand that suppliers hold, so brands are retired, never deleted (F1.8). |
 | `categories` | The controlled list of categories (F11) | Partial unique index on `name_key` among non-retired categories (F11.2.1) |
 | `supplier_categories` | Which categories each supplier has (many-to-many) | The primary key stops the same category being added twice (F1.2.3). A category in use can't be removed. |
 | `supplier_opening_intervals` (✅ step 13, migration `1791072000000-add-opening-hours.ts`) | One row per interval of a supplier's regular weekly hours (F2.1), plus `suppliers.open_24_hours` for open around the clock (F2.2). No rows and no flag means no fixed hours (F1.2.8) | CHECKs: day 0-6, minutes 0-1439, and opening minute different from closing minute (F2.4.2). The foreign key deletes the intervals with their supplier. |
@@ -239,7 +250,8 @@ Built so far ✅: `GET /health`; `GET`/`POST /categories` (step 2); `GET /suppli
 | Pattern | Call | FR |
 |---|---|---|
 | Get one supplier by id | `GET /suppliers/{id}` | F5.9 |
-| Search by name (partial, any case) | `GET /suppliers?name=cool` | F5.4.1 |
+| Search by name (partial, any case), matching the supplier's own name **or its brand's name** | `GET /suppliers?name=cool` | F5.4.1 |
+| By brand | `GET /suppliers?brandId={id}` (repeatable; matches any) | F5.4.6 |
 | By location (building) | `GET /suppliers?buildingId={id}` (repeatable) | F5.4.3 |
 | By category | `GET /suppliers?categoryId={id}` (repeatable; matches any) | F5.4.2 |
 | By kind | `GET /suppliers?kind=Store` (repeatable) | F5.4.4 |
@@ -266,7 +278,7 @@ Repeatable filters are passed by repeating the parameter, e.g. `?categoryId=a&ca
       "id": "7c9e…",
       "displayName": "Cool Spot @ COM3",
       "name": "Cool Spot",
-      "brand": null,
+      "brand": { "id": "…", "name": "Cheers" },
       "kind": "Store",
       "categories": [{ "id": "…", "name": "Food" }],
       "building": { "id": "…", "shortName": "COM3" },
@@ -283,7 +295,7 @@ Repeatable filters are passed by repeating the parameter, e.g. `?categoryId=a&ca
 }
 ```
 
-- `brand` stays `null` until brands (step 14).
+- `brand` is `{id, name}`, or `null` for a supplier without one (F5.1). A brand retired later still shows on the suppliers that hold it (F1.8).
 - `isOpenNow` is `true` or `false`, worked out when you ask, in Singapore time (F2.5), or `null` ("not applicable", F2.5.1) for a supplier without opening hours.
 - With no photo, `thumbnailUrl` is the placeholder link from the `PLACEHOLDER_IMAGE_URL` setting (F1.2.9). The setting is blank until images are hosted (step 19), so for now it is `null`.
 
@@ -295,6 +307,18 @@ Repeatable filters are passed by repeating the parameter, e.g. `?categoryId=a&ca
 - `version`, `createdAt`, `updatedAt`
 
 It also returns the version in an `ETag` header (e.g. `"3"`), which an admin edit must send back as `If-Match` (step 6). A malformed id answers 400 (`VALIDATION_FAILED`, field `id`); an unknown one 404 `SUPPLIER_NOT_FOUND`. This response is also what other services rely on: it has enough detail for them to keep their own copy (F15.1). The endpoint is read-only, so it is safe to retry (F15.4).
+
+### Brands (F3)
+
+✅ step 14. A brand groups suppliers that are branches of the same business, such as several Cheers outlets. Each outlet is still its own supplier with its own building, floor and hours, told apart by those and by its display name (F3.4, F1.4). The brand is **optional** (F1.2.10); none of the 21 seeded suppliers has one, because the seed has no brand column and every seeded business appears once (F12.2).
+
+- **A brand** has an id, a name of 1-100 characters, and a retired flag. Names are unique among non-retired brands, ignoring case and extra spaces (409 `DUPLICATE_NAME`, F3.2); a retired brand's name can be used again. There is no logo (F3.1 makes it optional; images are out of scope).
+- **Admins** create, rename and retire brands (F3.3). A retired brand cannot be renamed. Retiring twice is harmless.
+- **Anyone logged in** can list the non-retired brands with `GET /brands` (F3.5).
+- **On a supplier:** `brandId` is an optional field of `POST /suppliers`, `PATCH /suppliers/{id}`, `POST /supplier-requests/creations` and the `changes` of `POST /supplier-requests/updates`. An unknown id is a 400 naming `brandId`. A **retired brand cannot be newly chosen**, but a supplier that already holds one keeps it and may be edited with it (F3.3.1, F1.8). On an edit, leaving it out keeps the brand, a new id changes it, and `null` removes it; any change raises the supplier's version.
+- **In requests:** a user can propose a brand in a creation or edit request, but only from the existing brands: only admins create brands. The brand is checked again when an admin approves; if it was retired meanwhile, the approval is refused with 409 `REQUEST_NOT_APPLICABLE` and the request stays Pending.
+- **Reading and filtering:** the list and detail show `brand: {id, name}` or `null` (F5.1). `GET /suppliers?brandId=` filters by one or several brands (repeatable, any match, F5.4.6): an unknown brand is a 400 (F5.8), a retired brand returns an empty list even though suppliers keep it (F5.8.1). The name search `?name=` also matches the brand's name, so `?name=cheers` finds every Cheers outlet (F5.4.1).
+- **Not in Order Service's validation reply:** the snapshot sent to Order has no brand, so the shared contract is unchanged.
 
 ### Opening hours (F2)
 
@@ -328,13 +352,17 @@ It also returns the version in an `ETag` header (e.g. `"3"`), which an admin edi
 | GET | `/health` | anyone, no login | Is the service up? ✅ | |
 | GET | `/suppliers` | any logged-in user | List / search / filter / sort / paginate | F5 |
 | GET | `/suppliers/{id}` | any logged-in user | One supplier in full | F5.9, F15.1 |
-| POST | `/suppliers` | **admin** | Create (starts Active); optional `openingHours` | F7.5, F9.1, F2 |
-| PATCH | `/suppliers/{id}` | **admin** | Edit some fields (`openingHours` replaces the schedule, `null` removes it); needs `If-Match` | F8.6, F14.3, F2 |
+| POST | `/suppliers` | **admin** | Create (starts Active); optional `openingHours` and `brandId` | F7.5, F9.1, F2, F3 |
+| PATCH | `/suppliers/{id}` | **admin** | Edit some fields (`openingHours` replaces the schedule and `brandId` sets the brand, `null` removes either); needs `If-Match` | F8.6, F14.3, F2 |
 | PUT | `/suppliers/{id}/status` | **admin** | Set Active / Inactive; needs `If-Match` | F9.2, F9.5 |
 | GET | `/categories` | any logged-in user | In-use categories | F11.4 |
 | POST | `/categories` | **admin** | Create a category | F11.2 |
 | PATCH | `/categories/{id}` | **admin** | Rename: `{"name": "..."}`; 409 `DUPLICATE_NAME` if another in-use category has it, 409 if retired | F11.2, F11.2.1 |
 | POST | `/categories/{id}/retire` | **admin** | Retire: suppliers keep it, it is no longer listed or selectable; retiring twice is harmless | F11.3, F11.3.1 |
+| GET | `/brands` | any logged-in user | Non-retired brands, by name: `{id, name}` | F3.5 |
+| POST | `/brands` | **admin** | Create a brand: `{"name": "..."}` (1-100 chars); 409 `DUPLICATE_NAME` if a non-retired brand has it | F3.1-F3.3 |
+| PATCH | `/brands/{id}` | **admin** | Rename: `{"name": "..."}`; 409 `DUPLICATE_NAME` if another non-retired brand has it, 409 if retired | F3.2, F3.3 |
+| POST | `/brands/{id}/retire` | **admin** | Retire: suppliers keep it, it is no longer listed or selectable; retiring twice is harmless | F3.3, F3.3.1 |
 | GET | `/buildings` | any logged-in user | In-use buildings with names and coordinates | F4.4 |
 | POST | `/buildings` | **admin** | Create a building: `canonicalName`, `shortName`, optional `aliases`, `coordinates` (must lie inside the campus box); 409 `DUPLICATE_NAME` if any name belongs to another in-use building | F4.3, F4.2 |
 | PATCH | `/buildings/{id}` | **admin** | Rename, or replace the aliases (at least one of `canonicalName`, `shortName`, `aliases`); coordinates are not editable; 409 if retired | F4.3 |
@@ -580,6 +608,7 @@ Branches are few and large: one per area, each merged into `supplier-service` by
 | 12 | My requests, withdraw | F6.5, F6.6, F13.6 | `crud` | ✅ built |
 | 11 | "Change status" requests | F9.3, F9.3.1, F9.3.2, F9.4 | `moderation` | ✅ built |
 | 13 | Opening hours | F1.2.8, F2.1-F2.5, F2.7, F12.2.3, F5.4.7 (not F2.6, overrides) | `moderation` (same branch) | ✅ built |
+| 14 | Brands | F1.2.10, F3.1-F3.5, F5.4.6, F5.4.1 (brand name), F5.1 (brand) (no logo) | `moderation` (same branch) | ✅ built |
 | 15b | Supplier validation for Order Service over RabbitMQ | F15.7-F15.7.8, F13.7 | `order-integration` (+ `contracts`, PR #642) | ✅ built and switched on ([§11](#11-supplier-validation-for-order-service-rabbitmq)); Order Service's side to come |
 
 ---
