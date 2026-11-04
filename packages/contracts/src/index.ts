@@ -38,6 +38,7 @@ export type {
   EventContractKey,
   EventOf,
   EventType,
+  NotificationNotifyEvent,
   SupplierValidationCompletedEvent,
   SupplierValidationRequestedEvent,
   UserRegisteredEvent,
@@ -152,6 +153,11 @@ export type {
   CreditSettlementRejectedPayload,
   CreditSettlementRejectionReason,
 } from './domain-events/events/credit-settlement-rejected/v1/contract.js';
+export {
+  NOTIFICATION_NOTIFY_V1_ROUTING_KEY,
+  notificationNotifyV1Contract,
+} from './domain-events/events/notification-notify/v1/contract.js';
+export type { NotificationNotifyPayload } from './domain-events/events/notification-notify/v1/contract.js';
 export {
   USER_REGISTERED_V1_ROUTING_KEY,
   userRegisteredV1Contract,

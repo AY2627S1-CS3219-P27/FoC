@@ -83,6 +83,10 @@ import {
   supplierValidationCompletedV1Contract,
 } from './events/supplier-validation-completed/v1/contract.js';
 import {
+  NOTIFICATION_NOTIFY_V1_ROUTING_KEY,
+  notificationNotifyV1Contract,
+} from './events/notification-notify/v1/contract.js';
+import {
   USER_REGISTERED_V1_ROUTING_KEY,
   userRegisteredV1Contract,
 } from './events/user-registered/v1/contract.js';
@@ -121,4 +125,5 @@ export const eventRegistry = {
     supplierValidationRequestedV1Contract,
   [SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY]:
     supplierValidationCompletedV1Contract,
+  [NOTIFICATION_NOTIFY_V1_ROUTING_KEY]: notificationNotifyV1Contract,
 } as const;

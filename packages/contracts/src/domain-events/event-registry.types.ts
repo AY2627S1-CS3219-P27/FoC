@@ -47,3 +47,4 @@ export type SupplierValidationRequestedEvent =
   EventOf<'order.supplier-validation-requested.v1'>;
 export type SupplierValidationCompletedEvent =
   EventOf<'supplier.validation-completed.v1'>;
+export type NotificationNotifyEvent = EventOf<'notification.notify.v1'>;

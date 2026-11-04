@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://foc.local/schemas/notification-notify.v1.schema.json",
+  "title": "NotificationNotifyV1",
+  "allOf": [
+    {
+      "$ref": "https://foc.local/schemas/event-envelope.v1.schema.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "const": "NotificationNotify"
+        },
+        "publisher": {
+          "const": "notification-service"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["notificationGuid", "userId", "content"],
+          "properties": {
+            "notificationGuid": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "userId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "content": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["title", "body"],
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255
+                },
+                "body": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
