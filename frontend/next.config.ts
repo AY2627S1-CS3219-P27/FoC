@@ -10,7 +10,7 @@ const nextConfig: NextConfig = {
     const orderService =
       process.env.ORDER_SERVICE_URL ?? "http://localhost:3004";
     const notificationService =
-      process.env.NOTIFICATION_SERVICE_URL ?? "http://localhost:3006";
+      process.env.NOTIFICATION_SERVICE_URL ?? "http://localhost:3007";
     return [
       // Matches the refresh cookie's Path=/auth/refresh, so the browser sends it.
       { source: "/auth/refresh", destination: `${userService}/auth/refresh` },

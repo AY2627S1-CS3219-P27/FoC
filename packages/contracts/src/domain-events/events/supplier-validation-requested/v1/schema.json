@@ -27,6 +27,10 @@
             "supplierId": {
               "type": "string",
               "format": "uuid"
+            },
+            "deliveryBuildingId": {
+              "type": "string",
+              "format": "uuid"
             }
           }
         }

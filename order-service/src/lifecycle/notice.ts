@@ -13,8 +13,11 @@ export interface NoticeContext {
   errandId: string;
   requesterId: string;
   courierId: string | null;
+  actorUserId: string | null;
   rewardCredits: number;
   payload: Record<string, unknown>;
+  // Events of this edge's type on the errand, this one included (credit.settlement.v1).
+  attempt: number;
 }
 
 // `key` is the contract's routing key; builders may return undefined to skip.

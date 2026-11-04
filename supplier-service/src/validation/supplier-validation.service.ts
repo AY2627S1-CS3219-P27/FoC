@@ -4,19 +4,29 @@ import {
   SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY,
   type SupplierValidationCompletedEvent,
   type SupplierValidationRequestedEvent,
+  type SupplierValidationOutcome,
   type SupplierValidationRequestedPayload,
   type SupplierValidationSnapshot,
 } from '@foc/contracts';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DataSource, type EntityManager } from 'typeorm';
+import { BuildingsService } from '../buildings/buildings.service.js';
 import type { EnvironmentVariables } from '../config/environment.schema.js';
-import { InboxEvent, OutboxEvent } from '../database/entities/index.js';
+import {
+  type Building,
+  InboxEvent,
+  OutboxEvent,
+} from '../database/entities/index.js';
 import { SupplierQueriesService } from '../suppliers/supplier-queries.service.js';
 import type { SupplierDetail } from '../suppliers/supplier-view.js';
 
 export type SupplierValidationResult =
-  | { status: 'answered'; replyEventId: string; outcome: 'FOUND' | 'NOT_FOUND' }
+  | {
+      status: 'answered';
+      replyEventId: string;
+      outcome: SupplierValidationOutcome;
+    }
   | { status: 'duplicate-event'; replyEventId: string }
   | { status: 'event-id-conflict'; eventId: string };
 
@@ -40,6 +50,7 @@ export function hashValidationRequestPayload(
   const canonical = JSON.stringify({
     errandId: payload.errandId,
     supplierId: payload.supplierId,
+    deliveryBuildingId: payload.deliveryBuildingId,
   });
   return createHash('sha256').update(canonical).digest('hex');
 }
@@ -69,7 +80,9 @@ function snapshotOf(supplier: SupplierDetail): SupplierValidationSnapshot {
  * recognised and not answered again (F15.7.4).
  *
  * The reply reports facts only: FOUND with the supplier's current status,
- * version and details, or NOT_FOUND when it does not exist (F15.1, F15.2). A
+ * version and details plus the delivery building, NOT_FOUND when the supplier
+ * does not exist, or BUILDING_NOT_FOUND when only the building is unknown or
+ * retired (F15.1, F15.2). A
  * failure to read the data store is never turned into NOT_FOUND: the error is
  * thrown, nothing is committed, and the transport retries (F15.7.5).
  */
@@ -80,6 +93,7 @@ export class SupplierValidationService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly suppliers: SupplierQueriesService,
+    private readonly buildings: BuildingsService,
     private readonly contracts: AccountEventContractValidator,
     config: ConfigService<EnvironmentVariables, true>,
   ) {
@@ -114,7 +128,18 @@ export class SupplierValidationService {
       // same transaction that records it, and each message holds only one
       // pooled connection, so a full prefetch cannot exhaust the pool.
       const supplier = await this.lookUp(event.payload.supplierId, manager);
-      const reply = this.reply(event, supplier);
+      // A missing supplier wins: the building is only checked for a supplier
+      // that exists (Order Service ADR 0011).
+      // TODO(rollout): deliveryBuildingId is optional in the contract until
+      // Order Service sends it. A question without one gets the old answer
+      // (no building check, FOUND without a building). Remove this bridge,
+      // and its test, when the contract makes the field required.
+      const buildingId = event.payload.deliveryBuildingId;
+      const building =
+        supplier && buildingId
+          ? await this.buildings.findInUseById(buildingId, manager)
+          : null;
+      const reply = this.reply(event, supplier, building, !buildingId);
       if (
         !this.contracts.validate(
           SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY,
@@ -176,6 +201,8 @@ export class SupplierValidationService {
   private reply(
     request: SupplierValidationRequestedEvent,
     supplier: SupplierDetail | null,
+    building: Building | null,
+    buildingNotAsked: boolean,
   ): SupplierValidationCompletedEvent {
     const ids = {
       errandId: request.payload.errandId,
@@ -186,9 +213,35 @@ export class SupplierValidationService {
       eventType: 'SupplierValidationCompleted',
       timestamp: new Date().toISOString(),
       publisher: 'supplier-service',
-      payload: supplier
-        ? { ...ids, outcome: 'FOUND', supplier: snapshotOf(supplier) }
-        : { ...ids, outcome: 'NOT_FOUND' },
+      payload: this.outcome(ids, supplier, building, buildingNotAsked),
+    };
+  }
+
+  /** NOT_FOUND (no supplier) wins over BUILDING_NOT_FOUND (no building). */
+  private outcome(
+    ids: { errandId: string; supplierId: string },
+    supplier: SupplierDetail | null,
+    building: Building | null,
+    buildingNotAsked: boolean,
+  ): SupplierValidationCompletedEvent['payload'] {
+    if (!supplier) {
+      return { ...ids, outcome: 'NOT_FOUND' };
+    }
+    if (buildingNotAsked) {
+      return { ...ids, outcome: 'FOUND', supplier: snapshotOf(supplier) };
+    }
+    if (!building) {
+      return { ...ids, outcome: 'BUILDING_NOT_FOUND' };
+    }
+    return {
+      ...ids,
+      outcome: 'FOUND',
+      supplier: snapshotOf(supplier),
+      deliveryBuilding: {
+        id: building.id,
+        shortName: building.shortName,
+        canonicalName: building.canonicalName,
+      },
     };
   }
 }

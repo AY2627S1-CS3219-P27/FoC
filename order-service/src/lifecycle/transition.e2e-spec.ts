@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { createTestDb } from '../../test/db.js';
 import { errandEvents, errands } from '../db/schema.js';
 import type { Status } from './status.js';
-import { SYSTEM, transition, user, type Actor } from './transition.js';
+import { SYSTEM, admin, transition, user, type Actor } from './transition.js';
 
 let t: Awaited<ReturnType<typeof createTestDb>>;
 beforeAll(async () => {
@@ -393,6 +393,33 @@ describe('transition', () => {
       set: { courierId: courier, deliveredAt: new Date() },
     });
     expect(res).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
+  });
+
+  it.each([
+    ['blank', '   '],
+    ['over 100 words', Array(101).fill('word').join(' ')],
+  ])('rejects a settlement note that is %s', async (_, note) => {
+    const id = await seed('Incomplete');
+    const res = await transition(t.db, {
+      actor: admin(randomUUID()), errandId: id,
+      expected: 'Incomplete',
+      to: 'Settling-Credit',
+      set: { settlementAmount: 1, settlementNote: note },
+    });
+    expect(res).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
+    expect((await projection(id)).status).toBe('Incomplete');
+  });
+
+  it('accepts a settlement note of exactly 100 words', async () => {
+    const id = await seed('Incomplete');
+    await t.db.update(errands).set({ courierId: courier }).where(eq(errands.id, id)); // the notice needs a courier
+    const res = await transition(t.db, {
+      actor: admin(randomUUID()), errandId: id,
+      expected: 'Incomplete',
+      to: 'Settling-Credit',
+      set: { settlementAmount: 1, settlementNote: Array(100).fill('word').join(' ') },
+    });
+    expect(res.ok).toBe(true);
   });
 
   it('clears courierId when the courier withdraws', async () => {
