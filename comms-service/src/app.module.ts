@@ -5,6 +5,7 @@ import { pinoHttpOptions } from '@foc/observability';
 import { LoggerModule } from 'nestjs-pino';
 import { AuthKeyModule } from './auth/auth-key.module.js';
 import { AuthKeyService } from './auth/auth-key.service.js';
+import { ChatsModule } from './chats/chats.module.js';
 import { environmentSchema } from './config/environment.js';
 import { ContractsModule } from './contracts/contracts.module.js';
 import { DatabaseModule } from './database/database.module.js';
@@ -26,6 +27,7 @@ import { RedisModule } from './redis/redis.module.js';
     RedisModule,
     ContractsModule,
     LifecycleModule,
+    ChatsModule,
     AuthKeyModule,
     FocAuthModule.registerAsync({
       imports: [AuthKeyModule],
