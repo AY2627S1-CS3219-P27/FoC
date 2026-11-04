@@ -93,15 +93,26 @@ function campusViolations(
       (violation) =>
         violation.field === 'coordinates' || violation.field === field,
     );
-  const found: FieldViolation[] = [];
   if (dto.coordinates === undefined) {
-    return found;
+    return [];
   }
+  return coordinatesOutsideCampus(dto.coordinates, campus).filter(
+    (violation) => !alreadyInvalid(violation.field),
+  );
+}
 
+/**
+ * The coordinates that lie outside the campus bounding box (F1.2.7), one
+ * violation per axis. Used for suppliers and for new buildings (F4.3).
+ */
+export function coordinatesOutsideCampus(
+  coordinates: { latitude: number; longitude: number },
+  campus: CampusBox,
+): FieldViolation[] {
+  const found: FieldViolation[] = [];
   if (
-    !alreadyInvalid('coordinates.latitude') &&
-    (dto.coordinates.latitude < campus.minLatitude ||
-      dto.coordinates.latitude > campus.maxLatitude)
+    coordinates.latitude < campus.minLatitude ||
+    coordinates.latitude > campus.maxLatitude
   ) {
     found.push({
       field: 'coordinates.latitude',
@@ -109,9 +120,8 @@ function campusViolations(
     });
   }
   if (
-    !alreadyInvalid('coordinates.longitude') &&
-    (dto.coordinates.longitude < campus.minLongitude ||
-      dto.coordinates.longitude > campus.maxLongitude)
+    coordinates.longitude < campus.minLongitude ||
+    coordinates.longitude > campus.maxLongitude
   ) {
     found.push({
       field: 'coordinates.longitude',
