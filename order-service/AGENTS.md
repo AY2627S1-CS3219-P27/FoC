@@ -1,6 +1,8 @@
 # order-service
 
-Module M.3: errand lifecycle, state model, expiry. Emits `ErrandCompleted` / `ErrandCancelled`, which credit-service consumes.
+Module M.3: errand lifecycle, state model, expiry. Emits credit lifecycle
+notices plus `ErrandAccepted`, `ErrandDelivered`, and external
+`CourierCancelled` notices for Communication Service.
 
 Read `CONTEXT.md` (terms), `ARCHITECTURE.md` (state model, write path) first. ADRs are in `../docs/adr/order-service/`.
 
