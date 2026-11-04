@@ -38,7 +38,7 @@ D2 asks for Supplier Service **"significant progress"**: Part 2 points 1-4 of th
 
 **Not in D2** (designed, built later):
 
-- **the rest of moderation:** status-change requests (F9.3, F9.4). Requests to *add* or *edit* a supplier, and following and withdrawing your own, are built (F6.1-F6.8, F7.1-F7.3.1, F8.1-F8.4.1, F13.6); admins amending a request before approving it (F7.4, F8.5) comes after D2.
+- **the rest of moderation:** admins amending a request before approving it (F7.4, F8.5) is not planned for D4. Requests to *add*, *edit* or *change the status of* a supplier, and following and withdrawing your own, are built (F6.1-F6.8, F7.1-F7.3.1, F8.1-F8.4.1, F9.3-F9.4, F13.6).
 - opening hours (F2)
 - brands (F3)
 - Order validation over RabbitMQ (F15.7)
@@ -216,7 +216,7 @@ Rules the database **can't** express are checked in the service, inside the same
 
 ## 4. D2 point 2: Query patterns and API
 
-Built so far ✅: `GET /health`; `GET`/`POST /categories` (step 2); `GET /suppliers`, `GET /suppliers/{id}`, `GET /buildings` (step 5); `POST /suppliers`, `PATCH /suppliers/{id}`, `PUT /suppliers/{id}/status` (step 6); and the `/supplier-requests` endpoints for moderated changes (steps 8-10, 12; see [§6](#6-d2-point-3-crud-without-a-ui)). Category rename/retire, building management and status-change requests are planned for after D2.
+Built so far ✅: `GET /health`; `GET`/`POST /categories` (step 2); `GET /suppliers`, `GET /suppliers/{id}`, `GET /buildings` (step 5); `POST /suppliers`, `PATCH /suppliers/{id}`, `PUT /suppliers/{id}/status` (step 6); and the `/supplier-requests` endpoints for moderated changes (steps 8-10, 12; see [§6](#6-d2-point-3-crud-without-a-ui)). Category rename/retire, building management and status-change requests were added after D2 (see the table below).
 
 **How to call it:**
 
@@ -297,19 +297,20 @@ It also returns the version in an `ETag` header (e.g. `"3"`), which an admin edi
 | PUT | `/suppliers/{id}/status` | **admin** | Set Active / Inactive; needs `If-Match` | F9.2, F9.5 |
 | GET | `/categories` | any logged-in user | In-use categories | F11.4 |
 | POST | `/categories` | **admin** | Create a category | F11.2 |
-| PATCH | `/categories/{id}` | **admin** | Rename (after D2) | F11.2 |
-| POST | `/categories/{id}/retire` | **admin** | Retire (after D2) | F11.3 |
+| PATCH | `/categories/{id}` | **admin** | Rename: `{"name": "..."}`; 409 `DUPLICATE_NAME` if another in-use category has it, 409 if retired | F11.2, F11.2.1 |
+| POST | `/categories/{id}/retire` | **admin** | Retire: suppliers keep it, it is no longer listed or selectable; retiring twice is harmless | F11.3, F11.3.1 |
 | GET | `/buildings` | any logged-in user | In-use buildings with names and coordinates | F4.4 |
-| POST | `/buildings` | **admin** | Create a building (after D2) | F4.3 |
-| PATCH | `/buildings/{id}` | **admin** | Rename or change aliases (after D2) | F4.3 |
-| POST | `/buildings/{id}/retire` | **admin** | Retire (after D2) | F4.3.1 |
+| POST | `/buildings` | **admin** | Create a building: `canonicalName`, `shortName`, optional `aliases`, `coordinates` (must lie inside the campus box); 409 `DUPLICATE_NAME` if any name belongs to another in-use building | F4.3, F4.2 |
+| PATCH | `/buildings/{id}` | **admin** | Rename, or replace the aliases (at least one of `canonicalName`, `shortName`, `aliases`); coordinates are not editable; 409 if retired | F4.3 |
+| POST | `/buildings/{id}/retire` | **admin** | Retire: suppliers keep it, it is no longer listed or selectable, its names become free | F4.3, F4.3.1 |
 | POST | `/supplier-requests/creations` | any logged-in user | Ask for a supplier to be added (same body as `POST /suppliers`); 201, Pending | F7.1, F7.2 |
 | POST | `/supplier-requests/updates` | any logged-in user | Ask for a supplier to be edited: `{"supplierId": "...", "changes": {...same fields as PATCH...}}` with `If-Match`; 201, Pending | F8.1-F8.3 |
+| POST | `/supplier-requests/status-changes` | any logged-in user | Ask for a supplier to be activated or deactivated: `{"supplierId": "...", "status": "Active\|Inactive", "reason": "..."}` (reason optional, 1-500 chars); no `If-Match`; 201, Pending. 404 unknown supplier, 409 `INVALID_STATUS_TRANSITION` if it already has that status, 409 `DUPLICATE_REQUEST` if one is already pending | F9.3, F9.3.1, F9.3.2 |
 | GET | `/supplier-requests?type=&offset=&limit=` | **admin** | Pending requests, oldest first, paged | F6.7 |
 | GET | `/supplier-requests/mine?type=&state=&offset=&limit=` | any logged-in user | Their own requests, every type and state, newest first, paged; includes denial reasons | F6.5 |
 | GET | `/supplier-requests/{id}` | the submitter or an **admin** | One request; anyone else gets 404, exactly as for an unknown id | F13.6 |
 | POST | `/supplier-requests/{id}/withdraw` | the submitter only | Withdraw a Pending request; anyone else gets 404 | F6.6, F13.6 |
-| POST | `/supplier-requests/{id}/approve` | **admin** | Approve: creates the supplier, or applies the edit | F6.3, F6.8, F7.3, F8.4 |
+| POST | `/supplier-requests/{id}/approve` | **admin** | Approve: creates the supplier, applies the edit, or sets the status | F6.3, F6.8, F7.3, F8.4, F9.4 |
 | POST | `/supplier-requests/{id}/deny` | **admin** | Deny, with `{"reason": "..."}` (1-500 chars) | F6.4 |
 
 `retire` is a `POST` action rather than `DELETE`, so it can't be confused with deleting data.
@@ -489,8 +490,8 @@ A basic user can't create or edit a supplier directly, but can **ask** for one t
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Pending: POST /supplier-requests/creations or /updates
-    Pending --> Approved: admin approves (supplier created or edited)
+    [*] --> Pending: POST /supplier-requests/creations, /updates or /status-changes
+    Pending --> Approved: admin approves (supplier created, edited or its status set)
     Pending --> Denied: admin denies, with a reason
     Pending --> Withdrawn: submitter withdraws
     Approved --> [*]
@@ -500,7 +501,8 @@ stateDiagram-v2
 
 - **Filing (F7.1, F7.2):** the body is validated exactly like an admin's `POST /suppliers`, with every problem in one 400. It is refused with 409 `DUPLICATE_SUPPLIER` if the supplier already exists, or 409 `DUPLICATE_REQUEST` if an identical request is already pending (enforced by the database, so it holds even for two requests filed at once). The submitter comes only from the token (F13.1). The supplier **doesn't exist yet**, so it isn't listed.
 - **Approving (F6.3, F6.8, F7.3):** runs the same create code as `POST /suppliers`, in the **same transaction** as marking the request Approved. Everything is checked again at that moment: if an admin created the same supplier meanwhile (409 `DUPLICATE_SUPPLIER`), or a building or category was retired (409 `REQUEST_NOT_APPLICABLE`, with the `violations`), nothing changes and the request stays Pending. The message says so and what to do: the admin denies it with a reason, or the submitter withdraws it and files it again.
-- **Edit requests (F8.1-F8.4.1):** `changes` holds the same fields as an admin `PATCH` and is checked by the same rules, including whether the edited record would duplicate another supplier. Like an admin edit, it must send the version the user saw in `If-Match` (428 if missing, 409 `VERSION_CONFLICT` if already out of date). Only the fields sent are stored. The live supplier keeps being listed unchanged until approval (F8.2), and a supplier has at most one pending edit (F8.3, a partial unique index). Approving runs the same code as `PATCH` with the request's recorded version, so if the supplier changed after the request was filed, approval is refused with 409 `VERSION_CONFLICT` and nothing changes (F8.4.1). Until admins can amend a request (F8.5, after D2), the admin denies a stale one and the user files it again.
+- **Edit requests (F8.1-F8.4.1):** `changes` holds the same fields as an admin `PATCH` and is checked by the same rules, including whether the edited record would duplicate another supplier. Like an admin edit, it must send the version the user saw in `If-Match` (428 if missing, 409 `VERSION_CONFLICT` if already out of date). Only the fields sent are stored. The live supplier keeps being listed unchanged until approval (F8.2), and a supplier has at most one pending edit (F8.3, a partial unique index). Approving runs the same code as `PATCH` with the request's recorded version, so if the supplier changed after the request was filed, approval is refused with 409 `VERSION_CONFLICT` and nothing changes (F8.4.1). Admins cannot amend a request (F8.5 is not planned for D4), so the admin denies a stale one and the user files it again.
+- **Status-change requests (F9.3-F9.4):** the body is `{supplierId, status, reason?}`. It is refused with 404 if the supplier doesn't exist, and with 409 `INVALID_STATUS_TRANSITION` if the supplier already has that status (F9.3.1). A supplier has at most one pending status change (F9.3.2, the same partial unique index as edits, so a pending edit and a pending status change can sit side by side). No `If-Match` is needed: the request records the supplier's version when filed (F6.2). **Approving applies the status whatever the supplier's current version** (F9.4 only asks that the status differs), so an unrelated edit made meanwhile does not block it; the version still goes up by one. If the supplier already has the status by then, approval is refused with 409 `INVALID_STATUS_TRANSITION` and the request stays Pending.
 - **Denying (F6.4):** needs a reason of 1-500 characters, stored with who denied it and when.
 - **Following your own requests (F6.5, F6.6, F13.6):** `GET /supplier-requests/mine` lists the caller's requests of every type and state, newest first, with denial reasons. A Pending one can be withdrawn by its submitter only, which frees its slot so the same request can be filed again. Someone else's request, whether viewed or withdrawn, gets the **same 404 as an id that doesn't exist**, so ids reveal nothing. Admins can view any request, but withdraw only their own; they reject other people's by denying them.
 - **Exactly once (F6.3):** the request row is locked while it is resolved, so of two people acting at once (two admins, or an admin approving while the submitter withdraws), one wins and the other gets 409 `REQUEST_ALREADY_RESOLVED`. The allowed moves are one small table (`src/requests/request-state.ts`); Approved, Denied and Withdrawn are final.
@@ -540,7 +542,7 @@ Branches are few and large: one per area, each merged into `supplier-service` by
 | 9 | "Add supplier" requests | F7.1-F7.3.1 | `crud` | ✅ built (F7.4 amend: after D2) |
 | 10 | "Edit supplier" requests | F8.1-F8.4.1 | `crud` | ✅ built (F8.5 amend: after D2) |
 | 12 | My requests, withdraw | F6.5, F6.6, F13.6 | `crud` | ✅ built |
-| 11 | "Change status" requests | F9.3, F9.3.1, F9.3.2, F9.4 | `crud` | 🔜 after D2 |
+| 11 | "Change status" requests | F9.3, F9.3.1, F9.3.2, F9.4 | `moderation` | ✅ built |
 | 15b | Supplier validation for Order Service over RabbitMQ | F15.7-F15.7.8, F13.7 | `order-integration` (+ `contracts`, PR #642) | ✅ built and switched on ([§11](#11-supplier-validation-for-order-service-rabbitmq)); Order Service's side to come |
 
 ---
