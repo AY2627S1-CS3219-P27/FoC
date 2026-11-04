@@ -11,6 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Idempotent } from '../idempotency/idempotent.decorator.js';
 import {
   ErrorCode,
   type FieldViolation,
@@ -81,6 +82,7 @@ export class BuildingsController {
    */
   @Post()
   @UseGuards(AdminGuard)
+  @Idempotent()
   async create(@Body() body: CreateBuildingDto): Promise<BuildingView> {
     const violations = coordinatesOutsideCampus(body.coordinates, this.campus);
     if (violations.length > 0) {

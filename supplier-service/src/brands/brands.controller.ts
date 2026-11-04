@@ -9,6 +9,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { Idempotent } from '../idempotency/idempotent.decorator.js';
 import { uuidParam } from '../common/validation/parse-uuid.pipe.js';
 import type { Brand } from '../database/entities/index.js';
 import { BrandsService } from './brands.service.js';
@@ -43,6 +44,7 @@ export class BrandsController {
   /** Admin only (F3.3); a duplicate name is 409 DUPLICATE_NAME (F3.2). */
   @Post()
   @UseGuards(AdminGuard)
+  @Idempotent()
   async create(@Body() body: CreateBrandDto): Promise<BrandView> {
     return toView(await this.brands.create(body.name));
   }

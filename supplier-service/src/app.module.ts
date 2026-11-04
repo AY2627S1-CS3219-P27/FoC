@@ -16,6 +16,7 @@ import {
   environmentSchema,
 } from './config/environment.schema.js';
 import { DatabaseModule } from './database/database.module.js';
+import { IdempotencyModule } from './idempotency/idempotency.module.js';
 import { HealthController } from './health/health.controller.js';
 import { MessagingModule } from './messaging/messaging.module.js';
 import { RABBITMQ_CONNECTION_URL } from './messaging/rabbitmq-connection-url.provider.js';
@@ -44,6 +45,7 @@ import { ValidationModule } from './validation/validation.module.js';
       }),
     }),
     DatabaseModule,
+    IdempotencyModule,
     BrandsModule,
     BuildingsModule,
     CategoriesModule,

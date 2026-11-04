@@ -9,6 +9,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { Idempotent } from '../idempotency/idempotent.decorator.js';
 import { uuidParam } from '../common/validation/parse-uuid.pipe.js';
 import type { Category } from '../database/entities/index.js';
 import { CategoriesService } from './categories.service.js';
@@ -43,6 +44,7 @@ export class CategoriesController {
   /** Admin only (F11.2, F13.4); a duplicate name is 409 DUPLICATE_NAME. */
   @Post()
   @UseGuards(AdminGuard)
+  @Idempotent()
   async create(@Body() body: CreateCategoryDto): Promise<CategoryView> {
     return toView(await this.categories.create(body.name));
   }
