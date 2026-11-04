@@ -141,6 +141,7 @@ const handler = new SupplierValidationMessageHandler(
   new SupplierValidationService(
     dataSource,
     new SupplierQueriesService(dataSource, config),
+    buildings,
     contracts,
     config,
   ),
@@ -159,12 +160,16 @@ const relay = new OutboxRelay(
 );
 await relay.start();
 
-const question = (supplierId, eventId = randomUUID()) => ({
+const question = (
+  supplierId,
+  deliveryBuildingId = com2.id,
+  eventId = randomUUID(),
+) => ({
   eventId,
   eventType: 'SupplierValidationRequested',
   timestamp: new Date().toISOString(),
   publisher: 'order-service',
-  payload: { errandId: randomUUID(), supplierId },
+  payload: { errandId: randomUUID(), supplierId, deliveryBuildingId },
 });
 const ask = (body) =>
   channel.publish(EXCHANGE, QUESTION_KEY, Buffer.from(JSON.stringify(body)), {
@@ -174,15 +179,15 @@ const ask = (body) =>
   });
 function describeAnswer(answer) {
   if (!answer) return '(no answer)';
-  const { outcome, supplier } = answer.payload;
+  const { outcome, supplier, deliveryBuilding } = answer.payload;
   return outcome === 'FOUND'
-    ? `FOUND: ${supplier.displayName}, ${supplier.status}, version ${supplier.version}, floor ${supplier.floor}`
-    : 'NOT_FOUND';
+    ? `FOUND: ${supplier.displayName}, ${supplier.status}, version ${supplier.version}, floor ${supplier.floor}; deliver to ${deliveryBuilding.shortName} (${deliveryBuilding.canonicalName})`
+    : outcome;
 }
 async function scene(title, body, { expectAnswer = true } = {}) {
   console.log(`\n${title}`);
   console.log(
-    `  → Order Service asks (event ${short(body.eventId)}): is supplier ${short(String(body.payload.supplierId))} OK?`,
+    `  → Order Service asks (event ${short(body.eventId)}): is supplier ${short(String(body.payload.supplierId))} OK, and delivery building ${short(String(body.payload.deliveryBuildingId))}?`,
   );
   ask(body);
   if (expectAnswer) {
@@ -200,9 +205,17 @@ await scene(
   question(closed.id),
 );
 await scene('3. A supplier that does not exist', question(randomUUID()));
+await scene(
+  '4. A real supplier, but an unknown delivery building',
+  question(active.id, randomUUID()),
+);
+await scene(
+  '5. Neither exists (the missing supplier is reported first)',
+  question(randomUUID(), randomUUID()),
+);
 
 const repeated = question(active.id);
-await scene('4. The same question delivered twice', repeated);
+await scene('6. The same question delivered twice', repeated);
 ask(structuredClone(repeated));
 const second = await nextMessage(channel, REPLIES, 2500);
 console.log(
@@ -211,7 +224,7 @@ console.log(
 
 const malformed = question(active.id);
 malformed.payload.supplierId = 'not-a-uuid';
-await scene('5. A malformed question', malformed, { expectAnswer: false });
+await scene('7. A malformed question', malformed, { expectAnswer: false });
 const deadLetter = await nextMessage(channel, DEAD_LETTERS);
 console.log(
   `  ✗ ${deadLetter ? `moved to the dead-letter queue ${DEAD_LETTERS}, no answer, no retry` : 'not dead-lettered (unexpected)'}`,
