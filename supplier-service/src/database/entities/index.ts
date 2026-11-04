@@ -4,6 +4,7 @@ import { Building } from './building.entity.js';
 import { Category } from './category.entity.js';
 import { InboxEvent } from './inbox-event.entity.js';
 import { SupplierCategory } from './supplier-category.entity.js';
+import { SupplierOpeningInterval } from './supplier-opening-interval.entity.js';
 import { SupplierRequest } from './supplier-request.entity.js';
 import { Supplier } from './supplier.entity.js';
 
@@ -13,6 +14,7 @@ export { Category } from './category.entity.js';
 export { InboxEvent } from './inbox-event.entity.js';
 export { OutboxEvent } from '@foc/outbox/outbox-event.entity';
 export { SupplierCategory } from './supplier-category.entity.js';
+export { SupplierOpeningInterval } from './supplier-opening-interval.entity.js';
 export {
   RequestState,
   RequestType,
@@ -28,6 +30,7 @@ export const databaseEntities: Function[] = [
   Category,
   Supplier,
   SupplierCategory,
+  SupplierOpeningInterval,
   SupplierRequest,
   InboxEvent,
   OutboxEvent,

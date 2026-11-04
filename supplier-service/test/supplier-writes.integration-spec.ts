@@ -16,6 +16,7 @@ import {
   Category,
   Supplier,
   SupplierKind,
+  SupplierOpeningInterval,
   SupplierStatus,
 } from '../src/database/entities/index.js';
 import { ListSuppliersQueryDto } from '../src/suppliers/dto/list-suppliers-query.dto.js';
@@ -94,7 +95,7 @@ describe('admin supplier writes (real PostgreSQL)', () => {
 
   beforeEach(async () => {
     await dataSource.query(`
-      TRUNCATE supplier_requests, supplier_categories, suppliers, categories,
+      TRUNCATE supplier_requests, supplier_categories, supplier_opening_intervals, suppliers, categories,
                building_name_keys, buildings
     `);
     com2 = await buildings.create({
@@ -314,6 +315,237 @@ describe('admin supplier writes (real PostgreSQL)', () => {
       expect(status).toBe(404);
       expect(body.code).toBe('SUPPLIER_NOT_FOUND');
     });
+  });
+
+  describe('opening hours (F1.2.8, F2)', () => {
+    const weekdays = {
+      days: {
+        mon: [
+          { opens: '13:00', closes: '18:00' },
+          { opens: '09:00', closes: '12:00' },
+        ],
+        sat: [{ opens: '22:00', closes: '02:00' }],
+      },
+    };
+    const intervalsOf = (id: string) =>
+      dataSource
+        .getRepository(SupplierOpeningInterval)
+        .find({
+          where: { supplierId: id },
+          order: { day: 'ASC', opensAt: 'ASC' },
+        })
+        .then((rows) =>
+          rows.map(({ day, opensAt, closesAt }) => ({
+            day,
+            opensAt,
+            closesAt,
+          })),
+        );
+    const flagOf = async (id: string) =>
+      (await dataSource.getRepository(Supplier).findOneByOrFail({ id }))
+        .open24Hours;
+
+    it('stores weekly intervals when creating, overnight included (F2.1, F2.3)', async () => {
+      const { id } = await suppliers.create({
+        ...coolSpot(),
+        openingHours: weekdays,
+      });
+
+      await expect(intervalsOf(id)).resolves.toEqual([
+        { day: 0, opensAt: 540, closesAt: 720 },
+        { day: 0, opensAt: 780, closesAt: 1080 },
+        { day: 5, opensAt: 1320, closesAt: 120 },
+      ]);
+      await expect(flagOf(id)).resolves.toBe(false);
+    });
+
+    it('stores open around the clock as a flag without intervals (F2.2)', async () => {
+      const { id } = await suppliers.create({
+        ...coolSpot(),
+        openingHours: { open24Hours: true },
+      });
+
+      await expect(flagOf(id)).resolves.toBe(true);
+      await expect(intervalsOf(id)).resolves.toEqual([]);
+    });
+
+    it('creates a supplier without hours as having none (F1.2.8)', async () => {
+      const { id } = await suppliers.create(coolSpot());
+      const none = await suppliers.create({
+        ...coolSpot(),
+        name: 'Other',
+        openingHours: null,
+      });
+
+      for (const supplierId of [id, none.id]) {
+        await expect(flagOf(supplierId)).resolves.toBe(false);
+        await expect(intervalsOf(supplierId)).resolves.toEqual([]);
+      }
+    });
+
+    it('refuses bad hours with their paths, saving no part of the supplier (F2.4, F1.6)', async () => {
+      const { status, body } = await failure(
+        suppliers.create({
+          ...coolSpot(),
+          openingHours: {
+            days: {
+              mon: [
+                { opens: '09:00', closes: '12:00' },
+                { opens: '11:00', closes: '18:00' },
+              ],
+              tue: [{ opens: '10:00', closes: '10:00' }],
+            },
+          },
+        }),
+      );
+
+      expect(status).toBe(400);
+      expect(
+        (body.violations as { field: string }[]).map((v) => v.field),
+      ).toEqual(['openingHours.days.tue[0]', 'openingHours.days.mon[1]']);
+      await expect(dataSource.getRepository(Supplier).count()).resolves.toBe(0);
+      await expect(
+        dataSource.getRepository(SupplierOpeningInterval).count(),
+      ).resolves.toBe(0);
+    });
+
+    it('reports bad hours together with other field problems', async () => {
+      const { body } = await failure(
+        suppliers.create({
+          ...coolSpot(),
+          floor: 'Z',
+          openingHours: { days: {} },
+        }),
+      );
+
+      expect(
+        new Set((body.violations as { field: string }[]).map((v) => v.field)),
+      ).toEqual(new Set(['floor', 'openingHours.days']));
+    });
+
+    it('replaces the whole schedule on an edit and bumps the version, even if only the hours change (F1.3.1)', async () => {
+      const { id } = await suppliers.create({
+        ...coolSpot(),
+        openingHours: weekdays,
+      });
+
+      await suppliers.update(id, 1, {
+        openingHours: {
+          days: { fri: [{ opens: '10:00', closes: '14:00' }] },
+        },
+      });
+
+      await expect(intervalsOf(id)).resolves.toEqual([
+        { day: 4, opensAt: 600, closesAt: 840 },
+      ]);
+      await expect(queries.get(id)).resolves.toMatchObject({
+        version: 2,
+        name: 'Cool Spot',
+      });
+    });
+
+    it('switches between open around the clock and weekly hours', async () => {
+      const { id } = await suppliers.create({
+        ...coolSpot(),
+        openingHours: weekdays,
+      });
+
+      await suppliers.update(id, 1, { openingHours: { open24Hours: true } });
+      await expect(flagOf(id)).resolves.toBe(true);
+      await expect(intervalsOf(id)).resolves.toEqual([]);
+
+      await suppliers.update(id, 2, { openingHours: weekdays });
+      await expect(flagOf(id)).resolves.toBe(false);
+      await expect(intervalsOf(id)).resolves.toHaveLength(3);
+    });
+
+    it('removes the hours when openingHours is null', async () => {
+      const { id } = await suppliers.create({
+        ...coolSpot(),
+        openingHours: weekdays,
+      });
+
+      await suppliers.update(id, 1, { openingHours: null });
+
+      await expect(intervalsOf(id)).resolves.toEqual([]);
+      await expect(flagOf(id)).resolves.toBe(false);
+      await expect(queries.get(id)).resolves.toMatchObject({ version: 2 });
+    });
+
+    it('leaves the hours alone when an edit does not mention them', async () => {
+      const { id } = await suppliers.create({
+        ...coolSpot(),
+        openingHours: weekdays,
+      });
+
+      await suppliers.update(id, 1, { locationDescription: 'Near the lift' });
+
+      await expect(intervalsOf(id)).resolves.toHaveLength(3);
+    });
+
+    it('refuses overlapping hours on an edit, changing nothing (F2.4)', async () => {
+      const { id } = await suppliers.create({
+        ...coolSpot(),
+        openingHours: weekdays,
+      });
+
+      const { status } = await failure(
+        suppliers.update(id, 1, {
+          openingHours: {
+            days: {
+              sun: [{ opens: '23:00', closes: '03:00' }],
+              mon: [{ opens: '02:00', closes: '09:00' }],
+            },
+          },
+        }),
+      );
+
+      expect(status).toBe(400);
+      await expect(intervalsOf(id)).resolves.toHaveLength(3);
+      await expect(queries.get(id)).resolves.toMatchObject({ version: 1 });
+    });
+
+    it('deletes the intervals with their supplier', async () => {
+      const { id } = await suppliers.create({
+        ...coolSpot(),
+        openingHours: weekdays,
+      });
+
+      await dataSource.query(`DELETE FROM suppliers WHERE id = $1`, [id]);
+
+      await expect(intervalsOf(id)).resolves.toEqual([]);
+    });
+
+    it.each([
+      ['a day outside 0-6', 7, 540, 720, 'CHK_supplier_opening_intervals_day'],
+      [
+        'a minute outside the day',
+        0,
+        1440,
+        720,
+        'CHK_supplier_opening_intervals_opens_at',
+      ],
+      [
+        'equal opening and closing',
+        0,
+        540,
+        540,
+        'CHK_supplier_opening_intervals_differ',
+      ],
+    ])(
+      'refuses %s in the database itself',
+      async (_, day, opens, closes, check) => {
+        const { id } = await suppliers.create(coolSpot());
+
+        await expect(
+          dataSource.query(
+            `INSERT INTO supplier_opening_intervals (supplier_id, day, opens_at, closes_at)
+           VALUES ($1, $2, $3, $4)`,
+            [id, day, opens, closes],
+          ),
+        ).rejects.toMatchObject({ driverError: { constraint: check } });
+      },
+    );
   });
 
   describe('status (F9.2, F9.5)', () => {

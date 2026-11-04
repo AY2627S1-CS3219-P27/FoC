@@ -97,7 +97,7 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
   beforeEach(async () => {
     await dataSource.query(`
       TRUNCATE inbox_events, outbox_events, supplier_requests,
-               supplier_categories, suppliers, categories,
+               supplier_categories, supplier_opening_intervals, suppliers, categories,
                building_name_keys, buildings
     `);
     com2 = await buildings.create({

@@ -172,14 +172,13 @@ export function checkOpeningHours(raw: unknown): OpeningHoursCheck {
       rows.push({ day: dayIndex, opensAt, closesAt, path });
     }
   }
-  if (violations.length > 0) {
-    return { valid: false, violations };
-  }
-  if (rows.length === 0) {
+  if (rows.length === 0 && violations.length === 0) {
     fail('.days', 'at least one interval is required (F2.4)');
     return { valid: false, violations };
   }
 
+  // Overlaps among the valid intervals are reported even when others are
+  // invalid, so every problem comes back at once (F1.6.1).
   for (const [a, b] of overlappingPairs(rows)) {
     fail(
       b.path,

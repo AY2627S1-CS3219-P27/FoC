@@ -23,6 +23,7 @@ import {
   normaliseFloor,
 } from '../../common/normalise/normalise.js';
 import { SupplierKind } from '../../database/entities/index.js';
+import type { OpeningHours } from '../../opening-hours/opening-hours.js';
 
 const trim = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim() : value;
@@ -118,4 +119,17 @@ export class SupplierInputDto {
     { message: 'photoUrl must be an http(s) URL' },
   )
   photoUrl?: string | null;
+
+  /**
+   * Regular weekly opening hours (F1.2.8, F2): `{ "open24Hours": true }` or
+   * `{ "days": { "mon": [{ "opens": "09:00", "closes": "18:00" }] } }`.
+   * Null removes them on an edit. Its content is checked by
+   * checkOpeningHours (F2.4), which a decorator can't express for a map keyed
+   * by day, and replaced by the canonical form.
+   */
+  @IsOptional()
+  @IsObject({
+    message: 'openingHours must be an object, or null to remove it',
+  })
+  openingHours?: OpeningHours | null;
 }

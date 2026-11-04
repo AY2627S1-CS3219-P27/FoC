@@ -94,6 +94,13 @@ export class Supplier {
   @Column({ name: 'photo_url', type: 'varchar', length: 2048, nullable: true })
   photoUrl: string | null;
 
+  /**
+   * Open around the clock (F2.2). Weekly hours are in
+   * supplier_opening_intervals; neither means no fixed hours (F1.2.8).
+   */
+  @Column({ name: 'open_24_hours', type: 'boolean', default: false })
+  open24Hours: boolean;
+
   @Column({
     type: 'enum',
     enum: SupplierStatus,

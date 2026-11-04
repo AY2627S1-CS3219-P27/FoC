@@ -106,7 +106,7 @@ describe('supplier requests (real PostgreSQL)', () => {
 
   beforeEach(async () => {
     await dataSource.query(`
-      TRUNCATE supplier_requests, supplier_categories, suppliers, categories,
+      TRUNCATE supplier_requests, supplier_categories, supplier_opening_intervals, suppliers, categories,
                building_name_keys, buildings
     `);
     com2 = await buildings.create({

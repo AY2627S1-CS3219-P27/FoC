@@ -19,9 +19,11 @@ import {
   Category,
   Supplier,
   SupplierCategory,
+  SupplierOpeningInterval,
   SupplierStatus,
 } from '../database/entities/index.js';
 import { isUniqueViolation } from '../database/postgres-errors.js';
+import { type OpeningHours, toRows } from '../opening-hours/opening-hours.js';
 import type { SupplierInputDto } from './dto/supplier-input.dto.js';
 import {
   type CampusBox,
@@ -196,9 +198,13 @@ export class SuppliersService {
           latitude: dto.coordinates.latitude,
           longitude: dto.coordinates.longitude,
           photoUrl: dto.photoUrl ?? null,
+          open24Hours: dto.openingHours
+            ? toRows(dto.openingHours).open24Hours
+            : false,
           status: SupplierStatus.Active,
         });
         const saved = await manager.save(supplier);
+        await writeIntervals(manager, saved.id, dto.openingHours ?? null);
         await manager.insert(
           SupplierCategory,
           dto.categoryIds.map((categoryId) => ({
@@ -258,6 +264,14 @@ export class SuppliersService {
           changes.longitude = dto.coordinates.longitude;
         }
         if (dto.photoUrl !== undefined) changes.photoUrl = dto.photoUrl;
+        if (dto.openingHours !== undefined) {
+          // The whole schedule is replaced; null removes it (F1.2.8).
+          await manager.delete(SupplierOpeningInterval, { supplierId: id });
+          await writeIntervals(manager, id, dto.openingHours);
+          changes.open24Hours = dto.openingHours
+            ? toRows(dto.openingHours).open24Hours
+            : false;
+        }
 
         if (dto.categoryIds !== undefined) {
           await manager.delete(SupplierCategory, { supplierId: id });
@@ -394,6 +408,21 @@ function alreadyInStatus(status: SupplierStatus): ConflictException {
     code: ErrorCode.InvalidStatusTransition,
     message: `The supplier is already ${status}.`,
   });
+}
+
+/** Stores the weekly intervals of opening hours; open 24 hours has none (F2.2). */
+async function writeIntervals(
+  manager: EntityManager,
+  supplierId: string,
+  hours: OpeningHours | null,
+): Promise<void> {
+  const { intervals } = hours ? toRows(hours) : { intervals: [] };
+  if (intervals.length > 0) {
+    await manager.insert(
+      SupplierOpeningInterval,
+      intervals.map((row) => ({ supplierId, ...row })),
+    );
+  }
 }
 
 /** The building and categories the supplier references now (F1.8). */

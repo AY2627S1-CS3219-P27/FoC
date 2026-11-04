@@ -242,6 +242,20 @@ describe('checkOpeningHours (F2.1-F2.4)', () => {
     expect(fields({ days: { mon: many } })).toEqual(['openingHours.days.mon']);
   });
 
+  it('still reports an overlap when another interval is invalid (F1.6.1)', () => {
+    expect(
+      fields({
+        days: {
+          mon: [
+            { opens: '09:00', closes: '12:00' },
+            { opens: '11:00', closes: '18:00' },
+          ],
+          tue: [{ opens: '10:00', closes: '10:00' }],
+        },
+      }),
+    ).toEqual(['openingHours.days.tue[0]', 'openingHours.days.mon[1]']);
+  });
+
   it('lists every problem at once (F1.6.1)', () => {
     expect(
       fields({
