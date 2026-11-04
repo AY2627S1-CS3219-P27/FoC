@@ -280,6 +280,7 @@ describe('authentication and roles (e2e)', () => {
         { method: 'get', path: '/suppliers' },
         { method: 'get', path: '/suppliers/:id' },
         { method: 'get', path: '/buildings' },
+        { method: 'get', path: '/audit-entries' },
         { method: 'get', path: '/brands' },
         { method: 'post', path: '/brands' },
         { method: 'patch', path: '/brands/:id' },

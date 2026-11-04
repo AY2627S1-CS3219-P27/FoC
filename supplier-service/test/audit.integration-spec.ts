@@ -58,8 +58,15 @@ describe('the audit log table (real PostgreSQL, F14.4, F14.5)', () => {
       after: { floor: '2' },
       version: 2,
     });
+    // Judged against the database's own clock, not the host's: the two can
+    // drift apart (for instance after the laptop sleeps).
+    const [{ age }] = await dataSource.query<{ age: number }[]>(
+      `SELECT extract(epoch FROM now() - $1::timestamptz)::float AS age`,
+      [written.occurredAt],
+    );
     expect(written.occurredAt).toBeInstanceOf(Date);
-    expect(Date.now() - written.occurredAt.getTime()).toBeLessThan(60_000);
+    expect(age).toBeGreaterThanOrEqual(0);
+    expect(age).toBeLessThan(60);
   });
 
   it('records no actor outside a request: the system (the seed)', async () => {

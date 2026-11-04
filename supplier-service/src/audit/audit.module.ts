@@ -1,9 +1,18 @@
 import { Module } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { AuditContextInterceptor } from './audit-context.interceptor.js';
+import { AuditController } from './audit.controller.js';
+import { AuditEntriesService } from './audit-entries.service.js';
 
-/** Tells the services who is acting, for the audit log (F14.4). */
+/**
+ * The audit log (F14.4): tells the services who is acting, and lets admins
+ * read the entries.
+ */
 @Module({
-  providers: [{ provide: APP_INTERCEPTOR, useClass: AuditContextInterceptor }],
+  controllers: [AuditController],
+  providers: [
+    AuditEntriesService,
+    { provide: APP_INTERCEPTOR, useClass: AuditContextInterceptor },
+  ],
 })
 export class AuditModule {}

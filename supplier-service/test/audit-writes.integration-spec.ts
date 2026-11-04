@@ -7,6 +7,8 @@ import {
 import type { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 import { withActor } from '../src/audit/audit-context.js';
+import { AuditEntriesService } from '../src/audit/audit-entries.service.js';
+import { ListAuditEntriesQueryDto } from '../src/audit/dto/list-audit-entries-query.dto.js';
 import { BrandsService } from '../src/brands/brands.service.js';
 import { BuildingsService } from '../src/buildings/buildings.service.js';
 import { CategoriesService } from '../src/categories/categories.service.js';
@@ -647,6 +649,87 @@ describe('the audit log across the writes (real PostgreSQL, F14.4, F14.5)', () =
 
       expect(clash).toBeInstanceOf(ConflictException);
       expect(missing).toBeInstanceOf(NotFoundException);
+      expect(await total()).toBe(before);
+    });
+  });
+
+  describe('reading the log (F14.4)', () => {
+    const query = (values: Partial<ListAuditEntriesQueryDto> = {}) =>
+      Object.assign(new ListAuditEntriesQueryDto(), values);
+
+    it('lists the newest entry first, with who, what and when', async () => {
+      const reader = new AuditEntriesService(dataSource);
+      const { id } = await withActor(ADMIN, () => suppliers.create(coolSpot()));
+      await withActor(OTHER_ADMIN, () =>
+        suppliers.update(id, 1, { floor: '2' }),
+      );
+
+      const page = await reader.list(query({ targetId: id }));
+
+      expect(page.items.map((e) => e.action)).toEqual([
+        'supplier.updated',
+        'supplier.created',
+      ]);
+      expect(page.items[0]).toMatchObject({
+        actorId: OTHER_ADMIN,
+        targetType: 'supplier',
+        targetId: id,
+        version: 2,
+        before: { floor: '1' },
+        after: { floor: '2' },
+        occurredAt: expect.any(Date),
+      });
+      expect(page).toMatchObject({ total: 2, hasMore: false });
+    });
+
+    it('filters by type, target, actor and action, combined with AND', async () => {
+      const reader = new AuditEntriesService(dataSource);
+      const { id } = await withActor(ADMIN, () => suppliers.create(coolSpot()));
+      await withActor(OTHER_ADMIN, () =>
+        suppliers.update(id, 1, { floor: '2' }),
+      );
+      await withActor(OTHER_ADMIN, () => categories.create('Snacks'));
+
+      const byActor = await reader.list(
+        query({ actorId: OTHER_ADMIN, targetType: 'supplier' }),
+      );
+      const byAction = await reader.list(
+        query({ action: 'category.created', actorId: OTHER_ADMIN }),
+      );
+      const none = await reader.list(
+        query({ targetId: id, action: 'category.created' }),
+      );
+
+      expect(byActor.items.map((e) => e.targetId)).toContain(id);
+      expect(byActor.items.every((e) => e.actorId === OTHER_ADMIN)).toBe(true);
+      expect(byAction.items.every((e) => e.action === 'category.created')).toBe(
+        true,
+      );
+      expect(none).toMatchObject({ items: [], total: 0, hasMore: false });
+    });
+
+    it('pages with correct totals', async () => {
+      const reader = new AuditEntriesService(dataSource);
+      const { id } = await withActor(ADMIN, () => suppliers.create(coolSpot()));
+      await suppliers.update(id, 1, { floor: '2' });
+      await suppliers.update(id, 2, { floor: '3' });
+
+      const first = await reader.list(query({ targetId: id, limit: 2 }));
+      const second = await reader.list(
+        query({ targetId: id, limit: 2, offset: 2 }),
+      );
+
+      expect(first).toMatchObject({ total: 3, hasMore: true });
+      expect(second).toMatchObject({ total: 3, hasMore: false });
+      expect(second.items.map((e) => e.action)).toEqual(['supplier.created']);
+    });
+
+    it('writes nothing itself', async () => {
+      const reader = new AuditEntriesService(dataSource);
+      const before = await total();
+
+      await reader.list(query());
+
       expect(await total()).toBe(before);
     });
   });
