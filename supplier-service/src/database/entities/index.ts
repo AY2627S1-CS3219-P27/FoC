@@ -1,5 +1,6 @@
 import { OutboxEvent } from '@foc/outbox/outbox-event.entity';
 import { BuildingNameKey } from './building-name-key.entity.js';
+import { AuditEntry } from './audit-entry.entity.js';
 import { Brand } from './brand.entity.js';
 import { Building } from './building.entity.js';
 import { Category } from './category.entity.js';
@@ -10,6 +11,11 @@ import { SupplierOpeningInterval } from './supplier-opening-interval.entity.js';
 import { SupplierRequest } from './supplier-request.entity.js';
 import { Supplier } from './supplier.entity.js';
 
+export {
+  AUDIT_TARGET_TYPES,
+  AuditEntry,
+  type AuditTargetType,
+} from './audit-entry.entity.js';
 export { Brand } from './brand.entity.js';
 export { BuildingNameKey } from './building-name-key.entity.js';
 export { Building } from './building.entity.js';
@@ -29,6 +35,7 @@ export { Supplier, SupplierKind, SupplierStatus } from './supplier.entity.js';
 // Every TypeORM entity of the supplier schema, plus the outbox table that
 // @foc/outbox reads.
 export const databaseEntities: Function[] = [
+  AuditEntry,
   Brand,
   Building,
   BuildingNameKey,
