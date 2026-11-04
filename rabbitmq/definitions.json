@@ -50,18 +50,18 @@
       "write": "^(foc\\.events|foc\\.supplier\\.(retry|back|dlx)|supplier-service\\..+)$"
     },
     {
-      "configure": "^(foc\\.(retry|dlq|back)|notify_retry_\\d+s|notification-service\\..+)$",
-      "read": "^(foc\\.events|foc\\.(retry|dlq|back)|notify_retry_\\d+s|notification-service\\..+)$",
+      "configure": "^(foc\\.(retry|dlq|back)|notify_retry_\\d+s|notification-service\\..+|amq\\.gen-.*)$",
+      "read": "^(foc\\.(events|pubsub)|foc\\.(retry|dlq|back)|notify_retry_\\d+s|notification-service\\..+|amq\\.gen-.*)$",
       "user": "notification-service",
       "vhost": "/foc",
-      "write": "^(foc\\.(events|retry|dlq|back)|notify_retry_\\d+s|notification-service\\..+)$"
+      "write": "^(foc\\.(events|retry|dlq|back)|notify_retry_\\d+s|notification-service\\..+|amq\\.gen-.*)$"
     },
     {
-      "configure": "^(foc\\.comms\\.(retry|back|dlx)|comms-service\\.(order-errand-accepted|order-errand-delivered|order-courier-cancelled|order-errand-cancelled)\\.v1\\.(retry\\.[1-5]|dlq))$",
-      "read": "^(foc\\.comms\\.(retry|back|dlx)|comms-service\\.(order-errand-accepted|order-errand-delivered|order-courier-cancelled|order-errand-cancelled)\\.v1(\\.(retry\\.[1-5]|dlq))?)$",
+      "configure": "^(foc\\.comms\\.(retry|back|dlx)|comms-service\\.(order-errand-accepted|order-errand-delivered|order-courier-cancelled|order-errand-cancelled)\\.v1\\.(retry\\.[1-5]|dlq)|comms-service\\.events|amq\\.gen-.*)$",
+      "read": "^(foc\\.(events|pubsub)|foc\\.comms\\.(retry|back|dlx)|comms-service\\.(order-errand-accepted|order-errand-delivered|order-courier-cancelled|order-errand-cancelled)\\.v1(\\.(retry\\.[1-5]|dlq))?|comms-service\\.events|amq\\.gen-.*)$",
       "user": "comms-service",
       "vhost": "/foc",
-      "write": "^(foc\\.comms\\.(retry|back|dlx)|comms-service\\.(order-errand-accepted|order-errand-delivered|order-courier-cancelled|order-errand-cancelled)\\.v1(\\.(retry\\.[1-5]|dlq))?)$"
+      "write": "^(foc\\.(events|comms\\.(retry|back|dlx))|comms-service\\.(order-errand-accepted|order-errand-delivered|order-courier-cancelled|order-errand-cancelled)\\.v1(\\.(retry\\.[1-5]|dlq))?|comms-service\\.events|amq\\.gen-.*)$"
     }
   ],
   "rabbitmq_version": "4.3.6",
@@ -83,6 +83,14 @@
       "durable": true,
       "name": "foc.events",
       "type": "direct",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "auto_delete": false,
+      "durable": true,
+      "name": "foc.pubsub",
+      "type": "topic",
       "vhost": "/foc"
     },
     {
@@ -643,6 +651,150 @@
       "destination": "comms-service.order-errand-cancelled.v1",
       "destination_type": "queue",
       "routing_key": "order.errand-cancelled.v1",
+      "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "foc.pubsub",
+      "destination_type": "exchange",
+      "routing_key": "user.registered.v1",
+      "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "foc.pubsub",
+      "destination_type": "exchange",
+      "routing_key": "credit.account-initialised.v1",
+      "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "foc.pubsub",
+      "destination_type": "exchange",
+      "routing_key": "credit.reservation-success.v1",
+      "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "foc.pubsub",
+      "destination_type": "exchange",
+      "routing_key": "credit.reservation-rejected.v1",
+      "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "foc.pubsub",
+      "destination_type": "exchange",
+      "routing_key": "credit.reservation-adjustment-success.v1",
+      "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "foc.pubsub",
+      "destination_type": "exchange",
+      "routing_key": "credit.reservation-adjustment-rejected.v1",
+      "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "foc.pubsub",
+      "destination_type": "exchange",
+      "routing_key": "credit.transfer-succeeded.v1",
+      "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "foc.pubsub",
+      "destination_type": "exchange",
+      "routing_key": "credit.transfer-rejected.v1",
+      "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "foc.pubsub",
+      "destination_type": "exchange",
+      "routing_key": "credit.release-success.v1",
+      "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "foc.pubsub",
+      "destination_type": "exchange",
+      "routing_key": "credit.release-rejected.v1",
+      "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "foc.pubsub",
+      "destination_type": "exchange",
+      "routing_key": "credit.settlement-succeeded.v1",
+      "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "foc.pubsub",
+      "destination_type": "exchange",
+      "routing_key": "credit.settlement-rejected.v1",
+      "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "foc.pubsub",
+      "destination_type": "exchange",
+      "routing_key": "supplier.validation-completed.v1",
+      "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "foc.pubsub",
+      "destination_type": "exchange",
+      "routing_key": "order.errand-accepted.v1",
+      "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "foc.pubsub",
+      "destination_type": "exchange",
+      "routing_key": "order.errand-delivered.v1",
+      "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "foc.pubsub",
+      "destination_type": "exchange",
+      "routing_key": "order.errand-completed.v1",
+      "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "foc.pubsub",
+      "destination_type": "exchange",
+      "routing_key": "order.errand-cancelled.v1",
+      "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "foc.pubsub",
+      "destination_type": "exchange",
+      "routing_key": "order.courier-cancelled.v1",
       "source": "foc.events",
       "vhost": "/foc"
     }
