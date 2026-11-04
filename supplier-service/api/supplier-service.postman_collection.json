@@ -4421,6 +4421,692 @@
           }
         }
       ]
+    },
+    {
+      "name": "8 Safe retries: idempotency keys (after D2)",
+      "description": "An Idempotency-Key header makes a create safe to repeat (F14.2): a repeat within 24 hours returns the original answer, a different request under the same key is refused, and only a success is stored. Run folder 1 first (it saves the Food category and the COM3 building id). Names and keys are generated per run, so it can be re-run.",
+      "item": [
+        {
+          "name": "Admin creates a category with an Idempotency-Key (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idemKey}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/categories",
+            "description": "F14.2: the client chooses a unique key. Without the header nothing changes.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{idemCategoryName}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('idemKey', pm.variables.replaceIn('{{$guid}}'));",
+                  "pm.environment.set('idemCategoryName', `Idem ${Date.now() % 100000000}`);",
+                  "pm.environment.set('idemSupplierName', `Idem Stall ${Date.now() % 100000000}`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('first time: not a replay', () => pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.eql(null));",
+                  "pm.environment.set('idemCategoryId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "The same request again: the original answer (201, replayed)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idemKey}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/categories",
+            "description": "A retry after a dropped connection: nothing is created twice, and the answer is the original one.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{idemCategoryName}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('marked as a replay (F14.2.1)', () => pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.eql('true'));",
+                  "pm.test('the same category, not a second one', () => pm.expect(pm.response.json().id).to.eql(pm.environment.get('idemCategoryId')));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "The same request with no key hits the duplicate rule (409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/categories",
+            "description": "What a retry looks like without a key: the client can't tell its first attempt worked.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{idemCategoryName}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 409', () => pm.response.to.have.status(409));",
+                  "pm.test('DUPLICATE_NAME', () => pm.expect(pm.response.json().code).to.eql('DUPLICATE_NAME'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "The same key with a different body (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idemKey}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/categories",
+            "description": "A key identifies one request. Nothing is done.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"A Different Name\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422', () => pm.response.to.have.status(422));",
+                  "pm.test('IDEMPOTENCY_KEY_REUSED (F14.2.2)', () => pm.expect(pm.response.json().code).to.eql('IDEMPOTENCY_KEY_REUSED'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "The same key on another endpoint (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idemKey}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/brands",
+            "description": "The method and path are part of the request, so the same body on another endpoint is a different request.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{idemCategoryName}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422', () => pm.response.to.have.status(422));",
+                  "pm.test('IDEMPOTENCY_KEY_REUSED', () => pm.expect(pm.response.json().code).to.eql('IDEMPOTENCY_KEY_REUSED'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Another user may use the same key (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idemKey}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/creations",
+            "description": "Keys are per user, taken from the login token.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{idemSupplierName}}\",\n  \"kind\": \"Store\",\n  \"categoryIds\": [\n    \"{{foodCategoryId}}\"\n  ],\n  \"buildingId\": \"{{com3BuildingId}}\",\n  \"floor\": \"3\",\n  \"locationDescription\": \"Demo\",\n  \"coordinates\": {\n    \"latitude\": 1.2944,\n    \"longitude\": 103.7726\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('not a replay: keys belong to the user', () => pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.eql(null));",
+                  "pm.environment.set('idemRequestId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Retrying that request returns the same request (201, replayed)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idemKey}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/creations",
+            "description": "Without the key this would be 409 DUPLICATE_REQUEST (an identical request is already pending).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{idemSupplierName}}\",\n  \"kind\": \"Store\",\n  \"categoryIds\": [\n    \"{{foodCategoryId}}\"\n  ],\n  \"buildingId\": \"{{com3BuildingId}}\",\n  \"floor\": \"3\",\n  \"locationDescription\": \"Demo\",\n  \"coordinates\": {\n    \"latitude\": 1.2944,\n    \"longitude\": 103.7726\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('replayed, same request id', () => { pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.eql('true'); pm.expect(pm.response.json().id).to.eql(pm.environment.get('idemRequestId')); });"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Only one request was filed",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/supplier-requests/mine?type=Create&limit=100"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('exactly one request for that name', () => pm.expect(pm.response.json().items.filter((r) => r.values.name === pm.environment.get('idemSupplierName')).length).to.eql(1));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Admin creates a supplier with a key (201, Location and ETag)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idemKey}}-supplier"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers",
+            "description": "A direct admin create.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{idemSupplierName}} Direct\",\n  \"kind\": \"Store\",\n  \"categoryIds\": [\n    \"{{foodCategoryId}}\"\n  ],\n  \"buildingId\": \"{{com3BuildingId}}\",\n  \"floor\": \"3\",\n  \"locationDescription\": \"Demo\",\n  \"coordinates\": {\n    \"latitude\": 1.2944,\n    \"longitude\": 103.7726\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('idemKey', pm.environment.get('idemKey'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const s = pm.response.json();",
+                  "pm.environment.set('idemSupplierId', s.id);",
+                  "pm.environment.set('idemSupplierLocation', pm.response.headers.get('Location'));",
+                  "pm.environment.set('idemSupplierEtag', pm.response.headers.get('ETag'));",
+                  "pm.test('headers present', () => { pm.expect(pm.response.headers.get('Location')).to.eql(`/suppliers/${s.id}`); pm.expect(pm.response.headers.get('ETag')).to.be.ok; });"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Retrying it replays the supplier, with its Location and ETag (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idemKey}}-supplier"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{idemSupplierName}} Direct\",\n  \"kind\": \"Store\",\n  \"categoryIds\": [\n    \"{{foodCategoryId}}\"\n  ],\n  \"buildingId\": \"{{com3BuildingId}}\",\n  \"floor\": \"3\",\n  \"locationDescription\": \"Demo\",\n  \"coordinates\": {\n    \"latitude\": 1.2944,\n    \"longitude\": 103.7726\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const s = pm.response.json();",
+                  "pm.test('replayed, the same supplier', () => { pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.eql('true'); pm.expect(s.id).to.eql(pm.environment.get('idemSupplierId')); });",
+                  "pm.test('the same headers', () => { pm.expect(pm.response.headers.get('Location')).to.eql(pm.environment.get('idemSupplierLocation')); pm.expect(pm.response.headers.get('ETag')).to.eql(pm.environment.get('idemSupplierEtag')); });"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Exactly one supplier exists",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/suppliers?name={{idemSupplierName}} Direct"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('one supplier, not two', () => pm.expect(pm.response.json().total).to.eql(1));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "A failed attempt does not use up the key (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idemKey}}-retry"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/categories",
+            "description": "Only a success is stored.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('rejected', () => pm.expect(pm.response.json().code).to.eql('VALIDATION_FAILED'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "The corrected request can reuse the key (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idemKey}}-retry"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/categories",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{idemCategoryName}} Fixed\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('a fresh run, not a replay', () => pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.eql(null));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "A key over 255 characters is refused (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idemLongKey}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/categories",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Whatever\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('idemLongKey', 'k'.repeat(256));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('Idempotency-Key named', () => pm.expect(pm.response.json().violations[0].field).to.eql('Idempotency-Key'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "No login: 401, whatever the key",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idemKey}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/categories",
+            "description": "The login is checked first.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Whatever\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        }
+      ]
     }
   ]
 }

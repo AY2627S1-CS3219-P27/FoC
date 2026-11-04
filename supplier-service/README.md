@@ -42,7 +42,7 @@ D2 asks for Supplier Service **"significant progress"**: Part 2 points 1-4 of th
 - opening hours (F2): built after D2, see [Opening hours](#opening-hours-f2)
 - brands (F3): built after D2, see [Brands](#brands-f3)
 - Order validation over RabbitMQ (F15.7)
-- safe retries, audit log and rate limits (F14.2, F14.4, F16)
+- safe retries (F14.2): built after D2, see [Safe retries](#safe-retries-idempotency-keys-f142); audit log and rate limits (F14.4, F16) are later
 - images (F17)
 - hard delete (F10)
 
@@ -308,6 +308,30 @@ Repeatable filters are passed by repeating the parameter, e.g. `?categoryId=a&ca
 
 It also returns the version in an `ETag` header (e.g. `"3"`), which an admin edit must send back as `If-Match` (step 6). A malformed id answers 400 (`VALIDATION_FAILED`, field `id`); an unknown one 404 `SUPPLIER_NOT_FOUND`. This response is also what other services rely on: it has enough detail for them to keep their own copy (F15.1). The endpoint is read-only, so it is safe to retry (F15.4).
 
+### Safe retries: idempotency keys (F14.2)
+
+✅ step 16. If a client sends a create and the connection drops before the reply, it can't tell whether the record exists. With an `Idempotency-Key` header it can simply send the request again: a repeat returns the **original answer** and nothing is created twice.
+
+**Applies to the seven endpoints that create a record (F14.2):** `POST /suppliers`, `POST /supplier-requests/creations`, `/updates` and `/status-changes`, and `POST` on `/categories`, `/brands` and `/buildings`. Approve, deny, withdraw, retire, `PATCH` and `PUT` create nothing, and edits are already protected by `If-Match` versions.
+
+| The client sends | The service answers |
+|---|---|
+| No header | As always: the work is done each time. The header is optional. |
+| A new key | The request runs. If it **succeeds**, its status, `Location`, `ETag` and body are stored under the key. |
+| The same key and the same request again, within 24 hours | The stored answer, with `Idempotent-Replayed: true`, and nothing is done again (F14.2.1) |
+| The same key for a different request | 422 `IDEMPOTENCY_KEY_REUSED`, and nothing is done (F14.2.2) |
+| The same key while the first request is still running | 409 `IDEMPOTENCY_IN_PROGRESS` with `Retry-After: 1`: try again shortly |
+| A key that is empty, over 255 characters or not printable | 400 `VALIDATION_FAILED` naming `Idempotency-Key` |
+
+- **"The same request"** means the same user, method, path, body (the order of keys doesn't matter) and `If-Match`. The same key on another endpoint, with another body or against another version is a different request. Keys belong to the user in the token, so two users can use the same key.
+- **Only a success is stored.** A failure (a validation error, a duplicate, a database outage) releases the key, so the client can correct the request and retry with the same key. That is deliberate: Order Service keeps rejections under the key too, but a corrected retry is the more useful behaviour here.
+- **After 24 hours** a key is forgotten and may be reused. An hourly job (and one at start-up) removes old keys.
+- **The login comes first.** Guards run before the key is looked at, so no token is 401 and a non-admin on an admin endpoint is 403 whatever the key.
+- **If the server dies mid-request:** its claim goes stale after 60 seconds and the retry runs again. The unique constraints on suppliers, requests, categories, brands and buildings still refuse a double create, so the worst case is a 409 where the original 201 would have been replayed.
+- **No connection is held while the request runs.** Claiming, storing and releasing are three short statements around it, so many slow requests can't exhaust the database pool.
+- **How it is built:** the `idempotency_keys` table (`(user_id, key)` is the primary key; migration `1791244800000-add-idempotency-keys.ts`), `src/idempotency/` (the service, an interceptor and the `@Idempotent()` marker on the seven handlers). The requests, suppliers, categories, brands and buildings code is unchanged.
+- **Same idea as Order Service** (`Idempotency-Key` header, an `idempotency_keys` table with a fingerprint and the stored outcome); the differences are that ours is keyed by user rather than errand, lives in a separate step rather than the same transaction, remembers keys for 24 hours rather than 7 days, and stores only successes.
+
 ### Brands (F3)
 
 ✅ step 14. A brand groups suppliers that are branches of the same business, such as several Cheers outlets. Each outlet is still its own supplier with its own building, floor and hours, told apart by those and by its display name (F3.4, F1.4). The brand is **optional** (F1.2.10); none of the 21 seeded suppliers has one, because the seed has no brand column and every seeded business appears once (F12.2).
@@ -406,8 +430,9 @@ Every error, from any endpoint, has one shape (✅ built in `src/common/errors/`
 | 401 | `UNAUTHENTICATED` ✅ | No login cookie, or the token is invalid or expired |
 | 403 | `FORBIDDEN` ✅ | Logged in, but not an admin, on an admin endpoint |
 | 404 | `NOT_FOUND` / `SUPPLIER_NOT_FOUND` / `REQUEST_NOT_FOUND` ✅ | Unknown id (F5.9.1), or someone else's request (F13.6) |
-| 409 | `DUPLICATE_SUPPLIER`, `DUPLICATE_NAME`, `VERSION_CONFLICT`, `INVALID_STATUS_TRANSITION`, `DUPLICATE_REQUEST`, `REQUEST_ALREADY_RESOLVED`, `REQUEST_NOT_APPLICABLE` ✅ | Same name+building+floor exists; the name is taken; someone else edited first (includes `currentVersion`); already in that status; an identical request (or another edit of the same supplier) is already pending; the request was already approved or denied; an approval that can no longer be applied (its building or category was retired since) |
+| 409 | `DUPLICATE_SUPPLIER`, `DUPLICATE_NAME`, `VERSION_CONFLICT`, `INVALID_STATUS_TRANSITION`, `DUPLICATE_REQUEST`, `REQUEST_ALREADY_RESOLVED`, `REQUEST_NOT_APPLICABLE`, `IDEMPOTENCY_IN_PROGRESS` ✅ | Same name+building+floor exists; the name is taken; someone else edited first (includes `currentVersion`); already in that status; an identical request (or another edit of the same supplier) is already pending; the request was already approved or denied; an approval that can no longer be applied (its building or category was retired since); an identical request with the same `Idempotency-Key` is still running |
 | 413 | `PAYLOAD_TOO_LARGE` ✅ | Request body too big |
+| 422 | `IDEMPOTENCY_KEY_REUSED` ✅ | The `Idempotency-Key` was already used for a different request (F14.2.2) |
 | 428 | `PRECONDITION_REQUIRED` ✅ | An edit sent without `If-Match` |
 | 503 | `DEPENDENCY_UNAVAILABLE` ✅ (`retryable: true`) | The database can't be reached. Never reported as "not found" (F15.3). |
 | 500 | `INTERNAL_ERROR` ✅ | Unexpected. Details are logged, never sent to the client. |
@@ -609,6 +634,7 @@ Branches are few and large: one per area, each merged into `supplier-service` by
 | 11 | "Change status" requests | F9.3, F9.3.1, F9.3.2, F9.4 | `moderation` | ✅ built |
 | 13 | Opening hours | F1.2.8, F2.1-F2.5, F2.7, F12.2.3, F5.4.7 (not F2.6, overrides) | `moderation` (same branch) | ✅ built |
 | 14 | Brands | F1.2.10, F3.1-F3.5, F5.4.6, F5.4.1 (brand name), F5.1 (brand) (no logo) | `moderation` (same branch) | ✅ built |
+| 16 | Safe retries: idempotency keys | F14.2, F14.2.1, F14.2.2 | `moderation` (same branch) | ✅ built |
 | 15b | Supplier validation for Order Service over RabbitMQ | F15.7-F15.7.8, F13.7 | `order-integration` (+ `contracts`, PR #642) | ✅ built and switched on ([§11](#11-supplier-validation-for-order-service-rabbitmq)); Order Service's side to come |
 
 ---
