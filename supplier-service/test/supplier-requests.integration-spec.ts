@@ -18,6 +18,7 @@ import {
   RequestType,
   Supplier,
   SupplierKind,
+  SupplierOpeningInterval,
   SupplierRequest,
   SupplierStatus,
 } from '../src/database/entities/index.js';
@@ -797,6 +798,164 @@ describe('supplier requests (real PostgreSQL)', () => {
         status: 'Active',
         version: 1,
       });
+    });
+  });
+
+  describe('opening hours through requests (F1.2.8, F2)', () => {
+    const lunchTime = {
+      days: {
+        wed: [
+          { opens: '13:00', closes: '18:00' },
+          { opens: '09:00', closes: '12:00' },
+        ],
+      },
+    };
+    const intervalsOf = (id: string) =>
+      dataSource
+        .getRepository(SupplierOpeningInterval)
+        .find({
+          where: { supplierId: id },
+          order: { day: 'ASC', opensAt: 'ASC' },
+        })
+        .then((rows) =>
+          rows.map(({ day, opensAt, closesAt }) => ({
+            day,
+            opensAt,
+            closesAt,
+          })),
+        );
+
+    it('stores the proposed hours, in canonical form, with a creation request', async () => {
+      const filed = await requests.submitCreation(
+        { ...coolSpot(), openingHours: lunchTime },
+        BASIC_USER,
+      );
+
+      expect(filed.values.openingHours).toEqual({
+        days: {
+          wed: [
+            { opens: '09:00', closes: '12:00' },
+            { opens: '13:00', closes: '18:00' },
+          ],
+        },
+      });
+      // Not a supplier yet, so no intervals either.
+      await expect(
+        dataSource.getRepository(SupplierOpeningInterval).count(),
+      ).resolves.toBe(0);
+    });
+
+    it('refuses bad hours in a creation request with their paths, saving nothing', async () => {
+      const { status, body } = await failure(
+        requests.submitCreation(
+          {
+            ...coolSpot(),
+            openingHours: {
+              days: { mon: [{ opens: '09:00', closes: '25:00' }] },
+            },
+          },
+          BASIC_USER,
+        ),
+      );
+
+      expect(status).toBe(400);
+      expect(body.violations).toEqual([
+        {
+          field: 'openingHours.days.mon[0].closes',
+          reason: expect.any(String),
+        },
+      ]);
+      await expect(
+        dataSource.getRepository(SupplierRequest).count(),
+      ).resolves.toBe(0);
+    });
+
+    it('writes the intervals when an admin approves the creation', async () => {
+      const filed = await requests.submitCreation(
+        { ...coolSpot(), openingHours: lunchTime },
+        BASIC_USER,
+      );
+
+      const approved = await requests.approve(filed.id, ADMIN);
+
+      await expect(intervalsOf(approved.createdSupplierId!)).resolves.toEqual([
+        { day: 2, opensAt: 540, closesAt: 720 },
+        { day: 2, opensAt: 780, closesAt: 1080 },
+      ]);
+    });
+
+    it('approves open around the clock as a flag', async () => {
+      const filed = await requests.submitCreation(
+        { ...coolSpot(), openingHours: { open24Hours: true } },
+        BASIC_USER,
+      );
+
+      const approved = await requests.approve(filed.id, ADMIN);
+
+      const supplier = await dataSource
+        .getRepository(Supplier)
+        .findOneByOrFail({ id: approved.createdSupplierId! });
+      expect(supplier.open24Hours).toBe(true);
+      await expect(intervalsOf(supplier.id)).resolves.toEqual([]);
+    });
+
+    it('replaces the schedule when an admin approves an edit request', async () => {
+      const { id } = await suppliers.create({
+        ...coolSpot(),
+        openingHours: { days: { mon: [{ opens: '08:00', closes: '17:00' }] } },
+      });
+      const filed = await requests.submitUpdate(
+        id,
+        1,
+        { openingHours: lunchTime },
+        BASIC_USER,
+      );
+      // The live supplier keeps its hours until approval (F8.2).
+      await expect(intervalsOf(id)).resolves.toEqual([
+        { day: 0, opensAt: 480, closesAt: 1020 },
+      ]);
+
+      await requests.approve(filed.id, ADMIN);
+
+      await expect(intervalsOf(id)).resolves.toEqual([
+        { day: 2, opensAt: 540, closesAt: 720 },
+        { day: 2, opensAt: 780, closesAt: 1080 },
+      ]);
+      await expect(queries.get(id)).resolves.toMatchObject({ version: 2 });
+    });
+
+    it('removes the hours when an approved edit request says null', async () => {
+      const { id } = await suppliers.create({
+        ...coolSpot(),
+        openingHours: lunchTime,
+      });
+      const filed = await requests.submitUpdate(
+        id,
+        1,
+        { openingHours: null },
+        BASIC_USER,
+      );
+
+      expect(filed.values).toEqual({ openingHours: null });
+      await requests.approve(filed.id, ADMIN);
+
+      await expect(intervalsOf(id)).resolves.toEqual([]);
+    });
+
+    it('refuses bad hours in an edit request, saving nothing', async () => {
+      const { id } = await suppliers.create(coolSpot());
+
+      const { status } = await failure(
+        requests.submitUpdate(
+          id,
+          1,
+          { openingHours: { days: {} } },
+          BASIC_USER,
+        ),
+      );
+
+      expect(status).toBe(400);
+      await expect(pending()).resolves.toMatchObject({ total: 0 });
     });
   });
 

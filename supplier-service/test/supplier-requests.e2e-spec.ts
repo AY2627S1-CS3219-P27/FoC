@@ -162,6 +162,37 @@ describe('supplier request endpoints (e2e)', () => {
     expect(stub.submitStatusChange).not.toHaveBeenCalled();
   });
 
+  it('passes opening hours in a creation request to the service, unvalidated (F1.2.8)', async () => {
+    const body = {
+      name: 'Night Owl Cafe',
+      openingHours: { days: { mon: [{ opens: '09:00', closes: '18:00' }] } },
+    };
+    await request(app.getHttpServer())
+      .post('/supplier-requests/creations')
+      .set('Cookie', cookie)
+      .send(body)
+      .expect(201);
+
+    expect(stub.submitCreation).toHaveBeenCalledWith(body, TEST_USER_ID);
+  });
+
+  it('passes opening hours in an edit request, including null to remove them', async () => {
+    const supplierId = randomUUID();
+    await request(app.getHttpServer())
+      .post('/supplier-requests/updates')
+      .set('Cookie', cookie)
+      .set('If-Match', '"1"')
+      .send({ supplierId, changes: { openingHours: null } })
+      .expect(201);
+
+    expect(stub.submitUpdate).toHaveBeenCalledWith(
+      supplierId,
+      1,
+      { openingHours: null },
+      TEST_USER_ID,
+    );
+  });
+
   it('answers 428 for an edit request without If-Match (F14.3)', async () => {
     const response = await request(app.getHttpServer())
       .post('/supplier-requests/updates')
