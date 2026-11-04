@@ -1,12 +1,15 @@
 import { Module } from '@nestjs/common';
 import { LoggerModule } from 'nestjs-pino';
 import { pinoHttpOptions } from '@foc/observability';
+import { FocAuthModule } from '@foc/auth';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { environmentSchema } from './config/environment.schema.js';
+import { Subscription } from './database/entities/subscription.entity.js';
 import { SecretModule } from './secret/secret.module.js';
 import { SecretService } from './secret/secret.service.js';
 import { HealthController } from './health/health.controller.js';
+import { SubscriptionsModule } from './subscriptions/subscriptions.module.js';
 
 @Module({
   imports: [
@@ -17,6 +20,13 @@ import { HealthController } from './health/health.controller.js';
     }),
     LoggerModule.forRoot({ pinoHttp: pinoHttpOptions('notification-service') }),
     SecretModule,
+    FocAuthModule.registerAsync({
+      imports: [SecretModule],
+      inject: [SecretService],
+      useFactory: (secretService: SecretService) => ({
+        publicKey: secretService.getJwtPublicKey(),
+      }),
+    }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService, SecretService],
       useFactory: (
@@ -29,10 +39,11 @@ import { HealthController } from './health/health.controller.js';
         username: configService.get<string>('DB_USERNAME'),
         password: secretService.getDbPassword(),
         database: configService.get<string>('DB_DATABASE'),
-        entities: [],
+        entities: [Subscription],
         synchronize: configService.get<boolean>('DB_SYNCHRONIZE'),
       }),
     }),
+    SubscriptionsModule,
   ],
   controllers: [HealthController],
 })

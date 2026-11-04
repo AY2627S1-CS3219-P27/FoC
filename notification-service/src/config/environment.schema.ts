@@ -27,6 +27,9 @@ export const environmentSchema = Joi.object({
   DB_PASSWORD_FILE: Joi.string().min(1).required(),
   DB_SYNCHRONIZE: Joi.boolean().default(false),
 
+  // user-service's RS256 verification key, mounted from its public-key secret.
+  JWT_PUBLIC_KEY_FILE: Joi.string().min(1).required(),
+
   // RabbitMQ broker identity; consumed once the consumer module lands.
   RABBITMQ_USER: Joi.string().min(1).required(),
   RABBITMQ_HOST: Joi.string().hostname().required(),

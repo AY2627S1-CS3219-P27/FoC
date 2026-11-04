@@ -10,8 +10,10 @@ WORKDIR /usr/src/app
 ARG NPM_VERSION=11.18.0
 RUN npm install --global "npm@${NPM_VERSION}"
 
-# The build context is the repository root so the local @foc/observability
-# dependency is available without relying on host-generated files.
+# The build context is the repository root so the local shared packages are
+# available without relying on host-generated files.
+COPY packages/contracts/package*.json /usr/src/packages/contracts/
+COPY packages/auth/package*.json /usr/src/packages/auth/
 COPY packages/observability/package*.json /usr/src/packages/observability/
 COPY notification-service/package*.json ./
 
@@ -22,6 +24,8 @@ RUN npm ci
 # Development image with source code and watch mode
 FROM dependencies AS development
 
+COPY packages/contracts/ /usr/src/packages/contracts/
+COPY packages/auth/ /usr/src/packages/auth/
 COPY packages/observability/ /usr/src/packages/observability/
 COPY notification-service/ .
 
@@ -32,11 +36,14 @@ CMD ["npm", "run", "start:dev"]
 # Build the application and remove development dependencies
 FROM dependencies AS build
 
+COPY packages/contracts/ /usr/src/packages/contracts/
+COPY packages/auth/ /usr/src/packages/auth/
 COPY packages/observability/ /usr/src/packages/observability/
 COPY notification-service/ .
 
 RUN npm run build
 RUN npm prune --omit=dev
+RUN npm prune --omit=dev --prefix /usr/src/packages/contracts
 RUN npm prune --omit=dev --prefix /usr/src/packages/observability
 
 # Minimal production image
@@ -51,6 +58,11 @@ COPY --from=build --chown=node:node /usr/src/app/package.json ./
 COPY --from=build --chown=node:node /usr/src/app/package-lock.json ./
 COPY --from=build --chown=node:node /usr/src/app/node_modules ./node_modules
 COPY --from=build --chown=node:node /usr/src/app/dist ./dist
+# @foc/auth is packed into the app's node_modules by auth:link at build time,
+# so only the symlinked @foc/contracts tree needs copying alongside it.
+COPY --from=build --chown=node:node /usr/src/packages/contracts/package*.json /usr/src/packages/contracts/
+COPY --from=build --chown=node:node /usr/src/packages/contracts/node_modules /usr/src/packages/contracts/node_modules
+COPY --from=build --chown=node:node /usr/src/packages/contracts/dist /usr/src/packages/contracts/dist
 COPY --from=build --chown=node:node /usr/src/packages/observability/package*.json /usr/src/packages/observability/
 COPY --from=build --chown=node:node /usr/src/packages/observability/node_modules /usr/src/packages/observability/node_modules
 COPY --from=build --chown=node:node /usr/src/packages/observability/dist /usr/src/packages/observability/dist
