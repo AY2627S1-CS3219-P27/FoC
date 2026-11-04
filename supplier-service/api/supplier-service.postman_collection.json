@@ -4474,7 +4474,7 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('status 201', () => pm.response.to.have.status(201));",
-                  "pm.test('first time: not a replay', () => pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.eql(null));",
+                  "pm.test('first time: not a replay', () => pm.expect(pm.response.headers.has('Idempotent-Replayed')).to.eql(false));",
                   "pm.environment.set('idemCategoryId', pm.response.json().id);"
                 ]
               }
@@ -4702,7 +4702,7 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('status 201', () => pm.response.to.have.status(201));",
-                  "pm.test('not a replay: keys belong to the user', () => pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.eql(null));",
+                  "pm.test('not a replay: keys belong to the user', () => pm.expect(pm.response.headers.has('Idempotent-Replayed')).to.eql(false));",
                   "pm.environment.set('idemRequestId', pm.response.json().id);"
                 ]
               }
@@ -5002,7 +5002,7 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('status 201', () => pm.response.to.have.status(201));",
-                  "pm.test('a fresh run, not a replay', () => pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.eql(null));"
+                  "pm.test('a fresh run, not a replay', () => pm.expect(pm.response.headers.has('Idempotent-Replayed')).to.eql(false));"
                 ]
               }
             }
