@@ -122,6 +122,7 @@ class FakePublisherChannel extends EventEmitter {
 class FakeConnection {
   readonly consumers: FakeConsumerChannel[] = [];
   readonly publisher = new FakePublisherChannel();
+  readonly stopRecovery = vi.fn().mockResolvedValue(undefined);
   beforeClose?: () => Promise<void>;
 
   async createChannel() {
@@ -580,6 +581,7 @@ describe('RabbitMqConsumerTransport', () => {
     await vi.waitFor(() => expect(handleMock).toHaveBeenCalledOnce());
 
     const closing = transport.close();
+    expect(transport.close()).toBe(closing);
     await vi.waitFor(() =>
       expect(connection.consumers[0].cancelled).toEqual([
         `consumer-${acceptedStream.queue}`,
@@ -593,5 +595,97 @@ describe('RabbitMqConsumerTransport', () => {
     expect(connection.consumers[0].closed).toBe(true);
     expect(connection.publisher.closed).toBe(true);
     expect(connection.beforeClose).toBeUndefined();
+    expect(connection.stopRecovery).not.toHaveBeenCalled();
+  });
+
+  it('stops recovery after the drain deadline when replacement is waiting for RabbitMQ', async () => {
+    vi.useFakeTimers();
+    try {
+      const { connection, subscription, transport } = harness();
+      await transport.subscribe(subscription);
+      let markBlocked!: () => void;
+      const blocked = new Promise<void>((resolve) => {
+        markBlocked = resolve;
+      });
+      vi.spyOn(connection, 'createChannel').mockImplementationOnce(() => {
+        markBlocked();
+        return new Promise<Channel>(() => undefined);
+      });
+
+      await connection.consumers[0].close();
+      await blocked;
+      const closing = transport.close();
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(connection.stopRecovery).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      await closing;
+
+      expect(connection.stopRecovery).toHaveBeenCalledOnce();
+      expect(connection.consumers[0].acknowledged).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('interrupts blocked publisher acquisition without acknowledging the delivery', async () => {
+    vi.useFakeTimers();
+    try {
+      const { connection, subscription, transport } = harness({
+        outcome: 'transient-failure',
+        reason: 'temporary',
+      });
+      await transport.subscribe(subscription);
+      await connection.publisher.close();
+      let markBlocked!: () => void;
+      const blocked = new Promise<void>((resolve) => {
+        markBlocked = resolve;
+      });
+      vi.spyOn(connection, 'createConfirmChannel').mockImplementationOnce(
+        () => {
+          markBlocked();
+          return new Promise<ConfirmChannel>(() => undefined);
+        },
+      );
+      const delivery = message();
+      connection.consumers[0].consumeCallback?.(delivery);
+      await blocked;
+
+      const closing = transport.close();
+      await vi.advanceTimersByTimeAsync(10_000);
+      await closing;
+
+      expect(connection.stopRecovery).toHaveBeenCalledOnce();
+      expect(connection.consumers[0].acknowledged).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('closes a consumer channel acquired after shutdown starts without installing it', async () => {
+    const { connection, subscription, transport } = harness();
+    await transport.subscribe(subscription);
+    let markBlocked!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      markBlocked = resolve;
+    });
+    let resolveChannel!: (channel: Channel) => void;
+    vi.spyOn(connection, 'createChannel').mockImplementationOnce(
+      () =>
+        new Promise<Channel>((resolve) => {
+          resolveChannel = resolve;
+          markBlocked();
+        }),
+    );
+    await connection.consumers[0].close();
+    await blocked;
+
+    const closing = transport.close();
+    const lateChannel = new FakeConsumerChannel();
+    resolveChannel(lateChannel as unknown as Channel);
+    await closing;
+
+    expect(lateChannel.closed).toBe(true);
+    expect(lateChannel.consumeCalls).toHaveLength(0);
+    expect(connection.stopRecovery).not.toHaveBeenCalled();
   });
 });

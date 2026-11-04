@@ -31,6 +31,7 @@ const CONSUMER_PREFETCH = 10;
 const MAX_RETRY_COUNT = COMMS_RETRY_DELAYS_MS.length;
 const MAX_FAILURE_REASON_LENGTH = 512;
 const MAX_AMQP_SHORT_STRING_BYTES = 255;
+const SHUTDOWN_DRAIN_TIMEOUT_MS = 10_000;
 const PUBLICATION_ID_HEADER = 'x-comms-publication-id';
 const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true });
 const SAFE_TRACE_HEADERS = new Set(['traceparent', 'tracestate']);
@@ -129,10 +130,10 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
   private readonly pendingPublications = new Map<string, PendingPublication>();
   private publisherChannel?: ConfirmChannel;
   private publisherPromise?: Promise<ConfirmChannel>;
+  private closePromise?: Promise<void>;
   private mutation: Promise<void> = Promise.resolve();
   private unregisterBeforeClose?: () => void;
   private stopping = false;
-  private closed = false;
 
   constructor(private readonly connection: RabbitMqConnectionService) {
     this.unregisterBeforeClose = this.connection.registerBeforeClose(() =>
@@ -149,7 +150,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
   }
 
   async subscribe(subscription: LifecycleSubscription): Promise<void> {
-    if (this.stopping || this.closed) {
+    if (this.stopping) {
       throw new Error('RabbitMQ consumer transport is shutting down');
     }
     this.assertKnownStream(subscription);
@@ -179,33 +180,14 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
     }
   }
 
-  async close(): Promise<void> {
-    if (this.closed) return;
-    this.closed = true;
-    this.stopping = true;
-    this.unregisterBeforeClose?.();
-    this.unregisterBeforeClose = undefined;
-
-    await this.mutation;
-    const states = [...this.consumers.values()];
-    await Promise.allSettled(
-      states.map(({ channel, consumerTag }) => channel.cancel(consumerTag)),
-    );
-    await Promise.allSettled(this.inFlight);
-    await this.publisherChannel?.waitForConfirms().catch((error) => {
-      this.logger.warn(
-        `Unable to drain RabbitMQ publisher confirmations: ${String(error)}`,
-      );
-    });
-    await Promise.allSettled(states.map(({ channel }) => channel.close()));
-    await this.publisherChannel?.close().catch((error) => {
-      this.logger.warn(
-        `Unable to close RabbitMQ publisher channel: ${String(error)}`,
-      );
-    });
-    this.consumers.clear();
-    this.publisherChannel = undefined;
-    this.publisherPromise = undefined;
+  close(): Promise<void> {
+    if (!this.closePromise) {
+      this.stopping = true;
+      this.unregisterBeforeClose?.();
+      this.unregisterBeforeClose = undefined;
+      this.closePromise = this.closeWithinDeadline();
+    }
+    return this.closePromise;
   }
 
   async onApplicationShutdown(): Promise<void> {
@@ -237,7 +219,11 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
     if (!this.publisherPromise) {
       this.publisherPromise = this.connection
         .createConfirmChannel()
-        .then((channel) => {
+        .then(async (channel) => {
+          if (this.stopping) {
+            await channel.close().catch(() => undefined);
+            throw new Error('RabbitMQ consumer transport is shutting down');
+          }
           this.publisherChannel = channel;
           channel.on('error', (error) =>
             this.handlePublisherChannelError(channel, error),
@@ -274,6 +260,10 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
     if (this.consumers.has(subscription.queue)) return;
 
     const channel = await this.connection.createChannel();
+    if (this.stopping) {
+      await channel.close().catch(() => undefined);
+      throw new Error('RabbitMQ consumer transport is shutting down');
+    }
     try {
       // Passive inspection proves the infrastructure-owned queue exists. This
       // service never asserts it or touches its foc.events binding.
@@ -705,6 +695,72 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
     }
   }
 
+  private async closeWithinDeadline(): Promise<void> {
+    const graceful = this.drainGracefully();
+    let timeout: NodeJS.Timeout | undefined;
+    const timedOut = new Promise<true>((resolve) => {
+      timeout = setTimeout(() => resolve(true), SHUTDOWN_DRAIN_TIMEOUT_MS);
+    });
+    const outcome = await Promise.race([
+      graceful.then(() => false as const),
+      timedOut,
+    ]);
+    if (timeout) clearTimeout(timeout);
+    if (!outcome) return;
+
+    this.logger.warn(
+      `RabbitMQ graceful drain exceeded ${SHUTDOWN_DRAIN_TIMEOUT_MS}ms; stopping connection recovery`,
+    );
+    const shutdownError = new Error(
+      'RabbitMQ publisher shutdown exceeded the graceful drain deadline',
+    );
+    for (const pending of this.pendingPublications.values()) {
+      pending.rejectRouting(shutdownError);
+    }
+    this.pendingPublications.clear();
+    await this.connection.stopRecovery().catch((error) => {
+      this.logger.warn(
+        `Unable to stop RabbitMQ connection recovery: ${String(error)}`,
+      );
+    });
+    this.consumers.clear();
+    this.publisherChannel = undefined;
+    this.publisherPromise = undefined;
+    void graceful.catch((error) => {
+      this.logger.warn(
+        `RabbitMQ graceful drain failed after forced shutdown: ${String(error)}`,
+      );
+    });
+  }
+
+  private async drainGracefully(): Promise<void> {
+    await this.cancelConsumers([...this.consumers.values()]);
+    await this.mutation;
+    const states = [...this.consumers.values()];
+    await this.cancelConsumers(states);
+    await Promise.allSettled(this.inFlight);
+    await this.publisherChannel?.waitForConfirms().catch((error) => {
+      this.logger.warn(
+        `Unable to drain RabbitMQ publisher confirmations: ${String(error)}`,
+      );
+    });
+    await Promise.allSettled(states.map(({ channel }) => channel.close()));
+    await this.publisherChannel?.close().catch((error) => {
+      this.logger.warn(
+        `Unable to close RabbitMQ publisher channel: ${String(error)}`,
+      );
+    });
+    this.consumers.clear();
+    this.publisherChannel = undefined;
+    this.publisherPromise = undefined;
+  }
+
+  private async cancelConsumers(states: ConsumerState[]): Promise<void> {
+    await Promise.allSettled(
+      states.map(({ channel, consumerTag }) => channel.cancel(consumerTag)),
+    );
+  }
+
   private async replaceConsumer(
     subscription: LifecycleSubscription,
     failedChannel: Channel,
@@ -724,7 +780,13 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       // Closing returns every unacknowledged delivery to RabbitMQ. A fresh
       // channel then restores this stream without disturbing its siblings.
       await failedChannel.close().catch(() => undefined);
-      if (!this.stopping) await this.installSubscription(subscription);
+      if (!this.stopping) {
+        try {
+          await this.installSubscription(subscription);
+        } catch (error) {
+          if (!this.stopping) throw error;
+        }
+      }
     });
   }
 }
