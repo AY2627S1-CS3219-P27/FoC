@@ -41,15 +41,62 @@ describe('EDGES', () => {
     const edges = Object.values(EDGES).flatMap((m) => Object.values(m!)).flat();
     expect(edges).toHaveLength(20);
     expect(findEdge('Adjusting-Credit', 'Open')).toBeUndefined(); // ambiguous without a type
-    expect(findEdge('Adjusting-Credit', 'Open', 'CreditAdjusted')?.sets).toEqual(['rewardCredits']);
-    expect(findEdge('Adjusting-Credit', 'Open', 'CreditAdjustmentFailed')?.sets).toEqual([]);
+    expect(
+      findEdge('Adjusting-Credit', 'Open', 'CreditAdjusted')?.sets,
+    ).toEqual(['rewardCredits']);
+    expect(
+      findEdge('Adjusting-Credit', 'Open', 'CreditAdjustmentFailed')?.sets,
+    ).toEqual([]);
   });
 
   it('gives every edge an actor rule and every cancel edge a reason subset', () => {
-    const edges = Object.values(EDGES).flatMap((m) => Object.values(m!)).flat();
+    const edges = Object.values(EDGES)
+      .flatMap((m) => Object.values(m!))
+      .flat();
     for (const e of edges) {
       expect(e.who.length).toBeGreaterThan(0);
       expect(!!e.reasons).toBe(e.sets.includes('cancellationReason'));
     }
+  });
+
+  it('builds communication notices from persisted participants and the authorized withdrawal actor', () => {
+    const context = {
+      errandId: '11111111-1111-4111-8111-111111111111',
+      requesterId: '22222222-2222-4222-8222-222222222222',
+      courierId: '33333333-3333-4333-8333-333333333333',
+      actorUserId: '44444444-4444-4444-8444-444444444444',
+      rewardCredits: 5,
+      payload: {},
+    };
+
+    expect(findEdge('Open', 'Accepted')?.notice?.(context)).toEqual({
+      key: 'order.errand-accepted.v1',
+      payload: {
+        errandId: context.errandId,
+        requesterUserId: context.requesterId,
+        courierUserId: context.courierId,
+      },
+    });
+    expect(findEdge('Picked Up', 'Delivered')?.notice?.(context)).toEqual({
+      key: 'order.errand-delivered.v1',
+      payload: {
+        errandId: context.errandId,
+        requesterUserId: context.requesterId,
+        courierUserId: context.courierId,
+      },
+    });
+    expect(
+      findEdge('Accepted', 'Open')?.notice?.({
+        ...context,
+        courierId: null,
+      }),
+    ).toEqual({
+      key: 'order.courier-cancelled.v1',
+      payload: {
+        errandId: context.errandId,
+        requesterUserId: context.requesterId,
+        courierUserId: context.actorUserId,
+      },
+    });
   });
 });

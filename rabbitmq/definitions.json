@@ -36,6 +36,13 @@
       "user": "supplier-service",
       "vhost": "/foc",
       "write": "^(foc\\.events|foc\\.supplier\\.(retry|back|dlx)|supplier-service\\..+)$"
+    },
+    {
+      "configure": "^(foc\\.comms\\.(retry|back|dlx)|comms-service\\.(order-errand-accepted|order-errand-delivered|order-courier-cancelled|order-errand-cancelled)\\.v1\\.(retry\\.[1-5]|dlq))$",
+      "read": "^(foc\\.comms\\.(retry|back|dlx)|comms-service\\.(order-errand-accepted|order-errand-delivered|order-courier-cancelled|order-errand-cancelled)\\.v1(\\.(retry\\.[1-5]|dlq))?)$",
+      "user": "comms-service",
+      "vhost": "/foc",
+      "write": "^(foc\\.comms\\.(retry|back|dlx)|comms-service\\.(order-errand-accepted|order-errand-delivered|order-courier-cancelled|order-errand-cancelled)\\.v1(\\.(retry\\.[1-5]|dlq))?)$"
     }
   ],
   "rabbitmq_version": "4.3.6",
@@ -120,6 +127,13 @@
       "name": "supplier-service",
       "password_hash": "rTkSnNbZYg1Jtp5Ojf1MF/CyRaH7RONwDGlzemoaA4ro/DIr",
       "tags": []
+    },
+    {
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "limits": {},
+      "name": "comms-service",
+      "password_hash": "hafqojwUcF3py94v69R+I++HaDeZWCCd/Nagg9py4Gqt9uFa",
+      "tags": []
     }
   ],
   "global_parameters": [{ "name": "cluster_tags", "value": [] }],
@@ -195,7 +209,11 @@
       "vhost": "/foc"
     },
     { "arguments": { "x-queue-type": "classic" }, "auto_delete": false, "durable": true, "name": "otp_emails.dlq", "type": "classic", "vhost": "/foc" },
-    { "arguments": { "x-queue-type": "classic" }, "auto_delete": false, "durable": true, "name": "password_reset_emails.dlq", "type": "classic", "vhost": "/foc" }
+    { "arguments": { "x-queue-type": "classic" }, "auto_delete": false, "durable": true, "name": "password_reset_emails.dlq", "type": "classic", "vhost": "/foc" },
+    { "arguments": {}, "auto_delete": false, "durable": true, "name": "comms-service.order-errand-accepted.v1", "type": "classic", "vhost": "/foc" },
+    { "arguments": {}, "auto_delete": false, "durable": true, "name": "comms-service.order-errand-delivered.v1", "type": "classic", "vhost": "/foc" },
+    { "arguments": {}, "auto_delete": false, "durable": true, "name": "comms-service.order-courier-cancelled.v1", "type": "classic", "vhost": "/foc" },
+    { "arguments": {}, "auto_delete": false, "durable": true, "name": "comms-service.order-errand-cancelled.v1", "type": "classic", "vhost": "/foc" }
   ],
   "bindings": [
     { "arguments": {}, "destination": "otp_emails", "destination_type": "queue", "routing_key": "otp.email", "source": "foc.events", "vhost": "/foc" },
@@ -221,6 +239,10 @@
     { "arguments": {}, "destination": "otp_emails.dlq", "destination_type": "queue", "routing_key": "otp.email", "source": "foc.dlq", "vhost": "/foc" },
     { "arguments": {}, "destination": "otp_emails", "destination_type": "queue", "routing_key": "otp.email", "source": "foc.back", "vhost": "/foc" },
     { "arguments": {}, "destination": "password_reset_emails.dlq", "destination_type": "queue", "routing_key": "password-reset.email", "source": "foc.dlq", "vhost": "/foc" },
-    { "arguments": {}, "destination": "password_reset_emails", "destination_type": "queue", "routing_key": "password-reset.email", "source": "foc.back", "vhost": "/foc" }
+    { "arguments": {}, "destination": "password_reset_emails", "destination_type": "queue", "routing_key": "password-reset.email", "source": "foc.back", "vhost": "/foc" },
+    { "arguments": {}, "destination": "comms-service.order-errand-accepted.v1", "destination_type": "queue", "routing_key": "order.errand-accepted.v1", "source": "foc.events", "vhost": "/foc" },
+    { "arguments": {}, "destination": "comms-service.order-errand-delivered.v1", "destination_type": "queue", "routing_key": "order.errand-delivered.v1", "source": "foc.events", "vhost": "/foc" },
+    { "arguments": {}, "destination": "comms-service.order-courier-cancelled.v1", "destination_type": "queue", "routing_key": "order.courier-cancelled.v1", "source": "foc.events", "vhost": "/foc" },
+    { "arguments": {}, "destination": "comms-service.order-errand-cancelled.v1", "destination_type": "queue", "routing_key": "order.errand-cancelled.v1", "source": "foc.events", "vhost": "/foc" }
   ]
 }

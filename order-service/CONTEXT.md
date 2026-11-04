@@ -4,7 +4,7 @@ Service-level view of the errand lifecycle. Shared terms (Requester, Courier, Er
 
 ## What the service does
 
-Owns every errand from creation to a terminal state: validates it, gets its supplier confirmed and its credits reserved, lets a courier claim and fulfil it, and expires or cancels it. It tells Credit Service when credits must be transferred or released.
+Owns every errand from creation to a terminal state: validates it, gets its supplier confirmed and its credits reserved, lets a courier claim and fulfil it, and expires or cancels it. It tells Credit Service when credits must be transferred or released and publishes accepted, delivered, and courier-cancelled lifecycle notices for Communication Service.
 
 ## Client-facing states
 
