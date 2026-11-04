@@ -6,6 +6,7 @@ import { pinoHttpOptions } from '@foc/observability';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_PIPE } from '@nestjs/core';
 import { readJwtPublicKey } from './auth/jwt-public-key.js';
+import { AuditModule } from './audit/audit.module.js';
 import { BrandsModule } from './brands/brands.module.js';
 import { BuildingsModule } from './buildings/buildings.module.js';
 import { CategoriesModule } from './categories/categories.module.js';
@@ -45,6 +46,7 @@ import { ValidationModule } from './validation/validation.module.js';
       }),
     }),
     DatabaseModule,
+    AuditModule,
     IdempotencyModule,
     BrandsModule,
     BuildingsModule,
