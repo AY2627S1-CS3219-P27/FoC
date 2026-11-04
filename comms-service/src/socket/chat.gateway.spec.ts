@@ -1,5 +1,7 @@
 import type { AccessTokenVerifier } from '@foc/auth';
 import type { Namespace, Socket } from 'socket.io';
+import { ChatCommandError } from '../chats/chat-command.error.js';
+import type { MessageCommandService } from '../chats/message-command.service.js';
 import type { ChatAdmissionService } from './chat-admission.service.js';
 import { ChatGateway, roomName } from './chat.gateway.js';
 import { ChatSocketError } from './chat-socket.protocol.js';
@@ -15,6 +17,8 @@ class FakeSocket {
   readonly data: Record<string, unknown> = {};
   readonly listeners = new Map<string, JoinListener>();
   readonly join = vi.fn().mockResolvedValue(undefined);
+  readonly emitToRoom = vi.fn();
+  readonly to = vi.fn(() => ({ emit: this.emitToRoom }));
   readonly disconnect = vi.fn();
   readonly on = vi.fn((event: string, listener: JoinListener) => {
     this.listeners.set(event, listener);
@@ -31,6 +35,9 @@ class FakeSocket {
 describe('ChatGateway', () => {
   const verifyWithMetadata = vi.fn();
   const authorize = vi.fn();
+  const sendMessage = vi.fn();
+  const namespaceEmit = vi.fn();
+  const namespaceTo = vi.fn(() => ({ emit: namespaceEmit }));
   let gateway: ChatGateway;
   let middleware: (socket: Socket, next: (error?: Error) => void) => void;
 
@@ -52,9 +59,10 @@ describe('ChatGateway', () => {
     gateway = new ChatGateway(
       { verifyWithMetadata } as unknown as AccessTokenVerifier,
       { authorize } as unknown as ChatAdmissionService,
+      { send: sendMessage } as unknown as MessageCommandService,
     );
     const use = vi.fn();
-    gateway.afterInit({ use } as unknown as Namespace);
+    gateway.afterInit({ use, to: namespaceTo } as unknown as Namespace);
     middleware = use.mock.calls[0]![0] as typeof middleware;
   });
 
@@ -71,6 +79,14 @@ describe('ChatGateway', () => {
       socket as unknown as Parameters<ChatGateway['handleConnection']>[0],
     );
     const listener = socket.listeners.get('chat:join')!;
+    return new Promise((resolve) => listener(payload, resolve));
+  }
+
+  async function send(socket: FakeSocket, payload: unknown): Promise<unknown> {
+    gateway.handleConnection(
+      socket as unknown as Parameters<ChatGateway['handleConnection']>[0],
+    );
+    const listener = socket.listeners.get('message:send')!;
     return new Promise((resolve) => listener(payload, resolve));
   }
 
@@ -246,5 +262,188 @@ describe('ChatGateway', () => {
         message: 'Unable to complete request',
       },
     });
+  });
+
+  it('acknowledges a committed send and emits to the recipient and other sender tabs', async () => {
+    const message = {
+      messageId: '44444444-4444-4444-8444-444444444444',
+      sequence: 1,
+      senderUserId: userId,
+      content: 'hello',
+      timestamp: '2026-11-04T10:00:00.000Z',
+      status: 'UNREAD',
+    } as const;
+    const recipientUserId = '55555555-5555-4555-8555-555555555555';
+    sendMessage.mockResolvedValueOnce({
+      message,
+      recipientUserId,
+      inserted: true,
+    });
+    const socket = new FakeSocket();
+    socket.data.userId = userId;
+    socket.data.admittedChatId = chatId;
+    const payload = {
+      chatId,
+      clientMessageId: '66666666-6666-4666-8666-666666666666',
+      content: 'hello',
+    };
+
+    await expect(send(socket, payload)).resolves.toEqual({
+      ok: true,
+      data: message,
+    });
+    expect(sendMessage).toHaveBeenCalledWith({
+      chatId,
+      senderUserId: userId,
+      clientMessageId: payload.clientMessageId,
+      content: 'hello',
+    });
+    expect(namespaceTo).toHaveBeenCalledWith(roomName(chatId, recipientUserId));
+    expect(namespaceEmit).toHaveBeenCalledWith('message:new', message);
+    expect(socket.to).toHaveBeenCalledWith(roomName(chatId, userId));
+    expect(socket.emitToRoom).toHaveBeenCalledWith('message:new', message);
+  });
+
+  it('returns an idempotent send without emitting it again', async () => {
+    sendMessage.mockResolvedValueOnce({
+      message: {
+        messageId: '44444444-4444-4444-8444-444444444444',
+        sequence: 1,
+        senderUserId: userId,
+        content: 'hello',
+        timestamp: '2026-11-04T10:00:00.000Z',
+        status: 'READ',
+      },
+      recipientUserId: '55555555-5555-4555-8555-555555555555',
+      inserted: false,
+    });
+    const socket = new FakeSocket();
+    socket.data.userId = userId;
+    socket.data.admittedChatId = chatId;
+
+    await expect(
+      send(socket, {
+        chatId,
+        clientMessageId: '66666666-6666-4666-8666-666666666666',
+        content: 'hello',
+      }),
+    ).resolves.toMatchObject({ ok: true, data: { status: 'READ' } });
+    expect(namespaceEmit).not.toHaveBeenCalled();
+    expect(socket.emitToRoom).not.toHaveBeenCalled();
+  });
+
+  it('rejects sends for a different chat before mutation', async () => {
+    const socket = new FakeSocket();
+    socket.data.userId = userId;
+    socket.data.admittedChatId = chatId;
+
+    await expect(
+      send(socket, {
+        chatId: otherChatId,
+        clientMessageId: '66666666-6666-4666-8666-666666666666',
+        content: 'hello',
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'CONFLICT' } });
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('maps command conflicts without leaking persistence details', async () => {
+    sendMessage.mockRejectedValueOnce(new ChatCommandError('CONFLICT'));
+    const socket = new FakeSocket();
+    socket.data.userId = userId;
+    socket.data.admittedChatId = chatId;
+
+    await expect(
+      send(socket, {
+        chatId,
+        clientMessageId: '66666666-6666-4666-8666-666666666666',
+        content: 'hello',
+      }),
+    ).resolves.toEqual({
+      ok: false,
+      error: {
+        code: 'CONFLICT',
+        message: 'Request conflicts with current socket state',
+      },
+    });
+  });
+
+  it('does not acknowledge or emit until the message command resolves', async () => {
+    let resolveSend!: (result: {
+      message: {
+        messageId: string;
+        sequence: number;
+        senderUserId: string;
+        content: string;
+        timestamp: string;
+        status: 'UNREAD';
+      };
+      recipientUserId: string;
+      inserted: boolean;
+    }) => void;
+    sendMessage.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveSend = resolve;
+      }),
+    );
+    const socket = new FakeSocket();
+    socket.data.userId = userId;
+    socket.data.admittedChatId = chatId;
+    const pending = send(socket, {
+      chatId,
+      clientMessageId: '66666666-6666-4666-8666-666666666666',
+      content: 'hello',
+    });
+    const ack = vi.fn();
+    void pending.then(ack);
+
+    await Promise.resolve();
+    expect(ack).not.toHaveBeenCalled();
+    expect(namespaceEmit).not.toHaveBeenCalled();
+    resolveSend({
+      message: {
+        messageId: '44444444-4444-4444-8444-444444444444',
+        sequence: 1,
+        senderUserId: userId,
+        content: 'hello',
+        timestamp: '2026-11-04T10:00:00.000Z',
+        status: 'UNREAD',
+      },
+      recipientUserId: '55555555-5555-4555-8555-555555555555',
+      inserted: true,
+    });
+    await expect(pending).resolves.toMatchObject({ ok: true });
+    expect(namespaceEmit).toHaveBeenCalledOnce();
+  });
+
+  it('acknowledges committed state when one best-effort emission fails', async () => {
+    const message = {
+      messageId: '44444444-4444-4444-8444-444444444444',
+      sequence: 1,
+      senderUserId: userId,
+      content: 'hello',
+      timestamp: '2026-11-04T10:00:00.000Z',
+      status: 'UNREAD',
+    } as const;
+    sendMessage.mockResolvedValueOnce({
+      message,
+      recipientUserId: '55555555-5555-4555-8555-555555555555',
+      inserted: true,
+    });
+    namespaceTo.mockImplementationOnce(() => {
+      throw new Error('adapter unavailable');
+    });
+    const socket = new FakeSocket();
+    socket.data.userId = userId;
+    socket.data.admittedChatId = chatId;
+
+    await expect(
+      send(socket, {
+        chatId,
+        clientMessageId: '66666666-6666-4666-8666-666666666666',
+        content: 'hello',
+      }),
+    ).resolves.toEqual({ ok: true, data: message });
+    expect(socket.emitToRoom).toHaveBeenCalledWith('message:new', message);
   });
 });

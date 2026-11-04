@@ -8,14 +8,19 @@ import {
   WebSocketGateway,
 } from '@nestjs/websockets';
 import type { Namespace, Socket } from 'socket.io';
+import { ChatCommandError } from '../chats/chat-command.error.js';
+import { MessageCommandService } from '../chats/message-command.service.js';
+import type { CommittedMessageDto } from '../chats/message-command.types.js';
 import { ChatAdmissionService } from './chat-admission.service.js';
 import {
   CHAT_NAMESPACE,
   ChatSocketError,
   chatSocketFailure,
   parseChatJoinPayload,
+  parseMessageSendPayload,
   type ChatJoinData,
   type ChatSocketAcknowledgement,
+  type MessageSendData,
 } from './chat-socket.protocol.js';
 
 const MAX_TIMEOUT_MS = 2_147_483_647;
@@ -28,14 +33,22 @@ interface ChatSocketData {
 }
 
 type ChatJoinAck = (response: ChatSocketAcknowledgement<ChatJoinData>) => void;
+type MessageSendAck = (
+  response: ChatSocketAcknowledgement<MessageSendData>,
+) => void;
 
 interface ChatClientEvents {
   'chat:join': (payload: unknown, ack?: ChatJoinAck) => void;
+  'message:send': (payload: unknown, ack?: MessageSendAck) => void;
+}
+
+interface ChatServerEvents {
+  'message:new': (message: CommittedMessageDto) => void;
 }
 
 type ChatSocket = Socket<
   ChatClientEvents,
-  Record<string, never>,
+  ChatServerEvents,
   Record<string, never>,
   ChatSocketData
 >;
@@ -45,14 +58,27 @@ export class ChatGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
 {
   private readonly logger = new Logger(ChatGateway.name);
+  private namespace?: Namespace<
+    ChatClientEvents,
+    ChatServerEvents,
+    Record<string, never>,
+    ChatSocketData
+  >;
 
   constructor(
     private readonly tokens: AccessTokenVerifier,
     private readonly admissions: ChatAdmissionService,
+    private readonly messages: MessageCommandService,
   ) {}
 
   afterInit(namespace: Namespace): void {
-    namespace.use((socket, next) => {
+    this.namespace = namespace as Namespace<
+      ChatClientEvents,
+      ChatServerEvents,
+      Record<string, never>,
+      ChatSocketData
+    >;
+    this.namespace!.use((socket, next) => {
       void this.authenticate(socket as ChatSocket).then(
         () => next(),
         () => next(connectError()),
@@ -64,6 +90,10 @@ export class ChatGateway
     socket.on('chat:join', (payload: unknown, ack?: ChatJoinAck) => {
       if (typeof ack !== 'function') return;
       void this.join(socket, payload).then(ack);
+    });
+    socket.on('message:send', (payload: unknown, ack?: MessageSendAck) => {
+      if (typeof ack !== 'function') return;
+      void this.send(socket, payload).then(ack);
     });
   }
 
@@ -155,6 +185,78 @@ export class ChatGateway
       });
       return chatSocketFailure('INTERNAL_ERROR');
     }
+  }
+
+  private async send(
+    socket: ChatSocket,
+    rawPayload: unknown,
+  ): Promise<ChatSocketAcknowledgement<MessageSendData>> {
+    try {
+      const payload = parseMessageSendPayload(rawPayload);
+      const userId = socket.data.userId;
+      if (userId === undefined) throw new ChatSocketError('UNAUTHENTICATED');
+      if (socket.data.admittedChatId !== payload.chatId) {
+        throw new ChatSocketError('CONFLICT');
+      }
+
+      const result = await this.messages.send({
+        chatId: payload.chatId,
+        senderUserId: userId,
+        clientMessageId: payload.clientMessageId,
+        content: payload.content,
+      });
+      if (result.inserted) {
+        this.emitMessage(
+          socket,
+          payload.chatId,
+          result.recipientUserId,
+          result.message,
+        );
+      }
+      return { ok: true, data: result.message };
+    } catch (error) {
+      if (error instanceof ChatSocketError) return chatSocketFailure(error);
+      if (error instanceof ChatCommandError) {
+        return chatSocketFailure(error.code);
+      }
+      this.logInternalError('message:send', error);
+      return chatSocketFailure('INTERNAL_ERROR');
+    }
+  }
+
+  private emitMessage(
+    socket: ChatSocket,
+    chatId: string,
+    recipientUserId: string,
+    message: CommittedMessageDto,
+  ): void {
+    this.bestEffortEmit(() =>
+      this.namespace
+        ?.to(roomName(chatId, recipientUserId))
+        .emit('message:new', message),
+    );
+    this.bestEffortEmit(() =>
+      socket
+        .to(roomName(chatId, message.senderUserId))
+        .emit('message:new', message),
+    );
+  }
+
+  private bestEffortEmit(emit: () => unknown): void {
+    try {
+      emit();
+    } catch (error) {
+      this.logInternalError('message:emit', error);
+    }
+  }
+
+  private logInternalError(operation: string, error: unknown): void {
+    this.logger.error({
+      operation,
+      outcome: 'failed',
+      errorClass:
+        error instanceof Error ? error.constructor.name : 'UnknownError',
+    });
   }
 }
 
