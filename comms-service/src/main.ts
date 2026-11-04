@@ -15,7 +15,6 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   registerShutdown(app, telemetry);
   app.useLogger(app.get(Logger));
-  app.enableShutdownHooks();
 
   configureHttp(app);
   initMetrics();
