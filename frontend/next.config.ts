@@ -9,6 +9,8 @@ const nextConfig: NextConfig = {
       process.env.CREDIT_SERVICE_URL ?? "http://localhost:3003";
     const orderService =
       process.env.ORDER_SERVICE_URL ?? "http://localhost:3004";
+    const notificationService =
+      process.env.NOTIFICATION_SERVICE_URL ?? "http://localhost:3006";
     return [
       // Matches the refresh cookie's Path=/auth/refresh, so the browser sends it.
       { source: "/auth/refresh", destination: `${userService}/auth/refresh` },
@@ -49,6 +51,10 @@ const nextConfig: NextConfig = {
       {
         source: "/api/admin/:path*",
         destination: `${orderService}/v1/admin/:path*`,
+      },
+      {
+        source: "/api/notifications/:path*",
+        destination: `${notificationService}/notifications/:path*`,
       },
     ];
   },
