@@ -15,6 +15,7 @@ import {
 import { nameKey, normaliseFloor } from '../common/normalise/normalise.js';
 import type { EnvironmentVariables } from '../config/environment.schema.js';
 import {
+  Brand,
   Building,
   Category,
   Supplier,
@@ -34,6 +35,7 @@ import {
 /** What a supplier already references; F1.8 lets these stay retired. */
 interface CurrentReferences {
   buildingId: string;
+  brandId: string | null;
   categoryIds: string[];
 }
 
@@ -193,6 +195,7 @@ export class SuppliersService {
           nameKey: nameKey(dto.name),
           kind: dto.kind,
           buildingId: dto.buildingId,
+          brandId: dto.brandId ?? null,
           floor: dto.floor,
           locationDescription: dto.locationDescription,
           latitude: dto.coordinates.latitude,
@@ -255,6 +258,7 @@ export class SuppliersService {
         }
         if (dto.kind !== undefined) changes.kind = dto.kind;
         if (dto.buildingId !== undefined) changes.buildingId = dto.buildingId;
+        if (dto.brandId !== undefined) changes.brandId = dto.brandId;
         if (dto.floor !== undefined) changes.floor = dto.floor;
         if (dto.locationDescription !== undefined) {
           changes.locationDescription = dto.locationDescription;
@@ -425,7 +429,7 @@ async function writeIntervals(
   }
 }
 
-/** The building and categories the supplier references now (F1.8). */
+/** The building, brand and categories the supplier references now (F1.8). */
 async function currentReferences(
   manager: EntityManager,
   supplier: Supplier,
@@ -435,6 +439,7 @@ async function currentReferences(
   });
   return {
     buildingId: supplier.buildingId,
+    brandId: supplier.brandId,
     categoryIds: links.map((link) => link.categoryId),
   };
 }
@@ -498,6 +503,7 @@ async function referenceViolations(
 ): Promise<FieldViolation[]> {
   const raw = (typeof input === 'object' && input !== null ? input : {}) as {
     buildingId?: unknown;
+    brandId?: unknown;
     categoryIds?: unknown;
   };
   const violations: FieldViolation[] = [];
@@ -520,6 +526,21 @@ async function referenceViolations(
       violations.push({
         field: 'buildingId',
         reason: 'building is retired and cannot be chosen',
+      });
+    }
+  }
+
+  if (typeof raw.brandId === 'string' && isUUID(raw.brandId)) {
+    const brand = await manager.findOne(Brand, {
+      where: { id: raw.brandId.toLowerCase() },
+      lock: { mode: 'pessimistic_read' },
+    });
+    if (!brand) {
+      violations.push({ field: 'brandId', reason: 'brand does not exist' });
+    } else if (brand.retiredAt !== null && brand.id !== current?.brandId) {
+      violations.push({
+        field: 'brandId',
+        reason: 'brand is retired and cannot be chosen',
       });
     }
   }

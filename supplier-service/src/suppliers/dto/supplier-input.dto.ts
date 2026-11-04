@@ -87,6 +87,15 @@ export class SupplierInputDto {
   @IsUUID('all', { message: 'buildingId must be a UUID' })
   buildingId: string;
 
+  /**
+   * Optional brand (F1.2.10): at most one (F3.4). Null removes it on an
+   * edit. A retired brand can be kept but not newly chosen (F1.8).
+   */
+  @IsOptional()
+  @Transform(lowerCaseIds)
+  @IsUUID('all', { message: 'brandId must be a UUID, or null to remove it' })
+  brandId?: string | null;
+
   @Transform(({ value }) =>
     typeof value === 'string' ? normaliseFloor(value) : value,
   )

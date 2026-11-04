@@ -176,6 +176,33 @@ describe('supplier request endpoints (e2e)', () => {
     expect(stub.submitCreation).toHaveBeenCalledWith(body, TEST_USER_ID);
   });
 
+  it('passes a brand in creation and edit requests, including null to remove it (F1.2.10)', async () => {
+    const brandId = randomUUID();
+    await request(app.getHttpServer())
+      .post('/supplier-requests/creations')
+      .set('Cookie', cookie)
+      .send({ name: 'Cheers Outlet', brandId })
+      .expect(201);
+    expect(stub.submitCreation).toHaveBeenLastCalledWith(
+      { name: 'Cheers Outlet', brandId },
+      TEST_USER_ID,
+    );
+
+    const supplierId = randomUUID();
+    await request(app.getHttpServer())
+      .post('/supplier-requests/updates')
+      .set('Cookie', cookie)
+      .set('If-Match', '"1"')
+      .send({ supplierId, changes: { brandId: null } })
+      .expect(201);
+    expect(stub.submitUpdate).toHaveBeenLastCalledWith(
+      supplierId,
+      1,
+      { brandId: null },
+      TEST_USER_ID,
+    );
+  });
+
   it('passes opening hours in an edit request, including null to remove them', async () => {
     const supplierId = randomUUID();
     await request(app.getHttpServer())

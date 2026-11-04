@@ -6,11 +6,13 @@ import {
 } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
+import { BrandsService } from '../src/brands/brands.service.js';
 import { BuildingsService } from '../src/buildings/buildings.service.js';
 import { CategoriesService } from '../src/categories/categories.service.js';
 import type { EnvironmentVariables } from '../src/config/environment.schema.js';
 import { createDatabaseOptions } from '../src/database/database-options.js';
 import {
+  Brand,
   Building,
   BuildingNameKey,
   Category,
@@ -72,6 +74,7 @@ describe('supplier requests (real PostgreSQL)', () => {
   let requests: SupplierRequestsService;
   let buildings: BuildingsService;
   let categories: CategoriesService;
+  let brands: BrandsService;
   let com2: Building;
   let food: Category;
 
@@ -99,6 +102,7 @@ describe('supplier requests (real PostgreSQL)', () => {
       dataSource.getRepository(BuildingNameKey),
     );
     categories = new CategoriesService(dataSource.getRepository(Category));
+    brands = new BrandsService(dataSource.getRepository(Brand));
   });
 
   afterAll(async () => {
@@ -107,7 +111,7 @@ describe('supplier requests (real PostgreSQL)', () => {
 
   beforeEach(async () => {
     await dataSource.query(`
-      TRUNCATE supplier_requests, supplier_categories, supplier_opening_intervals, suppliers, categories,
+      TRUNCATE supplier_requests, supplier_categories, supplier_opening_intervals, suppliers, brands, categories,
                building_name_keys, buildings
     `);
     com2 = await buildings.create({
@@ -798,6 +802,97 @@ describe('supplier requests (real PostgreSQL)', () => {
         status: 'Active',
         version: 1,
       });
+    });
+  });
+
+  describe('brand through requests (F1.2.10, F3)', () => {
+    const brandOf = async (id: string) =>
+      (await dataSource.getRepository(Supplier).findOneByOrFail({ id }))
+        .brandId;
+
+    it('records the proposed brand with a creation request, and sets it on approval', async () => {
+      const cheers = await brands.create('Cheers');
+      const filed = await requests.submitCreation(
+        { ...coolSpot(), brandId: cheers.id },
+        BASIC_USER,
+      );
+
+      expect(filed.values.brandId).toBe(cheers.id);
+      const approved = await requests.approve(filed.id, ADMIN);
+
+      await expect(brandOf(approved.createdSupplierId!)).resolves.toBe(
+        cheers.id,
+      );
+    });
+
+    it('accepts a creation request without a brand', async () => {
+      const filed = await requests.submitCreation(coolSpot(), BASIC_USER);
+      const approved = await requests.approve(filed.id, ADMIN);
+
+      expect(filed.values).not.toHaveProperty('brandId');
+      await expect(brandOf(approved.createdSupplierId!)).resolves.toBeNull();
+    });
+
+    it('refuses an unknown or retired brand in a request, saving nothing', async () => {
+      const gone = await brands.create('Gone');
+      await brands.retire(gone.id);
+
+      for (const brandId of ['11111111-1111-4111-8111-111111111111', gone.id]) {
+        const { status, body } = await failure(
+          requests.submitCreation({ ...coolSpot(), brandId }, BASIC_USER),
+        );
+        expect(status).toBe(400);
+        expect(
+          (body.violations as { field: string }[]).map((v) => v.field),
+        ).toEqual(['brandId']);
+      }
+      await expect(
+        dataSource.getRepository(SupplierRequest).count(),
+      ).resolves.toBe(0);
+    });
+
+    it('refuses the approval if the brand was retired meanwhile, leaving it Pending', async () => {
+      const cheers = await brands.create('Cheers');
+      const filed = await requests.submitCreation(
+        { ...coolSpot(), brandId: cheers.id },
+        BASIC_USER,
+      );
+      await brands.retire(cheers.id);
+
+      const { status, body } = await failure(requests.approve(filed.id, ADMIN));
+
+      expect(status).toBe(409);
+      expect(body.code).toBe('REQUEST_NOT_APPLICABLE');
+      await expect(stored(filed.id)).resolves.toMatchObject({
+        state: RequestState.Pending,
+      });
+      await expect(listedSuppliers()).resolves.toBe(0);
+    });
+
+    it('sets and removes the brand with edit requests', async () => {
+      const cheers = await brands.create('Cheers');
+      const { id } = await suppliers.create(coolSpot());
+
+      const set = await requests.submitUpdate(
+        id,
+        1,
+        { brandId: cheers.id },
+        BASIC_USER,
+      );
+      // The live supplier keeps its brand until approval (F8.2).
+      await expect(brandOf(id)).resolves.toBeNull();
+      await requests.approve(set.id, ADMIN);
+      await expect(brandOf(id)).resolves.toBe(cheers.id);
+
+      const remove = await requests.submitUpdate(
+        id,
+        2,
+        { brandId: null },
+        BASIC_USER,
+      );
+      expect(remove.values).toEqual({ brandId: null });
+      await requests.approve(remove.id, ADMIN);
+      await expect(brandOf(id)).resolves.toBeNull();
     });
   });
 

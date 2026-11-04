@@ -6,11 +6,13 @@ import {
 } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
+import { BrandsService } from '../src/brands/brands.service.js';
 import { BuildingsService } from '../src/buildings/buildings.service.js';
 import { CategoriesService } from '../src/categories/categories.service.js';
 import type { EnvironmentVariables } from '../src/config/environment.schema.js';
 import { createDatabaseOptions } from '../src/database/database-options.js';
 import {
+  Brand,
   Building,
   BuildingNameKey,
   Category,
@@ -59,6 +61,7 @@ describe('admin supplier writes (real PostgreSQL)', () => {
   let queries: SupplierQueriesService;
   let buildings: BuildingsService;
   let categories: CategoriesService;
+  let brands: BrandsService;
   let com2: Building;
   let com3: Building;
   let food: Category;
@@ -87,6 +90,7 @@ describe('admin supplier writes (real PostgreSQL)', () => {
       dataSource.getRepository(BuildingNameKey),
     );
     categories = new CategoriesService(dataSource.getRepository(Category));
+    brands = new BrandsService(dataSource.getRepository(Brand));
   });
 
   afterAll(async () => {
@@ -95,7 +99,7 @@ describe('admin supplier writes (real PostgreSQL)', () => {
 
   beforeEach(async () => {
     await dataSource.query(`
-      TRUNCATE supplier_requests, supplier_categories, supplier_opening_intervals, suppliers, categories,
+      TRUNCATE supplier_requests, supplier_categories, supplier_opening_intervals, suppliers, brands, categories,
                building_name_keys, buildings
     `);
     com2 = await buildings.create({
@@ -546,6 +550,155 @@ describe('admin supplier writes (real PostgreSQL)', () => {
         ).rejects.toMatchObject({ driverError: { constraint: check } });
       },
     );
+  });
+
+  describe('brand (F1.2.10, F3.4, F1.8)', () => {
+    const brandOf = async (id: string) =>
+      (await dataSource.getRepository(Supplier).findOneByOrFail({ id }))
+        .brandId;
+
+    it('creates a supplier with a brand, or without one (F1.2.10)', async () => {
+      const cheers = await brands.create('Cheers');
+
+      const withBrand = await suppliers.create({
+        ...coolSpot(),
+        brandId: cheers.id,
+      });
+      const without = await suppliers.create({
+        ...coolSpot(),
+        name: 'Plain Stall',
+      });
+      const explicitNull = await suppliers.create({
+        ...coolSpot(),
+        name: 'Null Stall',
+        brandId: null,
+      });
+
+      await expect(brandOf(withBrand.id)).resolves.toBe(cheers.id);
+      await expect(brandOf(without.id)).resolves.toBeNull();
+      await expect(brandOf(explicitNull.id)).resolves.toBeNull();
+    });
+
+    it('lets several outlets share a brand, told apart by building and floor (F3.4, F1.5)', async () => {
+      const cheers = await brands.create('Cheers');
+
+      await suppliers.create({ ...coolSpot(), brandId: cheers.id });
+      await expect(
+        suppliers.create({
+          ...coolSpot(),
+          buildingId: com3.id,
+          brandId: cheers.id,
+        }),
+      ).resolves.toBeDefined();
+      // The same name, building and floor is still a duplicate, brand or not.
+      const { status, body } = await failure(
+        suppliers.create({ ...coolSpot(), brandId: cheers.id }),
+      );
+      expect(status).toBe(409);
+      expect(body.code).toBe('DUPLICATE_SUPPLIER');
+    });
+
+    it('refuses a brand that does not exist, with its path, saving nothing', async () => {
+      const { status, body } = await failure(
+        suppliers.create({
+          ...coolSpot(),
+          brandId: '11111111-1111-4111-8111-111111111111',
+        }),
+      );
+
+      expect(status).toBe(400);
+      expect(body.violations).toEqual([
+        { field: 'brandId', reason: 'brand does not exist' },
+      ]);
+      await expect(dataSource.getRepository(Supplier).count()).resolves.toBe(0);
+    });
+
+    it('refuses a malformed brand id', async () => {
+      const { body } = await failure(
+        suppliers.create({ ...coolSpot(), brandId: 'cheers' }),
+      );
+
+      expect(
+        (body.violations as { field: string }[]).map((v) => v.field),
+      ).toEqual(['brandId']);
+    });
+
+    it('refuses a retired brand for a new supplier (F3.3.1)', async () => {
+      const gone = await brands.create('Gone');
+      await brands.retire(gone.id);
+
+      const { body } = await failure(
+        suppliers.create({ ...coolSpot(), brandId: gone.id }),
+      );
+
+      expect(body.violations).toEqual([
+        { field: 'brandId', reason: 'brand is retired and cannot be chosen' },
+      ]);
+    });
+
+    it('sets, changes and removes the brand on an edit, bumping the version', async () => {
+      const cheers = await brands.create('Cheers');
+      const coconut = await brands.create('Mr Coconut');
+      const { id } = await suppliers.create(coolSpot());
+
+      await suppliers.update(id, 1, { brandId: cheers.id });
+      await expect(brandOf(id)).resolves.toBe(cheers.id);
+      await expect(queries.get(id)).resolves.toMatchObject({ version: 2 });
+
+      await suppliers.update(id, 2, { brandId: coconut.id });
+      await expect(brandOf(id)).resolves.toBe(coconut.id);
+
+      await suppliers.update(id, 3, { brandId: null });
+      await expect(brandOf(id)).resolves.toBeNull();
+      await expect(queries.get(id)).resolves.toMatchObject({ version: 4 });
+    });
+
+    it('leaves the brand alone when an edit does not mention it', async () => {
+      const cheers = await brands.create('Cheers');
+      const { id } = await suppliers.create({
+        ...coolSpot(),
+        brandId: cheers.id,
+      });
+
+      await suppliers.update(id, 1, { locationDescription: 'Near the lift' });
+
+      await expect(brandOf(id)).resolves.toBe(cheers.id);
+    });
+
+    it('keeps a brand that was retired later, but refuses choosing another retired one (F1.8)', async () => {
+      const cheers = await brands.create('Cheers');
+      const other = await brands.create('Other');
+      const { id } = await suppliers.create({
+        ...coolSpot(),
+        brandId: cheers.id,
+      });
+      await brands.retire(cheers.id);
+      await brands.retire(other.id);
+
+      // Editing something else, or sending the same retired brand, is fine.
+      await suppliers.update(id, 1, { locationDescription: 'Near the lift' });
+      await suppliers.update(id, 2, { brandId: cheers.id });
+      await expect(brandOf(id)).resolves.toBe(cheers.id);
+
+      const { body } = await failure(
+        suppliers.update(id, 3, { brandId: other.id }),
+      );
+      expect(body.violations).toEqual([
+        { field: 'brandId', reason: 'brand is retired and cannot be chosen' },
+      ]);
+      await expect(brandOf(id)).resolves.toBe(cheers.id);
+    });
+
+    it('refuses deleting a brand that suppliers hold, in the database itself', async () => {
+      const cheers = await brands.create('Cheers');
+      await suppliers.create({ ...coolSpot(), brandId: cheers.id });
+
+      await expect(
+        dataSource.query(`DELETE FROM brands WHERE id = $1`, [cheers.id]),
+      ).rejects.toMatchObject({
+        driverError: { constraint: 'FK_suppliers_brand' },
+      });
+    });
   });
 
   describe('status (F9.2, F9.5)', () => {
