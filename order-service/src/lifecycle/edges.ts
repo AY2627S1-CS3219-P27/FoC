@@ -12,7 +12,7 @@ export type Col =
   | 'pickupLocation'
   | 'pickupName'
   | 'pickupDescription'
-  | 'deliveryLocation';
+  | 'deliveryLocation'
   | 'settlementAmount'
   | 'settlementNote';
 
