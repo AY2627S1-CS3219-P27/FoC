@@ -19,6 +19,9 @@ services:
   order-service:
     networks: [internal, ops]
     ports: ['127.0.0.1:${ORDER_SERVICE_HOST_PORT:-3004}:3000']
+  notification-service:
+    networks: [internal, ops]
+    ports: ['127.0.0.1:${NOTIFICATION_SERVICE_HOST_PORT:-3006}:3000']
 
   user-db:
     networks: [internal, ops]
@@ -32,6 +35,9 @@ services:
   supplier-db:
     networks: [internal, ops]
     ports: ['127.0.0.1:${SUPPLIER_DB_HOST_PORT:-5438}:5432']
+  notification-db:
+    networks: [internal, ops]
+    ports: ['127.0.0.1:${NOTIFICATION_SERVICE_DB_HOST_PORT:-5437}:5432']
   redis:
     networks: [internal, ops]
     ports: ['127.0.0.1:${REDIS_HOST_PORT:-6379}:6379']
