@@ -8,6 +8,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { isUUID } from 'class-validator';
 import { DataSource, type EntityManager, In, Not } from 'typeorm';
+import { recordAudit } from '../audit/record-audit.js';
+import { loadSupplierSnapshot } from '../audit/supplier-snapshot.js';
 import {
   ErrorCode,
   type FieldViolation,
@@ -215,6 +217,15 @@ export class SuppliersService {
             categoryId,
           })),
         );
+        // In the same transaction as the create (F14.4).
+        const after = await loadSupplierSnapshot(manager, saved.id);
+        await recordAudit(manager, {
+          action: 'supplier.created',
+          targetType: 'supplier',
+          targetId: saved.id,
+          after,
+          version: after.version as number,
+        });
         return saved;
       }),
     );
@@ -250,6 +261,7 @@ export class SuppliersService {
           throw validationFailed(violations);
         }
 
+        const before = await loadSupplierSnapshot(manager, id);
         const dto = checked.value;
         const changes: Partial<Supplier> = {};
         if (dto.name !== undefined) {
@@ -291,6 +303,15 @@ export class SuppliersService {
         // replaced the categories (F1.3.1). The unique constraint judges
         // the edited record as a whole (F1.5.1).
         await bumpVersion(manager, id, changes);
+        const after = await loadSupplierSnapshot(manager, id);
+        await recordAudit(manager, {
+          action: 'supplier.updated',
+          targetType: 'supplier',
+          targetId: id,
+          before,
+          after,
+          version: after.version as number,
+        });
       }),
     );
   }
@@ -312,7 +333,7 @@ export class SuppliersService {
       if (supplier.status === status) {
         throw alreadyInStatus(status);
       }
-      await bumpVersion(manager, id, { status });
+      await applyStatus(manager, id, status);
     });
   }
 
@@ -352,7 +373,7 @@ export class SuppliersService {
       if (supplier.status === status) {
         throw alreadyInStatus(status);
       }
-      await bumpVersion(manager, id, { status });
+      await applyStatus(manager, id, status);
     });
   }
 
@@ -405,6 +426,28 @@ async function lockSupplier(
     });
   }
   return supplier;
+}
+
+/**
+ * Sets the status, raising the version, and records it in the audit log
+ * (F14.4). The caller holds the row lock.
+ */
+async function applyStatus(
+  manager: EntityManager,
+  id: string,
+  status: SupplierStatus,
+): Promise<void> {
+  const before = await loadSupplierSnapshot(manager, id);
+  await bumpVersion(manager, id, { status });
+  const after = await loadSupplierSnapshot(manager, id);
+  await recordAudit(manager, {
+    action: 'supplier.status_changed',
+    targetType: 'supplier',
+    targetId: id,
+    before,
+    after,
+    version: after.version as number,
+  });
 }
 
 function alreadyInStatus(status: SupplierStatus): ConflictException {
