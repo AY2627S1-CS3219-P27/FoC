@@ -67,4 +67,28 @@ describe('RabbitMqConnectionService', () => {
     await service.onApplicationShutdown();
     expect(connection.close).toHaveBeenCalledOnce();
   });
+  
+  it('creates confirm channels and drains registered users before closing', async () => {
+    const confirmChannel = {};
+    const connection = {
+      createChannel: vi.fn(),
+      createConfirmChannel: vi.fn().mockResolvedValue(confirmChannel),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+    vi.mocked(connect).mockResolvedValueOnce(connection as never);
+    const service = new RabbitMqConnectionService('amqp://example');
+    const order: string[] = [];
+    service.registerBeforeClose(async () => {
+      order.push('transport');
+    });
+    connection.close.mockImplementation(async () => {
+      order.push('connection');
+    });
+
+    await expect(service.createConfirmChannel()).resolves.toBe(confirmChannel);
+    await service.onApplicationShutdown();
+
+    expect(connection.createConfirmChannel).toHaveBeenCalledOnce();
+    expect(order).toEqual(['transport', 'connection']);
+  });
 });

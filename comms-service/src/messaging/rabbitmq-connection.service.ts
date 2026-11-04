@@ -4,14 +4,22 @@ import {
   OnApplicationShutdown,
   OnModuleInit,
 } from '@nestjs/common';
-import { connect, type Channel, type RecoveringChannelModel } from 'amqplib';
+import {
+  connect,
+  type Channel,
+  type ConfirmChannel,
+  type RecoveringChannelModel,
+} from 'amqplib';
 import { RABBITMQ_CONNECTION_URL } from './rabbitmq-connection-url.provider.js';
+
+type BeforeConnectionClose = () => Promise<void>;
 
 @Injectable()
 export class RabbitMqConnectionService
   implements OnModuleInit, OnApplicationShutdown
 {
   private connectionPromise?: Promise<RecoveringChannelModel>;
+  private readonly beforeClose = new Set<BeforeConnectionClose>();
 
   constructor(@Inject(RABBITMQ_CONNECTION_URL) private readonly url: string) {}
 
@@ -21,6 +29,15 @@ export class RabbitMqConnectionService
 
   async createChannel(): Promise<Channel> {
     return (await this.getConnection()).createChannel();
+  }
+
+  async createConfirmChannel(): Promise<ConfirmChannel> {
+    return (await this.getConnection()).createConfirmChannel();
+  }
+
+  registerBeforeClose(callback: BeforeConnectionClose): () => void {
+    this.beforeClose.add(callback);
+    return () => this.beforeClose.delete(callback);
   }
 
   async check(): Promise<void> {
@@ -33,6 +50,10 @@ export class RabbitMqConnectionService
   }
 
   async onApplicationShutdown(): Promise<void> {
+    await Promise.allSettled(
+      [...this.beforeClose].map((callback) => callback()),
+    );
+    this.beforeClose.clear();
     const connectionPromise = this.connectionPromise;
     this.connectionPromise = undefined;
     const connection = await connectionPromise?.catch(() => undefined);
