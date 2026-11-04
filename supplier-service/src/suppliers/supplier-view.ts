@@ -20,8 +20,8 @@ export interface SupplierListItem {
   id: string;
   displayName: string;
   name: string;
-  /** Brands arrive in step 14 (F3). */
-  brand: null;
+  /** The brand, if any (F5.1, F1.2.10); a retired one still shows (F1.8). */
+  brand: { id: string; name: string } | null;
   kind: SupplierKind;
   categories: CategoryRef[];
   building: { id: string; shortName: string };
@@ -71,7 +71,7 @@ function categoryRefs(categories: Category[]): CategoryRef[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** `supplier.building` must be loaded. */
+/** `supplier.building` (and `supplier.brand`, if any) must be loaded. */
 export function toListItem(
   supplier: Supplier,
   categories: Category[],
@@ -83,7 +83,9 @@ export function toListItem(
     id: supplier.id,
     displayName: displayName(supplier.name, building.shortName),
     name: supplier.name,
-    brand: null,
+    brand: supplier.brand
+      ? { id: supplier.brand.id, name: supplier.brand.name }
+      : null,
     kind: supplier.kind,
     categories: categoryRefs(categories),
     building: { id: building.id, shortName: building.shortName },

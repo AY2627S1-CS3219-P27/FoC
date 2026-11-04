@@ -15,6 +15,7 @@ import {
 import { nameKey } from '../common/normalise/normalise.js';
 import type { EnvironmentVariables } from '../config/environment.schema.js';
 import {
+  Brand,
   Building,
   Category,
   Supplier,
@@ -80,6 +81,13 @@ export class SupplierQueriesService {
       'building',
       violations,
     );
+    const brandIds = await this.usableIds(
+      Brand,
+      query.brandId,
+      'brandId',
+      'brand',
+      violations,
+    );
     if (violations.length > 0) {
       // Unknown ids are rejected rather than ignored (F5.8).
       throw new BadRequestException({
@@ -89,18 +97,25 @@ export class SupplierQueriesService {
       });
     }
     // Only retired ids were given: no supplier can match (F5.8.1).
-    if (categoryIds?.length === 0 || buildingIds?.length === 0) {
+    if (
+      categoryIds?.length === 0 ||
+      buildingIds?.length === 0 ||
+      brandIds?.length === 0
+    ) {
       return { items: [], total: 0, offset, limit, hasMore: false };
     }
 
     // Every filter narrows the same query, so they combine with AND (F5.5).
     const qb = this.dataSource
       .createQueryBuilder(Supplier, 's')
-      .innerJoinAndSelect('s.building', 'b');
+      .innerJoinAndSelect('s.building', 'b')
+      .leftJoinAndSelect('s.brand', 'br');
     if (query.name !== undefined) {
-      qb.andWhere(`s.nameKey LIKE :name ESCAPE '\\'`, {
-        name: `%${escapeLike(nameKey(query.name))}%`,
-      });
+      // The supplier's own name or its brand's name (F5.4.1).
+      qb.andWhere(
+        `(s.nameKey LIKE :name ESCAPE '\\' OR br.nameKey LIKE :name ESCAPE '\\')`,
+        { name: `%${escapeLike(nameKey(query.name))}%` },
+      );
     }
     if (categoryIds !== undefined) {
       // Suppliers having any of the categories (F5.4.2).
@@ -113,6 +128,9 @@ export class SupplierQueriesService {
     }
     if (buildingIds !== undefined) {
       qb.andWhere('s.buildingId IN (:...buildingIds)', { buildingIds });
+    }
+    if (brandIds !== undefined) {
+      qb.andWhere('s.brandId IN (:...brandIds)', { brandIds });
     }
     if (query.kind !== undefined) {
       qb.andWhere('s.kind IN (:...kinds)', { kinds: query.kind });
@@ -208,7 +226,7 @@ export class SupplierQueriesService {
   ): Promise<SupplierDetail> {
     const supplier = await manager.findOne(Supplier, {
       where: { id },
-      relations: { building: true },
+      relations: { building: true, brand: true },
     });
     if (!supplier) {
       throw new NotFoundException({
@@ -249,7 +267,7 @@ export class SupplierQueriesService {
    * was not given. Ids that do not exist are reported as violations.
    */
   private async usableIds(
-    entity: EntityTarget<Building | Category>,
+    entity: EntityTarget<Building | Category | Brand>,
     requested: string[] | undefined,
     field: string,
     label: string,

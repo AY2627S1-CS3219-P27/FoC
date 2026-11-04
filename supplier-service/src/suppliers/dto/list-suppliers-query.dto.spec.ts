@@ -23,6 +23,27 @@ async function violations(query: Record<string, unknown>) {
   return body.violations.map((violation) => violation.field);
 }
 
+describe('ListSuppliersQueryDto brandId (F5.4.6)', () => {
+  const BRAND = '2d9a8eac-5b2a-4e5b-9c77-4c1f2d9f3e33';
+
+  it('accepts one brand or several, lower-cased', async () => {
+    await expect(
+      parse({ brandId: BRAND.toUpperCase() }),
+    ).resolves.toMatchObject({ brandId: [BRAND] });
+    await expect(parse({ brandId: [BRAND, FOOD] })).resolves.toMatchObject({
+      brandId: [BRAND, FOOD],
+    });
+  });
+
+  it('leaves it unset when not given', async () => {
+    expect((await parse({})).brandId).toBeUndefined();
+  });
+
+  it('refuses an id that is not a UUID', async () => {
+    expect(await violations({ brandId: 'cheers' })).toEqual(['brandId']);
+  });
+});
+
 describe('ListSuppliersQueryDto openNow (F5.4.7)', () => {
   it('reads true and false from the query string', async () => {
     await expect(parse({ openNow: 'true' })).resolves.toMatchObject({

@@ -73,6 +73,12 @@ export class ListSuppliersQueryDto {
   @IsUUID('all', { each: true, message: 'each buildingId must be a UUID' })
   buildingId?: string[];
 
+  /** Suppliers of any of these brands (F5.4.6). */
+  @IsOptional()
+  @Transform(asIdArray)
+  @IsUUID('all', { each: true, message: 'each brandId must be a UUID' })
+  brandId?: string[];
+
   /** One or more kinds (F5.4.4). */
   @IsOptional()
   @Transform(asArray)
