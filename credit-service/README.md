@@ -4,8 +4,8 @@ Credit Service owns credit accounts and their persistent balance history. It
 consumes account-registration, reservation, reservation-adjustment, errand
 completion, and errand-cancellation events; persists durable processing
 evidence; executes reserved-credit transfers and releases; publishes
-transactional outcomes; and serves protected balance and advisory sufficiency
-reads.
+transactional outcomes; and serves protected balance, transaction-history, and
+advisory sufficiency reads.
 
 The service is built with NestJS and TypeScript, PostgreSQL with TypeORM, and
 RabbitMQ. Event payloads are validated with versioned JSON Schemas and AJV.
@@ -217,8 +217,8 @@ Release rejection reasons are:
 | `RESERVATION_NOT_FOUND` | The authoritative reserve operation rejected and no reservation exists. |
 | `ALREADY_TRANSFERRED` | Transfer consumed the reservation before release. |
 
-F7 transaction-history APIs and F8 archived-destination behavior remain out of
-scope. `DESTINATION_ARCHIVED` remains reserved and is not emitted.
+F8 archived-destination behavior remains out of scope.
+`DESTINATION_ARCHIVED` remains reserved and is not emitted.
 
 All inbound delivery and outbound publication is at least once. Duplicate
 event IDs never reapply state. A distinct equivalent reservation command links
