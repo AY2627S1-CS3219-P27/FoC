@@ -5,6 +5,7 @@ import type { Channel, GetMessage } from 'amqplib';
 import { DataSource } from 'typeorm';
 import { createDatabaseOptions } from '../src/database/database-options.js';
 import { LifecycleConsumerLifecycle } from '../src/lifecycle/lifecycle-consumer.lifecycle.js';
+import { LifecycleFactQueryService } from '../src/lifecycle/lifecycle-fact-query.service.js';
 import { LifecycleIngestionService } from '../src/lifecycle/lifecycle-ingestion.service.js';
 import { LifecycleMessageDispatcher } from '../src/lifecycle/lifecycle-message.handler.js';
 import { RabbitMqConnectionService } from '../src/messaging/rabbitmq-connection.service.js';
@@ -132,7 +133,10 @@ describe('lifecycle fixtures through RabbitMQ and PostgreSQL', () => {
 
     const dispatcher = new LifecycleMessageDispatcher(
       new AccountEventContractValidator(),
-      new LifecycleIngestionService(dataSource),
+      new LifecycleIngestionService(
+        dataSource,
+        new LifecycleFactQueryService(dataSource),
+      ),
     );
     await new LifecycleConsumerLifecycle(
       transport,

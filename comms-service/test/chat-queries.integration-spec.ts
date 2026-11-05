@@ -5,6 +5,7 @@ import { DataSource } from 'typeorm';
 import { ChatCursorCodec } from '../src/chats/chat-cursor.codec.js';
 import { ChatQueryService } from '../src/chats/chat-query.service.js';
 import { createDatabaseOptions } from '../src/database/database-options.js';
+import { LifecycleFactQueryService } from '../src/lifecycle/lifecycle-fact-query.service.js';
 import { LifecycleIngestionService } from '../src/lifecycle/lifecycle-ingestion.service.js';
 
 describe('participant-only chat queries', () => {
@@ -111,7 +112,10 @@ describe('participant-only chat queries', () => {
     await dataSource.initialize();
     await dataSource.dropDatabase();
     await dataSource.runMigrations({ transaction: 'all' });
-    ingestion = new LifecycleIngestionService(dataSource);
+    ingestion = new LifecycleIngestionService(
+      dataSource,
+      new LifecycleFactQueryService(dataSource),
+    );
     queries = new ChatQueryService(dataSource, new ChatCursorCodec());
   });
 

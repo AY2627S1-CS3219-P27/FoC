@@ -41,7 +41,8 @@ export class LifecycleFactQueryService {
           courierUserId: accepted.courierUserId,
         },
       )
-      .orderBy('fact.occurred_at', 'ASC')
+      .orderBy('fact.derived_close_at', 'ASC', 'NULLS LAST')
+      .addOrderBy('fact.occurred_at', 'ASC')
       .addOrderBy('fact.source_event_id', 'ASC')
       .getMany();
   }
