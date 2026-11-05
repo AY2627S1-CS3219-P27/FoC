@@ -17,6 +17,7 @@ export type Col =
   | 'pickupLocation'
   | 'pickupName'
   | 'pickupDescription'
+  | 'deliveryLocation'
   | 'settlementAmount'
   | 'settlementNote';
 
@@ -32,6 +33,7 @@ export const CREDIT_SETTLEMENT_REJECTED = 'CreditSettlementRejected';
 // Closed set of cancellation reasons; each cancel edge allows a subset.
 export const CANCELLATION_REASONS = [
   'SUPPLIER_UNAVAILABLE',
+  'BUILDING_UNAVAILABLE',
   'SUPPLIER_VALIDATION_TIMEOUT',
   'INSUFFICIENT_CREDITS',
   'MISSING_BALANCE',
@@ -119,10 +121,20 @@ export const EDGES: Partial<
           amount: c.rewardCredits,
         },
       })),
-      sets: ['supplierValidatedAt', 'pickupName', 'pickupLocation', 'pickupDescription'],
+      sets: [
+        'supplierValidatedAt',
+        'pickupName',
+        'pickupLocation',
+        'pickupDescription',
+        'deliveryLocation',
+      ],
     },
     // Nothing reserved yet, so nothing to release.
-    Cancelled: cancel(sys, ['SUPPLIER_UNAVAILABLE', 'SUPPLIER_VALIDATION_TIMEOUT'], null),
+    Cancelled: cancel(
+      sys,
+      ['SUPPLIER_UNAVAILABLE', 'BUILDING_UNAVAILABLE', 'SUPPLIER_VALIDATION_TIMEOUT'],
+      null,
+    ),
   },
   'Reserving-Credit': {
     Open: { ...plain('CreditReserved', sys), setsExpiry: true },
