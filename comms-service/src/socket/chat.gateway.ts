@@ -11,6 +11,11 @@ import type { Namespace, Socket } from 'socket.io';
 import { ChatCommandError } from '../chats/chat-command.error.js';
 import { MessageCommandService } from '../chats/message-command.service.js';
 import type { CommittedMessageDto } from '../chats/message-command.types.js';
+import { ReadCommandService } from '../chats/read-command.service.js';
+import type {
+  MessagesReadData,
+  MessagesReadReceipt,
+} from '../chats/read-command.types.js';
 import { ChatAdmissionService } from './chat-admission.service.js';
 import {
   CHAT_NAMESPACE,
@@ -18,6 +23,7 @@ import {
   chatSocketFailure,
   parseChatJoinPayload,
   parseMessageSendPayload,
+  parseMessagesReadPayload,
   type ChatJoinData,
   type ChatSocketAcknowledgement,
   type MessageSendData,
@@ -36,14 +42,19 @@ type ChatJoinAck = (response: ChatSocketAcknowledgement<ChatJoinData>) => void;
 type MessageSendAck = (
   response: ChatSocketAcknowledgement<MessageSendData>,
 ) => void;
+type MessagesReadAck = (
+  response: ChatSocketAcknowledgement<MessagesReadData>,
+) => void;
 
 interface ChatClientEvents {
   'chat:join': (payload: unknown, ack?: ChatJoinAck) => void;
   'message:send': (payload: unknown, ack?: MessageSendAck) => void;
+  'messages:read': (payload: unknown, ack?: MessagesReadAck) => void;
 }
 
 interface ChatServerEvents {
   'message:new': (message: CommittedMessageDto) => void;
+  'messages:read-receipt': (receipt: MessagesReadReceipt) => void;
 }
 
 type ChatSocket = Socket<
@@ -69,6 +80,7 @@ export class ChatGateway
     private readonly tokens: AccessTokenVerifier,
     private readonly admissions: ChatAdmissionService,
     private readonly messages: MessageCommandService,
+    private readonly reads: ReadCommandService,
   ) {}
 
   afterInit(namespace: Namespace): void {
@@ -94,6 +106,10 @@ export class ChatGateway
     socket.on('message:send', (payload: unknown, ack?: MessageSendAck) => {
       if (typeof ack !== 'function') return;
       void this.send(socket, payload).then(ack);
+    });
+    socket.on('messages:read', (payload: unknown, ack?: MessagesReadAck) => {
+      if (typeof ack !== 'function') return;
+      void this.markRead(socket, payload).then(ack);
     });
   }
 
@@ -230,23 +246,62 @@ export class ChatGateway
     recipientUserId: string,
     message: CommittedMessageDto,
   ): void {
-    this.bestEffortEmit(() =>
+    this.bestEffortEmit('message:emit', () =>
       this.namespace
         ?.to(roomName(chatId, recipientUserId))
         .emit('message:new', message),
     );
-    this.bestEffortEmit(() =>
+    this.bestEffortEmit('message:emit', () =>
       socket
         .to(roomName(chatId, message.senderUserId))
         .emit('message:new', message),
     );
   }
 
-  private bestEffortEmit(emit: () => unknown): void {
+  private async markRead(
+    socket: ChatSocket,
+    rawPayload: unknown,
+  ): Promise<ChatSocketAcknowledgement<MessagesReadData>> {
+    try {
+      const payload = parseMessagesReadPayload(rawPayload);
+      const userId = socket.data.userId;
+      if (userId === undefined) throw new ChatSocketError('UNAUTHENTICATED');
+      if (socket.data.admittedChatId !== payload.chatId) {
+        throw new ChatSocketError('CONFLICT');
+      }
+
+      const result = await this.reads.markRead({
+        chatId: payload.chatId,
+        readerUserId: userId,
+        throughSequence: payload.throughSequence,
+      });
+      if (result.changed) {
+        const receipt: MessagesReadReceipt = {
+          ...result.data,
+          readerUserId: userId,
+        };
+        this.bestEffortEmit('messages:read-receipt:emit', () =>
+          this.namespace
+            ?.to(roomName(payload.chatId, result.affectedSenderUserId))
+            .emit('messages:read-receipt', receipt),
+        );
+      }
+      return { ok: true, data: result.data };
+    } catch (error) {
+      if (error instanceof ChatSocketError) return chatSocketFailure(error);
+      if (error instanceof ChatCommandError) {
+        return chatSocketFailure(error.code);
+      }
+      this.logInternalError('messages:read', error);
+      return chatSocketFailure('INTERNAL_ERROR');
+    }
+  }
+
+  private bestEffortEmit(operation: string, emit: () => unknown): void {
     try {
       emit();
     } catch (error) {
-      this.logInternalError('message:emit', error);
+      this.logInternalError(operation, error);
     }
   }
 

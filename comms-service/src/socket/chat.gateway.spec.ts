@@ -2,6 +2,7 @@ import type { AccessTokenVerifier } from '@foc/auth';
 import type { Namespace, Socket } from 'socket.io';
 import { ChatCommandError } from '../chats/chat-command.error.js';
 import type { MessageCommandService } from '../chats/message-command.service.js';
+import type { ReadCommandService } from '../chats/read-command.service.js';
 import type { ChatAdmissionService } from './chat-admission.service.js';
 import { ChatGateway, roomName } from './chat.gateway.js';
 import { ChatSocketError } from './chat-socket.protocol.js';
@@ -36,6 +37,7 @@ describe('ChatGateway', () => {
   const verifyWithMetadata = vi.fn();
   const authorize = vi.fn();
   const sendMessage = vi.fn();
+  const markRead = vi.fn();
   const namespaceEmit = vi.fn();
   const namespaceTo = vi.fn(() => ({ emit: namespaceEmit }));
   let gateway: ChatGateway;
@@ -60,6 +62,7 @@ describe('ChatGateway', () => {
       { verifyWithMetadata } as unknown as AccessTokenVerifier,
       { authorize } as unknown as ChatAdmissionService,
       { send: sendMessage } as unknown as MessageCommandService,
+      { markRead } as unknown as ReadCommandService,
     );
     const use = vi.fn();
     gateway.afterInit({ use, to: namespaceTo } as unknown as Namespace);
@@ -87,6 +90,14 @@ describe('ChatGateway', () => {
       socket as unknown as Parameters<ChatGateway['handleConnection']>[0],
     );
     const listener = socket.listeners.get('message:send')!;
+    return new Promise((resolve) => listener(payload, resolve));
+  }
+
+  async function read(socket: FakeSocket, payload: unknown): Promise<unknown> {
+    gateway.handleConnection(
+      socket as unknown as Parameters<ChatGateway['handleConnection']>[0],
+    );
+    const listener = socket.listeners.get('messages:read')!;
     return new Promise((resolve) => listener(payload, resolve));
   }
 
@@ -445,5 +456,111 @@ describe('ChatGateway', () => {
       }),
     ).resolves.toEqual({ ok: true, data: message });
     expect(socket.emitToRoom).toHaveBeenCalledWith('message:new', message);
+  });
+
+  it('acknowledges a committed read and emits one receipt only to the affected sender', async () => {
+    const affectedSenderUserId = '55555555-5555-4555-8555-555555555555';
+    const data = {
+      chatId,
+      throughSequence: 4,
+      highestReadSequence: 3,
+      readAt: '2026-11-05T01:00:00.000Z',
+    };
+    markRead.mockResolvedValueOnce({
+      data,
+      affectedSenderUserId,
+      changed: true,
+    });
+    const socket = new FakeSocket();
+    socket.data.userId = userId;
+    socket.data.admittedChatId = chatId;
+
+    await expect(read(socket, { chatId, throughSequence: 4 })).resolves.toEqual(
+      { ok: true, data },
+    );
+    expect(markRead).toHaveBeenCalledWith({
+      chatId,
+      readerUserId: userId,
+      throughSequence: 4,
+    });
+    expect(namespaceTo).toHaveBeenCalledWith(
+      roomName(chatId, affectedSenderUserId),
+    );
+    expect(namespaceEmit).toHaveBeenCalledWith('messages:read-receipt', {
+      ...data,
+      readerUserId: userId,
+    });
+    expect(socket.to).not.toHaveBeenCalled();
+  });
+
+  it('acknowledges repeated reads without emitting duplicate receipts', async () => {
+    const data = {
+      chatId,
+      throughSequence: 4,
+      highestReadSequence: null,
+      readAt: null,
+    };
+    markRead.mockResolvedValueOnce({
+      data,
+      affectedSenderUserId: '55555555-5555-4555-8555-555555555555',
+      changed: false,
+    });
+    const socket = new FakeSocket();
+    socket.data.userId = userId;
+    socket.data.admittedChatId = chatId;
+
+    await expect(read(socket, { chatId, throughSequence: 4 })).resolves.toEqual(
+      { ok: true, data },
+    );
+    expect(namespaceEmit).not.toHaveBeenCalled();
+  });
+
+  it('rejects reads for a different chat before mutation', async () => {
+    const socket = new FakeSocket();
+    socket.data.userId = userId;
+    socket.data.admittedChatId = chatId;
+
+    await expect(
+      read(socket, { chatId: otherChatId, throughSequence: 1 }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'CONFLICT' } });
+    expect(markRead).not.toHaveBeenCalled();
+  });
+
+  it('maps read command errors to sanitized acknowledgements', async () => {
+    markRead.mockRejectedValueOnce(new ChatCommandError('NOT_FOUND'));
+    const socket = new FakeSocket();
+    socket.data.userId = userId;
+    socket.data.admittedChatId = chatId;
+
+    await expect(read(socket, { chatId, throughSequence: 1 })).resolves.toEqual(
+      {
+        ok: false,
+        error: { code: 'NOT_FOUND', message: 'Chat not found' },
+      },
+    );
+  });
+
+  it('keeps a committed read acknowledgement when receipt emission fails', async () => {
+    const data = {
+      chatId,
+      throughSequence: 1,
+      highestReadSequence: 1,
+      readAt: '2026-11-05T01:00:00.000Z',
+    };
+    markRead.mockResolvedValueOnce({
+      data,
+      affectedSenderUserId: '55555555-5555-4555-8555-555555555555',
+      changed: true,
+    });
+    namespaceTo.mockImplementationOnce(() => {
+      throw new Error('adapter unavailable');
+    });
+    const socket = new FakeSocket();
+    socket.data.userId = userId;
+    socket.data.admittedChatId = chatId;
+
+    await expect(read(socket, { chatId, throughSequence: 1 })).resolves.toEqual(
+      { ok: true, data },
+    );
   });
 });

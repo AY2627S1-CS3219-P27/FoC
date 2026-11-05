@@ -1,3 +1,9 @@
+import type { CommittedMessageDto } from '../chats/message-command.types.js';
+import type {
+  MessagesReadData,
+  MessagesReadReceipt,
+} from '../chats/read-command.types.js';
+
 export const CHAT_NAMESPACE = '/chat';
 export const CHAT_SOCKET_MAX_HTTP_BUFFER_BYTES = 32 * 1024;
 
@@ -47,6 +53,7 @@ export interface ChatJoinData {
 }
 
 export type MessageSendData = CommittedMessageDto;
+export type { MessagesReadData, MessagesReadReceipt };
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -149,4 +156,3 @@ function strictRecord(
 function isUuid(value: unknown): value is string {
   return typeof value === 'string' && UUID_PATTERN.test(value);
 }
-import type { CommittedMessageDto } from '../chats/message-command.types.js';

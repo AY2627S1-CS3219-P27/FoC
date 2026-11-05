@@ -118,6 +118,7 @@ describe('participant-only chat queries', () => {
   afterAll(async () => {
     if (dataSource?.isInitialized) {
       await dataSource.undoLastMigration({ transaction: 'all' });
+      await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.destroy();
     }
   });

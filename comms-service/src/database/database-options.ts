@@ -9,6 +9,7 @@ import {
   Message,
 } from './entities/index.js';
 import { InitialPersistence1793552400000 } from './migrations/1793552400000-initial-persistence.js';
+import { AddUnreadMessageIndex1793638800000 } from './migrations/1793638800000-add-unread-message-index.js';
 
 export interface DatabaseEnvironment {
   DB_HOST: string;
@@ -44,7 +45,10 @@ export function createDatabaseOptions(
     password: readDatabasePassword(environment.DB_PASSWORD_FILE),
     database: environment.DB_DATABASE,
     entities: databaseEntities,
-    migrations: [InitialPersistence1793552400000],
+    migrations: [
+      InitialPersistence1793552400000,
+      AddUnreadMessageIndex1793638800000,
+    ],
     migrationsTableName: 'comms_service_migrations',
     migrationsRun: false,
     migrationsTransactionMode: 'all',
