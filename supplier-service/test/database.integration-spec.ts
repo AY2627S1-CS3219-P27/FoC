@@ -139,7 +139,9 @@ describe('supplier schema (real PostgreSQL)', () => {
           )
         )[0];
 
-      // The coordinate migration is second to last (allows_pin follows it).
+      // The coordinate migration is third to last (allows_pin and the AS8
+      // rename follow it).
+      await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.runMigrations({ transaction: 'all' });
@@ -149,6 +151,7 @@ describe('supplier schema (real PostgreSQL)', () => {
       });
       expect(await coords(e4)).toEqual({ latitude: 1.3, longitude: 103.77 });
 
+      await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.undoLastMigration({ transaction: 'all' });
       expect(await coords(e3)).toEqual({
@@ -165,6 +168,8 @@ describe('supplier schema (real PostgreSQL)', () => {
           `SELECT column_name, column_default, is_nullable FROM information_schema.columns
             WHERE table_name = 'buildings' AND column_name = 'allows_pin'`,
         );
+      // The AS8 rename follows it.
+      await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.undoLastMigration({ transaction: 'all' });
       await expect(allowsPin()).resolves.toEqual([]);
 
@@ -187,9 +192,59 @@ describe('supplier schema (real PostgreSQL)', () => {
       ).resolves.toEqual([{ short_name: 'OLD', allows_pin: false }]);
     });
 
+    it('renames AS8, keeps "Blk AS8" as an alias, and reverts; another building is untouched', async () => {
+      const at = async (canonicalName: string, shortName: string) =>
+        (
+          await buildings.create({
+            canonicalName,
+            shortName,
+            aliases: [],
+            latitude: 1.296252,
+            longitude: 103.772093,
+          })
+        ).id;
+      const as8 = await at('Blk AS8', 'AS8');
+      const other = await at('Blk AS7', 'AS7');
+      const state = async () =>
+        (
+          await dataSource.query<
+            {
+              canonical_name: string;
+              aliases: string[];
+              keys: string[] | null;
+            }[]
+          >(
+            `SELECT b.canonical_name, b.aliases,
+                    (SELECT array_agg(key ORDER BY key) FROM building_name_keys
+                      WHERE building_id = b.id) AS keys
+               FROM buildings b WHERE b.id = $1`,
+            [as8],
+          )
+        )[0];
+
+      await dataSource.undoLastMigration({ transaction: 'all' });
+      await dataSource.runMigrations({ transaction: 'all' });
+      expect(await state()).toEqual({
+        canonical_name: 'Arts and Social Sciences 8',
+        aliases: ['Blk AS8'],
+        keys: ['artsandsocialsciences8', 'as8', 'blkas8'],
+      });
+      expect((await buildings.resolve('Blk AS8'))?.id).toBe(as8);
+      expect((await buildings.findById(other))?.canonicalName).toBe('Blk AS7');
+
+      await dataSource.undoLastMigration({ transaction: 'all' });
+      expect(await state()).toEqual({
+        canonical_name: 'Blk AS8',
+        aliases: [],
+        keys: ['as8', 'blkas8'],
+      });
+      await dataSource.runMigrations({ transaction: 'all' });
+    });
+
     it('reverts cleanly and runs again', async () => {
-      // Venues is the third-to-last migration; the last two only alter rows
-      // and the buildings table.
+      // Venues is the fourth-to-last migration; the last three only alter
+      // rows and the buildings table.
+      await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.undoLastMigration({ transaction: 'all' });
