@@ -12,6 +12,7 @@ import type {
 import { SubscriptionsService } from './subscriptions.service.js';
 
 const userId = '11111111-1111-4111-8111-111111111111';
+const otherUserId = '22222222-2222-4222-8222-222222222222';
 const endpoint = 'https://fcm.googleapis.com/fcm/send/dV3n4X0EXAMPLE';
 const input: RegisterWebPushSubscriptionDto = {
   endpoint,
@@ -19,13 +20,29 @@ const input: RegisterWebPushSubscriptionDto = {
   expirationTime: null,
 };
 
+function duplicateKey(): QueryFailedError {
+  return new QueryFailedError(
+    'INSERT INTO subscriptions',
+    [],
+    Object.assign(new Error('duplicate key value'), { code: '23505' }),
+  );
+}
+
 function repositoryMock() {
-  return {
+  const repository = {
     findOne: vi.fn(),
     create: vi.fn((value: Partial<Subscription>) => ({ ...value })),
     save: vi.fn(async (value: Subscription) => value),
     update: vi.fn(async () => ({ affected: 0, raw: [] })),
+    manager: {
+      transaction: vi.fn(
+        async (
+          run: (manager: { getRepository: () => unknown }) => Promise<unknown>,
+        ) => run({ getRepository: () => repository }),
+      ),
+    },
   };
+  return repository;
 }
 
 function serviceWith(repository: ReturnType<typeof repositoryMock>) {
@@ -86,15 +103,53 @@ describe('SubscriptionsService', () => {
       expect(subscription.expirationTime).toEqual(new Date(expiresAt));
     });
 
-    it('maps a duplicate pair to a conflict, including the insert race', async () => {
+    it('maps a duplicate pair for the same user to a conflict', async () => {
       const repository = repositoryMock();
-      repository.save.mockRejectedValue(
-        new QueryFailedError(
-          'INSERT INTO subscriptions',
-          [],
-          Object.assign(new Error('duplicate key value'), { code: '23505' }),
-        ),
+      repository.save.mockRejectedValueOnce(duplicateKey());
+      repository.findOne.mockResolvedValueOnce(existingRow());
+
+      await expect(
+        serviceWith(repository).createWebPush(userId, input),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    it('takes the endpoint over from another account', async () => {
+      const repository = repositoryMock();
+      repository.save.mockRejectedValueOnce(duplicateKey());
+      repository.findOne.mockResolvedValueOnce(null);
+
+      const subscription = await serviceWith(repository).createWebPush(
+        userId,
+        input,
       );
+
+      expect(repository.update).toHaveBeenCalledWith(
+        { endpoint, status: SubscriptionStatus.Active },
+        {
+          status: SubscriptionStatus.Inactive,
+          deactivatedAt: expect.any(Date),
+        },
+      );
+      expect(repository.create).toHaveBeenLastCalledWith({
+        userId,
+        channel: SubscriptionChannel.WebPush,
+        endpoint,
+        credentials: { p256dh: 'p256dh-value', auth: 'auth-value' },
+        expirationTime: null,
+        status: SubscriptionStatus.Active,
+        deactivatedAt: null,
+      });
+      expect(subscription.userId).toBe(userId);
+      expect(subscription.status).toBe(SubscriptionStatus.Active);
+    });
+
+    it('maps a takeover race to a conflict instead of a 500', async () => {
+      const repository = repositoryMock();
+      repository.save
+        .mockRejectedValueOnce(duplicateKey())
+        .mockRejectedValueOnce(duplicateKey());
+      repository.findOne.mockResolvedValueOnce(null);
 
       await expect(
         serviceWith(repository).createWebPush(userId, input),
@@ -118,12 +173,12 @@ describe('SubscriptionsService', () => {
         status: SubscriptionStatus.Inactive,
         deactivatedAt: new Date('2026-01-01T00:00:00.000Z'),
       });
-      repository.findOne.mockResolvedValue(row);
-      const patch: UpdateWebPushSubscriptionDto = {
+      repository.findOne.mockResolvedValueOnce(row).mockResolvedValueOnce(null);
+      const patch = {
         status: 'active',
         keys: { p256dh: 'new-p256dh', auth: 'new-auth' },
         expirationTime: Date.UTC(2026, 5, 1),
-      };
+      } as UpdateWebPushSubscriptionDto;
 
       const subscription = await serviceWith(repository).updateWebPush(
         userId,
@@ -131,8 +186,9 @@ describe('SubscriptionsService', () => {
         patch,
       );
 
-      expect(repository.findOne).toHaveBeenCalledWith({
+      expect(repository.findOne).toHaveBeenNthCalledWith(1, {
         where: { userId, endpoint },
+        lock: { mode: 'pessimistic_write' },
       });
       expect(subscription.status).toBe(SubscriptionStatus.Active);
       expect(subscription.deactivatedAt).toBeNull();
@@ -146,6 +202,31 @@ describe('SubscriptionsService', () => {
       expect(repository.save).toHaveBeenCalledWith(row);
     });
 
+    it('takes the endpoint back from the account that holds it', async () => {
+      const repository = repositoryMock();
+      const mine = existingRow({
+        status: SubscriptionStatus.Inactive,
+        deactivatedAt: new Date('2026-01-01T00:00:00.000Z'),
+      });
+      const theirs = existingRow({ id: 'other-row', userId: otherUserId });
+      repository.findOne
+        .mockResolvedValueOnce(mine)
+        .mockResolvedValueOnce(theirs);
+
+      const subscription = await serviceWith(repository).updateWebPush(
+        userId,
+        endpoint,
+        { status: 'active' } as UpdateWebPushSubscriptionDto,
+      );
+
+      expect(theirs.status).toBe(SubscriptionStatus.Inactive);
+      expect(theirs.deactivatedAt).toEqual(expect.any(Date));
+      expect(repository.save).toHaveBeenCalledWith(theirs);
+      expect(subscription.userId).toBe(userId);
+      expect(subscription.status).toBe(SubscriptionStatus.Active);
+      expect(subscription.deactivatedAt).toBeNull();
+    });
+
     it('applies only the fields present in the patch', async () => {
       const repository = repositoryMock();
       const row = existingRow();
@@ -154,7 +235,9 @@ describe('SubscriptionsService', () => {
       const subscription = await serviceWith(repository).updateWebPush(
         userId,
         endpoint,
-        { keys: { p256dh: 'rotated', auth: 'rotated-auth' } },
+        {
+          keys: { p256dh: 'rotated', auth: 'rotated-auth' },
+        } as UpdateWebPushSubscriptionDto,
       );
 
       expect(subscription.credentials).toEqual({
@@ -162,6 +245,8 @@ describe('SubscriptionsService', () => {
         auth: 'rotated-auth',
       });
       expect(subscription.status).toBe(SubscriptionStatus.Active);
+      // Without `status` there is nothing to reactivate, so no second lookup.
+      expect(repository.findOne).toHaveBeenCalledTimes(1);
     });
 
     it('clears the expiration when the patch sends null', async () => {
@@ -173,7 +258,7 @@ describe('SubscriptionsService', () => {
       const subscription = await serviceWith(repository).updateWebPush(
         userId,
         endpoint,
-        { expirationTime: null },
+        { expirationTime: null } as UpdateWebPushSubscriptionDto,
       );
 
       expect(subscription.expirationTime).toBeNull();
@@ -186,7 +271,7 @@ describe('SubscriptionsService', () => {
       await expect(
         serviceWith(repository).updateWebPush(userId, endpoint, {
           status: 'active',
-        }),
+        } as UpdateWebPushSubscriptionDto),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(repository.save).not.toHaveBeenCalled();
     });

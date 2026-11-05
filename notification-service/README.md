@@ -17,8 +17,8 @@ is public information and needs no token.
 | Method | Path                                     | Result                                                                                                                       |
 | ------ | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `GET`  | `/v1/subscriptions/vapid-public-key`     | Returns `{ publicKey }` for `pushManager.subscribe`. No token required.                                                     |
-| `POST` | `/v1/subscriptions/web`                  | Creates the subscription for a new `(user, endpoint)` pair: `201` + `Location`. An existing pair is `409 Conflict` — reconcile it with PATCH instead. |
-| `PATCH` | `/v1/subscriptions/web?endpoint=<url>`  | Partial update of an existing row: `status: "active"` reactivates a soft-deleted row, `keys`/`expirationTime` refresh credentials. `200`; `404` if the pair is unknown. The endpoint itself is immutable. |
+| `POST` | `/v1/subscriptions/web`                  | Creates the subscription for a new `(user, endpoint)` pair: `201` + `Location`. An existing pair is `409 Conflict` — reconcile it with PATCH instead. An endpoint held by another account is taken over atomically: the previous row is deactivated. |
+| `PATCH` | `/v1/subscriptions/web?endpoint=<url>`  | Partial update of an existing row: `status: "active"` reactivates a soft-deleted row (and deactivates another account's row for the same endpoint), `keys`/`expirationTime` refresh credentials. `200`; `404` if the pair is unknown. The endpoint itself is immutable. |
 | `DELETE` | `/v1/subscriptions/web?endpoint=<url>` | Soft-deletes the `(user, endpoint)` row: `204`, idempotently, even when it was already inactive.                              |
 
 Clients should POST the fresh subscription and, on `409`, PATCH the same payload
@@ -30,21 +30,34 @@ The public path through the frontend proxy is `/api/notifications/...`
 
 ### Data model
 
-One `subscriptions` row per `(user_id, endpoint)`:
+One `subscriptions` row per `(user_id, endpoint)`, and at most one *active* row
+per endpoint:
 
 - `channel` — `web_push` today; the discriminator keeps the table open to
   other push channels (e.g. direct-to-Android) later.
-- `endpoint` — the channel's natural address (Web Push endpoint URL).
+- `endpoint` — the channel's natural address (Web Push endpoint URL). A Web Push
+  endpoint belongs to the browser profile, not the account, so
+  `UQ_subscriptions_active_endpoint` (a partial unique index over active rows)
+  enforces single ownership at any moment.
 - `credentials` — channel-specific payload (`{ p256dh, auth }` for Web Push).
 - `status` / `deactivated_at` — subscriptions are soft-deleted, never removed,
   so a re-presented live subscription for the same endpoint is reactivated by
   PATCH. A new endpoint is a new subscription (new row); the old inactive row is
   history.
 
+Ownership follows whoever is signed in on the browser. When another account
+registers an endpoint that is still active, the previous owner's row is
+deactivated and the caller's row created in one transaction; reactivating a
+row does the same in reverse. See
+[`docs/adr/notification-service/001-single-owner-push-endpoints.md`](../docs/adr/notification-service/001-single-owner-push-endpoints.md).
+
 The schema is currently created by TypeORM `synchronize` in development
 (`DB_SYNCHRONIZE`, default `true` in `compose.yml`). The entity and unique
-index are written so an explicit initial migration can be generated when the
-service adopts the migration discipline used by credit-service.
+indexes are written so an explicit initial migration can be generated when the
+service adopts the migration discipline used by credit-service. Because the
+active-endpoint index is unique, a development database created before it
+existed must have duplicate active rows for one endpoint removed (or the
+`notification-db-data` volume recreated) before the service will start.
 
 ## Configuration
 

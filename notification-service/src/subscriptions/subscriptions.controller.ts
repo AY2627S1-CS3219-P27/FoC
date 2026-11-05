@@ -152,7 +152,7 @@ export class SubscriptionsController {
   @ApiOperation({
     summary: 'Create a Web Push subscription',
     description:
-      'Creates the subscription for a new endpoint owned by the authenticated user. An endpoint that already exists for this user is a conflict — re-present a live subscription with PATCH instead. The user is always the token subject: the body cannot select one.',
+      'Creates the subscription for a new endpoint owned by the authenticated user. An endpoint that already exists for this user is a conflict — re-present a live subscription with PATCH instead. An endpoint held by another account is taken over atomically (the previous row is deactivated): a Web Push endpoint belongs to the browser, so whoever is signed in owns its notifications. The user is always the token subject: the body cannot select one.',
   })
   @ApiBody({ type: RegisterWebPushSubscriptionDto })
   @ApiCreatedResponse(successResponse('A new push endpoint was registered.'))
@@ -206,7 +206,7 @@ export class SubscriptionsController {
   @ApiOperation({
     summary: 'Update or reactivate a Web Push subscription',
     description:
-      'Reconciles the stored row with a live subscription the browser re-presented: status "active" reactivates a soft-deleted row, fresh keys/expirationTime overwrite the stored credentials. Omitted fields are left unchanged; the endpoint itself is immutable.',
+      'Reconciles the stored row with a live subscription the browser re-presented: status "active" reactivates a soft-deleted row, fresh keys/expirationTime overwrite the stored credentials. Reactivating also deactivates another account\'s row for the same endpoint, since the endpoint belongs to the browser. Omitted fields are left unchanged; the endpoint itself is immutable.',
   })
   @ApiQuery({
     name: 'endpoint',
