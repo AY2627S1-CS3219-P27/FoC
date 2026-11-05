@@ -1,3 +1,4 @@
+import { Role } from '@foc/contracts';
 import { Type } from 'class-transformer';
 import {
   IsIn,
@@ -26,21 +27,19 @@ export class CreateErrandDto {
   @IsUUID()
   supplierId: string;
 
+  @IsUUID()
+  deliveryBuildingId: string;
+
+  // Room or level, e.g. "Level 3 04-02". Stays in order-service.
   @IsString()
   @Length(1, MAX_LOCATION_LENGTH)
   @Matches(NOT_BLANK)
-  deliveryLocation: string;
+  deliveryDetail: string;
 
   @IsInt()
   @Min(1)
   @Max(MAX_CREDITS)
   rewardCredits: number;
-
-  @IsOptional()
-  @IsString()
-  @Length(1, MAX_LOCATION_LENGTH)
-  @Matches(NOT_BLANK)
-  pickupLocation?: string;
 
   @IsOptional()
   @IsString()
@@ -71,6 +70,19 @@ export class AdjustErrandDto {
   @Min(1)
   @Max(MAX_CREDITS)
   newAmount: number;
+}
+
+// The admin's settlement: the courier's share. The upper bound is the errand's
+// reward, checked by the route; the word cap on the note lives in transition().
+export class ResolveDisputeDto {
+  @IsInt()
+  @Min(0)
+  @Max(MAX_CREDITS)
+  settlementAmount: number;
+
+  @IsString()
+  @Matches(NOT_BLANK)
+  note: string;
 }
 
 export const LIST_SORTS = ['expiring', 'newest', 'credits'] as const;
@@ -125,4 +137,8 @@ export class MineErrandsQuery extends PageQuery {
   @IsOptional()
   @IsIn(API_STATUSES)
   status?: ApiStatus;
+
+  @IsOptional()
+  @IsIn(Object.values(Role))
+  role?: Role;
 }

@@ -7,8 +7,6 @@ services:
     image: ${FOC_IMAGE_PREFIX:-foc}/order-service:${ORDER_SERVICE_IMAGE_TAG:-dev}
     command: npm run start:dev
     restart: on-failure:3
-    ports:
-      - '${ORDER_SERVICE_HOST_PORT}:3000'
     depends_on:
       order-db:
         condition: service_healthy
@@ -20,6 +18,7 @@ services:
       - DB_DATABASE=${ORDER_SERVICE_DB_DATABASE}
       - DB_SYNCHRONIZE=${ORDER_SERVICE_DB_SYNCHRONIZE}
       - DB_PASSWORD_FILE=/run/secrets/order_db_password
+      - DB_MIGRATIONS_RUN=${ORDER_SERVICE_DB_MIGRATIONS_RUN:-true}
       - JWT_PUBLIC_KEY_FILE=/run/secrets/jwt_public_key_order_service
       - LOG_LEVEL=${LOG_LEVEL}
       - RABBITMQ_USER=${ORDER_SERVICE_RABBITMQ_USER}
@@ -29,6 +28,8 @@ services:
       - RABBITMQ_PASSWORD_FILE=/run/secrets/rabbitmq_password_order_service
       - RABBITMQ_EXCHANGE=${RABBITMQ_EXCHANGE:-foc.events}
       - RABBITMQ_RETRY_EXCHANGE=${RABBITMQ_RETRY_EXCHANGE:-foc.order.retry}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4318}
+      - OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:-http://loki:3100/otlp/v1/logs}
       - RABBITMQ_RETRY_RETURN_EXCHANGE=${RABBITMQ_RETRY_RETURN_EXCHANGE:-foc.order.back}
       - RABBITMQ_DEAD_LETTER_EXCHANGE=${RABBITMQ_DEAD_LETTER_EXCHANGE:-foc.order.dlx}
       - RABBITMQ_PREFETCH=${RABBITMQ_PREFETCH:-10}
@@ -45,10 +46,24 @@ services:
       - CREDIT_REPLY_TIMEOUT_MS=${CREDIT_REPLY_TIMEOUT_MS:-120000}
       - CREDIT_RESEND_MAX=${CREDIT_RESEND_MAX:-3}
       - IDEMPOTENCY_KEY_TTL_MS=${IDEMPOTENCY_KEY_TTL_MS:-604800000}
+      - ROLE_BLOCK_TTL_MS=${ROLE_BLOCK_TTL_MS:-960000}
+      - SUPPLIER_RETRY_BASE_MS=${SUPPLIER_RETRY_BASE_MS:-1000}
+      - SUPPLIER_RETRY_MAX_MS=${SUPPLIER_RETRY_MAX_MS:-300000}
+      - SUPPLIER_VALIDATION_HOLD_MS=${SUPPLIER_VALIDATION_HOLD_MS:-1800000}
     secrets:
       - order_db_password
       - rabbitmq_password_order_service
       - jwt_public_key_order_service
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'wget --no-verbose --tries=1 --spider "http://127.0.0.1:3000/health"',
+        ]
+      interval: 10s
+      timeout: 3s
+      start_period: 120s
+      retries: 3
     develop:
       watch:
         - action: sync
@@ -95,8 +110,6 @@ services:
   order-db:
     image: postgres:18-alpine
     restart: on-failure:3
-    ports:
-      - '${ORDER_SERVICE_DB_HOST_PORT}:5432'
     environment:
       - POSTGRES_USER=${ORDER_SERVICE_DB_USERNAME}
       - POSTGRES_PASSWORD_FILE=/run/secrets/order_db_password
@@ -114,6 +127,27 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # Throwaway Postgres for the e2e tests (npm run db:test:up), on a host port
+  # because the dev order-db publishes none.
+  order-db-test:
+    image: postgres:18-alpine
+    profiles: ['test']
+    ports:
+      - '127.0.0.1:${ORDER_SERVICE_DB_TEST_HOST_PORT:-5440}:5432'
+    environment:
+      - POSTGRES_USER=order_service
+      - POSTGRES_PASSWORD_FILE=/run/secrets/order_db_password
+      - POSTGRES_DB=order_service_test
+    tmpfs:
+      - /var/lib/postgresql
+    secrets:
+      - order_db_password
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U order_service -d order_service_test']
+      interval: 2s
+      timeout: 3s
+      retries: 15
 
 volumes:
   order-db-data:

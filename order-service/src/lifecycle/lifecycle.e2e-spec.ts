@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
 import { createTestDb } from '../../test/db.js';
+import { supplierValidated } from '../../test/payloads.js';
 import { DB } from '../db/db.module.js';
 import { LifecycleModule } from './lifecycle.module.js';
 import { LifecycleService } from './lifecycle.service.js';
@@ -21,7 +22,8 @@ it('creates and transitions through the injected service', async () => {
   const created = await svc.create({
     requesterId: randomUUID(),
     supplierId: randomUUID(),
-    deliveryLocation: 'COM2',
+    deliveryBuildingId: randomUUID(),
+    deliveryDetail: 'Level 3 04-02',
     rewardCredits: 5,
     expiryDurationMinutes: 60,
     collectionItems: 'bubble tea',
@@ -33,6 +35,7 @@ it('creates and transitions through the injected service', async () => {
       actor: SYSTEM, errandId: created.errandId,
       expected: 'Pending-Supplier',
       to: 'Reserving-Credit',
+      ...supplierValidated(),
     }),
   ).toMatchObject({ ok: true, sequenceNumber: 2 });
 });
@@ -46,7 +49,8 @@ it('reads the current status, and undefined for an unknown errand', async () => 
   const created = await svc.create({
     requesterId: randomUUID(),
     supplierId: randomUUID(),
-    deliveryLocation: 'COM2',
+    deliveryBuildingId: randomUUID(),
+    deliveryDetail: 'Level 3 04-02',
     rewardCredits: 5,
     expiryDurationMinutes: 60,
     collectionItems: 'bubble tea',
@@ -66,7 +70,8 @@ it('reads the latest event, and undefined for an unknown errand', async () => {
   const created = await svc.create({
     requesterId: randomUUID(),
     supplierId: randomUUID(),
-    deliveryLocation: 'COM2',
+    deliveryBuildingId: randomUUID(),
+    deliveryDetail: 'Level 3 04-02',
     rewardCredits: 5,
     expiryDurationMinutes: 60,
     collectionItems: 'bubble tea',

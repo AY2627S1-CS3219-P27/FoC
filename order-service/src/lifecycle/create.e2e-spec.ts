@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { createTestDb } from '../../test/db.js';
-import { errandEvents, errands } from '../db/schema.js';
+import { errandEvents, errands, outboxEvents } from '../db/schema.js';
 import { createErrand } from './create.js';
 
 let t: Awaited<ReturnType<typeof createTestDb>>;
@@ -13,7 +13,8 @@ afterAll(() => t.close());
 const input = (over = {}) => ({
   requesterId: randomUUID(),
   supplierId: randomUUID(),
-  deliveryLocation: 'COM2',
+  deliveryBuildingId: randomUUID(),
+  deliveryDetail: 'Level 3 04-02',
   rewardCredits: 5,
   expiryDurationMinutes: 60,
   collectionItems: 'bubble tea',
@@ -21,6 +22,8 @@ const input = (over = {}) => ({
 });
 const events = (id: string) =>
   t.db.select().from(errandEvents).where(eq(errandEvents.errandId, id));
+const outboxFor = (id: string) =>
+  t.db.select().from(outboxEvents).where(sql`envelope->'payload'->>'errandId' = ${id}`);
 
 describe('createErrand', () => {
   it('writes a Pending-Supplier errand and ErrandCreated as event 1', async () => {
@@ -36,6 +39,9 @@ describe('createErrand', () => {
       status: 'Pending-Supplier',
       lastSequenceNumber: 1,
       requesterId: i.requesterId,
+      deliveryBuildingId: i.deliveryBuildingId,
+      deliveryDetail: 'Level 3 04-02',
+      deliveryLocation: null,
     });
     expect(await events(res.errandId)).toMatchObject([
       {
@@ -47,25 +53,25 @@ describe('createErrand', () => {
         payload: {
           requesterId: i.requesterId,
           supplierId: i.supplierId,
-          deliveryLocation: 'COM2',
+          deliveryBuildingId: i.deliveryBuildingId,
+          deliveryDetail: 'Level 3 04-02',
           rewardCredits: 5,
-          pickupLocation: null,
           description: null,
           expiryDurationMinutes: 60,
           collectionItems: 'bubble tea',
         },
       },
     ]);
+    expect((await events(res.errandId))[0].payload).not.toHaveProperty('pickupLocation'); // set at supplier validation
   });
 
   it('records the optional fields in the ErrandCreated payload', async () => {
     const res = await createErrand(
       t.db,
-      input({ pickupLocation: 'Frontier', description: 'no onions', expiryDurationMinutes: 120 }),
+      input({ description: 'no onions', expiryDurationMinutes: 120 }),
     );
     if (!res.ok) throw new Error('expected ok');
     expect((await events(res.errandId))[0].payload).toMatchObject({
-      pickupLocation: 'Frontier',
       description: 'no onions',
       expiryDurationMinutes: 120,
     });
@@ -109,9 +115,32 @@ describe('createErrand', () => {
     );
   });
 
+  it('asks Supplier Service once through the outbox; a replay does not ask again', async () => {
+    const i = input({ idempotencyKey: `supplier-${randomUUID()}` });
+    const first = await createErrand(t.db, i);
+    if (!first.ok) throw new Error('expected ok');
+    await createErrand(t.db, i); // replay
+
+    const rows = await outboxFor(first.errandId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      routingKey: 'order.supplier-validation-requested.v1',
+      envelope: {
+        eventType: 'SupplierValidationRequested',
+        publisher: 'order-service',
+        payload: {
+          errandId: first.errandId,
+          supplierId: i.supplierId,
+          deliveryBuildingId: i.deliveryBuildingId,
+        },
+      },
+    });
+  });
+
   it.each([
     ['a different reward', { rewardCredits: 9 }],
-    ['a different delivery location', { deliveryLocation: 'UTown' }],
+    ['a different delivery building', { deliveryBuildingId: randomUUID() }],
+    ['a different delivery detail', { deliveryDetail: 'Level 4 01-01' }],
     ['an added optional field', { description: 'no onions' }],
     ['a different expiry', { expiryDurationMinutes: 120 }],
     ['different collectionItems', { collectionItems: 'coffee' }],

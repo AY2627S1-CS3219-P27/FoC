@@ -12,8 +12,6 @@ services:
     image: ${FOC_IMAGE_PREFIX:-foc}/supplier-service:${SUPPLIER_IMAGE_TAG:-dev}
     restart: on-failure:3
     command: npm run start:dev
-    ports:
-      - '${SUPPLIER_SERVICE_HOST_PORT:-3002}:3000'
     depends_on:
       supplier-db:
         condition: service_healthy
@@ -34,6 +32,8 @@ services:
       SEED_ON_STARTUP: ${SUPPLIER_SEED_ON_STARTUP:-true}
       SEED_CSV_PATH: /seed-data/supplier-seed-data.csv
       JWT_PUBLIC_KEY_FILE: /run/secrets/supplier_jwt_public_key
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4318}
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:-http://loki:3100/otlp/v1/logs}
       PLACEHOLDER_IMAGE_URL: ${SUPPLIER_PLACEHOLDER_IMAGE_URL:-}
       # The broker connection is shared (env/shared.env); the login is this
       # service's own broker user in rabbitmq/definitions.json (F13.7).
@@ -73,7 +73,7 @@ services:
         ]
       interval: 10s
       timeout: 3s
-      start_period: 60s
+      start_period: 120s
       retries: 3
     develop:
       watch:
@@ -94,8 +94,6 @@ services:
   supplier-db:
     image: postgres:18-alpine
     restart: on-failure:3
-    ports:
-      - '${SUPPLIER_DB_HOST_PORT:-5438}:5432'
     environment:
       POSTGRES_USER: ${SUPPLIER_DB_USERNAME:-supplier_service}
       POSTGRES_DB: ${SUPPLIER_DB_DATABASE:-supplier_service}

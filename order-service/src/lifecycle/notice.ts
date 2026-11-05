@@ -13,8 +13,11 @@ export interface NoticeContext {
   errandId: string;
   requesterId: string;
   courierId: string | null;
+  actorUserId: string | null;
   rewardCredits: number;
   payload: Record<string, unknown>;
+  // Events of this edge's type on the errand, this one included (credit.settlement.v1).
+  attempt: number;
 }
 
 // `key` is the contract's routing key; builders may return undefined to skip.
@@ -71,4 +74,24 @@ export const enqueueRelease = (db: Db, errandId: string, replyEventId: string) =
     db,
     { key: 'order.errand-cancelled.v1', payload: { errandId } },
     derivedUuid(`release:${replyEventId}`),
+  );
+
+// Each attempt is a new question to Supplier Service, so a lost reply still gets answered.
+export const supplierRequestId = (errandId: string, attempt: number) =>
+  derivedUuid(`supplier-validation:${errandId}:${attempt}`);
+
+export const enqueueSupplierRequest = (
+  db: Db,
+  errandId: string,
+  supplierId: string,
+  deliveryBuildingId: string,
+  attempt: number,
+) =>
+  enqueueNotice(
+    db,
+    {
+      key: 'order.supplier-validation-requested.v1',
+      payload: { errandId, supplierId, deliveryBuildingId },
+    },
+    supplierRequestId(errandId, attempt),
   );

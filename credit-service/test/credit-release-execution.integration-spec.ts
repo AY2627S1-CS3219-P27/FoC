@@ -468,65 +468,127 @@ describe('ReleaseOperationProcessor', () => {
     ).toBe(0);
   });
 
-  it('rejects conflicting reserve and reservation amounts without financial mutation', async () => {
-    const event = cancellation();
-    const requesterUserId = randomUUID();
-    const accepted = await ingress.accept(event);
-    if (accepted.status !== 'accepted') {
-      throw new Error('expected fresh release ingress');
-    }
-    await createAccount(requesterUserId, 75, 25);
-    await createReserveOperation(
-      event.payload.errandId,
-      requesterUserId,
-      'SUCCEEDED',
-      30,
-    );
-    const reservation = await createReservation(
-      event.payload.errandId,
-      requesterUserId,
-      'ACTIVE',
-      25,
-    );
-    const workerId = randomUUID();
-    await operationStore.claim(workerId, 10, 30_000);
+  it.each([
+    ['increased', 25, 40],
+    ['decreased', 25, 10],
+  ] as const)(
+    'refreshes stale release context and refunds the %s reward in full',
+    async (_direction, originalAmount, currentAmount) => {
+      const event = cancellation();
+      const requesterUserId = randomUUID();
+      await createAccount(
+        requesterUserId,
+        100 - originalAmount,
+        originalAmount,
+      );
+      await createReserveOperation(
+        event.payload.errandId,
+        requesterUserId,
+        'SUCCEEDED',
+        originalAmount,
+      );
+      const reservation = await createReservation(
+        event.payload.errandId,
+        requesterUserId,
+        'ACTIVE',
+        originalAmount,
+      );
+      const accepted = await ingress.accept(event);
+      if (accepted.status !== 'accepted') {
+        throw new Error('expected fresh release ingress');
+      }
 
-    await expect(
-      processor.processClaimed(accepted.operationId, workerId),
-    ).rejects.toThrow('Reservation and reserve operation disagree on amount');
-
-    await expect(
-      dataSource
-        .getRepository(CreditAccount)
-        .findOneByOrFail({ userId: requesterUserId }),
-    ).resolves.toMatchObject({ creditBalance: 75, reservedBalance: 25 });
-    await expect(
-      dataSource
-        .getRepository(CreditReservation)
-        .findOneByOrFail({ id: reservation.id }),
-    ).resolves.toMatchObject({ status: 'ACTIVE', reservedAmount: 25 });
-    await expect(
-      dataSource
-        .getRepository(CreditOperation)
-        .findOneByOrFail({ id: accepted.operationId }),
-    ).resolves.toMatchObject({
-      status: 'PENDING',
-      requesterUserId: null,
-      amount: null,
-      completionTransactionId: null,
-      outcomeOutboxEventId: null,
-    });
-    expect(
-      await dataSource
+      const difference = currentAmount - originalAmount;
+      const adjustment = await dataSource
         .getRepository(CreditTransaction)
-        .countBy({ type: 'RELEASE' }),
-    ).toBe(0);
-    expect(
-      await dataSource.getRepository(OutboxEvent).countBy({
-        eventType: 'CreditReleaseSuccess',
-      }),
-    ).toBe(0);
-  });
+        .save({
+          id: randomUUID(),
+          type: 'RESERVATION_ADJUSTMENT',
+          amount: Math.abs(difference),
+          originBalanceType:
+            difference > 0 ? 'CREDIT_BALANCE' : 'RESERVED_BALANCE',
+          destinationBalanceType:
+            difference > 0 ? 'RESERVED_BALANCE' : 'CREDIT_BALANCE',
+          originUserId: requesterUserId,
+          destinationUserId: requesterUserId,
+          errandId: event.payload.errandId,
+        });
+      await dataSource.getRepository(CreditAccount).update(
+        { userId: requesterUserId },
+        {
+          creditBalance: 100 - currentAmount,
+          reservedBalance: currentAmount,
+        },
+      );
+      await dataSource.getRepository(CreditReservation).update(
+        { id: reservation.id },
+        {
+          reservedAmount: currentAmount,
+          latestTransactionId: adjustment.id,
+        },
+      );
+
+      const workerId = randomUUID();
+      await operationStore.claim(workerId, 10, 30_000);
+      const result = await processor.processClaimed(
+        accepted.operationId,
+        workerId,
+      );
+      expect(result).toMatchObject({ status: 'succeeded' });
+      if (result.status !== 'succeeded') {
+        throw new Error('expected successful release');
+      }
+
+      const [account, releasedReservation, operation, transaction, outbox] =
+        await Promise.all([
+          dataSource
+            .getRepository(CreditAccount)
+            .findOneByOrFail({ userId: requesterUserId }),
+          dataSource
+            .getRepository(CreditReservation)
+            .findOneByOrFail({ id: reservation.id }),
+          dataSource
+            .getRepository(CreditOperation)
+            .findOneByOrFail({ id: accepted.operationId }),
+          dataSource
+            .getRepository(CreditTransaction)
+            .findOneByOrFail({ id: result.transactionId }),
+          dataSource
+            .getRepository(OutboxEvent)
+            .findOneByOrFail({ eventId: result.outboxEventId }),
+        ]);
+      expect(account).toMatchObject({ creditBalance: 100, reservedBalance: 0 });
+      expect(releasedReservation).toMatchObject({
+        status: 'RELEASED',
+        reservedAmount: currentAmount,
+        latestTransactionId: transaction.id,
+      });
+      expect(operation).toMatchObject({
+        status: 'SUCCEEDED',
+        requesterUserId,
+        amount: currentAmount,
+        completionTransactionId: transaction.id,
+        outcomeOutboxEventId: outbox.eventId,
+      });
+      expect(transaction).toMatchObject({
+        type: 'RELEASE',
+        amount: currentAmount,
+        originUserId: requesterUserId,
+        destinationUserId: requesterUserId,
+      });
+      expect(outbox).toMatchObject({
+        routingKey: 'credit.release-success.v1',
+        envelope: {
+          payload: {
+            errandId: event.payload.errandId,
+            requesterUserId,
+            releasedAmount: currentAmount,
+            creditTransactionId: transaction.id,
+          },
+        },
+      });
+    },
+  );
 
   it('rejects a stale claimant and lets another worker recover the release', async () => {
     const event = cancellation();

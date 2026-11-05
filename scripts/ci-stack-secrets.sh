@@ -17,7 +17,9 @@ put user-service/secrets/server_secret.secret "$(gen)"
 put order-service/secrets/order_db_password.secret "$(gen)"
 put credit-service/secrets/credit_db_password.secret "$(gen)"
 put supplier-service/secrets/supplier_db_password.secret "$(gen)"
+put comms-service/secrets/comms_db_password.secret "$(gen)"
 put email-service/secrets/smtp_password.secret "$(gen)"
+put notification-service/secrets/notification_db_password.secret "$(gen)"
 
 # RS256 keypair. Every service reads the public key from user-service/secrets/.
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out user-service/secrets/jwt_private_key.secret 2>/dev/null
@@ -25,17 +27,27 @@ openssl pkey -in user-service/secrets/jwt_private_key.secret -pubout -out user-s
 
 # RabbitMQ: random password per broker user, written to the service secret and
 # to definitions.json as plaintext (RabbitMQ hashes it on import).
-user_pw=$(gen); email_pw=$(gen); order_pw=$(gen); credit_pw=$(gen); supplier_pw=$(gen); guest_pw=$(gen)
+user_pw=$(gen); email_pw=$(gen); order_pw=$(gen); credit_pw=$(gen); supplier_pw=$(gen); notification_pw=$(gen); guest_pw=$(gen); comms_pw=$(gen)
 put user-service/secrets/rabbitmq_user_password.secret "$user_pw"
 put email-service/secrets/rabbitmq_email_password.secret "$email_pw"
 put order-service/secrets/rabbitmq_password.secret "$order_pw"
 put credit-service/secrets/rabbitmq_password.secret "$credit_pw"
 put supplier-service/secrets/rabbitmq_password.secret "$supplier_pw"
+put notification-service/secrets/rabbitmq_notification_password.secret "$notification_pw"
+put comms-service/secrets/rabbitmq_password.secret "$comms_pw"
 
-jq --arg u "$user_pw" --arg e "$email_pw" --arg o "$order_pw" --arg c "$credit_pw" --arg s "$supplier_pw" --arg g "$guest_pw" '
+jq --arg u "$user_pw" --arg e "$email_pw" --arg o "$order_pw" --arg c "$credit_pw" --arg s "$supplier_pw" --arg n "$notification_pw" --arg m "$comms_pw" --arg g "$guest_pw" '
+  {"user-service":$u,"email-service":$e,"order-service":$o,
+   "credit-service":$c,"supplier-service":$s,"notification-service":$n,"comms-service":$m,"guest":$g} as $passwords
+  |
   .users |= map(
+    .name as $name
+    | $passwords[$name] as $password
+    | if $password == null or $password == "" then
+        error("no CI RabbitMQ password mapping for user: \($name)")
+      else . end
+    |
     del(.password_hash, .hashing_algorithm)
-    | .password = ({"user-service":$u,"email-service":$e,"order-service":$o,
-                    "credit-service":$c,"supplier-service":$s,"guest":$g}[.name])
+    | .password = $password
   )' rabbitmq/definitions.json > rabbitmq/definitions.json.tmp
 mv rabbitmq/definitions.json.tmp rabbitmq/definitions.json

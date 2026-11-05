@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
+import { LoggerModule } from 'nestjs-pino';
+import { pinoHttpOptions } from '@foc/observability';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { createObserveModule } from '@nestjs/observe';
 import { FocAuthModule } from '@foc/auth';
 import { OutboxEvent, OutboxModule } from '@foc/outbox';
 import { OtpModule } from './otp/otp.module.js';
@@ -33,8 +34,6 @@ function buildRabbitMqUrl(
   );
 }
 
-export const { ObserveModule, ObserveInstrument } = createObserveModule();
-
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -42,13 +41,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
       cache: true,
       validationSchema: environmentSchema,
     }),
-    // Distributed tracing, auto-correlated logs, request/job metrics, error
-    // telemetry, alarms, and more — out of the box. Sign up at https://observe.nestjs.com
-    ObserveModule.forRoot({
-      appKey: 'YOUR_APP_KEY',
-      appSecret: 'YOUR_APP_SECRET',
-      serviceId: 'user-service',
-    }),
+    LoggerModule.forRoot({ pinoHttp: pinoHttpOptions('user-service') }),
     SecretModule,
     // Verifies user-service access tokens with the shared RS256 public key
     // and exposes the standard JwtAuthGuard/RolesGuard/AdminGuard app-wide.

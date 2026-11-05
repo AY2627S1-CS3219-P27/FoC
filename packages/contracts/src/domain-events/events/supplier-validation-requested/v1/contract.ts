@@ -11,6 +11,8 @@ export const ORDER_SUPPLIER_VALIDATION_REQUESTED_V1_ROUTING_KEY =
 export interface SupplierValidationRequestedPayload {
   errandId: string;
   supplierId: string;
+  /** Supplier Service checks it exists; */
+  deliveryBuildingId: string;
 }
 
 export const supplierValidationRequestedV1Contract =
@@ -18,5 +20,6 @@ export const supplierValidationRequestedV1Contract =
     routingKey: ORDER_SUPPLIER_VALIDATION_REQUESTED_V1_ROUTING_KEY,
     eventType: 'SupplierValidationRequested',
     publisher: 'order-service',
+    kind: 'message',
     schema,
   });

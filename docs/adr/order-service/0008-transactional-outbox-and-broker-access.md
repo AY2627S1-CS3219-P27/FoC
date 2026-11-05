@@ -2,10 +2,11 @@
 
 ## Context
 
-Order-service must tell credit-service (and later supplier-service) about
-state changes: reservation requests, `ErrandCompleted`, `ErrandCancelled`
-(ADR 0002, ADR 0006). The errand state lives in Postgres and the notice goes to
-RabbitMQ, and the two cannot commit together. Publishing after the commit
+Order-service must tell credit-service, supplier-service, and communication-service
+about state changes: reservation requests, `ErrandCompleted`,
+`ErrandCancelled`, `ErrandAccepted`, `ErrandDelivered`, and
+`CourierCancelled` (ADR 0002, ADR 0006). The errand state lives in Postgres and
+the notice goes to RabbitMQ, and the two cannot commit together. Publishing after the commit
 (the original sketch in `ARCHITECTURE.md` §3) loses the notice if the process
 dies in between, which strands an errand in `Reserving-Credit` or means credits
 are never transferred.
@@ -23,8 +24,8 @@ a shared package yet; revisit when supplier-service becomes the third user).
 - **Same-transaction insert.** `enqueueOutbox(tx, event)` inserts a row using the
   caller's transaction, so the notice commits or rolls back with the state
   change. `transition()` calls it through `enqueueNotice` (`src/lifecycle/notice.ts`)
-  for every edge with a `notice` builder. `createErrand()` does not call it yet:
-  the supplier validation request has no contract.
+  for every edge with a `notice` builder, and `createErrand()` calls it for the
+  supplier validation request (`order.supplier-validation-requested.v1`).
 - **Relay.** `OutboxRelay` polls every `OUTBOX_POLL_INTERVAL_MS`.
   `OutboxStore.claim` selects due rows with `FOR UPDATE SKIP LOCKED` and sets a
   lease (`claimed_by`, `claimed_until`), so several instances never take the same
@@ -65,7 +66,9 @@ a shared package yet; revisit when supplier-service becomes the third user).
 - **Event contracts.** The credit notices and replies are in `@foc/contracts`
   (`credit.reservation.v1`, `credit.reservation-adjustment.v1`,
   `order.errand-completed.v1`, `order.errand-cancelled.v1` and the seven credit
-  replies).
+  replies). Communication lifecycle contracts are also shared there:
+  `order.errand-accepted.v1`, `order.errand-delivered.v1`, and
+  `order.courier-cancelled.v1`.
 - **Consumer side.** The consumer transport (`foc.order.{retry,back,dlx}`, retry
   queues, DLQs) and the reply handlers (`src/credit-replies/`) reuse
   `idempotency_keys` as the inbox, with `transition()`'s `idempotencyKey` set to

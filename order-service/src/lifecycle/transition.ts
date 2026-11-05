@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { and, desc, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
+import { Role } from '@foc/contracts';
+import { and, count, desc, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import {
   COURIER_LOCK_INDEX,
@@ -7,6 +8,7 @@ import {
   errands,
   idempotencyKeys,
 } from '../db/schema.js';
+import { isRoleBlocked, lockUser } from '../role-blocks/role-blocks.js';
 import {
   EDGES,
   USER_REASONS,
@@ -23,9 +25,11 @@ export type Db = NodePgDatabase<any>;
 
 // Who is acting. Required and explicit: a missing or failed-auth user must
 // never fall through to the system, which may take system-only edges.
-export type Actor = { kind: 'user'; id: string } | { kind: 'system' };
+export type Actor = { kind: 'user'; id: string; admin?: true } | { kind: 'system' };
 export const SYSTEM: Actor = { kind: 'system' };
 export const user = (id: string): Actor => ({ kind: 'user', id });
+// From the token's isAdmin flag; only this actor passes an admin edge.
+export const admin = (id: string): Actor => ({ kind: 'user', id, admin: true });
 
 // Stored actor_id: null = system.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -60,6 +64,7 @@ export type TransitionResult =
         | 'IDEMPOTENCY_KEY_REUSED'
         | 'FORBIDDEN' // actor may not take this edge on this errand
         | 'COURIER_BUSY' // courier already holds an active errand
+        | 'ROLE_BLOCKED' // accepting courier has a role block
         | 'EXPIRED'; // accept after expires_at
     }
   | { ok: false; reason: 'STATE_MISMATCH'; currentStatus: Status };
@@ -67,6 +72,10 @@ export type TransitionResult =
 const INVALID: TransitionResult = { ok: false, reason: 'INVALID_FIELDS' };
 const ILLEGAL: TransitionResult = { ok: false, reason: 'ILLEGAL_TRANSITION' };
 const BUSY: TransitionResult = { ok: false, reason: 'COURIER_BUSY' };
+const FORBIDDEN: TransitionResult = { ok: false, reason: 'FORBIDDEN' };
+const BLOCKED: TransitionResult = { ok: false, reason: 'ROLE_BLOCKED' };
+export const MAX_NOTE_WORDS = 100;
+const RELEASED = ['COURIER_BUSY', 'ROLE_BLOCKED'];
 
 // Caller bugs, rejected before the transaction: not an outcome worth storing
 // under a key. Returns the refusal, or undefined when the input is well-formed.
@@ -99,6 +108,15 @@ function validate(
     i.set?.courierId?.toLowerCase() !== actor
   ) {
     return INVALID;
+  }
+  // The admin's note is mandatory and capped; the resolve route maps INVALID to 400.
+  if (edge.sets.includes('settlementNote')) {
+    const words = i.set?.settlementNote?.trim().split(/\s+/) ?? [];
+    if (words[0] === '' || words.length > MAX_NOTE_WORDS) return INVALID;
+  }
+  // An admin edge lists only 'admin'; the flag lives on the actor, not the row.
+  if (edge.who.includes('admin') && !(i.actor.kind === 'user' && i.actor.admin)) {
+    return FORBIDDEN;
   }
   const reason = i.set?.cancellationReason;
   if (edge.reasons && !edge.reasons.some((r) => r === reason)) return INVALID;
@@ -159,15 +177,16 @@ async function claimKey(
 }
 
 // Same transaction as the transition, so key, status and event commit together.
-// COURIER_BUSY is transient (the courier may free up), so its key is released
-// and a retry runs afresh; every other outcome is stored for replay.
+// COURIER_BUSY and ROLE_BLOCKED are transient (the courier may free up, the
+// block expires), so their key is released and a retry runs afresh; every
+// other outcome is stored for replay.
 async function storeOutcome(
   tx: Db,
   i: TransitionInput,
   result: TransitionResult,
 ) {
   if (!i.idempotencyKey) return;
-  if (!result.ok && result.reason === 'COURIER_BUSY') {
+  if (!result.ok && RELEASED.includes(result.reason)) {
     await tx.delete(idempotencyKeys).where(keyRow(i));
     return;
   }
@@ -185,13 +204,19 @@ export function transition(
 
   const fingerprint = fingerprintOf(i, actor as string | null);
 
+  // Accept: validate() made the actor the courier, so this is their user id.
+  const courier = edge?.sets.includes('courierId') ? (actor as string) : undefined;
+
   return db.transaction(async (tx): Promise<TransitionResult> => {
+    // Taken first, so a concurrent role block for this courier serializes with us.
+    if (courier) await lockUser(tx, courier);
     const replay = await claimKey(tx, i, fingerprint);
     if (replay) return replay;
 
-    const result = edge
-      ? await apply(tx, i, edge, actor as string | null)
-      : ILLEGAL;
+    let result: TransitionResult;
+    if (!edge) result = ILLEGAL;
+    else if (courier && (await isRoleBlocked(tx, courier, Role.Courier))) result = BLOCKED;
+    else result = await apply(tx, i, edge, actor as string | null);
     await storeOutcome(tx, i, result);
     return result;
   });
@@ -202,6 +227,7 @@ const roleSql: Record<UserRole, (a: string) => SQL> = {
   requester: (a) => eq(errands.requesterId, a),
   courier: (a) => eq(errands.courierId, a),
   other: (a) => ne(errands.requesterId, a),
+  admin: () => sql`true`, // validate() already checked the flag
 };
 // A null actor is the system and matches no row predicate: it passes only on
 // an edge that lists 'system'. A user passes if any of their roles holds.
@@ -359,6 +385,14 @@ async function explainNoRow(
   return { ok: false, reason: 'STATE_MISMATCH', currentStatus: cur.status };
 }
 
+const countEvents = async (tx: Db, errandId: string, type: string) =>
+  (
+    await tx
+      .select({ n: count() })
+      .from(errandEvents)
+      .where(and(eq(errandEvents.errandId, errandId), eq(errandEvents.type, type)))
+  )[0].n;
+
 async function apply(
   tx: Db,
   i: TransitionInput,
@@ -382,8 +416,13 @@ async function apply(
     errandId: i.errandId,
     requesterId: row.row.requesterId,
     courierId: row.row.courierId,
+    actorUserId: actor,
     rewardCredits: row.row.rewardCredits,
     payload: { ...i.payload, ...i.set },
+    attempt:
+      edge.type === 'SettlementRequested'
+        ? await countEvents(tx, i.errandId, edge.type)
+        : 1,
   });
   if (notice) await enqueueNotice(tx, notice);
   return { ok: true, sequenceNumber: row.seq };

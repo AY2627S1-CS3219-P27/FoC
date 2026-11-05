@@ -122,10 +122,10 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    const user = await this.usersService.getUserByUuid(record.userId);
+    const user = await this.usersService.getActiveUserByUuid(record.userId);
 
     if (user === null) {
-      // throw same error
+      // throw same error (also for a locked or archived account)
       throw new UnauthorizedException('Invalid refresh token');
     }
 
@@ -142,6 +142,31 @@ export class AuthService {
       }),
     );
     return token;
+  }
+
+  /**
+   * Revokes the single refresh token presented by the logging-out device.
+   * The raw token is HMACed to the stored key, mirroring refreshSession's
+   * lookup. Revocation is recorded by collapsing expiresAt to the request
+   * receipt time.
+   */
+  async revokeRefreshToken(token: string) {
+    const hashedToken = hmacValue(token, this.secretService.getServerSecret());
+    await this.refreshTokenRepository.update(
+      { hashedToken },
+      { expiresAt: new Date() },
+    );
+  }
+
+  /**
+   * Revokes every refresh token held by the account in a single statement, so
+   * all rows share one revocation datetime.
+   */
+  async revokeAllRefreshTokens(userId: string) {
+    await this.refreshTokenRepository.update(
+      { userId },
+      { expiresAt: new Date() },
+    );
   }
 
   /**

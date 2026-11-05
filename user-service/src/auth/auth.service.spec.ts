@@ -26,7 +26,7 @@ describe('AuthService', () => {
   let usersService: {
     provisionUser: ReturnType<typeof vi.fn>;
     checkUserAndReturnInfo: ReturnType<typeof vi.fn>;
-    getUserByUuid: ReturnType<typeof vi.fn>;
+    getActiveUserByUuid: ReturnType<typeof vi.fn>;
   };
   let jwtService: { signAsync: ReturnType<typeof vi.fn> };
   let refreshTokenRepository: {
@@ -34,6 +34,7 @@ describe('AuthService', () => {
     save: ReturnType<typeof vi.fn>;
     delete: ReturnType<typeof vi.fn>;
     findOneBy: ReturnType<typeof vi.fn>;
+    update: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(async () => {
@@ -47,7 +48,7 @@ describe('AuthService', () => {
         isAdmin: false,
       })),
       checkUserAndReturnInfo: vi.fn(),
-      getUserByUuid: vi.fn(),
+      getActiveUserByUuid: vi.fn(),
     };
     jwtService = { signAsync: vi.fn(async () => 'signed-jwt') };
     refreshTokenRepository = {
@@ -55,6 +56,7 @@ describe('AuthService', () => {
       save: vi.fn(async (data) => ({ ...data })),
       delete: vi.fn(),
       findOneBy: vi.fn(),
+      update: vi.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -289,7 +291,7 @@ describe('AuthService', () => {
 
     it('signs a fresh access token for the session bound to a valid token', async () => {
       refreshTokenRepository.findOneBy.mockResolvedValue(validRecord);
-      usersService.getUserByUuid.mockResolvedValue(refreshedUser);
+      usersService.getActiveUserByUuid.mockResolvedValue(refreshedUser);
 
       await expect(service.refreshSession('opaque-token')).resolves.toEqual({
         accessToken: 'signed-jwt',
@@ -304,7 +306,7 @@ describe('AuthService', () => {
       expect(refreshTokenRepository.findOneBy).toHaveBeenCalledWith({
         hashedToken: 'deadbeef',
       });
-      expect(usersService.getUserByUuid).toHaveBeenCalledWith(
+      expect(usersService.getActiveUserByUuid).toHaveBeenCalledWith(
         '11111111-1111-4111-8111-111111111111',
       );
       expect(jwtService.signAsync).toHaveBeenCalledTimes(1);
@@ -331,10 +333,10 @@ describe('AuthService', () => {
           }),
       },
       {
-        name: 'a token bound to a pruned account',
+        name: 'a token bound to a pruned, locked or archived account',
         setup: () => {
           refreshTokenRepository.findOneBy.mockResolvedValue(validRecord);
-          usersService.getUserByUuid.mockResolvedValue(null);
+          usersService.getActiveUserByUuid.mockResolvedValue(null);
         },
       },
     ])('rejects $name with the identical generic error (F5.2)', ({ setup }) => {
@@ -355,6 +357,54 @@ describe('AuthService', () => {
         UnauthorizedException,
       );
       expect(jwtService.signAsync).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('revokeRefreshToken', () => {
+    it('revokes exactly the presented token by its HMAC', async () => {
+      await service.revokeRefreshToken('opaque-token');
+
+      // The revocation is keyed on the HMAC of the raw token, matching how the
+      // session record is stored and looked up on refresh.
+      expect(vi.mocked(hmacValue)).toHaveBeenCalledWith(
+        'opaque-token',
+        'test-secret',
+      );
+      expect(refreshTokenRepository.update).toHaveBeenCalledWith(
+        { hashedToken: 'deadbeef' },
+        { expiresAt: expect.any(Date) },
+      );
+      // Device-scoped: no other rows are touched.
+      expect(refreshTokenRepository.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('records the revocation datetime as the moment of revocation (F7.1.2)', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-10-17T12:00:00Z'));
+
+      await service.revokeRefreshToken('opaque-token');
+
+      expect(refreshTokenRepository.update).toHaveBeenCalledWith(
+        { hashedToken: 'deadbeef' },
+        { expiresAt: new Date('2026-10-17T12:00:00Z') },
+      );
+
+      vi.useRealTimers();
+    });
+  });
+
+  describe('revokeAllRefreshTokens', () => {
+    it('revokes every token for the account in a single statement (F7.2.1)', async () => {
+      await service.revokeAllRefreshTokens(
+        '11111111-1111-4111-8111-111111111111',
+      );
+
+      // One update, keyed on the user, stamps every row with the same value.
+      expect(refreshTokenRepository.update).toHaveBeenCalledTimes(1);
+      expect(refreshTokenRepository.update).toHaveBeenCalledWith(
+        { userId: '11111111-1111-4111-8111-111111111111' },
+        { expiresAt: expect.any(Date) },
+      );
     });
   });
 });
@@ -396,7 +446,7 @@ describe('access token contract conformance', () => {
               isAdmin: false,
               roles: [Role.Requester],
             })),
-            getUserByUuid: vi.fn(async () => ({
+            getActiveUserByUuid: vi.fn(async () => ({
               uuid: '11111111-1111-4111-8111-111111111111',
               email: 'eve@example.com',
               displayName: 'Eve',
@@ -471,7 +521,7 @@ describe('access token contract conformance', () => {
         {
           provide: UsersService,
           useValue: {
-            getUserByUuid: vi.fn(async () => ({
+            getActiveUserByUuid: vi.fn(async () => ({
               uuid: '11111111-1111-4111-8111-111111111111',
               email: 'eve@example.com',
               displayName: 'Eve',

@@ -12,6 +12,7 @@ WORKDIR /usr/src/app
 COPY packages/contracts/package*.json /usr/src/packages/contracts/
 COPY packages/auth/package*.json /usr/src/packages/auth/
 COPY packages/outbox/package*.json /usr/src/packages/outbox/
+COPY packages/observability/package*.json /usr/src/packages/observability/
 COPY user-service/package*.json ./
 
 # Install the exact dependency versions. user-service's postinstall also
@@ -26,7 +27,9 @@ COPY packages/contracts/tsconfig*.json /usr/src/packages/contracts/
 COPY packages/auth/src/ /usr/src/packages/auth/src/
 COPY packages/auth/tsconfig*.json /usr/src/packages/auth/
 COPY packages/outbox/src/ /usr/src/packages/outbox/src/
+COPY packages/observability/src/ /usr/src/packages/observability/src/
 COPY packages/outbox/tsconfig*.json /usr/src/packages/outbox/
+COPY packages/observability/tsconfig*.json /usr/src/packages/observability/
 COPY user-service/ .
 
 EXPOSE 3000
@@ -41,7 +44,9 @@ COPY packages/contracts/tsconfig*.json /usr/src/packages/contracts/
 COPY packages/auth/src/ /usr/src/packages/auth/src/
 COPY packages/auth/tsconfig*.json /usr/src/packages/auth/
 COPY packages/outbox/src/ /usr/src/packages/outbox/src/
+COPY packages/observability/src/ /usr/src/packages/observability/src/
 COPY packages/outbox/tsconfig*.json /usr/src/packages/outbox/
+COPY packages/observability/tsconfig*.json /usr/src/packages/observability/
 COPY user-service/ .
 
 RUN npm run build
@@ -54,10 +59,11 @@ RUN npm prune --omit=dev --prefix /usr/src/packages/contracts
 # Copy them in as real dirs, then drop their own node_modules so their runtime and
 # peer deps resolve from the app's single hoisted node_modules. (A copied @nestjs/core
 # would be a second class instance and break NestJS DI token identity for the guards.)
-RUN rm -rf node_modules/@foc/auth node_modules/@foc/outbox
+RUN rm -rf node_modules/@foc/auth node_modules/@foc/outbox node_modules/@foc/observability
 RUN cp -r /usr/src/packages/auth node_modules/@foc/auth
 RUN cp -r /usr/src/packages/outbox node_modules/@foc/outbox
-RUN rm -rf node_modules/@foc/auth/node_modules node_modules/@foc/outbox/node_modules
+RUN cp -r /usr/src/packages/observability node_modules/@foc/observability
+RUN rm -rf node_modules/@foc/auth/node_modules node_modules/@foc/outbox/node_modules node_modules/@foc/observability/node_modules
 
 # Minimal production image
 FROM node:26-alpine AS production

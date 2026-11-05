@@ -24,6 +24,7 @@ export interface EnvironmentVariables extends OutboxEnvironmentVariables {
   NODE_ENV: 'development' | 'test' | 'production';
   PORT: number;
   LOG_LEVEL: LogLevelName;
+  OTEL_EXPORTER_OTLP_ENDPOINT: string;
   DB_HOST: string;
   DB_PORT: number;
   DB_USERNAME: string;
@@ -95,6 +96,7 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
   LOG_LEVEL: Joi.string()
     .valid(...LOG_LEVELS)
     .default('log'),
+  OTEL_EXPORTER_OTLP_ENDPOINT: Joi.string().uri().default('http://localhost:4318'),
   DB_HOST: Joi.string().hostname().required(),
   DB_PORT: Joi.number().port().required(),
   DB_USERNAME: Joi.string().min(1).required(),

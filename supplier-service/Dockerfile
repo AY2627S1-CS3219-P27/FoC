@@ -19,6 +19,7 @@ RUN npm install --global "npm@${NPM_VERSION}"
 COPY packages/contracts/package*.json /usr/src/packages/contracts/
 COPY packages/auth/package*.json /usr/src/packages/auth/
 COPY packages/outbox/package*.json /usr/src/packages/outbox/
+COPY packages/observability/package*.json /usr/src/packages/observability/
 COPY supplier-service/package*.json ./
 
 RUN npm install --no-audit --no-fund
@@ -26,6 +27,7 @@ RUN npm install --no-audit --no-fund
 COPY packages/contracts/ /usr/src/packages/contracts/
 COPY packages/auth/ /usr/src/packages/auth/
 COPY packages/outbox/ /usr/src/packages/outbox/
+COPY packages/observability/ /usr/src/packages/observability/
 
 FROM dependencies AS development
 
@@ -48,7 +50,7 @@ RUN npm run build
 # second copy of Nest), so repack them afterwards, production dependencies only.
 RUN npm prune --omit=dev \
   && rm -rf node_modules/@foc/auth node_modules/@foc/outbox \
-  && npm install --install-links --omit=dev --no-audit --no-fund ../packages/auth ../packages/outbox
+  && npm install --install-links --omit=dev --no-audit --no-fund ../packages/auth ../packages/outbox ../packages/observability
 
 FROM node:22-alpine AS production
 

@@ -18,13 +18,17 @@
         "payload": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["errandId", "supplierId"],
+          "required": ["errandId", "supplierId", "deliveryBuildingId"],
           "properties": {
             "errandId": {
               "type": "string",
               "format": "uuid"
             },
             "supplierId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "deliveryBuildingId": {
               "type": "string",
               "format": "uuid"
             }

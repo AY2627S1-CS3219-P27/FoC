@@ -1,4 +1,5 @@
 import { once } from 'node:events';
+import { annotateConsumeSpan } from '@foc/observability';
 import {
   Inject,
   Injectable,
@@ -566,6 +567,11 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
 
     const eventId = extractEventId(body, message.properties);
     const retryCount = retryCountFrom(message);
+    annotateConsumeSpan({
+      messageId: eventId,
+      routingKey: message.fields.routingKey,
+      retryCount,
+    });
     if (retryCount === undefined) {
       await this.deadLetterOrRequeue(
         message,

@@ -305,31 +305,69 @@ describe('ReleaseService durable ingress', () => {
     ).resolves.toMatchObject({ requesterUserId, amount: 25 });
   });
 
-  it('rejects conflicting reserve and reservation amounts without accepting ingress', async () => {
-    const incoming = command();
+  it.each([
+    ['increased', 20, 25],
+    ['decreased', 30, 25],
+  ] as const)(
+    'uses the current reservation amount after the reward was %s',
+    async (_direction, originalAmount, currentAmount) => {
+      const incoming = command();
+      const requesterUserId = randomUUID();
+      await createReserveOperation(
+        incoming.payload.errandId,
+        requesterUserId,
+        originalAmount,
+      );
+      await createReservation(
+        incoming.payload.errandId,
+        requesterUserId,
+        currentAmount,
+      );
+
+      await expect(service.accept(incoming)).resolves.toMatchObject({
+        status: 'accepted',
+      });
+
+      await expect(
+        dataSource.getRepository(CreditOperation).findOneByOrFail({
+          errandId: incoming.payload.errandId,
+          operationType: 'RELEASE',
+        }),
+      ).resolves.toMatchObject({
+        requesterUserId,
+        amount: currentAmount,
+      });
+      expect(
+        await dataSource
+          .getRepository(InboxEvent)
+          .countBy({ eventId: incoming.eventId }),
+      ).toBe(1);
+    },
+  );
+
+  it('refreshes stale pending release context from the current reservation', async () => {
+    const first = command();
     const requesterUserId = randomUUID();
-    await createReserveOperation(
-      incoming.payload.errandId,
-      requesterUserId,
-      20,
-    );
-    await createReservation(incoming.payload.errandId, requesterUserId, 25);
+    await createReserveOperation(first.payload.errandId, requesterUserId, 25);
+    await createReservation(first.payload.errandId, requesterUserId, 25);
+    const accepted = await service.accept(first);
+    await dataSource
+      .getRepository(CreditReservation)
+      .update({ errandId: first.payload.errandId }, { reservedAmount: 40 });
 
-    await expect(service.accept(incoming)).rejects.toThrow(
-      'Reservation and reserve operation disagree on amount',
-    );
+    const replay = await service.accept(command({ payload: first.payload }));
 
-    expect(
-      await dataSource.getRepository(CreditOperation).countBy({
-        errandId: incoming.payload.errandId,
+    expect(replay).toMatchObject({
+      status: 'semantic-replay-pending',
+      operationId:
+        accepted.status === 'accepted' ? accepted.operationId : undefined,
+    });
+    await expect(
+      dataSource.getRepository(CreditOperation).findOneByOrFail({
+        errandId: first.payload.errandId,
         operationType: 'RELEASE',
       }),
-    ).toBe(0);
-    expect(
-      await dataSource
-        .getRepository(InboxEvent)
-        .countBy({ eventId: incoming.eventId }),
-    ).toBe(0);
+    ).resolves.toMatchObject({ requesterUserId, amount: 40 });
   });
 
   it('enriches a pending semantic replay from the reserve operation', async () => {

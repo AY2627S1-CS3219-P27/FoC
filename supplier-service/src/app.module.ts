@@ -1,6 +1,8 @@
 import { FocAuthModule } from '@foc/auth';
 import { OutboxModule } from '@foc/outbox';
 import { Module } from '@nestjs/common';
+import { LoggerModule } from 'nestjs-pino';
+import { pinoHttpOptions } from '@foc/observability';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_PIPE } from '@nestjs/core';
 import { readJwtPublicKey } from './auth/jwt-public-key.js';
@@ -28,6 +30,7 @@ import { ValidationModule } from './validation/validation.module.js';
       cache: true,
       validationSchema: environmentSchema,
     }),
+    LoggerModule.forRoot({ pinoHttp: pinoHttpOptions('supplier-service') }),
     // The team's shared access-token verification (@foc/auth, as in
     // user-service): controllers apply JwtAuthGuard / AdminGuard. Only the
     // public key is needed; the signing key never leaves user-service.

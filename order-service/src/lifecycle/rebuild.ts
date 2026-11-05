@@ -19,20 +19,32 @@ export type RebuildEvent = Pick<
 const COLUMNS = [
   'requesterId',
   'supplierId',
+  'supplierValidatedAt',
+  'deliveryBuildingId',
+  'deliveryDetail',
   'deliveryLocation',
   'rewardCredits',
   'collectionItems',
   'pickupLocation',
+  'pickupName',
+  'pickupDescription',
   'description',
   'expiresAt',
   'courierId',
   'pickedUpAt',
   'deliveredAt',
   'cancellationReason',
+  'settlementAmount',
+  'settlementNote',
 ] as const;
 
 // Stored as ISO strings in the payload, restored to Dates here.
-const DATE_COLUMNS: readonly string[] = ['expiresAt', 'pickedUpAt', 'deliveredAt'];
+const DATE_COLUMNS: readonly string[] = [
+  'supplierValidatedAt',
+  'expiresAt',
+  'pickedUpAt',
+  'deliveredAt',
+];
 
 // Pure replay: events in sequence order in, projection out.
 export function foldEvents(events: RebuildEvent[]): RebuiltErrand | null {
@@ -40,12 +52,18 @@ export function foldEvents(events: RebuildEvent[]): RebuiltErrand | null {
 
   const state: Record<string, unknown> = {
     courierId: null,
+    supplierValidatedAt: null,
+    deliveryLocation: null,
     pickupLocation: null,
+    pickupName: null,
+    pickupDescription: null,
     description: null,
     expiresAt: null,
     pickedUpAt: null,
     deliveredAt: null,
     cancellationReason: null,
+    settlementAmount: null,
+    settlementNote: null,
   };
 
   events.forEach((e, idx) => {

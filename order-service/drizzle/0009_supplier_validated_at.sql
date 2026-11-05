@@ -1,0 +1,1 @@
+ALTER TABLE "errands" ADD COLUMN "supplier_validated_at" timestamp with time zone;

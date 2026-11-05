@@ -34,9 +34,14 @@ export const errands = pgTable(
     //columns here are to allow for sorting and filtering
     courierId: uuid('courier_id'),
     supplierId: uuid('supplier_id').notNull(),
+    supplierValidatedAt: ts('supplier_validated_at'),
     description: text('description'), // optional delivery instructions
     pickupLocation: text('pickup_location'),
-    deliveryLocation: text('delivery_location').notNull(),
+    pickupName: text('pickup_name'), // supplier display name, from the supplier snapshot
+    pickupDescription: text('pickup_description'), // floor and spot, from the supplier snapshot
+    deliveryBuildingId: uuid('delivery_building_id').notNull(),
+    deliveryDetail: text('delivery_detail').notNull(), // requester's room or level; never sent to supplier-service
+    deliveryLocation: text('delivery_location'), // building short name, from the delivery building snapshot
     rewardCredits: integer('reward_credits').notNull(),
     collectionItems: text('collection_items').notNull(), // read-only; never filtered or sorted
 
@@ -47,6 +52,10 @@ export const errands = pgTable(
     deliveredAt: ts('delivered_at'), // starts the 24h Delivered -> Completed timer (ADR 0007)
 
     cancellationReason: text('cancellation_reason'),
+    // Dispute resolution: the admin's settlement, set on SettlementRequested and
+    // cleared on a credit rejection. Shown to the parties only once Resolved.
+    settlementAmount: integer('settlement_amount'), // courier's share, 0..rewardCredits
+    settlementNote: text('settlement_note'),
     createdAt: ts('created_at').notNull().defaultNow(),
     // the in-flight hold-window sweeps read this as "time entered the
     // status" (only transition() writes the row, and in-flight refuses every
@@ -75,6 +84,10 @@ export const errands = pgTable(
         CANCELLATION_REASONS.map((r) => sql.raw(`'${r}'`)),
         sql`, `,
       )})`,
+    ),
+    check(
+      'errands_settlement_amount_valid',
+      sql`${t.settlementAmount} IS NULL OR ${t.settlementAmount} BETWEEN 0 AND ${t.rewardCredits}`,
     ),
     index().on(t.requesterId, t.status),
   ],
@@ -116,6 +129,17 @@ export const idempotencyKeys = pgTable(
   ],
 );
 
+// Owned by the sweep; kept off `errands` so only transition() writes the projection.
+export const supplierValidationRetries = pgTable(
+  'supplier_validation_retries',
+  {
+    errandId: uuid('errand_id').primaryKey(),
+    attempts: integer('attempts').notNull().default(0),
+    nextRetryAt: ts('next_retry_at').notNull(),
+  },
+  (t) => [index().on(t.nextRetryAt)],
+);
+
 // Transactional outbox (credit ADR 0004): notices are inserted in the same
 // transaction as the state change and published to the broker by the relay.
 export const outboxEvents = pgTable(
@@ -139,5 +163,36 @@ export const outboxEvents = pgTable(
     index('outbox_events_unpublished_idx')
       .on(t.nextAttemptAt, t.createdAt, t.eventId)
       .where(sql`${t.publishedAt} IS NULL`),  
+  ],
+);
+
+// Short-lived block on a participant role (F10): a stale access token may still
+// carry the role, so create/accept refuse while `expires_at` is in the future.
+export const roleBlocks = pgTable(
+  'role_blocks',
+  {
+    userId: uuid('user_id').notNull(),
+    role: text('role').notNull(),
+    expiresAt: ts('expires_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.role] })],
+);
+
+// Dispute resolution: one optional, immutable account per party on an Incomplete
+// errand. Not a lifecycle transition, so it writes no event and is not rebuilt.
+export const disputeReports = pgTable(
+  'dispute_reports',
+  {
+    errandId: uuid('errand_id')
+      .notNull()
+      .references(() => errands.id),
+    authorId: uuid('author_id').notNull(),
+    role: text('role').notNull(), // 'requester' | 'courier'
+    body: text('body').notNull(),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.errandId, t.authorId] }),
+    check('dispute_reports_role_valid', sql`${t.role} IN ('requester', 'courier')`),
   ],
 );

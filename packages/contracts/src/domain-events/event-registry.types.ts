@@ -27,6 +27,9 @@ export type CreditReservationAdjustmentSuccessEvent =
   EventOf<'credit.reservation-adjustment-success.v1'>;
 export type CreditReservationAdjustmentRejectedEvent =
   EventOf<'credit.reservation-adjustment-rejected.v1'>;
+export type ErrandAcceptedEvent = EventOf<'order.errand-accepted.v1'>;
+export type ErrandDeliveredEvent = EventOf<'order.errand-delivered.v1'>;
+export type CourierCancelledEvent = EventOf<'order.courier-cancelled.v1'>;
 export type ErrandCompletedEvent = EventOf<'order.errand-completed.v1'>;
 export type ErrandCancelledEvent = EventOf<'order.errand-cancelled.v1'>;
 export type CreditTransferSucceededEvent =
@@ -35,6 +38,11 @@ export type CreditTransferRejectedEvent =
   EventOf<'credit.transfer-rejected.v1'>;
 export type CreditReleaseSuccessEvent = EventOf<'credit.release-success.v1'>;
 export type CreditReleaseRejectedEvent = EventOf<'credit.release-rejected.v1'>;
+export type CreditSettlementEvent = EventOf<'credit.settlement.v1'>;
+export type CreditSettlementSucceededEvent =
+  EventOf<'credit.settlement-succeeded.v1'>;
+export type CreditSettlementRejectedEvent =
+  EventOf<'credit.settlement-rejected.v1'>;
 export type SupplierValidationRequestedEvent =
   EventOf<'order.supplier-validation-requested.v1'>;
 export type SupplierValidationCompletedEvent =
