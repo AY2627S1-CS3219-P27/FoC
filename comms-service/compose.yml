@@ -38,7 +38,7 @@ services:
       REDIS_USERNAME: ${REDIS_USERNAME:-default}
       REDIS_DB_INDEX: ${REDIS_DB_INDEX:-0}
       SOCKET_PATH: ${SOCKET_PATH:-/socket.io}
-      SOCKET_ALLOWED_ORIGINS: ${SOCKET_ALLOWED_ORIGINS:-http://localhost:3000}
+      SOCKET_ALLOWED_ORIGINS: ${SOCKET_ALLOWED_ORIGINS:-http://localhost:3001}
       SOCKET_TRANSPORT: ${SOCKET_TRANSPORT:-websocket}
     secrets:
       - comms_db_password

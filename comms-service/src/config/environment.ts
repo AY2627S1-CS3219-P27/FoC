@@ -40,7 +40,7 @@ export interface EnvironmentVariables {
 }
 
 const origins = Joi.any()
-  .default(['http://localhost:3000'])
+  .default(['http://localhost:3001'])
   .custom((value: unknown, helpers) => {
     if (Array.isArray(value)) return value;
     if (typeof value !== 'string') return helpers.error('any.invalid');
