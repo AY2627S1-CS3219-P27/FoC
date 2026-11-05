@@ -19,6 +19,9 @@ function controller(
   const redis = {
     check: overrides.redis ?? vi.fn().mockResolvedValue(undefined),
   };
+  const consumers = {
+    checkConsumers: overrides.consumers ?? vi.fn().mockResolvedValue(undefined),
+  };
   const socketRedis = {
     check: overrides.socketRedis ?? vi.fn().mockResolvedValue(undefined),
   };
@@ -40,7 +43,13 @@ describe('HealthController', () => {
     await expect(controller().ready()).resolves.toEqual({ status: 'ok' });
   });
 
-  it.each(['database', 'rabbitmq', 'redis', 'socketRedis'] as const)(
+  it.each([
+    'database',
+    'rabbitmq',
+    'consumers',
+    'redis',
+    'socketRedis',
+  ] as const)(
     'sanitizes a %s readiness failure',
     async (dependency) => {
       const failure = vi
