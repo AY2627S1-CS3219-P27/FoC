@@ -101,7 +101,6 @@ erDiagram
         text_array aliases "other spellings"
         double latitude
         double longitude
-        boolean allows_pin "true only for Other (map pin)"
         timestamptz retired_at "null = in use"
         timestamptz created_at
         timestamptz updated_at
@@ -174,7 +173,7 @@ erDiagram
 | Table | Purpose | Rules the database enforces |
 |---|---|---|
 | `suppliers` | One row per pickup point | `UNIQUE (name_key, building_id, floor)` blocks duplicates, even when two requests race (F1.5, F1.5.2). CHECKs on name length, floor format, non-blank location and coordinate ranges. `building_id` must exist. |
-| `buildings` | The controlled list of campus buildings (F4) | Coordinate range CHECKs. `allows_pin` is true for one placeholder row, "Other (map pin)" (see below). |
+| `buildings` | The controlled list of campus buildings (F4) | Coordinate range CHECKs. One placeholder row, "Other (map pin)", is the building with short name `PIN` (see below). |
 | `venues` | Delivery rooms inside a building (migration `1791072000000-create-venues.ts`) | `UNIQUE (building_id, code)`; CHECKs on floor format and coordinate ranges; `building_id` must exist and a building with venues can't be deleted. Venues are retired (`retired_at`), never deleted, so past orders still resolve. |
 | `building_name_keys` | Every name, short name and alias of each in-use building, normalised | The primary key makes two in-use buildings sharing a name impossible (F4.2). Looking up a building by any name is one key lookup (F4.5). |
 | `categories` | The controlled list of categories (F11) | Partial unique index on `name_key` among non-retired categories (F11.2.1) |
@@ -204,7 +203,7 @@ Rules the database **can't** express are checked in the service, inside the same
 - `building_name_keys` is derived from it, like an index: one row per name (full, short and every alias), lower-cased with spaces removed and every apostrophe style made the same, for in-use buildings only. It is rebuilt whenever a building's names change. So "COM2", "Com 2" and "com2" are one name, as are "Prince George's Park" and "Prince George’s Park".
 - It exists because F4.2 forbids two in-use buildings sharing **any** name. A normal unique index can't span three columns plus every item in a list, but a primary key on one row per name can, so the database itself enforces the rule.
 
-**Delivery venues and the map-pin building.** A requester picks a building, then optionally a venue in it. `GET /buildings` items carry `venueCount` (active venues; 0 means skip the venue step) and `allowsPin`. Exactly one building has `allowsPin: true`: "Other (map pin)", short name `PIN`, a fixed placeholder at the campus centre, created at every startup if missing (independent of `VENUE_SEED_PATH` and `SEED_ON_STARTUP`). A pin errand sends that building's id and no venue id, so `deliveryBuildingId` stays required and the contract is unchanged; the pin's own coordinates are Order Service's concern. The service refuses to retire it, to add venues to it, or to put suppliers in it (409 / 400 `building cannot hold suppliers`). Migration `1791244800000-add-building-allows-pin.ts` adds the column; `1791331200000-rename-as8-building.ts` renames "Blk AS8" to "Arts and Social Sciences 8" (keeping "Blk AS8" as an alias).
+**Delivery venues and the map-pin building.** A requester picks a building, then optionally a venue in it. `GET /buildings` items carry `venueCount` (active venues; 0 means skip the venue step) and `allowsPin`. `allowsPin` is true for exactly one building, the one with short name `PIN` ("Other (map pin)"; there is no column, and `building_name_keys` keeps the short name unique). It cannot be given another short name, and it is a fixed placeholder at the campus centre, created at every startup if no building has the short name `PIN` (independent of `VENUE_SEED_PATH` and `SEED_ON_STARTUP`). A pin errand sends that building's id and no venue id, so `deliveryBuildingId` stays required and the contract is unchanged; the pin's own coordinates are Order Service's concern. The service refuses to retire it, to add venues to it, or to put suppliers in it (409 / 400 `building cannot hold suppliers`). Migration `1791331200000-rename-as8-building.ts` renames "Blk AS8" to "Arts and Social Sciences 8" (keeping "Blk AS8" as an alias).
 
 ### How the D2 metadata is stored and queried
 

@@ -187,14 +187,24 @@ are for the order-service owner to confirm.
   asked for. Precedence: `NOT_FOUND`, then `BUILDING_NOT_FOUND`, then
   `VENUE_NOT_FOUND`. An unknown, retired or other-building venue is all
   `VENUE_NOT_FOUND`.
-- **Map pin without a contract change.** One flagged placeholder building,
-  "Other (map pin)" (`allowsPin: true` on `GET /buildings`), keeps
+- **Map pin without a contract change.** One placeholder building,
+  "Other (map pin)", identified by its short name `PIN` (`allowsPin: true` on
+  `GET /buildings`), keeps
   `deliveryBuildingId` required. A pin errand sends that building's id and no
   venue id and validates as `FOUND`; a venue id sent with it is
   `VENUE_NOT_FOUND`. The reply carries no pin flag. The pin's coordinates stay
   Order Service's concern.
 - Supplier Service refuses to retire the pin building, or to attach venues or
   suppliers to it.
+- **Building alone, or pin, never both.** A requester who cannot find their
+  venue drops a pin instead, and the pin building replaces the building they
+  had chosen: the pin cannot be tied to a building, so no building is kept.
+  Validation still accepts a building with no venue even if that building has
+  venues; the reply carries no venue count, so that choice is the client's.
+- **Venues have no admin endpoint yet.** They come only from the seed file,
+  and `VenuesService.retire` has no HTTP caller, so a venue is retired by hand
+  today. Admin endpoints to create, update and retire venues are tracked in
+  #822 and deferred until time allows.
 
 ## Who does what
 
