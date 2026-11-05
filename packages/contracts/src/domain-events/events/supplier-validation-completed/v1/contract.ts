@@ -43,7 +43,7 @@ export type SupplierValidationCompletedPayload = {
   | {
       outcome: 'FOUND';
       supplier: SupplierValidationSnapshot;
-      deliveryBuilding: DeliveryBuildingSnapshot;
+      deliveryBuilding?: DeliveryBuildingSnapshot; // TODO(rollout): absent when the question had no building
     }
   | { outcome: 'NOT_FOUND' }
   | { outcome: 'BUILDING_NOT_FOUND' }

@@ -18,7 +18,7 @@
         "payload": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["errandId", "supplierId", "deliveryBuildingId"],
+          "required": ["errandId", "supplierId"],
           "properties": {
             "errandId": {
               "type": "string",

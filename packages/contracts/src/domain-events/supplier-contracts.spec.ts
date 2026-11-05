@@ -104,7 +104,7 @@ describe('supplier validation event contracts (Supplier FR F15.7)', () => {
     });
   });
 
-  it.each(['errandId', 'supplierId', 'deliveryBuildingId'])(
+  it.each(['errandId', 'supplierId'])(
     'rejects a question without %s, or with a non-UUID one',
     (field) => {
       const missing = question() as { payload: Record<string, unknown> };
@@ -123,14 +123,21 @@ describe('supplier validation event contracts (Supplier FR F15.7)', () => {
     },
   );
 
-  it('requires the delivery building when FOUND', () => {
+  // TODO(rollout): delivery building is optional until the frontend sends it.
+  it('rollout bridge: accepts a question and a FOUND reply without a delivery building', () => {
+    const asked = question() as { payload: Record<string, unknown> };
+    delete asked.payload.deliveryBuildingId;
     const foundWithout = found() as { payload: Record<string, unknown> };
     delete foundWithout.payload.deliveryBuilding;
     expect(
-      validator.validate(
-        SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY,
-        foundWithout,
-      ),
+      validator.validate(ORDER_SUPPLIER_VALIDATION_REQUESTED_V1_ROUTING_KEY, asked),
+    ).toMatchObject({ valid: true });
+    expect(
+      validator.validate(SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY, foundWithout),
+    ).toMatchObject({ valid: true });
+    asked.payload.deliveryBuildingId = 'not-a-uuid';
+    expect(
+      validator.validate(ORDER_SUPPLIER_VALIDATION_REQUESTED_V1_ROUTING_KEY, asked),
     ).toMatchObject({ valid: false, code: 'INVALID_PAYLOAD' });
   });
 
