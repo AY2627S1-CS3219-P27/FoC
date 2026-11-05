@@ -1,8 +1,4 @@
-export type {
-  Counter,
-  Gauge,
-  Histogram,
-} from '@prometheus-io/client';
+export type { Counter, Gauge, Histogram } from '@prometheus-io/client';
 export {
   initTelemetry,
   registerShutdown,
@@ -13,6 +9,7 @@ export {
   initMetrics,
   createMetricsHandler,
   createLabeledCounter,
+  createLabeledHistogram,
   registry,
   METRICS_PREFIX,
 } from './metrics.js';
@@ -21,6 +18,4 @@ export {
   MESSAGE_RETRY_COUNT_ATTRIBUTE,
   type ConsumeSpanAttributes,
 } from './messaging.js';
-export {
-  pinoHttpOptions,
-} from './logs.js';
+export { pinoHttpOptions } from './logs.js';

@@ -48,12 +48,7 @@ const expectDenied = async (description, action) => {
 try {
   const channel = await connection.createConfirmChannel();
   channel.on('error', () => undefined);
-  const primaryQueues = [
-    'comms-service.order-errand-accepted.v1',
-    'comms-service.order-errand-delivered.v1',
-    'comms-service.order-courier-cancelled.v1',
-    'comms-service.order-errand-cancelled.v1',
-  ];
+  const primaryQueue = 'comms-service.events';
   const retryDelays = [1_000, 2_000, 4_000, 8_000, 16_000];
 
   for (const exchange of [
@@ -69,38 +64,51 @@ try {
     );
   }
 
-  // Reading a primary is allowed. Preserve any retained delivery exactly by
-  // requeueing it immediately; configuring the primary is tested as denied.
-  const retained = await channel.get(primaryQueues[0], { noAck: false });
+  await channel.assertQueue(primaryQueue, { durable: true });
+  await channel.bindQueue(primaryQueue, 'foc.pubsub', 'order.#');
+  await channel.bindQueue(primaryQueue, 'foc.comms.back', primaryQueue);
+
+  // Reading the service-owned primary is allowed. Preserve any retained
+  // delivery exactly by requeueing it immediately.
+  const retained = await channel.get(primaryQueue, { noAck: false });
   if (retained !== false) channel.nack(retained, false, true);
 
-  for (const queue of primaryQueues) {
-    await channel.bindQueue(queue, 'foc.comms.back', queue);
-    for (const [index, delay] of retryDelays.entries()) {
-      const retryQueue = `${queue}.retry.${index + 1}`;
-      await channel.assertQueue(retryQueue, {
-        durable: true,
-        messageTtl: delay,
-        deadLetterExchange: 'foc.comms.back',
-        deadLetterRoutingKey: queue,
-      });
-      await channel.bindQueue(retryQueue, 'foc.comms.retry', retryQueue);
-    }
-    const deadLetterQueue = `${queue}.dlq`;
-    await channel.assertQueue(deadLetterQueue, { durable: true });
-    await channel.bindQueue(deadLetterQueue, 'foc.comms.dlx', deadLetterQueue);
+  for (const [index, delay] of retryDelays.entries()) {
+    const retryQueue = `${primaryQueue}.retry.${index + 1}`;
+    await channel.assertQueue(retryQueue, {
+      durable: true,
+      messageTtl: delay,
+      deadLetterExchange: 'foc.comms.back',
+      deadLetterRoutingKey: primaryQueue,
+    });
+    await channel.bindQueue(retryQueue, 'foc.comms.retry', retryQueue);
   }
+  const deadLetterQueue = `${primaryQueue}.dlq`;
+  await channel.assertQueue(deadLetterQueue, { durable: true });
+  await channel.bindQueue(deadLetterQueue, 'foc.comms.dlx', deadLetterQueue);
 
   await channel.close();
 
-  await expectDenied('configure a primary queue', (candidate) =>
-    candidate.assertQueue(primaryQueues[0], { durable: true }),
-  );
   await expectDenied('publish to foc.events', (candidate) =>
     publishPersistent(candidate, 'foc.events', 'order.errand-accepted.v1'),
   );
   await expectDenied('configure foc.events', (candidate) =>
     candidate.assertExchange('foc.events', 'direct', { durable: true }),
+  );
+  await expectDenied(
+    'bind the service queue directly to foc.events',
+    (candidate) =>
+      candidate.bindQueue(
+        primaryQueue,
+        'foc.events',
+        'order.errand-accepted.v1',
+      ),
+  );
+  await expectDenied('publish to foc.pubsub', (candidate) =>
+    publishPersistent(candidate, 'foc.pubsub', 'order.errand-accepted.v1'),
+  );
+  await expectDenied('configure foc.pubsub', (candidate) =>
+    candidate.assertExchange('foc.pubsub', 'topic', { durable: true }),
   );
   await expectDenied('declare another service queue', (candidate) =>
     candidate.assertQueue(`credit-service.permission-test.${randomUUID()}`),

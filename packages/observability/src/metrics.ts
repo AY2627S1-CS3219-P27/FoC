@@ -47,5 +47,21 @@ export function createLabeledCounter(
   });
 }
 
+/** Create a histogram metric with optional labels and explicit buckets. */
+export function createLabeledHistogram(
+  name: string,
+  help: string,
+  labelNames: readonly string[],
+  buckets?: number[],
+): Histogram<string> {
+  return new Histogram({
+    name: `${METRICS_PREFIX}${name}`,
+    help,
+    labelNames,
+    ...(buckets ? { buckets } : {}),
+    registers: [globalRegistry],
+  });
+}
+
 export { globalRegistry as registry };
 export type { Counter, Gauge, Histogram };

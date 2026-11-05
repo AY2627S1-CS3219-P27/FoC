@@ -38,15 +38,19 @@ export type DomainEventDispatchResult =
  * and payload before the typed handler sees it.
  */
 export class DomainEventDispatcher {
-  constructor(
-    private readonly contracts: AccountEventContractValidator,
-  ) {}
+  constructor(private readonly contracts: AccountEventContractValidator) {}
 
   async dispatch(
     routingKey: string,
     input: unknown,
     handlers: DomainEventHandlers,
   ): Promise<DomainEventDispatchResult> {
+    const handler = handlers[routingKey as EventContractKey] as unknown as
+      DomainEventHandler | undefined;
+    if (handler === undefined) {
+      return { outcome: 'skipped', routingKey };
+    }
+
     const checked = this.contracts.validateReceived(routingKey, input);
     if (!checked.valid) {
       return {
@@ -54,12 +58,6 @@ export class DomainEventDispatcher {
         code: checked.code,
         violations: checked.violations,
       };
-    }
-
-    const handler =
-      handlers[checked.key] as unknown as DomainEventHandler | undefined;
-    if (handler === undefined) {
-      return { outcome: 'skipped', routingKey };
     }
 
     await handler(checked.value);
