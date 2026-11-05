@@ -1,11 +1,13 @@
 # Notification Service
 
-Owns the push destinations a user has registered, so the platform can reach
-them when an errand event happens. This slice implements **subscription
-management**: authenticated users register and unregister Web Push endpoints.
+Owns the push destinations a user has registered and delivers platform events
+to them. The service exposes **subscription management** (authenticated users
+register and unregister Web Push endpoints) and an **event consumer** that
+records every validated fact event in a transactional inbox and pushes it to
+the recipients' active subscriptions.
 
-Built with NestJS and TypeScript, PostgreSQL with TypeORM, RabbitMQ (scaffolded
-for the future notification fan-out), Joi environment validation, and Vitest.
+Built with NestJS and TypeScript, PostgreSQL with TypeORM migrations, RabbitMQ,
+Joi environment validation, and Vitest.
 
 ## Subscription API
 
@@ -51,13 +53,61 @@ deactivated and the caller's row created in one transaction; reactivating a
 row does the same in reverse. See
 [`docs/adr/notification-service/001-single-owner-push-endpoints.md`](../docs/adr/notification-service/001-single-owner-push-endpoints.md).
 
-The schema is currently created by TypeORM `synchronize` in development
-(`DB_SYNCHRONIZE`, default `true` in `compose.yml`). The entity and unique
-indexes are written so an explicit initial migration can be generated when the
-service adopts the migration discipline used by credit-service. Because the
-active-endpoint index is unique, a development database created before it
-existed must have duplicate active rows for one endpoint removed (or the
-`notification-db-data` volume recreated) before the service will start.
+The schema is migration-owned (see [Persistence](#persistence)); the unique
+active-endpoint index ships in its own migration. A development database that
+already holds duplicate active rows for one endpoint must have them removed
+before that migration can create the index.
+
+## Notification delivery
+
+The consumer binds one durable queue, `notification-service.inbox`, to the
+shared `foc.pubsub` topic exchange with routing key `#` (topology is owned by
+`rabbitmq/definitions.json`). Retry, return, and dead-letter topology on
+`foc.retry`, `foc.back`, and `foc.dlq` is provisioned idempotently at startup;
+the service fails fast if the primary queue or exchange is missing.
+
+Each message is validated against `@foc/contracts` before persistence:
+
+- a new `eventId` inserts an `inbox_events` row;
+- a redelivery with the same payload hash is acknowledged without a second
+  record;
+- an event id reused with different evidence, an invalid envelope/payload, or
+  malformed JSON is dead-lettered;
+- an unregistered routing key is skipped and acknowledged, because the `#`
+  binding is intentionally broader than this service's contracts.
+
+The inbox only records facts. Dispatch is a separate module: each pushable
+contract has one typed handler in `src/dispatch/dispatchers/`, wired through
+`DomainEventDispatcher` in `src/dispatch/dispatch-handlers.ts`. Because the
+handler key is the contract's routing-key constant, its payload type comes from
+`EventOf<TKey>` — renaming a contract field breaks compilation instead of
+silently pushing to nobody. A handler decides the recipients and message, then
+`DispatchService.enqueue` writes one `notification_deliveries` row per active
+subscription (idempotent on `(event_id, subscription_id)`); the consumer then
+calls `deliverPending` to send whatever is still pending.
+
+Contracts without a dispatcher (for example credit events) are recorded and
+acknowledged without a push. `ErrandCancelled` is in that group today: its
+payload carries only `errandId`, so there is no recipient to address.
+
+Sends use the VAPID private key and mark each delivery `sent`; a push service
+answering `404`/`410` soft-deletes the subscription and abandons that delivery.
+Transient failures leave the delivery pending and let the transport retry the
+event with backoff.
+
+### Persistence
+
+Three tables, created by the initial TypeORM migration (synchronize is
+disabled; migrations run on startup unless `DB_MIGRATIONS_RUN=false`):
+
+- `subscriptions` — one row per `(user_id, endpoint)`, soft-deleted.
+- `inbox_events` — deduplication identity (`event_id`) plus payload hash.
+- `notification_deliveries` — one row per `(event_id, subscription_id)` with
+  the dispatcher-built `message` (jsonb), `pending | sent | abandoned`,
+  attempt count, and last error.
+
+Because development stacks created before this slice used `synchronize`, the
+initial migration creates its tables idempotently; existing rows are kept.
 
 ## Configuration
 
@@ -69,8 +119,9 @@ Database and RabbitMQ passwords are Docker secrets in `secrets/` (copy the
 
 Web Push uses one VAPID keypair for the whole deployment: `VAPID_PUBLIC_KEY`
 (env, served to browsers by the endpoint above) and the matching private key in
-`secrets/vapid_private_key.secret`, which the sending side will consume. Generate
-once with `npx web-push generate-vapid-keys`; never rotate it while browsers hold
+`secrets/vapid_private_key.secret`, used by the sender. `VAPID_SUBJECT` is the
+contact identity sent to push services. Generate the pair once with
+`npx web-push generate-vapid-keys`; never rotate it while browsers hold
 subscriptions, or every stored subscription stops decrypting.
 
 Every environment variable the service reads is validated in
@@ -92,6 +143,8 @@ npm run start:dev   # watch mode
 npm run build       # nest build
 npm run lint        # oxlint --type-aware
 npm test            # vitest unit specs
+npm run migration:show   # list applied / pending migrations
+npm run migration:run    # apply pending migrations explicitly
 ```
 
 Swagger UI is at `/docs` and the generated document at `/docs-json` (internal
