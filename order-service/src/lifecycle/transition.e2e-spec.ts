@@ -828,6 +828,25 @@ describe('transition', () => {
       expect(new Date((last.payload as { expiresAt: string }).expiresAt)).toEqual((await projection(id)).expiresAt);
     });
 
+    it('applies local changes with a reward change and leaves the amount to credit', async () => {
+      const id = await seed('Open');
+      const res = await transition(t.db, {
+        errandId: id, expected: 'Open', to: 'Adjusting-Credit', actor: user(requester),
+        set: { deliveryDetail: 'Level 5' }, payload: { newAmount: 9 },
+      });
+      expect(res).toMatchObject({ ok: true });
+      expect(await projection(id)).toMatchObject({ status: 'Adjusting-Credit', deliveryDetail: 'Level 5', rewardCredits: 5 });
+      expect((await events(id))[0]).toMatchObject({ type: 'AdjustmentRequested', payload: { newAmount: 9, deliveryDetail: 'Level 5' } });
+    });
+
+    it('refuses a reward change after expiry', async () => {
+      const id = await seed('Open');
+      await t.db.update(errands).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(errands.id, id));
+      expect(
+        await transition(t.db, { errandId: id, expected: 'Open', to: 'Adjusting-Credit', actor: user(requester), payload: { newAmount: 9 } }),
+      ).toEqual({ ok: false, reason: 'EXPIRED' });
+    });
+
     it('refuses a duration that would already have run out', async () => {
       const id = await opened();
       // Pretend it opened two hours ago.

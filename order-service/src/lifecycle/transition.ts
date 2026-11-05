@@ -109,11 +109,11 @@ function validate(
   ) {
     return INVALID;
   }
-  // A pure edit must change something.
-  if (edge.optional && !edge.sets.length && !given.length && expiryEditOf(i, edge) === undefined) {
+  // An in-place edit must change something.
+  if (i.expected === i.to && !given.length && expiryEditOf(i, edge) === undefined) {
     return INVALID;
   }
-  if (REQUIRED_TEXT.some((c) => i.set && c in i.set && !/\S/.test(String(i.set[c] ?? '')))) {
+  if (REQUIRED_TEXT.some((c) => i.set?.[c] !== undefined && !/\S/.test(String(i.set[c] ?? '')))) {
     return INVALID;
   }
   // The courier is the actor who accepts, never a name passed in by the caller

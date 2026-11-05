@@ -7,6 +7,7 @@ import {
   HttpCode,
   NotFoundException,
   Param,
+  Patch,
   ParseUUIDPipe,
   Post,
   Query,
@@ -20,11 +21,13 @@ import {
   WithdrawErrandDto,
   AdjustErrandDto,
   CreateErrandDto,
+  EditErrandDto,
   ListErrandsQuery,
   MineErrandsQuery,
 } from './errands.dto.js';
 import { ErrandsQueryService } from './errands.query.js';
 import { requesterCanCancel } from '../lifecycle/edges.js';
+import { toApiStatus } from './api-status.js';
 import { user } from '../lifecycle/transition.js';
 import { ACTIONS, type ActionContext, type ActionName } from './actions.js';
 import { IdempotencyKey } from './idempotency-key.js';
@@ -165,6 +168,43 @@ export class ErrandsController {
     @Res({ passthrough: true }) res: Response,
   ) {
     return this.run('adjust', id, req.user.sub, idempotencyKey, res, body);
+  }
+
+  // F2: one transition per edit. A new reward goes through credit (Adjusting-Credit),
+  // carrying any other changes with it; otherwise the errand changes in place.
+  @Patch(':id')
+  @Roles(Role.Requester)
+  @HttpCode(200)
+  async edit(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: EditErrandDto,
+    @Req() req: AuthenticatedRequest,
+    @IdempotencyKey() idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { rewardCredits, expiryDurationMinutes, ...fields } = body;
+    // Absent fields must not reach transition() as explicit undefineds.
+    const set = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined));
+    const expiry = expiryDurationMinutes === undefined ? {} : { expiryDurationMinutes };
+    const result = await this.lifecycle.transition({
+      errandId: id,
+      expected: 'Open',
+      ...(rewardCredits === undefined
+        ? { to: 'Open', payload: expiry }
+        : { to: 'Adjusting-Credit', payload: { ...expiry, newAmount: rewardCredits } }),
+      actor: user(req.user.sub),
+      set,
+      idempotencyKey,
+    });
+    // F2.1.2: past Open (Adjusting-Credit still reads as Open, so that stays a plain retry).
+    if (
+      !result.ok &&
+      result.reason === 'STATE_MISMATCH' &&
+      toApiStatus(result.currentStatus) !== 'Open'
+    ) {
+      return resultToHttp({ ok: false, reason: 'NOT_EDITABLE' });
+    }
+    return this.answer(result, res);
   }
 
   @Post(':id/cancel')

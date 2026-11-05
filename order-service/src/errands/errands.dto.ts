@@ -57,6 +57,39 @@ export class CreateErrandDto {
   collectionItems: string;
 }
 
+// The body of PATCH /v1/errands/:id (F2.1): any create field, same rules (F2.1.1).
+// Send rewardCredits only to change it: its presence routes the edit through credit.
+export class EditErrandDto {
+  @IsOptional()
+  @IsString()
+  @Length(1, MAX_LOCATION_LENGTH)
+  @Matches(NOT_BLANK)
+  deliveryDetail?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(MAX_CREDITS)
+  rewardCredits?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(MAX_DESCRIPTION_LENGTH)
+  description?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(MIN_EXPIRY_MINUTES)
+  @Max(MAX_EXPIRY_MINUTES)
+  expiryDurationMinutes?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(MAX_DESCRIPTION_LENGTH)
+  @Matches(NOT_BLANK)
+  collectionItems?: string;
+}
+
 // F7.4: the courier must say why. Same limits as the CourierWithdrew payload.
 export class WithdrawErrandDto {
   @IsString()

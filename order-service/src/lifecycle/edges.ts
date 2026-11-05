@@ -55,7 +55,7 @@ export const USER_REASONS: CancellationReason[] = ['REQUESTER_CANCELLED'];
 export interface Edge {
   type: string; // event type
   sets: Col[]; // caller must supply exactly these
-  optional?: Col[]; // caller may also supply these; an edge with no `sets` needs at least one change
+  optional?: Col[]; // caller may also supply these; an in-place edge needs at least one change
   clears: Col[]; // transition() nulls these
   who: Role[]; // allowed actors; enforced in the conditional UPDATE
   reasons?: CancellationReason[]; // allowed cancellationReason values
@@ -164,15 +164,18 @@ export const EDGES: Partial<
       unexpiredOnly: true,
       notice: accepted,
     },
-    // New amount rides in the payload.
-    'Adjusting-Credit': plain('AdjustmentRequested', ['requester'], (c) => ({
-      key: 'credit.reservation-adjustment.v1',
-      payload: {
-        errandId: c.errandId,
-        oldAmount: c.rewardCredits,
-        newAmount: c.payload.newAmount,
-      },
-    })),
+    // New amount rides in the payload; an edit may change local fields in the same step.
+    'Adjusting-Credit': {
+      ...plain('AdjustmentRequested', ['requester'], (c) => ({
+        key: 'credit.reservation-adjustment.v1',
+        payload: {
+          errandId: c.errandId,
+          oldAmount: c.rewardCredits,
+          newAmount: c.payload.newAmount,
+        },
+      })),
+      ...editable,
+    },
     // F2.1: fields that need no other service change in place.
     Open: { ...plain('ErrandEdited', ['requester']), ...editable },
     Cancelled: cancel(['requester', 'system'], ['REQUESTER_CANCELLED', 'ERRAND_EXPIRED']),

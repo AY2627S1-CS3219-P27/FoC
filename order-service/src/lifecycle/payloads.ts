@@ -33,7 +33,7 @@ export const PAYLOADS: Record<string, Joi.ObjectSchema> = {
   ErrandAccepted: none,
   // Edited columns ride in `set`; only the new duration is payload.
   ErrandEdited: Joi.object({ expiryDurationMinutes }),
-  AdjustmentRequested: Joi.object({ newAmount: amount.required() }),
+  AdjustmentRequested: Joi.object({ newAmount: amount.required(), expiryDurationMinutes }),
   CreditAdjusted: Joi.object({ creditEventId: uuid, creditTransactionId: uuid }),
   CreditAdjustmentFailed: Joi.object({
     creditEventId: uuid,
