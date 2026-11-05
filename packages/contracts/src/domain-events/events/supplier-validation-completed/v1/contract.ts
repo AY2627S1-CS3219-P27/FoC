@@ -43,8 +43,7 @@ export type SupplierValidationCompletedPayload = {
   | {
       outcome: 'FOUND';
       supplier: SupplierValidationSnapshot;
-      /** Optional during rollout; TODO: required once both services adopt it. */
-      deliveryBuilding?: DeliveryBuildingSnapshot;
+      deliveryBuilding: DeliveryBuildingSnapshot;
     }
   | { outcome: 'NOT_FOUND' }
   | { outcome: 'BUILDING_NOT_FOUND' }
@@ -55,5 +54,6 @@ export const supplierValidationCompletedV1Contract =
     routingKey: SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY,
     eventType: 'SupplierValidationCompleted',
     publisher: 'supplier-service',
+    kind: 'event',
     schema,
   });

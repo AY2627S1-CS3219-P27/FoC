@@ -29,6 +29,8 @@ async function seed(status: Status) {
     supplierId: randomUUID(),
     courierId: status === 'Accepted' || status === 'Picked Up' ? courier : undefined,
     deliveryLocation: 'COM2',
+    deliveryBuildingId: randomUUID(),
+    deliveryDetail: 'Level 3 04-02',
     rewardCredits: 5,
     collectionItems: 'bubble tea',
   });

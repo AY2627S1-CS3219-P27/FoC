@@ -11,6 +11,7 @@ export interface EventContractDefinition<
   routingKey: TRoutingKey;
   eventType: TEventType;
   publisher: TPublisher;
+  kind: 'event' | 'message';
   schema: AnySchemaObject;
   readonly [payloadType]?: TPayload;
 }

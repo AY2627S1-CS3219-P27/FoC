@@ -17,5 +17,6 @@ export const creditSettlementV1Contract =
     routingKey: CREDIT_SETTLEMENT_V1_ROUTING_KEY,
     eventType: 'CreditSettlementRequested',
     publisher: 'order-service',
+    kind: 'message',
     schema,
   });

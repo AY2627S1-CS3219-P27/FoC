@@ -18,7 +18,7 @@ Single-context; one folder per microservice. Read a service's `AGENTS.md` (and R
 
 ### Image versions
 
-Service images are tagged from each app's `package.json` version: `./scripts/build-images.sh` builds all six, and `./scripts/build-images.sh up -d --wait` runs that versioned stack. Plain `docker compose` uses the `dev` tag.
+Service images are tagged from each app's `package.json` version: `./scripts/build-images.sh` builds all seven, and `./scripts/build-images.sh up -d --wait` runs that versioned stack. Plain `docker compose` uses the `dev` tag.
 
 ### Networks and host ports
 

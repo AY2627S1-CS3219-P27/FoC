@@ -27,10 +27,14 @@ export class CreateErrandDto {
   @IsUUID()
   supplierId: string;
 
+  @IsUUID()
+  deliveryBuildingId: string;
+
+  // Room or level, e.g. "Level 3 04-02". Stays in order-service.
   @IsString()
   @Length(1, MAX_LOCATION_LENGTH)
   @Matches(NOT_BLANK)
-  deliveryLocation: string;
+  deliveryDetail: string;
 
   @IsInt()
   @Min(1)
