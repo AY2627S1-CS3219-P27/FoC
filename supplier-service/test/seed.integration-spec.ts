@@ -73,7 +73,7 @@ describe('seed import (real PostgreSQL)', () => {
   beforeEach(async () => {
     await dataSource.query(`
       TRUNCATE supplier_requests, supplier_categories, suppliers, categories,
-               building_name_keys, buildings
+               venues, building_name_keys, buildings
     `);
     warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
     vi.spyOn(Logger.prototype, 'log').mockImplementation(() => {});

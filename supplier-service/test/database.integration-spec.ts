@@ -61,7 +61,7 @@ describe('supplier schema (real PostgreSQL)', () => {
   beforeEach(async () => {
     await dataSource.query(`
       TRUNCATE inbox_events, outbox_events, supplier_requests, supplier_categories, suppliers, categories,
-               building_name_keys, buildings
+               venues, building_name_keys, buildings
     `);
   });
 
@@ -106,6 +106,9 @@ describe('supplier schema (real PostgreSQL)', () => {
           'UQ_suppliers_name_key_building_floor',
           'CHK_suppliers_floor',
           'FK_suppliers_building',
+          'UQ_venues_building_code',
+          'CHK_venues_floor',
+          'FK_venues_building',
           'FK_supplier_categories_category',
           'PK_inbox_events',
           'FK_inbox_events_reply',
@@ -113,6 +116,18 @@ describe('supplier schema (real PostgreSQL)', () => {
           'CHK_outbox_events_attempt_count',
         ]),
       );
+    });
+
+    it('reverts cleanly and runs again', async () => {
+      await dataSource.undoLastMigration({ transaction: 'all' });
+      await expect(
+        dataSource.query(`SELECT to_regclass('venues') AS t`),
+      ).resolves.toEqual([{ t: null }]);
+
+      await dataSource.runMigrations({ transaction: 'all' });
+      await expect(
+        dataSource.query(`SELECT to_regclass('venues') AS t`),
+      ).resolves.toEqual([{ t: 'venues' }]);
     });
   });
 
@@ -164,6 +179,42 @@ describe('supplier schema (real PostgreSQL)', () => {
       });
       await expect(insert('1', 91)).rejects.toMatchObject({
         driverError: { code: '23514', constraint: 'CHK_suppliers_latitude' },
+      });
+    });
+
+    it('rejects a malformed venue floor, out-of-range coordinates and a repeated code', async () => {
+      const building = await com3();
+      const insert = (code: string, floor: string, latitude: number) =>
+        dataSource.query(
+          `INSERT INTO venues (id, building_id, code, floor, latitude, longitude)
+           VALUES (gen_random_uuid(), $1, $2, $3, $4, 103.77)`,
+          [building.id, code, floor, latitude],
+        );
+
+      await expect(insert('A', '03', 1.29)).rejects.toMatchObject({
+        driverError: { code: '23514', constraint: 'CHK_venues_floor' },
+      });
+      await expect(insert('A', 'B1', 91)).rejects.toMatchObject({
+        driverError: { code: '23514', constraint: 'CHK_venues_latitude' },
+      });
+      await insert('A', 'B1', 1.29);
+      await expect(insert('A', '2', 1.29)).rejects.toMatchObject({
+        driverError: { code: '23505', constraint: 'UQ_venues_building_code' },
+      });
+    });
+
+    it('refuses to delete a building that still has venues', async () => {
+      const building = await com3();
+      await dataSource.query(
+        `INSERT INTO venues (id, building_id, code, floor, latitude, longitude)
+         VALUES (gen_random_uuid(), $1, 'A', '1', 1.29, 103.77)`,
+        [building.id],
+      );
+
+      await expect(
+        dataSource.query(`DELETE FROM buildings WHERE id = $1`, [building.id]),
+      ).rejects.toMatchObject({
+        driverError: { code: '23001', constraint: 'FK_venues_building' },
       });
     });
   });
