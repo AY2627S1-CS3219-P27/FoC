@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   AccountEventContractValidator,
   type SupplierValidationRequestedEvent,
@@ -18,10 +18,15 @@ import {
   OutboxEvent,
   SupplierKind,
   SupplierStatus,
+  Venue,
 } from '../src/database/entities/index.js';
 import { SupplierQueriesService } from '../src/suppliers/supplier-queries.service.js';
 import { SuppliersService } from '../src/suppliers/suppliers.service.js';
-import { SupplierValidationService } from '../src/validation/supplier-validation.service.js';
+import {
+  hashValidationRequestPayload,
+  SupplierValidationService,
+} from '../src/validation/supplier-validation.service.js';
+import { VenuesService } from '../src/venues/venues.service.js';
 
 const VALUES: Record<string, unknown> = {
   CAMPUS_MIN_LATITUDE: 1.28,
@@ -40,12 +45,18 @@ const request = (
   supplierId: string,
   deliveryBuildingId: string,
   eventId: string = randomUUID(),
+  deliveryVenueId?: string,
 ): SupplierValidationRequestedEvent => ({
   eventId,
   eventType: 'SupplierValidationRequested',
   timestamp: '2026-10-20T10:00:00.000Z',
   publisher: 'order-service',
-  payload: { errandId: randomUUID(), supplierId, deliveryBuildingId },
+  payload: {
+    errandId: randomUUID(),
+    supplierId,
+    deliveryBuildingId,
+    ...(deliveryVenueId && { deliveryVenueId }),
+  },
 });
 
 describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
@@ -53,6 +64,7 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
   let suppliers: SuppliersService;
   let queries: SupplierQueriesService;
   let buildings: BuildingsService;
+  let venues: VenuesService;
   let validation: SupplierValidationService;
   let contracts: AccountEventContractValidator;
   let com2: Building;
@@ -80,11 +92,13 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
       dataSource.getRepository(Building),
       dataSource.getRepository(BuildingNameKey),
     );
+    venues = new VenuesService(dataSource.getRepository(Venue));
     contracts = new AccountEventContractValidator();
     validation = new SupplierValidationService(
       dataSource,
       queries,
       buildings,
+      venues,
       contracts,
       config,
     );
@@ -145,6 +159,7 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
           single.getRepository(Building),
           single.getRepository(BuildingNameKey),
         ),
+        new VenuesService(single.getRepository(Venue)),
         contracts,
         config,
       );
@@ -349,6 +364,7 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
         get: () => Promise.reject(new Error('connection terminated')),
       } as unknown as SupplierQueriesService,
       buildings,
+      venues,
       contracts,
       config,
     );
@@ -358,5 +374,161 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
     ).rejects.toThrow('connection terminated');
     await expect(outbox()).resolves.toHaveLength(0);
     await expect(inbox()).resolves.toHaveLength(0);
+  });
+
+  describe('delivery venue', () => {
+    const venueIn = (buildingId: string, code = 'LT19') =>
+      venues.create({
+        buildingId,
+        code,
+        name: 'Lecture Theatre 19',
+        floor: '1',
+        latitude: 1.2941,
+        longitude: 103.7743,
+      });
+    const payloadOfReply = async () =>
+      ((await outbox())[0].envelope as { payload: Record<string, unknown> })
+        .payload;
+    const meetsContract = async () =>
+      contracts.validate(
+        'supplier.validation-completed.v1',
+        (await outbox())[0].envelope,
+      ).valid;
+
+    it('answers FOUND with the venue snapshot', async () => {
+      const { id } = await coolSpot();
+      const venue = await venueIn(com2.id);
+
+      const result = await validation.process(
+        request(id, com2.id, randomUUID(), venue.id),
+      );
+
+      expect(result).toMatchObject({ outcome: 'FOUND' });
+      expect(await payloadOfReply()).toMatchObject({
+        outcome: 'FOUND',
+        deliveryVenue: {
+          id: venue.id,
+          code: 'LT19',
+          name: 'Lecture Theatre 19',
+          floor: '1',
+          coordinates: { latitude: 1.2941, longitude: 103.7743 },
+        },
+      });
+      expect(await meetsContract()).toBe(true);
+    });
+
+    it('omits deliveryVenue when the request names no venue', async () => {
+      const { id } = await coolSpot();
+      await venueIn(com2.id);
+
+      await validation.process(request(id, com2.id));
+
+      expect(await payloadOfReply()).not.toHaveProperty('deliveryVenue');
+    });
+
+    it.each([
+      ['unknown', async () => randomUUID()],
+      [
+        'retired',
+        async (buildingId: string) => {
+          const venue = await venueIn(buildingId);
+          await venues.retire(venue.id);
+          return venue.id;
+        },
+      ],
+      [
+        'in another building',
+        async () => {
+          const other = await buildings.create({
+            canonicalName: 'Computing 1',
+            shortName: 'COM1',
+            aliases: [],
+            latitude: 1.2949,
+            longitude: 103.7737,
+          });
+          return (await venueIn(other.id)).id;
+        },
+      ],
+    ])(
+      'answers VENUE_NOT_FOUND, with nothing attached, for a venue that is %s',
+      async (_label, makeVenueId) => {
+        const { id } = await coolSpot();
+        const venueId = await makeVenueId(com2.id);
+
+        const result = await validation.process(
+          request(id, com2.id, randomUUID(), venueId),
+        );
+
+        expect(result).toMatchObject({
+          status: 'answered',
+          outcome: 'VENUE_NOT_FOUND',
+        });
+        const payload = await payloadOfReply();
+        expect(payload).not.toHaveProperty('supplier');
+        expect(payload).not.toHaveProperty('deliveryBuilding');
+        expect(payload).not.toHaveProperty('deliveryVenue');
+        expect(await meetsContract()).toBe(true);
+      },
+    );
+
+    it('reports a missing supplier before a missing venue', async () => {
+      const result = await validation.process(
+        request(randomUUID(), com2.id, randomUUID(), randomUUID()),
+      );
+
+      expect(result).toMatchObject({ outcome: 'NOT_FOUND' });
+    });
+
+    it('reports a missing building before a missing venue', async () => {
+      const { id } = await coolSpot();
+      const venue = await venueIn(com2.id);
+
+      const result = await validation.process(
+        request(id, randomUUID(), randomUUID(), venue.id),
+      );
+
+      expect(result).toMatchObject({ outcome: 'BUILDING_NOT_FOUND' });
+    });
+
+    it('answers a redelivered venue request only once', async () => {
+      const { id } = await coolSpot();
+      const venue = await venueIn(com2.id);
+      const question = request(id, com2.id, randomUUID(), venue.id);
+
+      await validation.process(question);
+      const again = await validation.process(structuredClone(question));
+
+      expect(again).toMatchObject({ status: 'duplicate-event' });
+      await expect(outbox()).resolves.toHaveLength(1);
+    });
+
+    it('reports an event id reused with a different venue as a conflict', async () => {
+      const { id } = await coolSpot();
+      const venue = await venueIn(com2.id);
+      const question = request(id, com2.id, randomUUID(), venue.id);
+      await validation.process(question);
+
+      const result = await validation.process(
+        request(id, com2.id, question.eventId, randomUUID()),
+      );
+
+      expect(result).toEqual({
+        status: 'event-id-conflict',
+        eventId: question.eventId,
+      });
+    });
+
+    it('keeps the hash of a request without a venue unchanged', () => {
+      const payload = {
+        errandId: '11111111-1111-4111-8111-111111111111',
+        supplierId: '22222222-2222-4222-8222-222222222222',
+        deliveryBuildingId: '33333333-3333-4333-8333-333333333333',
+      };
+      const legacy = createHash('sha256')
+        .update(JSON.stringify(payload))
+        .digest('hex');
+
+      expect(hashValidationRequestPayload(payload)).toBe(legacy);
+    });
   });
 });
