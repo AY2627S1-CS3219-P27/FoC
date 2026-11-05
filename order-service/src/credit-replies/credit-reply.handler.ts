@@ -5,7 +5,7 @@ import {
   type EventOf,
 } from '@foc/contracts';
 import { Logger } from '@nestjs/common';
-import type { LifecycleService } from '../lifecycle/lifecycle.service.js';
+import type { LifecycleService, ReplyErrand } from '../lifecycle/lifecycle.service.js';
 import { SYSTEM, type TransitionInput } from '../lifecycle/transition.js';
 import type {
   IncomingDomainMessage,
@@ -16,21 +16,23 @@ import type {
 type Step = Omit<TransitionInput, 'actor' | 'idempotencyKey'> & {
   supplierId?: string; // when set, the errand must reference this supplier
 };
-// What a valid reply asks for: a transition, a log line only, or a refusal.
-type Plan = Step | { log: string } | { deadLetter: string };
+// What a valid reply asks for: a transition, an alert, a stale reply to drop, or a refusal.
+type Plan = Step | { log: string } | { ignore: string } | { deadLetter: string };
 
 export interface ReplySpec {
   key: EventContractKey;
   queue: string; // seeded in rabbitmq/definitions.json
-  plan(event: EventOf<never>): Plan;
+  // `errand` is passed only to a spec with `withErrand`; undefined for an unknown errand.
+  plan(event: EventOf<never>, errand?: ReplyErrand): Plan;
   // On a STATE_MISMATCH against a Cancelled errand, send the release again.
   releaseIfCancelled?: true;
+  withErrand?: true; // the plan depends on the errand's status (F2 revalidation)
 }
 
 // Typed per key; the payload and event id feed the event's private payload.
 export const reply = <K extends EventContractKey>(
   key: K,
-  plan: (e: EventOf<K>) => Plan,
+  plan: (e: EventOf<K>, errand?: ReplyErrand) => Plan,
   releaseIfCancelled?: true,
 ): ReplySpec => ({
   key,
@@ -137,7 +139,7 @@ export class CreditReplyHandler implements RabbitMqMessageHandler {
     private readonly spec: ReplySpec,
     private readonly lifecycle: Pick<
       LifecycleService,
-      'transition' | 'releaseCredit' | 'supplierIdOf'
+      'transition' | 'releaseCredit' | 'supplierIdOf' | 'replyErrandOf'
     >,
     private readonly contracts: AccountEventContractValidator,
   ) {}
@@ -153,10 +155,17 @@ export class CreditReplyHandler implements RabbitMqMessageHandler {
       };
     }
     const event = checked.value;
-    const plan = this.spec.plan(event as EventOf<never>);
+    const errand = this.spec.withErrand
+      ? await this.lifecycle.replyErrandOf((event.payload as { errandId: string }).errandId)
+      : undefined;
+    const plan = this.spec.plan(event as EventOf<never>, errand);
 
     if ('log' in plan) {
       this.logger.error(plan.log);
+      return { outcome: 'ack' };
+    }
+    if ('ignore' in plan) {
+      this.logger.warn(`${this.spec.key} ${event.eventId}: ${plan.ignore}`);
       return { outcome: 'ack' };
     }
     if ('deadLetter' in plan) {

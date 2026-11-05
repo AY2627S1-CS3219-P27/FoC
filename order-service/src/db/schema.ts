@@ -139,6 +139,9 @@ export const supplierValidationRetries = pgTable(
     errandId: uuid('errand_id').primaryKey(),
     attempts: integer('attempts').notNull().default(0),
     nextRetryAt: ts('next_retry_at').notNull(),
+    // Which request the attempts count for: 0 = the first validation, else the
+    // sequence number of the SupplierRevalidationRequested event (F2).
+    round: integer('round').notNull().default(0),
   },
   (t) => [index().on(t.nextRetryAt)],
 );

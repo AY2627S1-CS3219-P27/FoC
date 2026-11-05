@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module.js';
 import { errandEvents, errands } from '../db/schema.js';
 import { enqueueRelease } from './notice.js';
@@ -7,6 +7,12 @@ import { createErrand, type CreateRequestInputs } from './create.js';
 import { rebuildProjection } from './rebuild.js';
 import type { Status } from './status.js';
 import { transition, type Db, type TransitionInput } from './transition.js';
+
+export interface ReplyErrand {
+  status: Status;
+  supplierId: string;
+  deliveryBuildingId: string;
+}
 
 
 @Injectable()
@@ -40,12 +46,22 @@ export class LifecycleService {
     return row?.status;
   }
 
+  // The supplier a reply should be about: the pending one while revalidating (F2).
   async supplierIdOf(errandId: string): Promise<string | undefined> {
+    return (await this.replyErrandOf(errandId))?.supplierId;
+  }
+
+  // What a supplier reply is checked against.
+  async replyErrandOf(errandId: string): Promise<ReplyErrand | undefined> {
     const [row] = await this.db
-      .select({ supplierId: errands.supplierId })
+      .select({
+        status: errands.status,
+        supplierId: sql<string>`coalesce(${errands.pendingSupplierId}, ${errands.supplierId})`,
+        deliveryBuildingId: sql<string>`coalesce(${errands.pendingDeliveryBuildingId}, ${errands.deliveryBuildingId})`,
+      })
       .from(errands)
       .where(eq(errands.id, errandId));
-    return row?.supplierId;
+    return row;
   }
 
   async lastEvent(

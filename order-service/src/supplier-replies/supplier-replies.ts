@@ -1,4 +1,6 @@
+import type { EventOf } from '@foc/contracts';
 import { reply, type ReplySpec } from '../credit-replies/credit-reply.handler.js';
+import type { ReplyErrand } from '../lifecycle/lifecycle.service.js';
 
 // ADR 0009: the errand keeps the pickup as validated; later supplier edits do not change it.
 export const pickupOf = (s: { displayName: string; building: { shortName: string }; floor: string; locationDescription: string }) => ({
@@ -7,32 +9,76 @@ export const pickupOf = (s: { displayName: string; building: { shortName: string
   pickupDescription: [s.floor && `Floor ${s.floor}`, s.locationDescription].filter(Boolean).join(' · '),
 });
 
+type Completed = EventOf<'supplier.validation-completed.v1'>;
+
+// F2: the answer to an edit's re-check. The reply carries no request id, so one
+// about another supplier or building is a stale answer to an earlier request.
+function revalidation(e: Completed, errand: ReplyErrand) {
+  const p = e.payload;
+  const found = p.outcome === 'FOUND';
+  if (
+    p.supplierId.toLowerCase() !== errand.supplierId.toLowerCase() ||
+    (found && p.deliveryBuilding.id.toLowerCase() !== errand.deliveryBuildingId.toLowerCase())
+  ) {
+    return { ignore: `stale reply for errand ${p.errandId}: not the pending supplier and building` };
+  }
+  const base = { errandId: p.errandId, expected: 'Revalidating-Supplier', to: 'Open' } as const;
+  if (found && p.supplier.status === 'Active') {
+    return {
+      ...base,
+      type: 'SupplierRevalidated',
+      set: {
+        supplierId: p.supplierId,
+        deliveryBuildingId: p.deliveryBuilding.id,
+        supplierValidatedAt: new Date(e.timestamp),
+        ...pickupOf(p.supplier),
+        deliveryLocation: p.deliveryBuilding.shortName,
+      },
+      payload: { supplierEventId: e.eventId, supplier: p.supplier },
+    };
+  }
+  // The old supplier stays; nothing is cancelled.
+  return {
+    ...base,
+    type: 'SupplierRevalidationFailed',
+    payload: { supplierEventId: e.eventId, supplierOutcome: found ? 'INACTIVE' : p.outcome },
+  };
+}
+
 export const SUPPLIER_REPLY_SPECS: ReplySpec[] = [
-  reply('supplier.validation-completed.v1', (e) => {
-    const p = e.payload;
-    if (p.outcome === 'FOUND' && p.supplier.status === 'Active') {
+  {
+    ...reply('supplier.validation-completed.v1', (e, errand) => {
+      if (errand?.status === 'Revalidating-Supplier') return revalidation(e, errand);
+      const p = e.payload;
+      // Validation is settled; a redelivery would pick a different edge than it first took.
+      if (errand && errand.status !== 'Pending-Supplier') {
+        return { ignore: `late reply for errand ${p.errandId}, now ${errand.status}` };
+      }
+      if (p.outcome === 'FOUND' && p.supplier.status === 'Active') {
+        return {
+          errandId: p.errandId,
+          supplierId: p.supplierId,
+          expected: 'Pending-Supplier',
+          to: 'Reserving-Credit',
+          set: { supplierValidatedAt: new Date(e.timestamp), ...pickupOf(p.supplier), deliveryLocation: p.deliveryBuilding.shortName }, // supplier's time, stable on redelivery
+          payload: { supplierEventId: e.eventId, supplier: p.supplier },
+        };
+      }
+      // Nothing reserved yet, so no release.
       return {
         errandId: p.errandId,
         supplierId: p.supplierId,
         expected: 'Pending-Supplier',
-        to: 'Reserving-Credit',
-        set: { supplierValidatedAt: new Date(e.timestamp), ...pickupOf(p.supplier), deliveryLocation: p.deliveryBuilding.shortName }, // supplier's time, stable on redelivery
-        payload: { supplierEventId: e.eventId, supplier: p.supplier },
+        to: 'Cancelled',
+        set: {
+          cancellationReason: p.outcome === 'BUILDING_NOT_FOUND' ? 'BUILDING_UNAVAILABLE' : 'SUPPLIER_UNAVAILABLE',
+        },
+        payload: {
+          supplierEventId: e.eventId,
+          supplierOutcome: p.outcome === 'FOUND' ? 'INACTIVE' : p.outcome,
+        },
       };
-    }
-    // Nothing reserved yet, so no release.
-    return {
-      errandId: p.errandId,
-      supplierId: p.supplierId,
-      expected: 'Pending-Supplier',
-      to: 'Cancelled',
-      set: {
-        cancellationReason: p.outcome === 'BUILDING_NOT_FOUND' ? 'BUILDING_UNAVAILABLE' : 'SUPPLIER_UNAVAILABLE',
-      },
-      payload: {
-        supplierEventId: e.eventId,
-        supplierOutcome: p.outcome === 'FOUND' ? 'INACTIVE' : p.outcome,
-      },
-    };
-  }),
+    }),
+    withErrand: true,
+  },
 ];
