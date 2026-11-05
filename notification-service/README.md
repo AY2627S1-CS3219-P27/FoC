@@ -51,7 +51,7 @@ Ownership follows whoever is signed in on the browser. When another account
 registers an endpoint that is still active, the previous owner's row is
 deactivated and the caller's row created in one transaction; reactivating a
 row does the same in reverse. See
-[`docs/adr/notification-service/001-single-owner-push-endpoints.md`](../docs/adr/notification-service/001-single-owner-push-endpoints.md).
+[`docs/adr/notification-service/0002-single-owner-push-endpoints.md`](../docs/adr/notification-service/0002-single-owner-push-endpoints.md).
 
 The schema is migration-owned (see [Persistence](#persistence)); the unique
 active-endpoint index ships in its own migration. A development database that
@@ -100,7 +100,9 @@ event with backoff.
 Three tables, created by the initial TypeORM migration (synchronize is
 disabled; migrations run on startup unless `DB_MIGRATIONS_RUN=false`):
 
-- `subscriptions` — one row per `(user_id, endpoint)`, soft-deleted.
+- `subscriptions` — one row per `(user_id, endpoint)`, soft-deleted; the partial
+  unique index `UQ_subscriptions_active_endpoint` keeps at most one active row
+  per endpoint, so a shared browser has one owner at a time.
 - `inbox_events` — deduplication identity (`event_id`) plus payload hash.
 - `notification_deliveries` — one row per `(event_id, subscription_id)` with
   the dispatcher-built `message` (jsonb), `pending | sent | abandoned`,

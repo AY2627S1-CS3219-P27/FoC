@@ -7,6 +7,7 @@ import {
   Subscription,
 } from './entities/index.js';
 import { InitialNotificationPersistence1794000000000 } from './migrations/1794000000000-initial-persistence.js';
+import { SingleActiveEndpoint1794086400000 } from './migrations/1794086400000-single-active-endpoint.js';
 
 export interface DatabaseEnvironment {
   DB_HOST: string;
@@ -23,7 +24,10 @@ export const databaseEntities = [
   NotificationDelivery,
 ];
 
-export const databaseMigrations = [InitialNotificationPersistence1794000000000];
+export const databaseMigrations = [
+  InitialNotificationPersistence1794000000000,
+  SingleActiveEndpoint1794086400000,
+];
 
 export function readDatabasePassword(path: string): string {
   const password = readFileSync(path, 'utf8').trim();
