@@ -55,6 +55,8 @@ COPY credit-service/ .
 RUN npm run build
 RUN npm prune --omit=dev
 RUN npm prune --omit=dev --prefix /usr/src/packages/contracts
+# prune re-symlinks @foc/auth, @foc/outbox and @foc/observability; re-copy them so they share the app's @nestjs/core
+RUN NPM_CONFIG_OMIT=dev npm run auth:link && NPM_CONFIG_OMIT=dev npm run outbox:link && NPM_CONFIG_OMIT=dev npm run obs:link
 
 # Minimal production image
 FROM node:22-alpine AS production
@@ -78,8 +80,9 @@ USER node
 # Expose the application port
 EXPOSE 3000
 
-# Check the public OpenAPI document until a dedicated health route is added
+# Healthy while the app answers and can reach Postgres (src/health/)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider "http://127.0.0.1:${PORT:-3000}/docs-json" || exit 1
+  CMD wget --no-verbose --tries=1 --spider "http://127.0.0.1:${PORT:-3000}/health" || exit 1
 
-CMD ["npm", "run", "start:prod"]
+# node as PID 1 receives SIGTERM directly, so shutdown hooks run
+CMD ["node", "dist/main"]
