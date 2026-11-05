@@ -4,6 +4,7 @@ import {
   initMetrics,
   createMetricsHandler,
   createLabeledCounter,
+  createLabeledGauge,
   createLabeledHistogram,
   METRICS_PREFIX,
 } from '../src/metrics.js';
@@ -59,6 +60,21 @@ describe('metrics', () => {
 
   it('uses the correct metrics prefix', () => {
     expect(METRICS_PREFIX).toBe('foc_');
+  });
+
+  it('creates a labeled gauge', async () => {
+    const gauge = createLabeledGauge('test_active', 'active items', ['kind']);
+    gauge.inc({ kind: 'socket' });
+    gauge.dec({ kind: 'socket' });
+
+    const handler = createMetricsHandler();
+    const chunks: string[] = [];
+    const response = {
+      setHeader: vi.fn(),
+      end: vi.fn((chunk: string) => chunks.push(chunk)),
+    };
+    await handler({} as never, response as never);
+    expect(chunks.join('')).toContain('foc_test_active{kind="socket"} 0');
   });
 
   it('creates labeled histograms with explicit buckets', async () => {

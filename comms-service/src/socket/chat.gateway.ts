@@ -16,6 +16,11 @@ import type {
   MessagesReadData,
   MessagesReadReceipt,
 } from '../chats/read-command.types.js';
+import {
+  commsMetrics,
+  type SocketOperation,
+  type SocketOperationOutcome,
+} from '../observability/comms-metrics.js';
 import { ChatAdmissionService } from './chat-admission.service.js';
 import {
   CHAT_NAMESPACE,
@@ -36,6 +41,7 @@ interface ChatSocketData {
   admittedChatId?: string;
   joinInFlight?: Promise<ChatJoinData>;
   expiryTimer?: ReturnType<typeof setTimeout>;
+  activeSocketCounted?: boolean;
 }
 
 type ChatJoinAck = (response: ChatSocketAcknowledgement<ChatJoinData>) => void;
@@ -92,13 +98,23 @@ export class ChatGateway
     >;
     this.namespace!.use((socket, next) => {
       void this.authenticate(socket as ChatSocket).then(
-        () => next(),
-        () => next(connectError()),
+        () => {
+          commsMetrics.socketHandshake('accepted');
+          next();
+        },
+        () => {
+          commsMetrics.socketHandshake('rejected');
+          next(connectError());
+        },
       );
     });
   }
 
   handleConnection(socket: ChatSocket): void {
+    if (socket.data.activeSocketCounted !== true) {
+      socket.data.activeSocketCounted = true;
+      commsMetrics.socketConnected();
+    }
     socket.on('chat:join', (payload: unknown, ack?: ChatJoinAck) => {
       if (typeof ack !== 'function') return;
       void this.join(socket, payload).then(ack);
@@ -114,6 +130,9 @@ export class ChatGateway
   }
 
   handleDisconnect(socket: ChatSocket): void {
+    if (socket.data.activeSocketCounted === true) {
+      commsMetrics.socketDisconnected();
+    }
     if (socket.data.expiryTimer !== undefined) {
       clearTimeout(socket.data.expiryTimer);
     }
@@ -121,6 +140,7 @@ export class ChatGateway
     delete socket.data.joinInFlight;
     delete socket.data.admittedChatId;
     delete socket.data.userId;
+    delete socket.data.activeSocketCounted;
   }
 
   private async authenticate(socket: ChatSocket): Promise<void> {
@@ -154,6 +174,7 @@ export class ChatGateway
     socket: ChatSocket,
     rawPayload: unknown,
   ): Promise<ChatSocketAcknowledgement<ChatJoinData>> {
+    const started = process.hrtime.bigint();
     try {
       const payload = parseChatJoinPayload(rawPayload);
       const userId = socket.data.userId;
@@ -190,15 +211,20 @@ export class ChatGateway
       if (socket.data.joinInFlight === joining) {
         delete socket.data.joinInFlight;
       }
+      this.observeOperation('join', 'successful', started);
       return { ok: true, data: admission };
     } catch (error) {
-      if (error instanceof ChatSocketError) return chatSocketFailure(error);
+      if (error instanceof ChatSocketError) {
+        this.observeOperation('join', metricOutcome(error.code), started);
+        return chatSocketFailure(error);
+      }
       this.logger.error({
         operation: 'chat:join',
         outcome: 'failed',
         errorClass:
           error instanceof Error ? error.constructor.name : 'UnknownError',
       });
+      this.observeOperation('join', 'internal', started);
       return chatSocketFailure('INTERNAL_ERROR');
     }
   }
@@ -207,6 +233,7 @@ export class ChatGateway
     socket: ChatSocket,
     rawPayload: unknown,
   ): Promise<ChatSocketAcknowledgement<MessageSendData>> {
+    const started = process.hrtime.bigint();
     try {
       const payload = parseMessageSendPayload(rawPayload);
       const userId = socket.data.userId;
@@ -229,13 +256,23 @@ export class ChatGateway
           result.message,
         );
       }
+      this.observeOperation(
+        'send',
+        result.inserted ? 'successful' : 'idempotent',
+        started,
+      );
       return { ok: true, data: result.message };
     } catch (error) {
-      if (error instanceof ChatSocketError) return chatSocketFailure(error);
+      if (error instanceof ChatSocketError) {
+        this.observeOperation('send', metricOutcome(error.code), started);
+        return chatSocketFailure(error);
+      }
       if (error instanceof ChatCommandError) {
+        this.observeOperation('send', metricOutcome(error.code), started);
         return chatSocketFailure(error.code);
       }
       this.logInternalError('message:send', error);
+      this.observeOperation('send', 'internal', started);
       return chatSocketFailure('INTERNAL_ERROR');
     }
   }
@@ -262,6 +299,7 @@ export class ChatGateway
     socket: ChatSocket,
     rawPayload: unknown,
   ): Promise<ChatSocketAcknowledgement<MessagesReadData>> {
+    const started = process.hrtime.bigint();
     try {
       const payload = parseMessagesReadPayload(rawPayload);
       const userId = socket.data.userId;
@@ -286,13 +324,23 @@ export class ChatGateway
             .emit('messages:read-receipt', receipt),
         );
       }
+      this.observeOperation(
+        'read',
+        result.changed ? 'successful' : 'noop',
+        started,
+      );
       return { ok: true, data: result.data };
     } catch (error) {
-      if (error instanceof ChatSocketError) return chatSocketFailure(error);
+      if (error instanceof ChatSocketError) {
+        this.observeOperation('read', metricOutcome(error.code), started);
+        return chatSocketFailure(error);
+      }
       if (error instanceof ChatCommandError) {
+        this.observeOperation('read', metricOutcome(error.code), started);
         return chatSocketFailure(error.code);
       }
       this.logInternalError('messages:read', error);
+      this.observeOperation('read', 'internal', started);
       return chatSocketFailure('INTERNAL_ERROR');
     }
   }
@@ -312,6 +360,37 @@ export class ChatGateway
       errorClass:
         error instanceof Error ? error.constructor.name : 'UnknownError',
     });
+  }
+
+  private observeOperation(
+    operation: SocketOperation,
+    outcome: SocketOperationOutcome,
+    started: bigint,
+  ): void {
+    commsMetrics.observeSocketOperation(
+      operation,
+      outcome,
+      Number(process.hrtime.bigint() - started) / 1_000_000_000,
+    );
+  }
+}
+
+function metricOutcome(code: string): SocketOperationOutcome {
+  switch (code) {
+    case 'UNAUTHENTICATED':
+      return 'unauthenticated';
+    case 'INVALID_MESSAGE':
+      return 'invalid';
+    case 'FORBIDDEN':
+      return 'forbidden';
+    case 'NOT_FOUND':
+      return 'not_found';
+    case 'CHAT_ARCHIVED':
+      return 'archived';
+    case 'CONFLICT':
+      return 'conflict';
+    default:
+      return 'internal';
   }
 }
 

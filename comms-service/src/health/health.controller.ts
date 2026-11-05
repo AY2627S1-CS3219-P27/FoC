@@ -5,6 +5,7 @@ import { DataSource } from 'typeorm';
 import { RabbitMqConnectionService } from '../messaging/rabbitmq-connection.service.js';
 import { RabbitMqConsumerTransport } from '../messaging/rabbitmq-consumer.transport.js';
 import { RedisService } from '../redis/redis.service.js';
+import { SocketRedisAdapterService } from '../redis/socket-redis-adapter.service.js';
 
 @ApiTags('health')
 @Controller('health')
@@ -14,6 +15,7 @@ export class HealthController {
     private readonly rabbitMq: RabbitMqConnectionService,
     private readonly rabbitMqConsumers: RabbitMqConsumerTransport,
     private readonly redis: RedisService,
+    private readonly socketRedis: SocketRedisAdapterService,
   ) {}
 
   @Get('live')
@@ -28,7 +30,7 @@ export class HealthController {
   @ApiResponse({
     status: 200,
     description:
-      'PostgreSQL, RabbitMQ, and Redis are reachable and lifecycle consumers are active.',
+      'PostgreSQL, RabbitMQ, and all Redis connections are reachable.',
   })
   @ApiResponse({
     status: 503,
@@ -42,6 +44,7 @@ export class HealthController {
         this.rabbitMq.check(),
         this.rabbitMqConsumers.checkConsumers(),
         this.redis.check(),
+        this.socketRedis.check(),
       ]);
       return { status: 'ok' };
     } catch {

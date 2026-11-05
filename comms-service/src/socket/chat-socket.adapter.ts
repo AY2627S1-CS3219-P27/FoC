@@ -1,9 +1,11 @@
 import type { INestApplicationContext } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { IoAdapter } from '@nestjs/platform-socket.io';
+import { createAdapter } from '@socket.io/redis-adapter';
 import type { Server, ServerOptions } from 'socket.io';
 import type { EnvironmentVariables } from '../config/environment.js';
 import { CHAT_SOCKET_MAX_HTTP_BUFFER_BYTES } from './chat-socket.protocol.js';
+import { SocketRedisAdapterService } from '../redis/socket-redis-adapter.service.js';
 
 export class ChatSocketIoAdapter extends IoAdapter {
   private readonly path: string;
@@ -12,6 +14,7 @@ export class ChatSocketIoAdapter extends IoAdapter {
   constructor(
     app: INestApplicationContext,
     config: ConfigService<EnvironmentVariables, true>,
+    private readonly socketRedis: SocketRedisAdapterService,
   ) {
     super(app);
     this.path = config.get('SOCKET_PATH', { infer: true });
@@ -26,7 +29,10 @@ export class ChatSocketIoAdapter extends IoAdapter {
       this.allowedOrigins,
       options,
     );
-    return super.createIOServer(port, socketOptions);
+    const server = super.createIOServer(port, socketOptions);
+    const { publisher, subscriber } = this.socketRedis.getClients();
+    server.adapter(createAdapter(publisher, subscriber));
+    return server;
   }
 }
 

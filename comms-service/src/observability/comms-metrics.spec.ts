@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { registry } from '@foc/observability';
 import type { Request, Response } from 'express';
-import { chatApiMetricsMiddleware } from './comms-metrics.js';
+import { chatApiMetricsMiddleware, commsMetrics } from './comms-metrics.js';
 
 describe('Communication Service metrics', () => {
   it('normalizes chat IDs and records the response status class', async () => {
@@ -35,5 +35,29 @@ describe('Communication Service metrics', () => {
     );
     expect(response.listenerCount('finish')).toBe(0);
     expect(next).toHaveBeenCalledOnce();
+  });
+
+  it('uses only bounded socket operation and adapter labels', async () => {
+    commsMetrics.socketHandshake('accepted');
+    commsMetrics.socketConnected();
+    commsMetrics.observeSocketOperation('send', 'idempotent', 0.01);
+    commsMetrics.observeSocketOperation('read', 'noop', 0.02);
+    commsMetrics.socketAdapterError('subscriber');
+    commsMetrics.socketDisconnected();
+
+    const metrics = await registry.metrics();
+    expect(metrics).toContain(
+      'foc_comms_socket_handshakes_total{outcome="accepted"}',
+    );
+    expect(metrics).toContain(
+      'foc_comms_socket_operations_total{operation="send",outcome="idempotent"}',
+    );
+    expect(metrics).toContain(
+      'foc_comms_socket_operations_total{operation="read",outcome="noop"}',
+    );
+    expect(metrics).toContain(
+      'foc_comms_socket_adapter_errors_total{role="subscriber"}',
+    );
+    expect(metrics).not.toMatch(/chat_id|user_id|message_id/);
   });
 });

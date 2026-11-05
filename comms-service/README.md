@@ -7,7 +7,8 @@ the shared User Service JWT verifier, and the repository observability package.
 The current HTTP surface exposes:
 
 - `GET /health/live` for process liveness;
-- `GET /health/ready` for PostgreSQL, RabbitMQ, and Redis readiness;
+- `GET /health/ready` for PostgreSQL, RabbitMQ, the command Redis client, and
+  both Socket.IO adapter Redis connections;
 - `GET /v1/chats` for the authenticated participant's active/grace chats;
 - `GET /v1/chats/:chatId/messages` for participant-only cursor-paginated
   history;
@@ -23,8 +24,8 @@ immutable facts for later deadline reconciliation. Both chat routes verify the
 shared User Service JWT, use opaque keyset cursors, and conceal absent chats
 from non-participants. Socket.IO authentication, participant room admission,
 expiry disconnects, transactional message sends, and explicit read receipts
-are active; Redis fan-out, grace-period transitions, and archives remain
-deferred.
+and cross-replica Redis fan-out are active; grace-period transitions and
+archives remain deferred.
 
 ## Lifecycle contracts and publication
 
@@ -95,10 +96,11 @@ Then start the versioned stack with:
 Plain `docker compose up -d --wait` uses the `dev` image tag. Communication
 Service and its PostgreSQL database remain private on the root stack's
 `internal` network. The frontend or deployment ingress is the application
-access path, including the future same-site Socket.IO route. The root Compose
+access path, including the same-site Socket.IO route. The root Compose
 dependency gates startup on healthy PostgreSQL, RabbitMQ, and Redis.
-PostgreSQL remains authoritative; Redis is only shared delivery infrastructure
-for a later realtime package.
+PostgreSQL remains authoritative; Redis provides transient realtime fan-out
+only and stores no message, read-state, sequence, room-authority, or replay
+truth.
 
 For loopback-only direct access to health/OpenAPI on port `3006` and PostgreSQL
 on port `5437`, opt into the repository debug overlay:
@@ -146,14 +148,20 @@ npm run db:test:down
 npm run rabbitmq:test:up
 npm run test:rabbitmq-permissions
 npm run rabbitmq:test:down
+
+npm run socket:test:up
+npm run test:socket-integration
+npm run socket:test:down
 ```
 
 The disposable PostgreSQL service listens on loopback host port `5441`. The
 isolated RabbitMQ service listens on loopback ports `5678` (AMQP) and `15678`
 (management). The latter imports the same infrastructure-owned identity,
-permissions, exchanges, and event-forwarding bindings as the root broker;
-starting Communication Service against it provisions the service-owned queue,
-`order.#` binding, retry topology, and DLQ.
+primary queues, permissions, and domain bindings as the root broker; starting
+Communication Service against it provisions only the service-owned retry
+topology.
+The isolated Redis adapter service listens on loopback port `6381` and stores
+no durable data.
 
 `JWT_PUBLIC_KEY_FILE`, `DB_PASSWORD_FILE`, and `RABBITMQ_PASSWORD_FILE`
 contain container file paths, never secret values. The corresponding secret
@@ -169,6 +177,9 @@ acknowledges and emits `message:new`. `messages:read` locks and reauthorizes the
 chat, marks only the other participant's unread messages through the requested
 sequence with one database timestamp, and emits
 `messages:read-receipt` only after a changed update commits.
+The adapter owns dedicated publisher and subscriber connections, separate from
+the application Redis command client. Both connections must be ready before
+socket traffic is accepted and remain part of `/health/ready`.
 
 ## RabbitMQ topology
 
@@ -268,10 +279,12 @@ archived, or unauthorized history target always returns the same sanitized 404.
 
 ## Metrics and recovery operations
 
-`/metrics` exposes Package 2 delivery outcomes, handler latency, committed chat
-creation, normalized chat API latency, and HTTP status classes. Labels are
-limited to stream, outcome, normalized route, status class, and fixed source;
-participant, errand, chat, event, cursor, and token values are never labels.
+`/metrics` exposes delivery outcomes, handler latency, committed chat creation,
+normalized HTTP latency, handshake results, active sockets, join/send/read
+outcomes and latency, idempotent sends, no-op reads, and adapter errors. Labels
+are limited to bounded operation, outcome, role, stream, normalized route,
+status class, and fixed source; participant, errand, chat, message, event,
+cursor, and token values are never labels.
 
 Malformed or contract-invalid notices are confirmed into their stream DLQ.
 Transient handler failures enter the five-stage retry chain and are confirmed
@@ -286,6 +299,10 @@ The redrive tool publishes only through the normal `foc.events` route, validates
 the corrected event with `@foc/contracts`, and acknowledges the DLQ copy only
 after publisher confirmation. It must use a dedicated operator identity, never
 the runtime Communication Service credentials.
+
+Realtime readiness, Redis-outage recovery, cross-replica verification, rollout,
+and rollback are documented in
+[`docs/runbooks/comms-service-package-3-realtime.md`](../docs/runbooks/comms-service-package-3-realtime.md).
 
 ## Publish lifecycle fixtures
 
@@ -374,10 +391,9 @@ npm run fixtures:test:down
 The current Package 2 slice consumes lifecycle messages, creates accepted
 chats, and exposes participant-only live chat reads. Package 3 has activated
 the authenticated Socket.IO namespace, participant room admission, and ordered
-idempotent message sending plus explicit read receipts. It does not yet activate
-Redis adapter fan-out. Archive APIs, grace transitions, and the archive worker
-also remain deferred. Later roadmap steps add those behaviors in dependency
-order.
+idempotent message sending, explicit read receipts, and cross-replica Redis
+adapter fan-out. Archive APIs, grace transitions, and the archive worker remain
+deferred. Later roadmap steps add those behaviors in dependency order.
 
 The governing decisions are recorded under
 `docs/adr/comms-service/0001`–`0004`: PostgreSQL authority and message

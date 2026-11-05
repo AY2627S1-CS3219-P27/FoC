@@ -6,8 +6,9 @@ Architecture decisions live in `../docs/adr/comms-service/`.
 
 Run npm commands from this directory. Schema synchronization is prohibited in
 all environments: use explicit TypeORM migrations. PostgreSQL is authoritative;
-Redis may only support future cross-replica Socket.IO delivery. The service
-must never publish domain events to `foc.events`.
+Redis supports transient cross-replica Socket.IO delivery only. It must never
+store message, read-state, sequence, room-authority, or recovery truth. The
+service must never publish domain events to `foc.events`.
 
 Root broker definitions own `foc.pubsub` and the event-forwarding bindings.
 Communication Service owns `comms-service.events`, its `order.#` binding, one
@@ -22,12 +23,16 @@ Package 3's authenticated `/chat` Socket.IO namespace and participant-only
 `chat:join` admission are active with WebSocket-only transport. Transactional
 `message:send` commands allocate ordered sequences, deduplicate sender retries,
 and emit only committed messages. Explicit `messages:read` commands update only
-received unread messages and emit committed receipts. Redis adapter fan-out,
-grace transitions, and archive workers remain deferred to their roadmap steps.
+received unread messages and emit committed receipts. Dedicated Redis publisher
+and subscriber connections fan out room events across replicas and participate
+in readiness and shutdown. Grace transitions and archive workers remain deferred
+to their roadmap steps.
 
-Package 2 metrics use bounded operational labels only; never add participant,
-errand, chat, event, cursor, or token values as labels. DLQ inspection and
-redrive follow `../docs/runbooks/comms-service-package-2.md`: corrected messages
+Metrics use bounded operational labels only; never add participant, errand,
+chat, message, event, cursor, or token values as labels. Socket logs must remain
+sanitized and must not include content, cookies, tokens, or participant payloads.
+DLQ inspection and redrive follow `../docs/runbooks/comms-service-package-2.md`:
+corrected messages
 return through `foc.events` with a dedicated operator identity and normal
 contract validation, never through a primary queue or direct database edits.
 
@@ -48,4 +53,6 @@ Useful commands:
 - `npm run db:test:up` / `npm run db:test:down`
 - `npm run rabbitmq:test:up` / `npm run rabbitmq:test:down`
 - `npm run test:integration`
+- `npm run socket:test:up` / `npm run socket:test:down`
+- `npm run test:socket-integration`
 - `npm run test:rabbitmq-permissions`
