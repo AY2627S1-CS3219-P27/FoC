@@ -6,6 +6,7 @@ import { InboxEvent } from './inbox-event.entity.js';
 import { SupplierCategory } from './supplier-category.entity.js';
 import { SupplierRequest } from './supplier-request.entity.js';
 import { Supplier } from './supplier.entity.js';
+import { Venue } from './venue.entity.js';
 
 export { BuildingNameKey } from './building-name-key.entity.js';
 export { Building } from './building.entity.js';
@@ -19,6 +20,7 @@ export {
   SupplierRequest,
 } from './supplier-request.entity.js';
 export { Supplier, SupplierKind, SupplierStatus } from './supplier.entity.js';
+export { Venue } from './venue.entity.js';
 
 // Every TypeORM entity of the supplier schema, plus the outbox table that
 // @foc/outbox reads.
@@ -29,6 +31,7 @@ export const databaseEntities: Function[] = [
   Supplier,
   SupplierCategory,
   SupplierRequest,
+  Venue,
   InboxEvent,
   OutboxEvent,
 ];
