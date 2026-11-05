@@ -162,6 +162,25 @@ describe('CreditsController', () => {
     expect(listHistory).toHaveBeenCalledExactlyOnceWith(userId, 0, 25);
   });
 
+  it.each([
+    ['missing', undefined],
+    ['malformed', 'not-a-jwt'],
+  ])(
+    'returns the stable 401 response for a %s token on transaction history',
+    async (_case, token) => {
+      const call = request(app.getHttpServer()).get('/v1/credits/transactions');
+      if (token) {
+        call.set('Authorization', `Bearer ${token}`);
+      }
+
+      await call.expect(401, {
+        code: 'INVALID_ACCESS_TOKEN',
+        message: 'Invalid access token',
+      });
+      expect(listHistory).not.toHaveBeenCalled();
+    },
+  );
+
   it('reports more history and derives identity only from the token', async () => {
     listHistory.mockResolvedValue({
       items: [
