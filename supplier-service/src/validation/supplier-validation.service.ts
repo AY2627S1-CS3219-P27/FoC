@@ -50,7 +50,7 @@ export function hashValidationRequestPayload(
   const canonical = JSON.stringify({
     errandId: payload.errandId,
     supplierId: payload.supplierId,
-    deliveryBuildingId: payload.deliveryBuildingId,
+    deliveryBuildingId: payload.deliveryBuildingId ?? null,
   });
   return createHash('sha256').update(canonical).digest('hex');
 }
@@ -130,13 +130,16 @@ export class SupplierValidationService {
       const supplier = await this.lookUp(event.payload.supplierId, manager);
       // A missing supplier wins: the building is only checked for a supplier
       // that exists (Order Service ADR 0011).
-      const building = supplier
-        ? await this.buildings.findInUseById(
-            event.payload.deliveryBuildingId,
-            manager,
-          )
-        : null;
-      const reply = this.reply(event, supplier, building);
+      // TODO(rollout): deliveryBuildingId is optional in the contract until
+      // the frontend sends it. A question without one gets the old answer
+      // (no building check, FOUND without a building). Remove this bridge,
+      // and its test, when the contract makes the field required.
+      const buildingId = event.payload.deliveryBuildingId;
+      const building =
+        supplier && buildingId
+          ? await this.buildings.findInUseById(buildingId, manager)
+          : null;
+      const reply = this.reply(event, supplier, building, !buildingId);
       if (
         !this.contracts.validate(
           SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY,
@@ -199,6 +202,7 @@ export class SupplierValidationService {
     request: SupplierValidationRequestedEvent,
     supplier: SupplierDetail | null,
     building: Building | null,
+    buildingNotAsked: boolean,
   ): SupplierValidationCompletedEvent {
     const ids = {
       errandId: request.payload.errandId,
@@ -209,7 +213,7 @@ export class SupplierValidationService {
       eventType: 'SupplierValidationCompleted',
       timestamp: new Date().toISOString(),
       publisher: 'supplier-service',
-      payload: this.outcome(ids, supplier, building),
+      payload: this.outcome(ids, supplier, building, buildingNotAsked),
     };
   }
 
@@ -218,9 +222,13 @@ export class SupplierValidationService {
     ids: { errandId: string; supplierId: string },
     supplier: SupplierDetail | null,
     building: Building | null,
+    buildingNotAsked: boolean,
   ): SupplierValidationCompletedEvent['payload'] {
     if (!supplier) {
       return { ...ids, outcome: 'NOT_FOUND' };
+    }
+    if (buildingNotAsked) {
+      return { ...ids, outcome: 'FOUND', supplier: snapshotOf(supplier) };
     }
     if (!building) {
       return { ...ids, outcome: 'BUILDING_NOT_FOUND' };
