@@ -25,6 +25,28 @@ put notification-service/secrets/notification_db_password.secret "$(gen)"
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out user-service/secrets/jwt_private_key.secret 2>/dev/null
 openssl pkey -in user-service/secrets/jwt_private_key.secret -pubout -out user-service/secrets/jwt_public_key.secret
 
+# Web Push VAPID keypair (P-256). web-push wants raw base64url keys, not PEM,
+# and the public half reaches browsers through the service env rather than a
+# compose secret — so rewrite it here or the pair stops matching.
+vapid_keys=$(node -e '
+  const { generateKeyPairSync } = require("node:crypto");
+  const { publicKey, privateKey } = generateKeyPairSync("ec", {
+    namedCurve: "prime256v1",
+  });
+  process.stdout.write(
+    JSON.stringify({
+      publicKey: publicKey
+        .export({ format: "der", type: "spki" })
+        .subarray(-65)
+        .toString("base64url"),
+      privateKey: privateKey.export({ format: "jwk" }).d,
+    }),
+  );
+')
+put notification-service/secrets/vapid_private_key.secret "$(jq -r .privateKey <<<"$vapid_keys")"
+vapid_public=$(jq -r .publicKey <<<"$vapid_keys")
+sed -i "s|^NOTIFICATION_SERVICE_VAPID_PUBLIC_KEY=.*|NOTIFICATION_SERVICE_VAPID_PUBLIC_KEY=${vapid_public}|" env/notification-service.env
+
 # RabbitMQ: random password per broker user, written to the service secret and
 # to definitions.json as plaintext (RabbitMQ hashes it on import).
 user_pw=$(gen); email_pw=$(gen); order_pw=$(gen); credit_pw=$(gen); supplier_pw=$(gen); notification_pw=$(gen); guest_pw=$(gen); comms_pw=$(gen)
