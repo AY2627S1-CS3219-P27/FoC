@@ -13,6 +13,7 @@ import { CategoriesPanel } from "./_admin/categories-panel";
 import { CreateUserForm } from "./_admin/create-user-form";
 import { ArchiveAccount } from "./_account/archive-account";
 import { PushNotificationsCard } from "./_notifications/push-settings";
+import { PushRegistrationSync } from "./_notifications/push-registration";
 import { MyRequests } from "./_suppliers/my-requests";
 import { SupplierForm } from "./_suppliers/supplier-form";
 import { authFetch, refreshSession, setSessionExpiredHandler } from "@/lib/api";
@@ -290,6 +291,7 @@ export default function HomePage() {
 
   return (
     <div className="flex flex-col min-h-full">
+      {user && <PushRegistrationSync />}
       {/* Translucent navigation bar (§12: glass material) */}
       <header className="glass-heavy text-white sticky top-0 z-40">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
