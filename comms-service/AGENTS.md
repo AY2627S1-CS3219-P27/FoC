@@ -21,8 +21,9 @@ Participant-only chat listing and message history are exposed at `/v1/chats`.
 Package 3's authenticated `/chat` Socket.IO namespace and participant-only
 `chat:join` admission are active with WebSocket-only transport. Transactional
 `message:send` commands allocate ordered sequences, deduplicate sender retries,
-and emit only committed messages. Read mutations, Redis adapter fan-out, grace
-transitions, and archive workers remain deferred to their roadmap steps.
+and emit only committed messages. Explicit `messages:read` commands update only
+received unread messages and emit committed receipts. Redis adapter fan-out,
+grace transitions, and archive workers remain deferred to their roadmap steps.
 
 Package 2 metrics use bounded operational labels only; never add participant,
 errand, chat, event, cursor, or token values as labels. DLQ inspection and

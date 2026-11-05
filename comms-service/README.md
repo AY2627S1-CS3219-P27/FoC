@@ -22,8 +22,8 @@ per event identity; delivered and cancellation notices are retained as
 immutable facts for later deadline reconciliation. Both chat routes verify the
 shared User Service JWT, use opaque keyset cursors, and conceal absent chats
 from non-participants. Socket.IO authentication, participant room admission,
-expiry disconnects, and transactional message sends are active; read
-mutations, Redis fan-out, grace-period transitions, and archives remain
+expiry disconnects, transactional message sends, and explicit read receipts
+are active; Redis fan-out, grace-period transitions, and archives remain
 deferred.
 
 ## Lifecycle contracts and publication
@@ -122,6 +122,10 @@ acceptance identity and archived chat row, while mutable message rows can later
 be removed only after an immutable JSONB archive is committed. Per-chat
 sequence constraints provide stable message ordering; participant, errand,
 due-chat, and archive-list indexes support the later API and worker queries.
+The Package 3 forward migration adds the partial
+`IDX_messages_chat_sender_unread_sequence` index for received-message read
+updates and caller-relative unread lookup without modifying existing read
+timestamps.
 
 Run the PostgreSQL migration suite only against the disposable database
 documented in `.env.example`:
@@ -161,7 +165,10 @@ HTTP-only `access_token` cookie from an exact allowed origin, disconnects at
 the token's validated expiry, and admits a participant to one user-scoped chat
 room. `message:send` validates content, locks and reauthorizes the chat,
 deduplicates client retries, commits the next sequence, and only then
-acknowledges and emits `message:new`. Read mutations are not registered yet.
+acknowledges and emits `message:new`. `messages:read` locks and reauthorizes the
+chat, marks only the other participant's unread messages through the requested
+sequence with one database timestamp, and emits
+`messages:read-receipt` only after a changed update commits.
 
 ## RabbitMQ topology
 
@@ -367,9 +374,10 @@ npm run fixtures:test:down
 The current Package 2 slice consumes lifecycle messages, creates accepted
 chats, and exposes participant-only live chat reads. Package 3 has activated
 the authenticated Socket.IO namespace, participant room admission, and ordered
-idempotent message sending. It does not yet change read state or activate Redis
-adapter fan-out. Archive APIs, grace transitions, and the archive worker also
-remain deferred. Later roadmap steps add those behaviors in dependency order.
+idempotent message sending plus explicit read receipts. It does not yet activate
+Redis adapter fan-out. Archive APIs, grace transitions, and the archive worker
+also remain deferred. Later roadmap steps add those behaviors in dependency
+order.
 
 The governing decisions are recorded under
 `docs/adr/comms-service/0001`–`0004`: PostgreSQL authority and message
