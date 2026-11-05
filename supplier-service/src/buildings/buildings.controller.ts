@@ -1,6 +1,15 @@
 import { JwtAuthGuard } from '@foc/auth';
-import { Controller, Get, UseGuards } from '@nestjs/common';
-import type { Building } from '../database/entities/index.js';
+import {
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  UseGuards,
+} from '@nestjs/common';
+import { ErrorCode } from '../common/errors/error-response.js';
+import { uuidParam } from '../common/validation/parse-uuid.pipe.js';
+import type { Building, Venue } from '../database/entities/index.js';
+import { VenuesService } from '../venues/venues.service.js';
 import { BuildingsService } from './buildings.service.js';
 
 export interface BuildingView {
@@ -9,9 +18,19 @@ export interface BuildingView {
   shortName: string;
   aliases: string[];
   coordinates: { latitude: number; longitude: number };
+  /** Active venues only; 0 means there is no venue step to show. */
+  venueCount: number;
 }
 
-function toView(building: Building): BuildingView {
+export interface VenueView {
+  id: string;
+  code: string;
+  name: string | null;
+  floor: string;
+  coordinates: { latitude: number; longitude: number };
+}
+
+function toView(building: Building, venueCount: number): BuildingView {
   return {
     id: building.id,
     canonicalName: building.canonicalName,
@@ -21,6 +40,17 @@ function toView(building: Building): BuildingView {
       latitude: building.latitude,
       longitude: building.longitude,
     },
+    venueCount,
+  };
+}
+
+function toVenueView(venue: Venue): VenueView {
+  return {
+    id: venue.id,
+    code: venue.code,
+    name: venue.name,
+    floor: venue.floor,
+    coordinates: { latitude: venue.latitude, longitude: venue.longitude },
   };
 }
 
@@ -28,14 +58,38 @@ function toView(building: Building): BuildingView {
 @Controller('buildings')
 @UseGuards(JwtAuthGuard)
 export class BuildingsController {
-  constructor(private readonly buildings: BuildingsService) {}
+  constructor(
+    private readonly buildings: BuildingsService,
+    private readonly venues: VenuesService,
+  ) {}
 
   /**
-   * Non-retired buildings with id, names and coordinates, for selection
-   * lists and for other services (F4.4); any authenticated user (F13.3).
+   * Non-retired buildings with id, names, coordinates and active venue count,
+   * for selection lists and for other services (F4.4); any authenticated user
+   * (F13.3).
    */
   @Get()
   async list(): Promise<BuildingView[]> {
-    return (await this.buildings.listActive()).map(toView);
+    const [buildings, counts] = await Promise.all([
+      this.buildings.listActive(),
+      this.venues.countActiveByBuilding(),
+    ]);
+    return buildings.map((building) =>
+      toView(building, counts.get(building.id) ?? 0),
+    );
+  }
+
+  /** A building's active venues, in picking order; 404 if it is unknown or retired. */
+  @Get(':id/venues')
+  async listVenues(
+    @Param('id', uuidParam('id')) id: string,
+  ): Promise<VenueView[]> {
+    if (!(await this.buildings.findInUseById(id))) {
+      throw new NotFoundException({
+        code: ErrorCode.NotFound,
+        message: `Building ${id} does not exist.`,
+      });
+    }
+    return (await this.venues.listActive(id)).map(toVenueView);
   }
 }

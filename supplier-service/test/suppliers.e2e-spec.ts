@@ -8,11 +8,13 @@ import { DataSource } from 'typeorm';
 import { BuildingsService } from '../src/buildings/buildings.service.js';
 import { SupplierQueriesService } from '../src/suppliers/supplier-queries.service.js';
 import { SuppliersService } from '../src/suppliers/suppliers.service.js';
+import { VenuesService } from '../src/venues/venues.service.js';
 import { signAccessToken } from './access-token.js';
 import { seedTestEnvironment } from './test-env.js';
 import { withoutBroker } from './without-broker.js';
 
 const SUPPLIER_ID = randomUUID();
+const BUILDING_ID = randomUUID();
 
 /** Stand-ins: the queries themselves are tested against a real database. */
 function fakes() {
@@ -41,14 +43,40 @@ function fakes() {
       changeStatus: vi.fn(async () => undefined),
     },
     buildings: {
+      findInUseById: vi.fn(async (id: string) =>
+        id === BUILDING_ID ? { id } : null,
+      ),
       listActive: vi.fn(async () => [
         {
-          id: randomUUID(),
+          id: BUILDING_ID,
           canonicalName: 'Computing 2',
           shortName: 'COM2',
           aliases: [],
           latitude: 1.2939,
           longitude: 103.7742,
+        },
+        {
+          id: randomUUID(),
+          canonicalName: 'Computing 3',
+          shortName: 'COM3',
+          aliases: [],
+          latitude: 1.2949,
+          longitude: 103.7743,
+        },
+      ]),
+    },
+    venues: {
+      countActiveByBuilding: vi.fn(async () => new Map([[BUILDING_ID, 2]])),
+      listActive: vi.fn(async () => [
+        {
+          id: randomUUID(),
+          buildingId: BUILDING_ID,
+          code: 'LT15',
+          name: null,
+          floor: 'B1',
+          latitude: 1.2941,
+          longitude: 103.7739,
+          retiredAt: null,
         },
       ]),
     },
@@ -83,6 +111,8 @@ describe('supplier and building endpoints (e2e)', () => {
       .useValue(stubs.buildings)
       .overrideProvider(SuppliersService)
       .useValue(stubs.suppliers)
+      .overrideProvider(VenuesService)
+      .useValue(stubs.venues)
       .compile();
 
     app = moduleFixture.createNestApplication();
@@ -281,7 +311,7 @@ describe('supplier and building endpoints (e2e)', () => {
   });
 
   describe('GET /buildings', () => {
-    it('lists buildings with names and coordinates (F4.4)', async () => {
+    it('lists buildings with names, coordinates and active venue count (F4.4)', async () => {
       const response = await request(app.getHttpServer())
         .get('/buildings')
         .set('Cookie', cookie)
@@ -294,8 +324,54 @@ describe('supplier and building endpoints (e2e)', () => {
           shortName: 'COM2',
           aliases: [],
           coordinates: { latitude: 1.2939, longitude: 103.7742 },
+          venueCount: 2,
+        },
+        expect.objectContaining({ shortName: 'COM3', venueCount: 0 }),
+      ]);
+    });
+  });
+
+  describe('GET /buildings/:id/venues', () => {
+    it("lists the building's venues with code, name, floor and coordinates", async () => {
+      const response = await request(app.getHttpServer())
+        .get(`/buildings/${BUILDING_ID}/venues`)
+        .set('Cookie', cookie)
+        .expect(200);
+
+      expect(response.body).toEqual([
+        {
+          id: expect.any(String),
+          code: 'LT15',
+          name: null,
+          floor: 'B1',
+          coordinates: { latitude: 1.2941, longitude: 103.7739 },
         },
       ]);
+      expect(stubs.venues.listActive).toHaveBeenLastCalledWith(BUILDING_ID);
+    });
+
+    it('answers 404 for an unknown or retired building', async () => {
+      const response = await request(app.getHttpServer())
+        .get(`/buildings/${randomUUID()}/venues`)
+        .set('Cookie', cookie)
+        .expect(404);
+
+      expect(response.body.code).toBe('NOT_FOUND');
+    });
+
+    it('rejects a malformed building id', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/buildings/not-a-uuid/venues')
+        .set('Cookie', cookie)
+        .expect(400);
+
+      expect(response.body.violations[0].field).toBe('id');
+    });
+
+    it('refuses a visitor with no token', async () => {
+      await request(app.getHttpServer())
+        .get(`/buildings/${BUILDING_ID}/venues`)
+        .expect(401);
     });
   });
 });
