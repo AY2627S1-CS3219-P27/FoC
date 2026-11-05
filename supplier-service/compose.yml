@@ -30,6 +30,7 @@ services:
       CAMPUS_MAX_LONGITUDE: ${SUPPLIER_CAMPUS_MAX_LONGITUDE:-103.79}
       SEED_ON_STARTUP: ${SUPPLIER_SEED_ON_STARTUP:-true}
       SEED_CSV_PATH: /seed-data/supplier-seed-data.csv
+      VENUE_SEED_PATH: /venue-seed-data/venues-seed.json
       JWT_PUBLIC_KEY_FILE: /run/secrets/supplier_jwt_public_key
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4318}
       OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:-http://loki:3100/otlp/v1/logs}
@@ -60,6 +61,8 @@ services:
     volumes:
       # The template's seed file, read in place (never copied into the image).
       - ../data/csv:/seed-data:ro
+      # Buildings and delivery venues, read in place the same way.
+      - ../data/json:/venue-seed-data:ro
     secrets:
       - supplier_db_password
       - supplier_jwt_public_key

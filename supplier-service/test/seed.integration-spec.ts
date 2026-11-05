@@ -13,14 +13,21 @@ import {
   Category,
   Supplier,
 } from '../src/database/entities/index.js';
+import { BuildingSeedService } from '../src/seed/building-seed.service.js';
 import { SupplierSeedService } from '../src/seed/supplier-seed.service.js';
+import { parseVenueSeed } from '../src/seed/venue-seed-file.js';
 import { SuppliersService } from '../src/suppliers/suppliers.service.js';
 
 const SEED_FILE = readFileSync('../data/csv/supplier-seed-data.csv');
+// Every building in the seed JSON, whichever the suppliers sit in.
+const SEED_BUILDING_COUNT = parseVenueSeed(
+  readFileSync('../data/json/venues-seed.json'),
+).buildings.length;
 
 const CONFIG: Record<string, unknown> = {
   SEED_ON_STARTUP: true,
   SEED_CSV_PATH: '../data/csv/supplier-seed-data.csv',
+  VENUE_SEED_PATH: '../data/json/venues-seed.json',
   CAMPUS_MIN_LATITUDE: 1.28,
   CAMPUS_MAX_LATITUDE: 1.31,
   CAMPUS_MIN_LONGITUDE: 103.74,
@@ -61,6 +68,7 @@ describe('seed import (real PostgreSQL)', () => {
     seed = new SupplierSeedService(
       config,
       buildings,
+      new BuildingSeedService(config, buildings),
       categories,
       new SuppliersService(dataSource, config),
     );
@@ -98,7 +106,9 @@ describe('seed import (real PostgreSQL)', () => {
     });
 
     expect(await dataSource.getRepository(Supplier).count()).toBe(21);
-    expect(await dataSource.getRepository(Building).count()).toBe(14);
+    expect(await dataSource.getRepository(Building).count()).toBe(
+      SEED_BUILDING_COUNT,
+    );
     const categories = await dataSource.getRepository(Category).find();
     expect(categories.map((category) => category.name).sort()).toEqual([
       'Coffee',
@@ -118,7 +128,9 @@ describe('seed import (real PostgreSQL)', () => {
       rejected: 0,
     });
     expect(await dataSource.getRepository(Supplier).count()).toBe(21);
-    expect(await dataSource.getRepository(Building).count()).toBe(14);
+    expect(await dataSource.getRepository(Building).count()).toBe(
+      SEED_BUILDING_COUNT,
+    );
   });
 
   it('imports on startup only while there are no suppliers', async () => {
@@ -150,7 +162,9 @@ describe('seed import (real PostgreSQL)', () => {
 
     expect(reports[0].created + reports[1].created).toBe(21);
     expect(await dataSource.getRepository(Supplier).count()).toBe(21);
-    expect(await dataSource.getRepository(Building).count()).toBe(14);
+    expect(await dataSource.getRepository(Building).count()).toBe(
+      SEED_BUILDING_COUNT,
+    );
     expect(await dataSource.getRepository(Category).count()).toBe(4);
   });
 
@@ -213,7 +227,9 @@ describe('seed import (real PostgreSQL)', () => {
       alreadyPresent: 21,
       rejected: 0,
     });
-    expect(await dataSource.getRepository(Building).count()).toBe(14);
+    expect(await dataSource.getRepository(Building).count()).toBe(
+      SEED_BUILDING_COUNT,
+    );
     await expect(buildings.resolve('Frontier')).resolves.toBeNull();
   });
 

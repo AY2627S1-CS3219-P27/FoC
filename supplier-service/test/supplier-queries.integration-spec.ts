@@ -14,6 +14,7 @@ import {
   Supplier,
   SupplierCategory,
 } from '../src/database/entities/index.js';
+import { BuildingSeedService } from '../src/seed/building-seed.service.js';
 import { SupplierSeedService } from '../src/seed/supplier-seed.service.js';
 import { ListSuppliersQueryDto } from '../src/suppliers/dto/list-suppliers-query.dto.js';
 import { SupplierQueriesService } from '../src/suppliers/supplier-queries.service.js';
@@ -28,6 +29,7 @@ function config(
     CAMPUS_MIN_LONGITUDE: 103.74,
     CAMPUS_MAX_LONGITUDE: 103.79,
     PLACEHOLDER_IMAGE_URL: '',
+    VENUE_SEED_PATH: '../data/json/venues-seed.json',
     ...extra,
   };
   return {
@@ -79,6 +81,7 @@ describe('supplier listing and lookup (real PostgreSQL, seeded)', () => {
     const seed = new SupplierSeedService(
       config(),
       buildings,
+      new BuildingSeedService(config(), buildings),
       categories,
       new SuppliersService(dataSource, config()),
     );

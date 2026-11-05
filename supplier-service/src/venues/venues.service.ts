@@ -75,6 +75,15 @@ export class VenuesService {
     });
   }
 
+  /** Every code in the building, retired venues included. */
+  async codesIn(buildingId: string): Promise<Set<string>> {
+    const rows = await this.venues.find({
+      where: { buildingId },
+      select: { code: true },
+    });
+    return new Set(rows.map((row) => row.code));
+  }
+
   create(input: CreateVenueInput): Promise<Venue> {
     return this.venues.save(
       this.venues.create({
