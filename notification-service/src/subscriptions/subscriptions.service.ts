@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { type DeepPartial, QueryFailedError, Repository } from 'typeorm';
+import { type DeepPartial, In, QueryFailedError, Repository } from 'typeorm';
 import {
   Subscription,
   SubscriptionChannel,
@@ -64,6 +64,28 @@ export class SubscriptionsService {
     @InjectRepository(Subscription)
     private readonly subscriptions: Repository<Subscription>,
   ) {}
+
+  /**
+   * Active Web Push destinations for the given users, in one query.
+   *
+   * Dispatch fan-out reads subscriptions through this method rather than
+   * reaching into the table: the subscriptions module stays the only owner of
+   * its schema and status rules.
+   */
+  async findActiveWebPush(userIds: readonly string[]): Promise<Subscription[]> {
+    const uniqueUserIds = [...new Set(userIds)];
+    if (uniqueUserIds.length === 0) {
+      return [];
+    }
+
+    return this.subscriptions.find({
+      where: {
+        userId: In(uniqueUserIds),
+        channel: SubscriptionChannel.WebPush,
+        status: SubscriptionStatus.Active,
+      },
+    });
+  }
 
   /**
    * Inserts a new subscription for `(userId, endpoint)`.
