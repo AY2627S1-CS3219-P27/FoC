@@ -38,10 +38,20 @@ export interface WebPushCredentials {
  * constraint enforces: re-registering the same endpoint updates/reactivates
  * this row instead of growing duplicates. Deletion is a soft delete — the row
  * stays with `status = inactive` and `deactivated_at` set.
+ *
+ * A Web Push endpoint belongs to the browser profile, not to the account, so
+ * at most one *active* row may reference it. When a different account signs in
+ * on the same browser and registers the endpoint, ownership moves: the
+ * previous owner's row is deactivated in the same transaction. Inactive rows
+ * are history and may share an endpoint.
  */
 @Entity({ name: 'subscriptions' })
 @Index('UQ_subscriptions_user_id_endpoint', ['userId', 'endpoint'], {
   unique: true,
+})
+@Index('UQ_subscriptions_active_endpoint', ['endpoint'], {
+  unique: true,
+  where: `"status" = 'active'`,
 })
 export class Subscription {
   @PrimaryGeneratedColumn('uuid')
