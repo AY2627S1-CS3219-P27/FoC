@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => {
   const assertQueue = vi.fn();
   const bindQueue = vi.fn();
   const consume = vi.fn();
+  const cancel = vi.fn().mockResolvedValue(undefined);
   const ack = vi.fn();
   const nack = vi.fn();
   const publish = vi.fn();
@@ -33,12 +34,14 @@ const mocks = vi.hoisted(() => {
   const redisDel = vi.fn();
   const redisOn = vi.fn();
   const redisConnect = vi.fn();
+  const redisClose = vi.fn().mockResolvedValue(undefined);
 
   const redis = {
     set: redisSet,
     del: redisDel,
     on: redisOn,
     connect: redisConnect,
+    close: redisClose,
   };
 
   const channel = {
@@ -47,6 +50,7 @@ const mocks = vi.hoisted(() => {
     assertQueue,
     bindQueue,
     consume,
+    cancel,
     ack,
     nack,
     publish,
@@ -65,6 +69,7 @@ const mocks = vi.hoisted(() => {
     assertQueue,
     bindQueue,
     consume,
+    cancel,
     ack,
     nack,
     publish,
@@ -75,6 +80,7 @@ const mocks = vi.hoisted(() => {
     redisDel,
     redisOn,
     redisConnect,
+    redisClose,
   };
 });
 
@@ -192,6 +198,10 @@ beforeAll(async () => {
   mocks.assertQueue.mockResolvedValue(undefined);
   mocks.bindQueue.mockResolvedValue(undefined);
   mocks.redisConnect.mockResolvedValue(undefined);
+  // amqplib resolves consume with the broker-assigned tag that shutdown cancels.
+  mocks.consume.mockImplementation((queue: string) =>
+    Promise.resolve({ consumerTag: `ctag-${queue}` }),
+  );
 
   await import('./app.ts');
 
@@ -455,5 +465,37 @@ describe('consume handler dispatch wiring', () => {
         ),
       }),
     );
+  });
+});
+
+// Last: SIGTERM is a process-wide once-listener, and shutdown leaves the module stopped.
+describe('graceful shutdown', () => {
+  it('cancels consumers, drains in-flight deliveries, closes broker and Redis, then exits 0', async () => {
+    const exit = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+    let finishSend!: () => void;
+    mocks.sendMail.mockReturnValue(
+      new Promise((resolve) => {
+        finishSend = () => resolve({ messageId: 'test-id' });
+      }),
+    );
+    const msg = fakeMessage(otpMessageBody());
+    const delivery = otpHandler(msg);
+    await vi.waitFor(() => expect(mocks.sendMail).toHaveBeenCalled());
+
+    process.emit('SIGTERM', 'SIGTERM');
+
+    await vi.waitFor(() => expect(mocks.cancel).toHaveBeenCalledTimes(2));
+    expect(mocks.connectionClose).not.toHaveBeenCalled();
+    expect(exit).not.toHaveBeenCalled();
+
+    finishSend();
+    await delivery;
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0));
+    expect(mocks.ack).toHaveBeenCalledWith(msg);
+    expect(mocks.connectionClose).toHaveBeenCalled();
+    expect(mocks.redisClose).toHaveBeenCalled();
+    exit.mockRestore();
   });
 });
