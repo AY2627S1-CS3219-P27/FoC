@@ -170,6 +170,32 @@ place, in the shared contracts:
 - As with `NOT_FOUND`, `BUILDING_NOT_FOUND` only ever means "does not exist":
   a database failure is retried, never reported as a missing building (F15.7.5).
 
+## Amendment (2026-11-05): the delivery venue and the map pin
+
+A requester can also pick a room (venue) inside the delivery building, or drop
+a map pin instead. Supplier Service owns the venues. The v1 messages changed
+in place again, in the shared contracts; the field names are as proposed and
+are for the order-service owner to confirm.
+
+- **The question** gains an optional `deliveryVenueId` (UUID), valid only
+  together with `deliveryBuildingId`. A question without it hashes and behaves
+  exactly as before, so messages in flight at rollout are not treated as
+  conflicts. An `eventId` reused with a different venue is a conflict.
+- **The answer** gains `VENUE_NOT_FOUND` (no `supplier`, `deliveryBuilding` or
+  `deliveryVenue` attached), and `FOUND` carries an optional `deliveryVenue`
+  (`id`, `code`, `name` or null, `floor`, `coordinates`) when a venue was
+  asked for. Precedence: `NOT_FOUND`, then `BUILDING_NOT_FOUND`, then
+  `VENUE_NOT_FOUND`. An unknown, retired or other-building venue is all
+  `VENUE_NOT_FOUND`.
+- **Map pin without a contract change.** One flagged placeholder building,
+  "Other (map pin)" (`allowsPin: true` on `GET /buildings`), keeps
+  `deliveryBuildingId` required. A pin errand sends that building's id and no
+  venue id and validates as `FOUND`; a venue id sent with it is
+  `VENUE_NOT_FOUND`. The reply carries no pin flag. The pin's coordinates stay
+  Order Service's concern.
+- Supplier Service refuses to retire the pin building, or to attach venues or
+  suppliers to it.
+
 ## Who does what
 
 | Order Service | Supplier Service |
