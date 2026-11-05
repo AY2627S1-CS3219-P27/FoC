@@ -25,7 +25,7 @@ export class RenameAs8Building1791331200000 implements MigrationInterface {
       );
       await queryRunner.query(
         `INSERT INTO "building_name_keys" ("key", "building_id")
-         VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+         VALUES ($1, $2)`,
         [NEW_KEY, id],
       );
     }

@@ -47,7 +47,7 @@ export class BuildingSeedService implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
-    await this.createIfMissing(PIN_BUILDING);
+    await this.createIfMissing(PIN_BUILDING, [PIN_BUILDING.canonicalName]);
   }
 
   /**
@@ -61,15 +61,18 @@ export class BuildingSeedService implements OnApplicationBootstrap {
   async ensure(): Promise<VenueSeedFile> {
     const seed = await this.read();
 
-    await this.createIfMissing(PIN_BUILDING);
+    await this.createIfMissing(PIN_BUILDING, [PIN_BUILDING.canonicalName]);
     for (const building of seed.buildings) {
       await this.createIfMissing(building);
     }
     return seed;
   }
 
-  private async createIfMissing(building: CreateBuildingInput): Promise<void> {
-    if (await this.exists(building)) {
+  private async createIfMissing(
+    building: CreateBuildingInput,
+    names = [building.canonicalName, building.shortName, ...building.aliases],
+  ): Promise<void> {
+    if (await this.exists(names)) {
       return;
     }
     try {
@@ -103,12 +106,8 @@ export class BuildingSeedService implements OnApplicationBootstrap {
   }
 
   /** Resolves by any of the building's names, so a rename never duplicates it. */
-  private async exists(building: CreateBuildingInput) {
-    for (const name of [
-      building.canonicalName,
-      building.shortName,
-      ...building.aliases,
-    ]) {
+  private async exists(names: string[]) {
+    for (const name of names) {
       if (await this.buildings.findByAnyName(name)) {
         return true;
       }
