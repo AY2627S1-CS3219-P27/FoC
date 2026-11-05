@@ -11,6 +11,7 @@ export class SecretService {
   private dbPassword: string;
   private rabbitMqPassword: string;
   private jwtPublicKey: string;
+  private vapidPrivateKey: string;
 
   constructor(private configService: ConfigService) {}
 
@@ -42,6 +43,22 @@ export class SecretService {
       this.jwtPublicKey = publicKey;
     }
     return this.jwtPublicKey;
+  }
+
+  /**
+   * The VAPID private key used to sign Web Push requests. It must match the
+   * public key handed to browsers, so an empty file is a configuration error
+   * rather than a boot-time warning.
+   */
+  getVapidPrivateKey(): string {
+    if (this.vapidPrivateKey === undefined) {
+      const privateKey = this.readSecretFile('VAPID_PRIVATE_KEY_FILE');
+      if (privateKey.length === 0) {
+        throw new Error('VAPID private key file is empty');
+      }
+      this.vapidPrivateKey = privateKey;
+    }
+    return this.vapidPrivateKey;
   }
 
   private readSecretFile(envVar: string): string {
