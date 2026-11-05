@@ -1,17 +1,20 @@
 import { createHash } from 'node:crypto';
 import { BadRequestException, Injectable } from '@nestjs/common';
 
-const CURSOR_VERSION = 1;
+const CHAT_CURSOR_VERSION = 2;
+const MESSAGE_CURSOR_VERSION = 1;
 const CURSOR_PATTERN = /^[A-Za-z0-9_-]+\.[a-f0-9]{64}$/;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const EXACT_TIMESTAMP_PATTERN =
+  /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\.(\d{6})Z$/;
 const CURSOR_DOMAIN = 'foc.comms.cursor.v1\0';
 
-type ChatCursorPayload = [typeof CURSOR_VERSION, 'chats', string, string];
-type MessageCursorPayload = [typeof CURSOR_VERSION, 'messages', string];
+type ChatCursorPayload = [typeof CHAT_CURSOR_VERSION, 'chats', string, string];
+type MessageCursorPayload = [typeof MESSAGE_CURSOR_VERSION, 'messages', string];
 
 export interface ChatCursor {
-  updatedAt: Date;
+  updatedAt: string;
   chatId: string;
 }
 
@@ -27,6 +30,16 @@ function digest(encoded: string): string {
     .update(CURSOR_DOMAIN)
     .update(encoded)
     .digest('hex');
+}
+
+function isExactTimestamp(value: string): boolean {
+  const match = EXACT_TIMESTAMP_PATTERN.exec(value);
+  if (!match) return false;
+  const milliseconds = `${match[1]}.${match[2].slice(0, 3)}Z`;
+  const parsed = new Date(milliseconds);
+  return (
+    !Number.isNaN(parsed.getTime()) && parsed.toISOString() === milliseconds
+  );
 }
 
 function encode(payload: ChatCursorPayload | MessageCursorPayload): string {
@@ -59,8 +72,11 @@ function decode(cursor: string): unknown {
 
 @Injectable()
 export class ChatCursorCodec {
-  encodeChat(updatedAt: Date, chatId: string): string {
-    return encode([CURSOR_VERSION, 'chats', updatedAt.toISOString(), chatId]);
+  encodeChat(updatedAt: string, chatId: string): string {
+    if (!isExactTimestamp(updatedAt) || !UUID_PATTERN.test(chatId)) {
+      throw invalidCursor();
+    }
+    return encode([CHAT_CURSOR_VERSION, 'chats', updatedAt, chatId]);
   }
 
   decodeChat(cursor: string): ChatCursor {
@@ -68,27 +84,21 @@ export class ChatCursorCodec {
     if (
       !Array.isArray(value) ||
       value.length !== 4 ||
-      value[0] !== CURSOR_VERSION ||
+      value[0] !== CHAT_CURSOR_VERSION ||
       value[1] !== 'chats' ||
       typeof value[2] !== 'string' ||
       typeof value[3] !== 'string' ||
+      !isExactTimestamp(value[2]) ||
       !UUID_PATTERN.test(value[3])
     ) {
       throw invalidCursor();
     }
-    const updatedAt = new Date(value[2]);
-    if (
-      Number.isNaN(updatedAt.getTime()) ||
-      updatedAt.toISOString() !== value[2]
-    ) {
-      throw invalidCursor();
-    }
-    return { updatedAt, chatId: value[3] };
+    return { updatedAt: value[2], chatId: value[3] };
   }
 
   encodeMessages(sequence: number): string {
     if (!Number.isSafeInteger(sequence) || sequence < 1) throw invalidCursor();
-    return encode([CURSOR_VERSION, 'messages', String(sequence)]);
+    return encode([MESSAGE_CURSOR_VERSION, 'messages', String(sequence)]);
   }
 
   decodeMessages(cursor: string): number {
@@ -96,7 +106,7 @@ export class ChatCursorCodec {
     if (
       !Array.isArray(value) ||
       value.length !== 3 ||
-      value[0] !== CURSOR_VERSION ||
+      value[0] !== MESSAGE_CURSOR_VERSION ||
       value[1] !== 'messages' ||
       typeof value[2] !== 'string' ||
       !/^[1-9]\d*$/.test(value[2])

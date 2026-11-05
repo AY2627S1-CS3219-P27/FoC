@@ -18,6 +18,7 @@ interface ChatRow {
   closes_at: Date | string | null;
   close_reason: ChatViewDto['closeReason'];
   updated_at: Date | string;
+  cursor_updated_at: string;
   message_id: string | null;
   sequence: string | null;
   sender_id: string | null;
@@ -93,6 +94,10 @@ export class ChatQueryService {
               c.closes_at,
               c.close_reason,
               c.updated_at,
+              to_char(
+                c.updated_at AT TIME ZONE 'UTC',
+                'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+              ) AS cursor_updated_at,
               latest.id AS message_id,
               latest.sequence::text AS sequence,
               latest.sender_id,
@@ -119,12 +124,7 @@ export class ChatQueryService {
           AND ($2::timestamptz IS NULL OR (c.updated_at, c.id) < ($2::timestamptz, $3::uuid))
         ORDER BY c.updated_at DESC, c.id DESC
         LIMIT $4`,
-      [
-        callerId,
-        cursor?.updatedAt.toISOString() ?? null,
-        cursor?.chatId ?? null,
-        limit + 1,
-      ],
+      [callerId, cursor?.updatedAt ?? null, cursor?.chatId ?? null, limit + 1],
     );
 
     const hasMore = rows.length > limit;
@@ -157,7 +157,7 @@ export class ChatQueryService {
       hasMore,
       nextCursor:
         hasMore && last
-          ? this.cursors.encodeChat(new Date(last.updated_at), last.chat_id)
+          ? this.cursors.encodeChat(last.cursor_updated_at, last.chat_id)
           : null,
     };
   }

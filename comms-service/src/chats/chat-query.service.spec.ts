@@ -7,9 +7,10 @@ describe('ChatQueryService', () => {
   const callerId = '11111111-1111-4111-8111-111111111111';
   const chatId = '22222222-2222-4222-8222-222222222222';
   const query = vi.fn();
+  const cursors = new ChatCursorCodec();
   const service = new ChatQueryService(
     { query } as unknown as DataSource,
-    new ChatCursorCodec(),
+    cursors,
   );
 
   beforeEach(() => query.mockReset());
@@ -25,6 +26,7 @@ describe('ChatQueryService', () => {
         closes_at: null,
         close_reason: null,
         updated_at: new Date('2026-11-04T02:00:00.000Z'),
+        cursor_updated_at: '2026-11-04T02:00:00.000600Z',
         message_id: null,
         sequence: null,
         sender_id: null,
@@ -42,6 +44,7 @@ describe('ChatQueryService', () => {
         closes_at: new Date('2026-11-05T00:00:00.000Z'),
         close_reason: 'ERRAND_DELIVERED',
         updated_at: new Date('2026-11-04T01:00:00.000Z'),
+        cursor_updated_at: '2026-11-04T01:00:00.000400Z',
         message_id: '88888888-8888-4888-8888-888888888888',
         sequence: '2',
         sender_id: '77777777-7777-4777-8777-777777777777',
@@ -63,6 +66,19 @@ describe('ChatQueryService', () => {
       hasMore: true,
     });
     expect(result.nextCursor).toEqual(expect.any(String));
+    expect(cursors.decodeChat(result.nextCursor!)).toEqual({
+      updatedAt: '2026-11-04T02:00:00.000600Z',
+      chatId,
+    });
+
+    query.mockResolvedValueOnce([]);
+    await service.list(callerId, result.nextCursor!, 1);
+    expect(query).toHaveBeenLastCalledWith(expect.any(String), [
+      callerId,
+      '2026-11-04T02:00:00.000600Z',
+      chatId,
+      2,
+    ]);
   });
 
   it('maps history status and paginates by ascending sequence', async () => {

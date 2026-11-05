@@ -179,6 +179,31 @@ describe('participant-only chat queries', () => {
     expect(courierPage.items).toHaveLength(2);
   });
 
+  it('does not skip chats whose ordering timestamps differ only by microseconds', async () => {
+    await createChat('2026-11-04T02:00:00.000600Z');
+    await createChat('2026-11-04T02:00:00.000400Z');
+    await createChat('2026-11-04T02:00:00.000400Z');
+    await createChat('2026-11-04T02:00:00.000200Z');
+    const expected = await dataSource.query<Array<{ id: string }>>(
+      `SELECT id
+         FROM chats
+        WHERE requester_user_id = $1
+        ORDER BY updated_at DESC, id DESC`,
+      [requesterId],
+    );
+
+    const actual: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await queries.list(requesterId, cursor, 1);
+      actual.push(...page.items.map(({ chatId }) => chatId));
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
+
+    expect(actual).toEqual(expected.map(({ id }) => id));
+    expect(new Set(actual)).toHaveSize(expected.length);
+  });
+
   it('returns ascending history pages and conceals absent and unauthorized chats', async () => {
     const chatId = await createChat('2026-11-04T01:00:00.000Z');
     await createMessage({
