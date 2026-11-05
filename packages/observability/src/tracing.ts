@@ -125,6 +125,8 @@ export function initTelemetry(options: TelemetryOptions): Telemetry {
 export function registerShutdown(
   app: { close(signal?: string): Promise<void> },
   telemetry: Telemetry,
+  // Telemetry is best effort: an unreachable collector must not outlast the container's stop grace period.
+  telemetryTimeoutMs = 2_000,
 ): void {
   let stopping = false;
   const onSignal = (signal: NodeJS.Signals) => {
@@ -148,7 +150,14 @@ export function registerShutdown(
       // repeatedly; the trailing catch only guards against a future
       // implementation that rejects (an unhandled rejection would be fatal
       // during exit).
-      await telemetry.shutdown().catch(() => undefined);
+      let timer: NodeJS.Timeout | undefined;
+      await Promise.race([
+        telemetry.shutdown().catch(() => undefined),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, telemetryTimeoutMs);
+        }),
+      ]);
+      clearTimeout(timer);
       process.exit(exitCode);
     })();
   };

@@ -40,7 +40,7 @@ let activeModel: ChannelModel | undefined;
 // setupConnection every time a fresh model takes over.
 let recycling = false;
 
-// Hard stop if draining hangs, inside Docker's default 10s stop grace period.
+// Hard stop if draining hangs; keep below the container's stop_grace_period.
 const SHUTDOWN_TIMEOUT_MS = 8_000;
 let shuttingDown = false;
 let activeChannel: Channel | undefined;

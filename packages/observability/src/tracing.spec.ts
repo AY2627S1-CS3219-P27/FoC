@@ -112,4 +112,21 @@ describe('tracing', () => {
     expect(exit).toHaveBeenCalledExactlyOnceWith(1);
     expect(error).toHaveBeenCalled();
   });
+
+  it('registerShutdown exits after the timeout when the telemetry flush hangs', async () => {
+    const close = vi.fn(async () => undefined);
+    const shutdown = vi.fn(() => new Promise<void>(() => undefined));
+    const exit = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+    registerShutdown({ close }, { flush: async () => undefined, shutdown }, 20);
+
+    process.emit('SIGTERM');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(exit).not.toHaveBeenCalled();
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    expect(shutdown).toHaveBeenCalledTimes(1);
+    expect(exit).toHaveBeenCalledExactlyOnceWith(0);
+  });
 });
