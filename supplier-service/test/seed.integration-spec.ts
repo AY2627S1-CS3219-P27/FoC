@@ -19,10 +19,11 @@ import { parseVenueSeed } from '../src/seed/venue-seed-file.js';
 import { SuppliersService } from '../src/suppliers/suppliers.service.js';
 
 const SEED_FILE = readFileSync('../data/csv/supplier-seed-data.csv');
-// Every building in the seed JSON, whichever the suppliers sit in.
-const SEED_BUILDING_COUNT = parseVenueSeed(
-  readFileSync('../data/json/venues-seed.json'),
-).buildings.length;
+// Every building in the seed JSON, whichever the suppliers sit in, plus the
+// map-pin placeholder that every seeded database holds.
+const SEED_BUILDING_COUNT =
+  parseVenueSeed(readFileSync('../data/json/venues-seed.json')).buildings
+    .length + 1;
 
 const CONFIG: Record<string, unknown> = {
   SEED_ON_STARTUP: true,

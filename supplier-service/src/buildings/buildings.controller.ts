@@ -20,6 +20,8 @@ export interface BuildingView {
   coordinates: { latitude: number; longitude: number };
   /** Active venues only; 0 means there is no venue step to show. */
   venueCount: number;
+  /** True only for the "Other (map pin)" placeholder: show the pin map, not a venue step. */
+  allowsPin: boolean;
 }
 
 export interface VenueView {
@@ -41,6 +43,7 @@ function toView(building: Building, venueCount: number): BuildingView {
       longitude: building.longitude,
     },
     venueCount,
+    allowsPin: building.allowsPin,
   };
 }
 
@@ -64,8 +67,8 @@ export class BuildingsController {
   ) {}
 
   /**
-   * Non-retired buildings with id, names, coordinates and active venue count,
-   * for selection lists and for other services (F4.4); any authenticated user
+   * Non-retired buildings with id, names, coordinates, active venue count and
+   * the map-pin flag, for selection lists and for other services (F4.4); any authenticated user
    * (F13.3).
    */
   @Get()

@@ -12,9 +12,11 @@ import { VenuesService } from '../src/venues/venues.service.js';
 import { signAccessToken } from './access-token.js';
 import { seedTestEnvironment } from './test-env.js';
 import { withoutBroker } from './without-broker.js';
+import { BuildingSeedService } from '../src/seed/building-seed.service.js';
 
 const SUPPLIER_ID = randomUUID();
 const BUILDING_ID = randomUUID();
+const PIN_BUILDING_ID = randomUUID();
 
 /** Stand-ins: the queries themselves are tested against a real database. */
 function fakes() {
@@ -44,7 +46,7 @@ function fakes() {
     },
     buildings: {
       findInUseById: vi.fn(async (id: string) =>
-        id === BUILDING_ID ? { id } : null,
+        id === BUILDING_ID || id === PIN_BUILDING_ID ? { id } : null,
       ),
       listActive: vi.fn(async () => [
         {
@@ -54,6 +56,7 @@ function fakes() {
           aliases: [],
           latitude: 1.2939,
           longitude: 103.7742,
+          allowsPin: false,
         },
         {
           id: randomUUID(),
@@ -62,23 +65,37 @@ function fakes() {
           aliases: [],
           latitude: 1.2949,
           longitude: 103.7743,
+          allowsPin: false,
+        },
+        {
+          id: PIN_BUILDING_ID,
+          canonicalName: 'Other (map pin)',
+          shortName: 'PIN',
+          aliases: [],
+          latitude: 1.295,
+          longitude: 103.765,
+          allowsPin: true,
         },
       ]),
     },
     venues: {
       countActiveByBuilding: vi.fn(async () => new Map([[BUILDING_ID, 2]])),
-      listActive: vi.fn(async () => [
-        {
-          id: randomUUID(),
-          buildingId: BUILDING_ID,
-          code: 'LT15',
-          name: null,
-          floor: 'B1',
-          latitude: 1.2941,
-          longitude: 103.7739,
-          retiredAt: null,
-        },
-      ]),
+      listActive: vi.fn(async (buildingId: string) =>
+        buildingId === PIN_BUILDING_ID
+          ? []
+          : [
+              {
+                id: randomUUID(),
+                buildingId: BUILDING_ID,
+                code: 'LT15',
+                name: null,
+                floor: 'B1',
+                latitude: 1.2941,
+                longitude: 103.7739,
+                retiredAt: null,
+              },
+            ],
+      ),
     },
   };
 }
@@ -99,6 +116,9 @@ describe('supplier and building endpoints (e2e)', () => {
         imports: [AppModule],
       }),
     )
+      // There is no database here: the startup pin seed is covered against PostgreSQL.
+      .overrideProvider(BuildingSeedService)
+      .useValue({})
       .overrideProvider(DataSource)
       .useValue({
         entityMetadatas: [],
@@ -325,8 +345,22 @@ describe('supplier and building endpoints (e2e)', () => {
           aliases: [],
           coordinates: { latitude: 1.2939, longitude: 103.7742 },
           venueCount: 2,
+          allowsPin: false,
         },
-        expect.objectContaining({ shortName: 'COM3', venueCount: 0 }),
+        expect.objectContaining({
+          shortName: 'COM3',
+          venueCount: 0,
+          allowsPin: false,
+        }),
+        {
+          id: PIN_BUILDING_ID,
+          canonicalName: 'Other (map pin)',
+          shortName: 'PIN',
+          aliases: [],
+          coordinates: { latitude: 1.295, longitude: 103.765 },
+          venueCount: 0,
+          allowsPin: true,
+        },
       ]);
     });
   });
@@ -348,6 +382,15 @@ describe('supplier and building endpoints (e2e)', () => {
         },
       ]);
       expect(stubs.venues.listActive).toHaveBeenLastCalledWith(BUILDING_ID);
+    });
+
+    it('lists nothing for the map-pin building', async () => {
+      const response = await request(app.getHttpServer())
+        .get(`/buildings/${PIN_BUILDING_ID}/venues`)
+        .set('Cookie', cookie)
+        .expect(200);
+
+      expect(response.body).toEqual([]);
     });
 
     it('answers 404 for an unknown or retired building', async () => {

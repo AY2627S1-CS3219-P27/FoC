@@ -430,6 +430,12 @@ async function referenceViolations(
         field: 'buildingId',
         reason: 'building does not exist',
       });
+    } else if (building.allowsPin) {
+      // The map-pin placeholder is not a place, so no supplier can be in it.
+      violations.push({
+        field: 'buildingId',
+        reason: 'building cannot hold suppliers',
+      });
     } else if (
       building.retiredAt !== null &&
       building.id !== current?.buildingId

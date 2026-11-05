@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Logger } from '@nestjs/common';
+import { ConflictException, Logger } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 import { BuildingsService } from '../src/buildings/buildings.service.js';
@@ -28,12 +28,15 @@ const SEED = JSON.parse(readFileSync(SEED_PATH, 'utf8')) as {
   buildings: { shortName: string; canonicalName: string; aliases: string[] }[];
   venues: { buildingShortName: string; code: string }[];
 };
+/** Every seeded database also holds the map-pin placeholder, which is not in the file. */
+const BUILDING_COUNT = SEED.buildings.length + 1;
 
 describe('venue seed (real PostgreSQL)', () => {
   let dataSource: DataSource;
   let config: Record<string, unknown>;
   let buildings: BuildingsService;
   let venues: VenuesService;
+  let buildingSeed: BuildingSeedService;
   let venueSeed: VenueSeedService;
   let supplierSeed: SupplierSeedService;
   let warn: ReturnType<typeof vi.spyOn>;
@@ -83,7 +86,7 @@ describe('venue seed (real PostgreSQL)', () => {
       dataSource.getRepository(BuildingNameKey),
     );
     venues = new VenuesService(dataSource.getRepository(Venue));
-    const buildingSeed = new BuildingSeedService(configService, buildings);
+    buildingSeed = new BuildingSeedService(configService, buildings);
     venueSeed = new VenueSeedService(
       configService,
       buildingSeed,
@@ -141,6 +144,141 @@ describe('venue seed (real PostgreSQL)', () => {
     ],
   });
 
+  describe('the map-pin building', () => {
+    const pinRows = () =>
+      dataSource.getRepository(Building).findBy({ allowsPin: true });
+
+    it('exists after startup even with no venue path and the supplier seed off', async () => {
+      delete config.VENUE_SEED_PATH;
+      expect(config.SEED_ON_STARTUP).toBe(false);
+
+      await buildingSeed.onApplicationBootstrap();
+
+      const all = await dataSource.getRepository(Building).find();
+      expect(all).toHaveLength(1);
+      expect(all[0]).toMatchObject({
+        canonicalName: 'Other (map pin)',
+        shortName: 'PIN',
+        aliases: [],
+        allowsPin: true,
+        retiredAt: null,
+      });
+      expect(all[0]!.latitude).toBeGreaterThan(1.28);
+      expect(all[0]!.latitude).toBeLessThan(1.31);
+      expect(all[0]!.longitude).toBeGreaterThan(103.74);
+      expect(all[0]!.longitude).toBeLessThan(103.79);
+      // Created through the normal path, so both names resolve to it.
+      expect((await buildings.resolve('pin'))?.id).toBe(all[0]!.id);
+      expect((await buildings.resolve('Other (map pin)'))?.id).toBe(all[0]!.id);
+    });
+
+    it.each([
+      ['without', false],
+      ['with', true],
+    ])(
+      'is untouched by a second startup %s the venue path',
+      async (_, withPath) => {
+        if (!withPath) {
+          delete config.VENUE_SEED_PATH;
+        }
+        await buildingSeed.onApplicationBootstrap();
+        const before = await dataSource.query(
+          'SELECT id, updated_at FROM buildings',
+        );
+
+        await buildingSeed.onApplicationBootstrap();
+        await venueSeed.onApplicationBootstrap();
+
+        expect(
+          await dataSource.query(
+            'SELECT id, updated_at FROM buildings WHERE allows_pin',
+          ),
+        ).toEqual(before);
+        expect(await pinRows()).toHaveLength(1);
+      },
+    );
+
+    it('is the only pin building once the whole seed has loaded', async () => {
+      await venueSeed.load();
+      await supplierSeed.importSeed(
+        readFileSync('../data/csv/supplier-seed-data.csv'),
+      );
+
+      expect(await dataSource.getRepository(Building).count()).toBe(
+        BUILDING_COUNT,
+      );
+      expect(await pinRows()).toHaveLength(1);
+    });
+
+    it('leaves a building that already has that name alone', async () => {
+      const existing = await buildings.create({
+        canonicalName: 'Other (map pin)',
+        shortName: 'OTH',
+        aliases: [],
+        latitude: 1.3,
+        longitude: 103.78,
+      });
+
+      await buildingSeed.onApplicationBootstrap();
+
+      const all = await dataSource.getRepository(Building).find();
+      expect(all).toHaveLength(1);
+      expect(all[0]).toMatchObject({ id: existing.id, allowsPin: false });
+    });
+
+    it('cannot be retired', async () => {
+      await buildingSeed.onApplicationBootstrap();
+      const [pin] = await pinRows();
+
+      await expect(buildings.retire(pin!.id)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+
+      expect((await buildings.findById(pin!.id))?.retiredAt).toBeNull();
+    });
+
+    it('takes no venue', async () => {
+      await buildingSeed.onApplicationBootstrap();
+      const [pin] = await pinRows();
+
+      await expect(
+        venues.create({
+          buildingId: pin!.id,
+          code: 'PIN-01',
+          name: null,
+          floor: '1',
+          latitude: 1.295,
+          longitude: 103.765,
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
+
+      expect(await dataSource.getRepository(Venue).count()).toBe(0);
+    });
+
+    it('is skipped, and logged, if the seed file lists venues for it', async () => {
+      const seed = miniSeed({ buildingShortName: 'PIN' });
+      seed.buildings.push({
+        shortName: 'PIN',
+        canonicalName: 'Pin',
+        aliases: [],
+        latitude: 1.295,
+        longitude: 103.765,
+      });
+      config.VENUE_SEED_PATH = seedFile(seed);
+
+      await expect(venueSeed.load()).resolves.toEqual({
+        created: 0,
+        alreadyPresent: 0,
+        skipped: 1,
+      });
+
+      expect(await dataSource.getRepository(Venue).count()).toBe(0);
+      expect(warn).toHaveBeenCalledWith(
+        'seed venues for PIN skipped: building is the map-pin placeholder',
+      );
+    });
+  });
+
   it('loads every building and venue in the file', async () => {
     await expect(venueSeed.load()).resolves.toEqual({
       created: SEED.venues.length,
@@ -149,7 +287,7 @@ describe('venue seed (real PostgreSQL)', () => {
     });
 
     expect(await dataSource.getRepository(Building).count()).toBe(
-      SEED.buildings.length,
+      BUILDING_COUNT,
     );
     expect(await dataSource.getRepository(Venue).count()).toBe(
       SEED.venues.length,
@@ -179,7 +317,7 @@ describe('venue seed (real PostgreSQL)', () => {
       await dataSource.query('SELECT id, updated_at FROM venues ORDER BY id'),
     ).toEqual(before);
     expect(await dataSource.getRepository(Building).count()).toBe(
-      SEED.buildings.length,
+      BUILDING_COUNT,
     );
   });
 
@@ -221,13 +359,13 @@ describe('venue seed (real PostgreSQL)', () => {
       readFileSync('../data/csv/supplier-seed-data.csv'),
     );
     expect(await dataSource.getRepository(Building).count()).toBe(
-      SEED.buildings.length,
+      BUILDING_COUNT,
     );
 
     await venueSeed.load();
 
     expect(await dataSource.getRepository(Building).count()).toBe(
-      SEED.buildings.length,
+      BUILDING_COUNT,
     );
   });
 
@@ -260,7 +398,8 @@ describe('venue seed (real PostgreSQL)', () => {
 
     const after = await buildings.findById(existing.id);
     expect([after?.latitude, after?.longitude]).toEqual([1.3, 103.78]);
-    expect(await dataSource.getRepository(Building).count()).toBe(1);
+    // COM1 and the map-pin placeholder.
+    expect(await dataSource.getRepository(Building).count()).toBe(2);
     expect(await venues.listActive(existing.id)).toHaveLength(1);
   });
 
@@ -276,7 +415,7 @@ describe('venue seed (real PostgreSQL)', () => {
     await venueSeed.load();
 
     expect(await dataSource.getRepository(Building).count()).toBe(
-      SEED.buildings.length,
+      BUILDING_COUNT,
     );
     const as8 = (await buildings.resolve('AS8'))!;
     expect(as8.canonicalName).toBe('Blk AS8');
@@ -300,7 +439,7 @@ describe('venue seed (real PostgreSQL)', () => {
       await dataSource.getRepository(Venue).countBy({ buildingId: com1.id }),
     ).toBe(0);
     expect(await dataSource.getRepository(Building).count()).toBe(
-      SEED.buildings.length,
+      BUILDING_COUNT,
     );
   });
 
@@ -344,7 +483,7 @@ describe('venue seed (real PostgreSQL)', () => {
       SEED.venues.length,
     );
     expect(await dataSource.getRepository(Building).count()).toBe(
-      SEED.buildings.length,
+      BUILDING_COUNT,
     );
   });
 

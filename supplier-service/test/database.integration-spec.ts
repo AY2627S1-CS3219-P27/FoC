@@ -139,6 +139,8 @@ describe('supplier schema (real PostgreSQL)', () => {
           )
         )[0];
 
+      // The coordinate migration is second to last (allows_pin follows it).
+      await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.runMigrations({ transaction: 'all' });
       expect(await coords(e3)).toEqual({
@@ -148,6 +150,7 @@ describe('supplier schema (real PostgreSQL)', () => {
       expect(await coords(e4)).toEqual({ latitude: 1.3, longitude: 103.77 });
 
       await dataSource.undoLastMigration({ transaction: 'all' });
+      await dataSource.undoLastMigration({ transaction: 'all' });
       expect(await coords(e3)).toEqual({
         latitude: 1.299434,
         longitude: 103.75263,
@@ -156,8 +159,38 @@ describe('supplier schema (real PostgreSQL)', () => {
       await dataSource.runMigrations({ transaction: 'all' });
     });
 
+    it('adds buildings.allows_pin as false for existing rows, and removes it on revert', async () => {
+      const allowsPin = () =>
+        dataSource.query(
+          `SELECT column_name, column_default, is_nullable FROM information_schema.columns
+            WHERE table_name = 'buildings' AND column_name = 'allows_pin'`,
+        );
+      await dataSource.undoLastMigration({ transaction: 'all' });
+      await expect(allowsPin()).resolves.toEqual([]);
+
+      // Raw SQL: the entity already maps the column this state lacks.
+      await dataSource.query(
+        `INSERT INTO buildings (id, canonical_name, short_name, aliases, latitude, longitude)
+         VALUES ('5d0c7a52-3f0e-4d38-9a3c-0a1b2c3d4e5f', 'Old Block', 'OLD', '{}', 1.3, 103.77)`,
+      );
+      await dataSource.runMigrations({ transaction: 'all' });
+
+      await expect(allowsPin()).resolves.toEqual([
+        {
+          column_name: 'allows_pin',
+          column_default: 'false',
+          is_nullable: 'NO',
+        },
+      ]);
+      await expect(
+        dataSource.query('SELECT short_name, allows_pin FROM buildings'),
+      ).resolves.toEqual([{ short_name: 'OLD', allows_pin: false }]);
+    });
+
     it('reverts cleanly and runs again', async () => {
-      // Venues is the second-to-last migration; the last only moves rows.
+      // Venues is the third-to-last migration; the last two only alter rows
+      // and the buildings table.
+      await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.undoLastMigration({ transaction: 'all' });
       await expect(

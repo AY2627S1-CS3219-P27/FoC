@@ -1,10 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { type EntityManager, IsNull, type Repository } from 'typeorm';
 import { ErrorCode } from '../common/errors/error-response.js';
 import { normaliseFloor } from '../common/normalise/normalise.js';
-import { Venue } from '../database/entities/index.js';
+import { Building, Venue } from '../database/entities/index.js';
 
 export interface CreateVenueInput {
   buildingId: string;
@@ -84,7 +88,16 @@ export class VenuesService {
     return new Set(rows.map((row) => row.code));
   }
 
-  create(input: CreateVenueInput): Promise<Venue> {
+  async create(input: CreateVenueInput): Promise<Venue> {
+    const building = await this.venues.manager.findOneBy(Building, {
+      id: input.buildingId,
+    });
+    if (building?.allowsPin) {
+      throw new ConflictException({
+        code: ErrorCode.Conflict,
+        message: 'The map-pin building cannot hold venues.',
+      });
+    }
     return this.venues.save(
       this.venues.create({
         id: randomUUID(),

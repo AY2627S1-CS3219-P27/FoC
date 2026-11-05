@@ -518,6 +518,60 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
       });
     });
 
+    describe('the map-pin building', () => {
+      const pinBuilding = () =>
+        buildings.create({
+          canonicalName: 'Other (map pin)',
+          shortName: 'PIN',
+          aliases: [],
+          latitude: 1.295,
+          longitude: 103.765,
+          allowsPin: true,
+        });
+
+      it('answers FOUND for a pin errand, with no venue and no pin flag', async () => {
+        const { id } = await coolSpot();
+        const pin = await pinBuilding();
+
+        const result = await validation.process(request(id, pin.id));
+
+        expect(result).toMatchObject({ outcome: 'FOUND' });
+        const payload = await payloadOfReply();
+        expect(payload).toMatchObject({
+          deliveryBuilding: {
+            id: pin.id,
+            shortName: 'PIN',
+            canonicalName: 'Other (map pin)',
+          },
+        });
+        expect(payload).not.toHaveProperty('deliveryVenue');
+        expect(JSON.stringify(payload)).not.toContain('allowsPin');
+        expect(await meetsContract()).toBe(true);
+      });
+
+      it.each([
+        ['an unknown id', async () => randomUUID()],
+        [
+          'a venue of another building',
+          async () => (await venueIn(com2.id)).id,
+        ],
+      ])(
+        'answers VENUE_NOT_FOUND when a venue id is sent with it (%s)',
+        async (_label, makeVenueId) => {
+          const { id } = await coolSpot();
+          const pin = await pinBuilding();
+          const venueId = await makeVenueId();
+
+          const result = await validation.process(
+            request(id, pin.id, randomUUID(), venueId),
+          );
+
+          expect(result).toMatchObject({ outcome: 'VENUE_NOT_FOUND' });
+          expect(await meetsContract()).toBe(true);
+        },
+      );
+    });
+
     it('keeps the hash of a request without a venue unchanged', () => {
       const payload = {
         errandId: '11111111-1111-4111-8111-111111111111',

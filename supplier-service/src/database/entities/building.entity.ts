@@ -38,6 +38,13 @@ export class Building {
   @Column({ type: 'double precision' })
   longitude: number;
 
+  /**
+   * True only for the "Other (map pin)" placeholder, which stands in for a
+   * dropped pin. It is never retired and holds no venues or suppliers.
+   */
+  @Column({ name: 'allows_pin', type: 'boolean', default: false })
+  allowsPin: boolean;
+
   /** Null while the building is in use. */
   @Column({ name: 'retired_at', type: 'timestamptz', nullable: true })
   retiredAt: Date | null;

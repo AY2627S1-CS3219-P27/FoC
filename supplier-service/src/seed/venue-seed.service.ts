@@ -112,10 +112,13 @@ export class VenueSeedService implements OnApplicationBootstrap {
 
   private async open(shortName: string): Promise<OpenBuilding | null> {
     const building = await this.buildings.findByAnyName(shortName);
-    if (!building || building.retiredAt !== null) {
-      this.logger.warn(
-        `seed venues for ${shortName} skipped: building ${building ? 'is retired' : 'not found'}`,
-      );
+    if (!building || building.retiredAt !== null || building.allowsPin) {
+      const why = !building
+        ? 'not found'
+        : building.allowsPin
+          ? 'is the map-pin placeholder'
+          : 'is retired';
+      this.logger.warn(`seed venues for ${shortName} skipped: building ${why}`);
       return null;
     }
     // Retired venues count too: they must not come back.

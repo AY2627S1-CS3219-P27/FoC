@@ -24,6 +24,8 @@ export interface CreateBuildingInput {
   aliases: string[];
   latitude: number;
   longitude: number;
+  /** Marks the map-pin placeholder; false when left out. */
+  allowsPin?: boolean;
 }
 
 export interface BuildingNameChanges {
@@ -118,6 +120,7 @@ export class BuildingsService {
       aliases: cleanAliases(input.aliases),
       latitude: input.latitude,
       longitude: input.longitude,
+      allowsPin: input.allowsPin ?? false,
       retiredAt: null,
     });
 
@@ -172,6 +175,12 @@ export class BuildingsService {
       });
       if (!building) {
         throw buildingNotFound(id);
+      }
+      if (building.allowsPin) {
+        throw new ConflictException({
+          code: ErrorCode.Conflict,
+          message: 'The map-pin building cannot be retired.',
+        });
       }
       if (building.retiredAt !== null) {
         return building;
