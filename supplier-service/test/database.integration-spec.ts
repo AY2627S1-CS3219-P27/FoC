@@ -118,7 +118,47 @@ describe('supplier schema (real PostgreSQL)', () => {
       );
     });
 
+    it('moves E3 and E4 to the corrected coordinates, only while still at the old ones', async () => {
+      const at = async (shortName: string, lat: number, lng: number) =>
+        (
+          await buildings.create({
+            canonicalName: `Block ${shortName}`,
+            shortName,
+            aliases: [],
+            latitude: lat,
+            longitude: lng,
+          })
+        ).id;
+      const e3 = await at('E3', 1.299434, 103.75263);
+      const e4 = await at('E4', 1.3, 103.77); // set by an admin since
+      const coords = async (id: string) =>
+        (
+          await dataSource.query<{ latitude: number; longitude: number }[]>(
+            'SELECT latitude, longitude FROM buildings WHERE id = $1',
+            [id],
+          )
+        )[0];
+
+      await dataSource.undoLastMigration({ transaction: 'all' });
+      await dataSource.runMigrations({ transaction: 'all' });
+      expect(await coords(e3)).toEqual({
+        latitude: 1.299484,
+        longitude: 103.771747,
+      });
+      expect(await coords(e4)).toEqual({ latitude: 1.3, longitude: 103.77 });
+
+      await dataSource.undoLastMigration({ transaction: 'all' });
+      expect(await coords(e3)).toEqual({
+        latitude: 1.299434,
+        longitude: 103.75263,
+      });
+      expect(await coords(e4)).toEqual({ latitude: 1.3, longitude: 103.77 });
+      await dataSource.runMigrations({ transaction: 'all' });
+    });
+
     it('reverts cleanly and runs again', async () => {
+      // Venues is the second-to-last migration; the last only moves rows.
+      await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.undoLastMigration({ transaction: 'all' });
       await expect(
         dataSource.query(`SELECT to_regclass('venues') AS t`),
