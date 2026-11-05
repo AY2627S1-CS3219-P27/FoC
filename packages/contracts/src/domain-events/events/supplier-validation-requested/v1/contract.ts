@@ -13,6 +13,8 @@ export interface SupplierValidationRequestedPayload {
   supplierId: string;
   /** Supplier Service checks it exists; */
   deliveryBuildingId: string;
+  /** Optional; Supplier Service checks it is an active venue of that building. */
+  deliveryVenueId?: string;
 }
 
 export const supplierValidationRequestedV1Contract =
