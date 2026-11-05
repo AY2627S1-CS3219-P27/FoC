@@ -101,7 +101,7 @@
               }
             ],
             "url": "{{supplierServiceUrl}}/buildings",
-            "description": "In-use buildings with names and coordinates (F4.4). Saves PGP and COM3 ids for later requests."
+            "description": "In-use buildings with names, coordinates, venueCount (active venues; 0 = no venue step) and allowsPin (true only for the Other (map pin) placeholder). Saves PGP, COM3, a building with venues and the pin building ids for later requests."
           },
           "event": [
             {
@@ -115,7 +115,72 @@
                   "const com3 = buildings.find((b) => b.shortName === 'COM3');",
                   "pm.test('seed buildings present', () => { pm.expect(pgp).to.be.ok; pm.expect(com3).to.be.ok; });",
                   "pm.environment.set('pgpBuildingId', pgp.id);",
-                  "pm.environment.set('com3BuildingId', com3.id);"
+                  "pm.environment.set('com3BuildingId', com3.id);",
+                  "const withVenues = buildings.find((b) => b.venueCount > 0);",
+                  "const pin = buildings.filter((b) => b.allowsPin);",
+                  "pm.test('exactly one pin building, with no venues', () => { pm.expect(pin).to.have.length(1); pm.expect(pin[0].venueCount).to.eql(0); });",
+                  "pm.test('some building has venues', () => pm.expect(withVenues).to.be.ok);",
+                  "pm.environment.set('venueBuildingId', withVenues.id);",
+                  "pm.environment.set('pinBuildingId', pin[0].id);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "List a building's venues",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/buildings/{{venueBuildingId}}/venues",
+            "description": "Active venues in picking order: basements first, then floors, then code."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const venues = pm.response.json();",
+                  "pm.test('venues have code, floor and coordinates', () => { pm.expect(venues).to.not.be.empty; pm.expect(venues[0]).to.have.all.keys('id', 'code', 'name', 'floor', 'coordinates'); });"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "Map-pin building has no venues",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{basicToken}}"
+              }
+            ],
+            "url": "{{supplierServiceUrl}}/buildings/{{pinBuildingId}}/venues",
+            "description": "The Other (map pin) placeholder lists no venues."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('empty list', () => pm.expect(pm.response.json()).to.eql([]));"
                 ]
               }
             }
