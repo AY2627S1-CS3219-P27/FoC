@@ -25,7 +25,7 @@ insert-only at the database boundary. An archive is a versioned JSONB snapshot;
 the archive row is inserted before its identifier is linked from the retained
 chat row in the same transaction.
 
-Package 3 message sends use one PostgreSQL transaction. The command locks the
+Realtime message sends use one PostgreSQL transaction. The command locks the
 chat row, proves that the authenticated user is a participant, validates that
 the chat is writable, and checks the sender retry identity before allocating
 the current `next_sequence`. Reusing a retry identity with identical content
@@ -43,7 +43,7 @@ When an idempotent retry returns a message that has since been read, its status
 is derived from the stored `read_at` value rather than forced back to
 `UNREAD`.
 
-Package 3 reads are explicit through-sequence commands. In one transaction,
+Read acknowledgements are explicit through-sequence commands. In one transaction,
 the service locks and authorizes the chat, rejects a sequence beyond the
 latest committed message, and updates only unread messages sent by the other
 participant whose sequence is at or below the requested value. Every row
@@ -54,8 +54,8 @@ the caller's own messages never mutate read state. A forward migration adds a
 partial `(chat_id, sender_id, sequence) WHERE read_at IS NULL` index without
 editing the initial migration.
 
-Redis is not a database or recovery source. A later realtime package may use
-it only for Socket.IO fan-out between replicas. History, deduplication, read
+Redis is not a database or recovery source. The realtime gateway uses it only
+for Socket.IO fan-out between replicas. History, deduplication, read
 state, deadlines, and archives always recover from PostgreSQL.
 
 Socket acknowledgement and emission are post-commit best effort, not part of

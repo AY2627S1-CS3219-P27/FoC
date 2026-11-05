@@ -19,8 +19,8 @@ future client use `transports: ["websocket"]`; polling and upgrade fallback are
 disabled.
 
 Communication Service remains private on the `internal` network. The published
-frontend server is its browser-facing ingress and proxies both Package 2 HTTP
-chat routes and the Package 3 WebSocket path. The frontend runtime receives
+frontend server is its browser-facing ingress and proxies both authenticated
+HTTP chat routes and the realtime WebSocket path. The frontend runtime receives
 `COMMS_SERVICE_URL=http://comms-service:3000`; the proxy preserves the request
 query, `Cookie`, `Origin`, `Upgrade`, and `Connection` values and covers both
 the socket base path and its subpaths. Root development therefore uses browser
@@ -44,9 +44,9 @@ the single discriminated response shape `{ ok: true, data }` or
 `{ ok: false, error: { code, message } }`. Payloads are strict and reject
 unknown properties. The client events are `chat:join { chatId }`,
 `message:send { chatId, clientMessageId, content }`, and
-`messages:read { chatId, throughSequence }`. The Package 3 server events are
+`messages:read { chatId, throughSequence }`. The realtime server events are
 `message:new` and `messages:read-receipt`; `chat:closing` and `chat:archived`
-are reserved for Package 4. Sanitized errors use `UNAUTHENTICATED`,
+are reserved for future grace and archive behavior. Sanitized errors use `UNAUTHENTICATED`,
 `FORBIDDEN`, `NOT_FOUND`, `INVALID_REQUEST`, `INVALID_MESSAGE`,
 `CHAT_ARCHIVED`, `CONFLICT`, or `INTERNAL_ERROR`. Unknown and unauthorized
 chat IDs have the same observable response.
@@ -70,7 +70,7 @@ remains authoritative: reconnect recovery reads message history and read state
 from PostgreSQL, not Redis. The adapter uses dedicated publisher and subscriber
 connections; it stores no message, membership, sequence, read state, or replay
 truth. `chat:join` returns the latest committed sequence so a client can detect
-gaps and recover through Package 2 HTTP history. Socket emission remains
+gaps and recover through authenticated HTTP history. Socket emission remains
 best-effort after commit.
 
 ## Consequences
@@ -95,6 +95,6 @@ best-effort after commit.
 
 ## Requirement Traceability
 
-This decision governs Package 3 issues #672-#674 and #681, and the realtime
-receipt transport used by #676-#680. Package 5 owns browser socket lifecycle,
-refresh/reconnect behavior, and visible receipt rendering.
+This decision governs issues #672-#674 and #681, and the realtime receipt
+transport used by #676-#680. Browser socket lifecycle, refresh/reconnect
+behavior, and visible receipt rendering remain frontend responsibilities.
