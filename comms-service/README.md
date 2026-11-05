@@ -224,6 +224,41 @@ delivery is missed, reconnect, call `chat:join`, compare `latestSequence`, and
 recover gaps through `GET /v1/chats/:chatId/messages`. Fetching history never
 marks messages read.
 
+### Realtime smoke fixture
+
+The local realtime fixture exercises the browser-facing frontend rewrite, the
+authenticated `/chat` namespace, committed sends, idempotent retries, explicit
+reads, receipts, and HTTP-history reconciliation. The root stack must already
+be healthy, and the supplied chat must be live with the two cookies belonging
+to its requester and courier. Create the chat separately through the normal
+Order flow or lifecycle fixture.
+
+Store each HTTP-only access-token cookie in its own ignored file. The file must
+contain exactly `access_token=<JWT>` with no newline or cookie attributes:
+
+```powershell
+New-Item -ItemType Directory -Force .tmp
+Set-Content -NoNewline -Path .tmp/sender.cookie `
+  -Value 'access_token=<sender JWT>'
+Set-Content -NoNewline -Path .tmp/recipient.cookie `
+  -Value 'access_token=<recipient JWT>'
+
+npm run realtime:fixture -- `
+  --chat-id 00000000-0000-4000-8000-000000000000 `
+  --sender-cookie-file .tmp/sender.cookie `
+  --recipient-cookie-file .tmp/recipient.cookie
+```
+
+The command defaults to `http://localhost:3001`, `/socket.io`, and a five-second
+operation timeout. Override them with `--url`, `--origin`, `--socket-path`, or
+`--timeout-ms` when testing another local ingress. An optional
+`--outsider-cookie-file` also proves that an authenticated non-participant and
+an unknown chat receive the same `NOT_FOUND` acknowledgement. The fixture
+checks missing-cookie, disallowed-origin, and polling rejection on every run.
+It never prints credentials or message content and exits nonzero on a protocol,
+delivery, persistence, or cleanup failure. Delete the temporary cookie files
+after testing.
+
 ## RabbitMQ topology
 
 Root `rabbitmq/definitions.json` owns the non-administrator identity,

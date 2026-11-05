@@ -72,6 +72,30 @@ Verify the browser-facing ingress separately:
 4. Reject polling, direct service access, missing cookies, and origins not in
    the exact allowlist.
 
+## End-to-end smoke fixture
+
+Use the committed smoke fixture when a live root stack, an existing writable
+chat, and access-token cookies for both participants are available. From
+`comms-service`, place each exact `access_token=<JWT>` cookie in a separate
+ignored file without a trailing newline, then run:
+
+```powershell
+npm run realtime:fixture -- `
+  --chat-id 00000000-0000-4000-8000-000000000000 `
+  --sender-cookie-file .tmp/sender.cookie `
+  --recipient-cookie-file .tmp/recipient.cookie
+```
+
+The fixture verifies ingress rejection rules, participant joins, committed
+delivery, idempotent retry behavior, read receipts, and the persisted `READ`
+status through `/api/chats/:chatId/messages`. Supply
+`--outsider-cookie-file .tmp/outsider.cookie` to add the non-disclosing
+non-participant check. It does not create users, log in, refresh credentials,
+create chats, or force clients onto separate replicas; use the lifecycle
+fixtures for chat creation and `npm run test:socket-integration` for forced
+cross-replica Redis verification. Treat all cookie files as temporary secrets,
+never commit them, and delete them after the run.
+
 ## Rollout and rollback
 
 Apply the realtime database migration first, verify Redis health, then deploy

@@ -43,6 +43,7 @@
     "event:publish:errand-accepted-conflict": "node scripts/publish-lifecycle-fixture.mjs errand-accepted-conflict",
     "event:publish:errand-accepted-unknown-field": "node scripts/publish-lifecycle-fixture.mjs errand-accepted-unknown-field",
     "event:publish:errand-accepted-wrong-publisher": "node scripts/publish-lifecycle-fixture.mjs errand-accepted-wrong-publisher",
+    "realtime:fixture": "node scripts/run-realtime-fixture.mjs",
     "fixtures:test:up": "docker compose --profile test up -d --wait --force-recreate comms-db-test comms-rabbitmq-test",
     "fixtures:test:down": "docker compose --profile test rm -sfv comms-db-test comms-rabbitmq-test",
     "db:test:up": "docker compose --profile test up -d --wait comms-db-test",
