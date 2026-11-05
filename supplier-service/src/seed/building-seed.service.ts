@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import {
   BuildingsService,
   type CreateBuildingInput,
+  PIN_SHORT_NAME,
 } from '../buildings/buildings.service.js';
 import type { EnvironmentVariables } from '../config/environment.schema.js';
 import {
@@ -22,11 +23,10 @@ import {
  */
 const PIN_BUILDING: CreateBuildingInput = {
   canonicalName: 'Other (map pin)',
-  shortName: 'PIN',
+  shortName: PIN_SHORT_NAME,
   aliases: [],
   latitude: 1.295,
   longitude: 103.765,
-  allowsPin: true,
 };
 
 /**
@@ -47,7 +47,7 @@ export class BuildingSeedService implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
-    await this.createIfMissing(PIN_BUILDING, [PIN_BUILDING.canonicalName]);
+    await this.createIfMissing(PIN_BUILDING, [PIN_BUILDING.shortName]);
   }
 
   /**
@@ -61,7 +61,7 @@ export class BuildingSeedService implements OnApplicationBootstrap {
   async ensure(): Promise<VenueSeedFile> {
     const seed = await this.read();
 
-    await this.createIfMissing(PIN_BUILDING, [PIN_BUILDING.canonicalName]);
+    await this.createIfMissing(PIN_BUILDING, [PIN_BUILDING.shortName]);
     for (const building of seed.buildings) {
       await this.createIfMissing(building);
     }

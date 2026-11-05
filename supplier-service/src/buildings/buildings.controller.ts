@@ -10,7 +10,7 @@ import { ErrorCode } from '../common/errors/error-response.js';
 import { uuidParam } from '../common/validation/parse-uuid.pipe.js';
 import type { Building, Venue } from '../database/entities/index.js';
 import { VenuesService } from '../venues/venues.service.js';
-import { BuildingsService } from './buildings.service.js';
+import { BuildingsService, isPinBuilding } from './buildings.service.js';
 
 export interface BuildingView {
   id: string;
@@ -43,7 +43,7 @@ function toView(building: Building, venueCount: number): BuildingView {
       longitude: building.longitude,
     },
     venueCount,
-    allowsPin: building.allowsPin,
+    allowsPin: isPinBuilding(building),
   };
 }
 

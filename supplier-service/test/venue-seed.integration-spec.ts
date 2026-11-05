@@ -146,7 +146,7 @@ describe('venue seed (real PostgreSQL)', () => {
 
   describe('the map-pin building', () => {
     const pinRows = () =>
-      dataSource.getRepository(Building).findBy({ allowsPin: true });
+      dataSource.getRepository(Building).findBy({ shortName: 'PIN' });
 
     it('exists after startup even with no venue path and the supplier seed off', async () => {
       delete config.VENUE_SEED_PATH;
@@ -160,7 +160,6 @@ describe('venue seed (real PostgreSQL)', () => {
         canonicalName: 'Other (map pin)',
         shortName: 'PIN',
         aliases: [],
-        allowsPin: true,
         retiredAt: null,
       });
       expect(all[0]!.latitude).toBeGreaterThan(1.28);
@@ -191,7 +190,7 @@ describe('venue seed (real PostgreSQL)', () => {
 
         expect(
           await dataSource.query(
-            'SELECT id, updated_at FROM buildings WHERE allows_pin',
+            "SELECT id, updated_at FROM buildings WHERE short_name = 'PIN'",
           ),
         ).toEqual(before);
         expect(await pinRows()).toHaveLength(1);
@@ -210,7 +209,7 @@ describe('venue seed (real PostgreSQL)', () => {
       expect(await pinRows()).toHaveLength(1);
     });
 
-    it('leaves a building that already has that name alone', async () => {
+    it('is not created, and the conflict is logged, when another building has its canonical name', async () => {
       const existing = await buildings.create({
         canonicalName: 'Other (map pin)',
         shortName: 'OTH',
@@ -223,7 +222,45 @@ describe('venue seed (real PostgreSQL)', () => {
 
       const all = await dataSource.getRepository(Building).find();
       expect(all).toHaveLength(1);
-      expect(all[0]).toMatchObject({ id: existing.id, allowsPin: false });
+      expect(all[0]!.id).toBe(existing.id);
+      expect(await pinRows()).toHaveLength(0);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('seed building Other (map pin) not created'),
+      );
+    });
+
+    it('leaves a building that already has the PIN short name alone, and treats it as the pin', async () => {
+      const existing = await buildings.create({
+        canonicalName: 'Parking Inn',
+        shortName: 'PIN',
+        aliases: [],
+        latitude: 1.3,
+        longitude: 103.78,
+      });
+
+      await buildingSeed.onApplicationBootstrap();
+
+      const all = await dataSource.getRepository(Building).find();
+      expect(all.map((b) => b.id)).toEqual([existing.id]);
+      await expect(buildings.retire(existing.id)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+    });
+
+    it('can be renamed but keeps its short name', async () => {
+      await buildingSeed.onApplicationBootstrap();
+      const [pin] = await pinRows();
+
+      await expect(
+        buildings.updateNames(pin!.id, { shortName: 'OTH' }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      await expect(
+        buildings.updateNames(pin!.id, { shortName: 'PIN' }),
+      ).resolves.toMatchObject({ shortName: 'PIN' });
+      await expect(
+        buildings.updateNames(pin!.id, { canonicalName: 'Drop a pin' }),
+      ).resolves.toMatchObject({ canonicalName: 'Drop a pin' });
+      expect(await pinRows()).toHaveLength(1);
     });
 
     it('cannot be retired', async () => {

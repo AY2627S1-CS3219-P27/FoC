@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { type EntityManager, IsNull, type Repository } from 'typeorm';
+import { isPinBuilding } from '../buildings/buildings.service.js';
 import { ErrorCode } from '../common/errors/error-response.js';
 import { normaliseFloor } from '../common/normalise/normalise.js';
 import { Building, Venue } from '../database/entities/index.js';
@@ -92,7 +93,7 @@ export class VenuesService {
     const building = await this.venues.manager.findOneBy(Building, {
       id: input.buildingId,
     });
-    if (building?.allowsPin) {
+    if (building && isPinBuilding(building)) {
       throw new ConflictException({
         code: ErrorCode.Conflict,
         message: 'The map-pin building cannot hold venues.',

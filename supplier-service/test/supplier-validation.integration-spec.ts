@@ -526,7 +526,6 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
           aliases: [],
           latitude: 1.295,
           longitude: 103.765,
-          allowsPin: true,
         });
 
       it('answers FOUND for a pin errand, with no venue and no pin flag', async () => {

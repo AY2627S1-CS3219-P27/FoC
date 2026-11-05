@@ -8,6 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { isUUID } from 'class-validator';
 import { DataSource, type EntityManager, In, Not } from 'typeorm';
+import { isPinBuilding } from '../buildings/buildings.service.js';
 import {
   ErrorCode,
   type FieldViolation,
@@ -430,7 +431,7 @@ async function referenceViolations(
         field: 'buildingId',
         reason: 'building does not exist',
       });
-    } else if (building.allowsPin) {
+    } else if (isPinBuilding(building)) {
       // The map-pin placeholder is not a place, so no supplier can be in it.
       violations.push({
         field: 'buildingId',

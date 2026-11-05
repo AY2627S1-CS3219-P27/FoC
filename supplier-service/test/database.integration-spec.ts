@@ -139,9 +139,7 @@ describe('supplier schema (real PostgreSQL)', () => {
           )
         )[0];
 
-      // The coordinate migration is third to last (allows_pin and the AS8
-      // rename follow it).
-      await dataSource.undoLastMigration({ transaction: 'all' });
+      // The coordinate migration is second to last (the AS8 rename follows).
       await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.runMigrations({ transaction: 'all' });
@@ -153,43 +151,12 @@ describe('supplier schema (real PostgreSQL)', () => {
 
       await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.undoLastMigration({ transaction: 'all' });
-      await dataSource.undoLastMigration({ transaction: 'all' });
       expect(await coords(e3)).toEqual({
         latitude: 1.299434,
         longitude: 103.75263,
       });
       expect(await coords(e4)).toEqual({ latitude: 1.3, longitude: 103.77 });
       await dataSource.runMigrations({ transaction: 'all' });
-    });
-
-    it('adds buildings.allows_pin as false for existing rows, and removes it on revert', async () => {
-      const allowsPin = () =>
-        dataSource.query(
-          `SELECT column_name, column_default, is_nullable FROM information_schema.columns
-            WHERE table_name = 'buildings' AND column_name = 'allows_pin'`,
-        );
-      // The AS8 rename follows it.
-      await dataSource.undoLastMigration({ transaction: 'all' });
-      await dataSource.undoLastMigration({ transaction: 'all' });
-      await expect(allowsPin()).resolves.toEqual([]);
-
-      // Raw SQL: the entity already maps the column this state lacks.
-      await dataSource.query(
-        `INSERT INTO buildings (id, canonical_name, short_name, aliases, latitude, longitude)
-         VALUES ('5d0c7a52-3f0e-4d38-9a3c-0a1b2c3d4e5f', 'Old Block', 'OLD', '{}', 1.3, 103.77)`,
-      );
-      await dataSource.runMigrations({ transaction: 'all' });
-
-      await expect(allowsPin()).resolves.toEqual([
-        {
-          column_name: 'allows_pin',
-          column_default: 'false',
-          is_nullable: 'NO',
-        },
-      ]);
-      await expect(
-        dataSource.query('SELECT short_name, allows_pin FROM buildings'),
-      ).resolves.toEqual([{ short_name: 'OLD', allows_pin: false }]);
     });
 
     it('renames AS8, keeps "Blk AS8" as an alias, and reverts; another building is untouched', async () => {
@@ -242,9 +209,7 @@ describe('supplier schema (real PostgreSQL)', () => {
     });
 
     it('reverts cleanly and runs again', async () => {
-      // Venues is the fourth-to-last migration; the last three only alter
-      // rows and the buildings table.
-      await dataSource.undoLastMigration({ transaction: 'all' });
+      // Venues is the third-to-last migration; the last two only alter rows.
       await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.undoLastMigration({ transaction: 'all' });

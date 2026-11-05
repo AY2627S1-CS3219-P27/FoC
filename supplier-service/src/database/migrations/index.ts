@@ -6,8 +6,6 @@ import { StoreUserIdsAsUuid1790899200000 } from './1790899200000-store-user-ids-
 import { CreateInboxAndOutboxEvents1790985600000 } from './1790985600000-create-inbox-and-outbox-events.js';
 import { CreateVenues1791072000000 } from './1791072000000-create-venues.js';
 import { CorrectE3E4Coordinates1791158400000 } from './1791158400000-correct-e3-e4-coordinates.js';
-
-import { AddBuildingAllowsPin1791244800000 } from './1791244800000-add-building-allows-pin.js';
 import { RenameAs8Building1791331200000 } from './1791331200000-rename-as8-building.js';
 
 // Every migration, in the order it must run. Generate new ones with
@@ -22,6 +20,5 @@ export const databaseMigrations: Function[] = [
   CreateInboxAndOutboxEvents1790985600000,
   CreateVenues1791072000000,
   CorrectE3E4Coordinates1791158400000,
-  AddBuildingAllowsPin1791244800000,
   RenameAs8Building1791331200000,
 ];

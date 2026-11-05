@@ -56,7 +56,6 @@ function fakes() {
           aliases: [],
           latitude: 1.2939,
           longitude: 103.7742,
-          allowsPin: false,
         },
         {
           id: randomUUID(),
@@ -65,7 +64,6 @@ function fakes() {
           aliases: [],
           latitude: 1.2949,
           longitude: 103.7743,
-          allowsPin: false,
         },
         {
           id: PIN_BUILDING_ID,
@@ -74,7 +72,6 @@ function fakes() {
           aliases: [],
           latitude: 1.295,
           longitude: 103.765,
-          allowsPin: true,
         },
       ]),
     },

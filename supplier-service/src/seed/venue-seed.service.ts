@@ -4,7 +4,10 @@ import {
   type OnApplicationBootstrap,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { BuildingsService } from '../buildings/buildings.service.js';
+import {
+  BuildingsService,
+  isPinBuilding,
+} from '../buildings/buildings.service.js';
 import type { EnvironmentVariables } from '../config/environment.schema.js';
 import { isUniqueViolation } from '../database/postgres-errors.js';
 import { VenuesService } from '../venues/venues.service.js';
@@ -112,10 +115,10 @@ export class VenueSeedService implements OnApplicationBootstrap {
 
   private async open(shortName: string): Promise<OpenBuilding | null> {
     const building = await this.buildings.findByAnyName(shortName);
-    if (!building || building.retiredAt !== null || building.allowsPin) {
+    if (!building || building.retiredAt !== null || isPinBuilding(building)) {
       const why = !building
         ? 'not found'
-        : building.allowsPin
+        : isPinBuilding(building)
           ? 'is the map-pin placeholder'
           : 'is retired';
       this.logger.warn(`seed venues for ${shortName} skipped: building ${why}`);

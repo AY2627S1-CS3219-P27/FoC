@@ -312,7 +312,6 @@ describe('admin supplier writes (real PostgreSQL)', () => {
         aliases: [],
         latitude: 1.295,
         longitude: 103.765,
-        allowsPin: true,
       });
       const unusable = [
         { field: 'buildingId', reason: 'building cannot hold suppliers' },
