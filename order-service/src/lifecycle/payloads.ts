@@ -30,6 +30,18 @@ export const PAYLOADS: Record<string, Joi.ObjectSchema> = {
     .and('creditEventId', 'requestedAmount')
     .and('supplierEventId', 'supplierOutcome')
     .oxor('creditEventId', 'supplierEventId'),
+  // F2: pending ids ride in `set`; same supplier snapshot shape as SupplierValidated.
+  SupplierRevalidationRequested: Joi.object({ expiryDurationMinutes }),
+  SupplierRevalidated: Joi.object({ supplierEventId: uuid, supplier: Joi.object().required() }),
+  // TIMEOUT comes from the hold sweep, every other outcome from a supplier reply.
+  SupplierRevalidationFailed: Joi.object({
+    supplierOutcome: Joi.string()
+      .valid('NOT_FOUND', 'INACTIVE', 'BUILDING_NOT_FOUND', 'TIMEOUT')
+      .required(),
+    supplierEventId: Joi.string()
+      .uuid()
+      .when('supplierOutcome', { is: 'TIMEOUT', then: Joi.forbidden(), otherwise: Joi.required() }),
+  }),
   ErrandAccepted: none,
   // Edited columns ride in `set`; only the new duration is payload.
   ErrandEdited: Joi.object({ expiryDurationMinutes }),

@@ -48,6 +48,8 @@ describe('foldEvents', () => {
       cancellationReason: null,
       settlementAmount: null,
       settlementNote: null,
+      pendingSupplierId: null,
+      pendingDeliveryBuildingId: null,
     });
   });
 

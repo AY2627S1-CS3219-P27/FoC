@@ -466,6 +466,7 @@ async function apply(
       edge.type === 'SettlementRequested'
         ? await countEvents(tx, i.errandId, edge.type)
         : 1,
+    sequenceNumber: row.seq,
   });
   if (notice) await enqueueNotice(tx, notice);
   return { ok: true, sequenceNumber: row.seq };

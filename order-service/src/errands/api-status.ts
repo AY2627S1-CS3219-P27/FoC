@@ -3,10 +3,10 @@ import type { Status } from '../lifecycle/status.js';
 // The read side's only view of status: client-facing name -> internal
 // statuses behind it. Feeds both the response mapper and the `status` filter,
 // so sub-states (Pending-Supplier, Reserving-Credit, Adjusting-Credit,
-// Transferring-Credit, Settling-Credit) never reach a client. ARCHITECTURE.md §2.
+// Revalidating-Supplier, Transferring-Credit, Settling-Credit) never reach a client. ARCHITECTURE.md §2.
 export const INTERNAL_STATUSES_OF = {
   'Pending': ['Pending-Supplier', 'Reserving-Credit'],
-  'Open': ['Open', 'Adjusting-Credit'],
+  'Open': ['Open', 'Adjusting-Credit', 'Revalidating-Supplier'],
   'Accepted': ['Accepted'],
   'Picked Up': ['Picked Up'],
   'Delivered': ['Delivered'],

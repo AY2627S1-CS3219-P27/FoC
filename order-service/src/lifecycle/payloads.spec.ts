@@ -50,6 +50,17 @@ describe('payloadValid', () => {
     expect(payloadValid('ErrandEdited', { description: 'x' })).toBe(false);
   });
 
+  it('ties a failed revalidation to its supplier reply, except a timeout', () => {
+    const supplierEventId = randomUUID();
+    expect(payloadValid('SupplierRevalidationFailed', { supplierEventId, supplierOutcome: 'INACTIVE' })).toBe(true);
+    expect(payloadValid('SupplierRevalidationFailed', { supplierOutcome: 'TIMEOUT' })).toBe(true);
+    expect(payloadValid('SupplierRevalidationFailed', { supplierOutcome: 'NOT_FOUND' })).toBe(false);
+    expect(payloadValid('SupplierRevalidationFailed', { supplierEventId, supplierOutcome: 'TIMEOUT' })).toBe(false);
+    expect(payloadValid('SupplierRevalidationFailed', { supplierEventId, supplierOutcome: 'FOUND' })).toBe(false);
+    expect(payloadValid('SupplierRevalidated', { supplierEventId, supplier: { status: 'Active' } })).toBe(true);
+    expect(payloadValid('SupplierRevalidationRequested', { supplierId: randomUUID() })).toBe(false);
+  });
+
   it('requires a non-blank reason when the courier withdraws (F7.4)', () => {
     expect(payloadValid('CourierWithdrew', { reason: 'bike broke down' })).toBe(true);
     expect(payloadValid('CourierWithdrew', {})).toBe(false);

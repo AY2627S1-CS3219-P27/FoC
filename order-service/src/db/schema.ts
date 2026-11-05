@@ -44,6 +44,9 @@ export const errands = pgTable(
     deliveryLocation: text('delivery_location'), // building short name, from the delivery building snapshot
     rewardCredits: integer('reward_credits').notNull(),
     collectionItems: text('collection_items').notNull(), // read-only; never filtered or sorted
+    // F2: the supplier and building an edit asked for, held while Revalidating-Supplier.
+    pendingSupplierId: uuid('pending_supplier_id'),
+    pendingDeliveryBuildingId: uuid('pending_delivery_building_id'),
 
     // ADR 0007: set on Reserving-Credit -> Open as that time + the requester's
     // duration (F1.7.3, kept in the ErrandCreated payload); null until then.
