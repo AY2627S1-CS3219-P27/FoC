@@ -5,7 +5,12 @@ import {
 import type { RequestHandler } from 'express';
 
 export type LifecycleDeliveryOutcome =
-  'successful' | 'duplicate' | 'retried' | 'dead_lettered' | 'conflicting';
+  | 'successful'
+  | 'duplicate'
+  | 'skipped'
+  | 'retried'
+  | 'dead_lettered'
+  | 'conflicting';
 
 const deliveryCounter = createLabeledCounter(
   'comms_lifecycle_deliveries_total',

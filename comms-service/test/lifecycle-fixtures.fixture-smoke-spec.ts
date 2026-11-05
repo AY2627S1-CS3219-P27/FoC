@@ -13,8 +13,8 @@ import { RabbitMqConsumerTransport } from '../src/messaging/rabbitmq-consumer.tr
 import { RabbitMqTopologyService } from '../src/messaging/rabbitmq-topology.service.js';
 import { publishFixture } from '../scripts/lifecycle-fixture-publisher.mjs';
 
-const ACCEPTED_QUEUE = 'comms-service.order-errand-accepted.v1';
-const ACCEPTED_DLQ = `${ACCEPTED_QUEUE}.dlq`;
+const EVENTS_QUEUE = 'comms-service.events';
+const EVENTS_DLQ = `${EVENTS_QUEUE}.dlq`;
 
 async function fixture(name: string): Promise<Buffer> {
   return readFile(resolve(process.cwd(), 'test', 'fixtures', name));
@@ -81,7 +81,7 @@ describe('lifecycle fixtures through RabbitMQ and PostgreSQL', () => {
 
   async function takeDeadLetter(): Promise<GetMessage> {
     return waitFor(async () => {
-      const message = await inspectionChannel.get(ACCEPTED_DLQ, {
+      const message = await inspectionChannel.get(EVENTS_DLQ, {
         noAck: true,
       });
       return message || undefined;
@@ -125,7 +125,7 @@ describe('lifecycle fixtures through RabbitMQ and PostgreSQL', () => {
     inspectionChannel = await connection.createChannel();
     transport = new RabbitMqConsumerTransport(connection);
 
-    // Prove the infrastructure-owned primary retains events before a consumer
+    // Prove the service-owned pub/sub queue retains events before a consumer
     // starts. Two copies also exercise concurrent event-ID deduplication.
     await publish('errand-accepted.v1.json', 'order.errand-accepted.v1');
     await publish('errand-accepted.v1.json', 'order.errand-accepted.v1');
@@ -153,7 +153,7 @@ describe('lifecycle fixtures through RabbitMQ and PostgreSQL', () => {
   it('creates chats idempotently and isolates invalid evidence', async () => {
     await waitForExactCounts({ inbox: 1, facts: 1, chats: 1 });
     await waitFor(async () => {
-      const queue = await inspectionChannel.checkQueue(ACCEPTED_QUEUE);
+      const queue = await inspectionChannel.checkQueue(EVENTS_QUEUE);
       return queue.messageCount === 0 ? true : undefined;
     });
     await new Promise((resolveWait) => setTimeout(resolveWait, 100));
@@ -230,6 +230,7 @@ describe('lifecycle fixtures through RabbitMQ and PostgreSQL', () => {
     );
     expect((await takeDeadLetter()).properties.headers).toMatchObject({
       'x-failure-category': 'INVALID_PAYLOAD',
+      'x-comms-original-routing-key': 'order.errand-accepted.v1',
     });
     expect(await counts()).toEqual({ inbox: 5, facts: 5, chats: 2 });
 
@@ -239,6 +240,7 @@ describe('lifecycle fixtures through RabbitMQ and PostgreSQL', () => {
     );
     expect((await takeDeadLetter()).properties.headers).toMatchObject({
       'x-failure-category': 'INVALID_ENVELOPE',
+      'x-comms-original-routing-key': 'order.errand-accepted.v1',
     });
 
     await publish(
@@ -247,6 +249,7 @@ describe('lifecycle fixtures through RabbitMQ and PostgreSQL', () => {
     );
     expect((await takeDeadLetter()).properties.headers).toMatchObject({
       'x-failure-category': 'IDENTITY_CONFLICT',
+      'x-comms-original-routing-key': 'order.errand-accepted.v1',
     });
     expect(await counts()).toEqual({ inbox: 5, facts: 5, chats: 2 });
     const [preserved] = await dataSource.query<

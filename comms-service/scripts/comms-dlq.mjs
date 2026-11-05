@@ -1,16 +1,21 @@
 import { readFile } from 'node:fs/promises';
 import amqp from 'amqplib';
-import { AccountEventContractValidator, eventRegistry } from '@foc/contracts';
+import {
+  AccountEventContractValidator,
+  eventRegistry,
+  ORDER_COURIER_CANCELLED_V1_ROUTING_KEY,
+  ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY,
+  ORDER_ERRAND_CANCELLED_V1_ROUTING_KEY,
+  ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
+} from '@foc/contracts';
 import 'dotenv/config';
 
-const STREAMS = new Map([
-  ['comms-service.order-errand-accepted.v1.dlq', 'order.errand-accepted.v1'],
-  ['comms-service.order-errand-delivered.v1.dlq', 'order.errand-delivered.v1'],
-  [
-    'comms-service.order-courier-cancelled.v1.dlq',
-    'order.courier-cancelled.v1',
-  ],
-  ['comms-service.order-errand-cancelled.v1.dlq', 'order.errand-cancelled.v1'],
+const EVENTS_DLQ = 'comms-service.events.dlq';
+const SUPPORTED_ROUTES = new Set([
+  ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY,
+  ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
+  ORDER_COURIER_CANCELLED_V1_ROUTING_KEY,
+  ORDER_ERRAND_CANCELLED_V1_ROUTING_KEY,
 ]);
 const TRACE_HEADERS = new Set(['traceparent', 'tracestate']);
 
@@ -37,7 +42,7 @@ function parseArguments(argv) {
     }
     options[name.slice(2)] = value;
   }
-  if (!STREAMS.has(options.queue)) throw new Error('Unknown DLQ queue');
+  if (options.queue !== EVENTS_DLQ) throw new Error('Unknown DLQ queue');
   if (
     action === 'redrive' &&
     (!options['corrected-file'] || !options['confirm-event-id'])
@@ -85,10 +90,15 @@ function sourceEventId(message) {
   }
 }
 
+function originalRoutingKey(message) {
+  const value = headerString(message, 'x-comms-original-routing-key');
+  return value && SUPPORTED_ROUTES.has(value) ? value : undefined;
+}
+
 function inspectEvidence(message, queue, routingKey) {
   return {
     queue,
-    normalRoutingKey: routingKey,
+    normalRoutingKey: routingKey ?? null,
     eventId: sourceEventId(message) ?? null,
     failureCategory: headerString(message, 'x-failure-category') ?? 'UNKNOWN',
     failureReason: headerString(message, 'x-failure-reason') ?? null,
@@ -151,7 +161,6 @@ if (parsed.help) {
 
 const { action, options } = parsed;
 const queue = options.queue;
-const routingKey = STREAMS.get(queue);
 const connection = await amqp.connect(await brokerUrl());
 const channel = await connection.createConfirmChannel();
 let delivery;
@@ -163,12 +172,17 @@ try {
     console.log(`DLQ ${queue} is empty`);
     process.exitCode = 2;
   } else if (action === 'inspect') {
+    const routingKey = originalRoutingKey(delivery);
     console.log(
       JSON.stringify(inspectEvidence(delivery, queue, routingKey), null, 2),
     );
     channel.nack(delivery, false, true);
     delivery = undefined;
   } else {
+    const routingKey = originalRoutingKey(delivery);
+    if (!routingKey) {
+      throw new Error('DLQ message has no supported original routing key');
+    }
     const expectedEventId = options['confirm-event-id'];
     if (sourceEventId(delivery) !== expectedEventId) {
       throw new Error(

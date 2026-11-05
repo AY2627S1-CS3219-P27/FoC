@@ -1,4 +1,10 @@
 import { EventEmitter } from 'node:events';
+import {
+  ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY,
+  ORDER_COURIER_CANCELLED_V1_ROUTING_KEY,
+  ORDER_ERRAND_CANCELLED_V1_ROUTING_KEY,
+  ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
+} from '@foc/contracts';
 import type { Channel, ConfirmChannel, ConsumeMessage, Options } from 'amqplib';
 import { RabbitMqConnectionService } from './rabbitmq-connection.service.js';
 import { RabbitMqConsumerTransport } from './rabbitmq-consumer.transport.js';
@@ -9,7 +15,8 @@ import type {
 import {
   COMMS_DEAD_LETTER_EXCHANGE,
   COMMS_DOMAIN_EXCHANGE,
-  COMMS_LIFECYCLE_STREAMS,
+  COMMS_EVENTS_QUEUE,
+  COMMS_PUBSUB_EXCHANGE,
   COMMS_RETRY_EXCHANGE,
   COMMS_RETRY_RETURN_EXCHANGE,
 } from './rabbitmq-topology.js';
@@ -157,7 +164,10 @@ class FakeConnection {
   }
 }
 
-const [acceptedStream] = COMMS_LIFECYCLE_STREAMS;
+const acceptedStream = {
+  queue: COMMS_EVENTS_QUEUE,
+  routingKey: ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY,
+};
 
 function message(
   overrides: {
@@ -216,7 +226,7 @@ function harness(
     handle: handleMock,
   };
   const subscription: LifecycleSubscription = {
-    ...acceptedStream,
+    queue: COMMS_EVENTS_QUEUE,
     handler,
   };
   const transport = new RabbitMqConsumerTransport(
@@ -245,33 +255,26 @@ async function flushMicrotasks(): Promise<void> {
 }
 
 describe('RabbitMqConsumerTransport', () => {
-  it('installs one manual-ack channel per known lifecycle stream without declaring topology', async () => {
+  it('installs one manual-ack channel for the unified event stream without declaring topology', async () => {
     const { connection, handler, transport } = harness();
-    await transport.subscribeAll(
-      COMMS_LIFECYCLE_STREAMS.map((stream) => ({ ...stream, handler })),
-    );
+    await transport.subscribe({ queue: COMMS_EVENTS_QUEUE, handler });
 
-    expect(connection.consumers).toHaveLength(COMMS_LIFECYCLE_STREAMS.length);
-    for (const [index, stream] of COMMS_LIFECYCLE_STREAMS.entries()) {
-      const channel = connection.consumers[index];
-      expect(channel.checkedQueues).toEqual([stream.queue]);
-      expect(channel.prefetches).toEqual([10]);
-      expect(channel.consumeCalls).toEqual([
-        { queue: stream.queue, options: { noAck: false } },
-      ]);
-      expect(channel).not.toHaveProperty('assertQueue');
-      expect(channel).not.toHaveProperty('assertExchange');
-      expect(channel).not.toHaveProperty('bindQueue');
-    }
+    expect(connection.consumers).toHaveLength(1);
+    const channel = connection.consumers[0];
+    expect(channel.checkedQueues).toEqual([COMMS_EVENTS_QUEUE]);
+    expect(channel.prefetches).toEqual([10]);
+    expect(channel.consumeCalls).toEqual([
+      { queue: COMMS_EVENTS_QUEUE, options: { noAck: false } },
+    ]);
+    expect(channel).not.toHaveProperty('assertQueue');
+    expect(channel).not.toHaveProperty('assertExchange');
+    expect(channel).not.toHaveProperty('bindQueue');
   });
 
-  it('rejects unknown queues, mismatched routes, and duplicate registration', async () => {
+  it('rejects unknown queues and duplicate registration', async () => {
     const { subscription, transport } = harness();
     await expect(
       transport.subscribe({ ...subscription, queue: 'another.queue' }),
-    ).rejects.toThrow('not a known lifecycle stream');
-    await expect(
-      transport.subscribe({ ...subscription, routingKey: 'wrong.route' }),
     ).rejects.toThrow('not a known lifecycle stream');
     await transport.subscribe(subscription);
     await expect(transport.subscribe(subscription)).rejects.toThrow(
@@ -301,13 +304,33 @@ describe('RabbitMqConsumerTransport', () => {
     },
   );
 
+  it.each([
+    ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY,
+    ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
+    ORDER_COURIER_CANCELLED_V1_ROUTING_KEY,
+    ORDER_ERRAND_CANCELLED_V1_ROUTING_KEY,
+  ])('dispatches the supported lifecycle route %s', async (routingKey) => {
+    const { connection, handleMock, subscription, transport } = harness();
+    await transport.subscribe(subscription);
+    const delivery = message({ routingKey });
+    await deliver(connection, delivery);
+
+    expect(handleMock).toHaveBeenCalledWith(
+      expect.objectContaining({ routingKey }),
+    );
+    expect(connection.consumers[0].acknowledged).toEqual([delivery]);
+  });
+
   it('accepts the stream-specific retry-return route and reports the logical route', async () => {
     const { connection, handleMock, subscription, transport } = harness();
     await transport.subscribe(subscription);
     const delivery = message({
       exchange: COMMS_RETRY_RETURN_EXCHANGE,
       routingKey: acceptedStream.queue,
-      headers: { 'x-retry-count': 2 },
+      headers: {
+        'x-retry-count': 2,
+        'x-comms-original-routing-key': acceptedStream.routingKey,
+      },
     });
     await deliver(connection, delivery);
 
@@ -319,10 +342,31 @@ describe('RabbitMqConsumerTransport', () => {
     );
   });
 
+  it.each([undefined, 'order.spoofed.v1'])(
+    'dead-letters retry-return delivery with invalid original route %s',
+    async (routingKey) => {
+      const { connection, handleMock, subscription, transport } = harness();
+      await transport.subscribe(subscription);
+      const headers: Record<string, unknown> = { 'x-retry-count': 2 };
+      if (routingKey) headers['x-comms-original-routing-key'] = routingKey;
+      const delivery = message({
+        exchange: COMMS_RETRY_RETURN_EXCHANGE,
+        routingKey: COMMS_EVENTS_QUEUE,
+        headers,
+      });
+      await deliver(connection, delivery);
+
+      expect(handleMock).not.toHaveBeenCalled();
+      expect(
+        connection.publisher.publications[0].options.headers,
+      ).toMatchObject({ 'x-failure-category': 'ROUTING_KEY_MISMATCH' });
+    },
+  );
+
   it.each([
     [
       'wrong route',
-      message({ routingKey: 'order.wrong.v1' }),
+      message({ exchange: COMMS_PUBSUB_EXCHANGE }),
       'ROUTING_KEY_MISMATCH',
     ],
     [
@@ -367,6 +411,21 @@ describe('RabbitMqConsumerTransport', () => {
     },
   );
 
+  it('acknowledges unsupported Order events without handling or publishing', async () => {
+    const { connection, handleMock, subscription, transport } = harness();
+    await transport.subscribe(subscription);
+    const delivery = message({
+      routingKey: 'order.some-future-fact.v1',
+      body: '{',
+      headers: { 'x-comms-original-routing-key': acceptedStream.routingKey },
+    });
+    await deliver(connection, delivery);
+
+    expect(handleMock).not.toHaveBeenCalled();
+    expect(connection.consumers[0].acknowledged).toEqual([delivery]);
+    expect(connection.publisher.publications).toHaveLength(0);
+  });
+
   it('publishes a transient result to the next retry queue and waits for confirmation before ack', async () => {
     const { connection, subscription, transport } = harness({
       outcome: 'transient-failure',
@@ -390,6 +449,7 @@ describe('RabbitMqConsumerTransport', () => {
         headers: expect.objectContaining({
           'x-retry-count': 1,
           'x-failure-category': 'TRANSIENT_PROCESSING_FAILURE',
+          'x-comms-original-routing-key': acceptedStream.routingKey,
         }),
       }),
     );
@@ -408,7 +468,10 @@ describe('RabbitMqConsumerTransport', () => {
     const delivery = message({
       exchange: COMMS_RETRY_RETURN_EXCHANGE,
       routingKey: acceptedStream.queue,
-      headers: { 'x-retry-count': 5 },
+      headers: {
+        'x-retry-count': 5,
+        'x-comms-original-routing-key': acceptedStream.routingKey,
+      },
     });
     await deliver(connection, delivery);
 
@@ -452,6 +515,7 @@ describe('RabbitMqConsumerTransport', () => {
         'x-custom': 'not-forwarded',
         'x-retry-count': 0,
         'x-comms-publication-id': 'untrusted-upstream-value',
+        'x-comms-original-routing-key': 'order.spoofed.v1',
       },
     });
     await deliver(connection, delivery);
@@ -465,6 +529,7 @@ describe('RabbitMqConsumerTransport', () => {
         traceparent: '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01',
         tracestate: 'vendor=value',
         'x-retry-count': 1,
+        'x-comms-original-routing-key': acceptedStream.routingKey,
       }),
     );
     expect(headers).not.toHaveProperty('authorization');
@@ -514,38 +579,34 @@ describe('RabbitMqConsumerTransport', () => {
       reason: 'temporary',
     });
     connection.publisher.autoConfirm = false;
-    await transport.subscribeAll(
-      COMMS_LIFECYCLE_STREAMS.slice(0, 2).map((stream) => ({
-        ...stream,
-        handler,
-      })),
-    );
+    await transport.subscribe({ queue: COMMS_EVENTS_QUEUE, handler });
     const acceptedDelivery = message();
     const deliveredDelivery = message({
-      routingKey: COMMS_LIFECYCLE_STREAMS[1].routingKey,
+      routingKey: ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
+      body: JSON.stringify({
+        eventId: 'd08417e5-7230-4bb5-a033-304127d84ac3',
+        eventType: 'ErrandDelivered',
+      }),
     });
     connection.consumers[0].consumeCallback?.(acceptedDelivery);
-    connection.consumers[1].consumeCallback?.(deliveredDelivery);
+    connection.consumers[0].consumeCallback?.(deliveredDelivery);
 
     await vi.waitFor(() =>
       expect(connection.publisher.publications).toHaveLength(2),
     );
-    const returnedIndex = connection.publisher.publications.findIndex(
-      ({ routingKey }) => routingKey === `${acceptedStream.queue}.retry.1`,
-    );
-    const successfulIndex = connection.publisher.publications.findIndex(
-      ({ routingKey }) =>
-        routingKey === `${COMMS_LIFECYCLE_STREAMS[1].queue}.retry.1`,
+    const returnedIndex = 0;
+    const successfulIndex = 1;
+    connection.publisher.publications[successfulIndex].callback(null);
+    await vi.waitFor(() =>
+      expect(connection.consumers[0].acknowledged).toEqual([deliveredDelivery]),
     );
     connection.publisher.returnPublication(returnedIndex);
     connection.publisher.publications[returnedIndex].callback(null);
-    connection.publisher.publications[successfulIndex].callback(null);
 
-    await vi.waitFor(() => expect(connection.consumers).toHaveLength(3));
-    await vi.waitFor(() =>
-      expect(connection.consumers[1].acknowledged).toEqual([deliveredDelivery]),
+    await vi.waitFor(() => expect(connection.consumers).toHaveLength(2));
+    expect(connection.consumers[0].acknowledged).not.toContain(
+      acceptedDelivery,
     );
-    expect(connection.consumers[0].acknowledged).toHaveLength(0);
     expect(connection.consumers[0].closed).toBe(true);
   });
 
@@ -567,20 +628,13 @@ describe('RabbitMqConsumerTransport', () => {
     ]);
   });
 
-  it('reinstalls an unexpectedly closed stream without disturbing siblings', async () => {
+  it('reinstalls the unified consumer after an unexpected close', async () => {
     const { connection, handler, transport } = harness();
-    await transport.subscribeAll(
-      COMMS_LIFECYCLE_STREAMS.slice(0, 2).map((stream) => ({
-        ...stream,
-        handler,
-      })),
-    );
+    await transport.subscribe({ queue: COMMS_EVENTS_QUEUE, handler });
     await connection.consumers[0].close();
 
-    await vi.waitFor(() => expect(connection.consumers).toHaveLength(3));
-    expect(connection.consumers[2].checkedQueues).toEqual([
-      COMMS_LIFECYCLE_STREAMS[0].queue,
-    ]);
+    await vi.waitFor(() => expect(connection.consumers).toHaveLength(2));
+    expect(connection.consumers[1].checkedQueues).toEqual([COMMS_EVENTS_QUEUE]);
     expect(connection.consumers[1].closed).toBe(false);
   });
 

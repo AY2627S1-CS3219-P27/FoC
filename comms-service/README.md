@@ -14,8 +14,8 @@ The current HTTP surface exposes:
 - `/docs` and `/docs-json` for the implemented OpenAPI document; and
 - `/metrics` for Prometheus metrics.
 
-In the background, four independently retried RabbitMQ consumers validate and
-deduplicate Order lifecycle notices. Accepted notices create one private chat
+In the background, one RabbitMQ consumer reads the Order event stream and
+dispatches four lifecycle notices for validation and deduplication. Accepted notices create one private chat
 per event identity; delivered and cancellation notices are retained as
 immutable facts for later deadline reconciliation. Both chat routes verify the
 shared User Service JWT, use opaque keyset cursors, and conceal absent chats
@@ -143,9 +143,9 @@ npm run rabbitmq:test:down
 The disposable PostgreSQL service listens on loopback host port `5441`. The
 isolated RabbitMQ service listens on loopback ports `5678` (AMQP) and `15678`
 (management). The latter imports the same infrastructure-owned identity,
-primary queues, permissions, and domain bindings as the root broker; starting
-Communication Service against it provisions only the service-owned retry
-topology.
+permissions, exchanges, and event-forwarding bindings as the root broker;
+starting Communication Service against it provisions the service-owned queue,
+`order.#` binding, retry topology, and DLQ.
 
 `JWT_PUBLIC_KEY_FILE`, `DB_PASSWORD_FILE`, and `RABBITMQ_PASSWORD_FILE`
 contain container file paths, never secret values. The corresponding secret
@@ -157,36 +157,32 @@ is registered in this package.
 
 ## RabbitMQ topology
 
-Root `rabbitmq/definitions.json` owns only the non-administrator identity,
-four durable primary lifecycle queues, and their four `foc.events` bindings.
-Those queues exist before Order Service publishes, so notices remain retained
-while Communication Service is offline.
+Root `rabbitmq/definitions.json` owns the non-administrator identity,
+`foc.pubsub`, and the event-forwarding bindings from `foc.events`.
+Communication Service declares durable `comms-service.events` and binds it to
+`foc.pubsub` with `order.#`. It handles the four lifecycle routes listed above
+and acknowledges other Order events as skipped.
 
-| Primary queue                              | Domain routing key           | Retry queues            | Dead-letter queue |
-| ------------------------------------------ | ---------------------------- | ----------------------- | ----------------- |
-| `comms-service.order-errand-accepted.v1`   | `order.errand-accepted.v1`   | `.retry.1` … `.retry.5` | `.dlq`            |
-| `comms-service.order-errand-delivered.v1`  | `order.errand-delivered.v1`  | `.retry.1` … `.retry.5` | `.dlq`            |
-| `comms-service.order-courier-cancelled.v1` | `order.courier-cancelled.v1` | `.retry.1` … `.retry.5` | `.dlq`            |
-| `comms-service.order-errand-cancelled.v1`  | `order.errand-cancelled.v1`  | `.retry.1` … `.retry.5` | `.dlq`            |
-
-Retry suffixes are appended to the full primary queue name. The five TTLs are
+The unified retry queues are `comms-service.events.retry.1` through
+`.retry.5`, and the dead-letter queue is `comms-service.events.dlq`. The five TTLs are
 `1000`, `2000`, `4000`, `8000`, and `16000` milliseconds. Expired retries
 return through `foc.comms.back` using the primary queue name; exhausted
-deliveries are published to `foc.comms.dlx` and routed to the stream's `.dlq`.
+deliveries are published to `foc.comms.dlx` and routed to the unified DLQ.
 All queues and exchanges are durable, publications are persistent, and no
 maximum-length or silent-overflow policy is configured.
 
 On startup, Communication Service creates `foc.comms.retry`,
-`foc.comms.back`, and `foc.comms.dlx`; five durable retry queues per stream
-using 1, 2, 4, 8, and 16 second delays; the retry-return bindings; and one
-durable DLQ per stream. Provisioning is idempotent and fails startup when an
-infrastructure-owned primary queue is missing. The service never declares a
-primary queue or accesses `foc.events`.
+`foc.comms.back`, and `foc.comms.dlx`; the primary queue and pub/sub binding;
+five durable retry queues using 1, 2, 4, 8, and 16 second delays; the
+retry-return binding; and one durable DLQ. Provisioning is idempotent and fails
+startup when `foc.pubsub` is missing or inaccessible. The service never
+accesses `foc.events`.
 
-The broker user can configure only service exchanges and retry/DLQ queues. It
-can read the four queue families and write them as required to create bindings,
-but cannot configure, read, or write `foc.events` or another service's
-resources. RabbitMQ queue-write permission also permits default-exchange
+The broker user can configure only service exchanges and its unified queue
+family. It can read `foc.pubsub` and write its own queue as required to create
+the binding, but cannot configure or publish to `foc.pubsub`, cannot configure,
+read, or write `foc.events`, and cannot access another service's resources.
+RabbitMQ queue-write permission also permits default-exchange
 publication to those queue names; Communication Service code must publish only
 through `foc.comms.retry`, `foc.comms.back`, and `foc.comms.dlx`.
 
@@ -208,15 +204,16 @@ npm run test:rabbitmq-permissions
 Deploy the foundation in this order:
 
 1. Build and verify `@foc/contracts` with all current consumers.
-2. Import root RabbitMQ definitions so the service identity, four primary
-   queues, permissions, and four domain bindings exist.
+2. Import root RabbitMQ definitions so the service identity, permissions,
+   `foc.pubsub`, and event-forwarding bindings exist.
 3. Create environment and secret files, start PostgreSQL and Redis, and apply
    the Communication Service migration explicitly.
 4. Start Communication Service. Its startup provisioner creates or adopts the
-   compatible retry exchanges, retry chains, return bindings, and DLQs, then
-   starts all four lifecycle consumers.
-5. Enable Order Service lifecycle publication only after the primary queues
-   exist. Retained notices are consumed idempotently after service startup.
+   compatible primary queue, `order.#` binding, retry chain, return binding,
+   and DLQ, then starts the unified lifecycle consumer.
+5. Enable Order Service lifecycle publication only after the Communication
+   Service startup provisioner succeeds. Retained notices are consumed
+   idempotently after service startup.
 
 To roll back, disable Order Service publication first and stop Communication
 Service without deleting its database, queues, or retained messages. Revert a
@@ -333,7 +330,7 @@ FROM chats ORDER BY created_at DESC;
 ```
 
 Publishing `errand-accepted` twice is the duplicate test. The conflict and
-invalid selectors intentionally enter the accepted-stream DLQ:
+invalid selectors intentionally enter the unified event DLQ:
 
 ```powershell
 npm run event:publish:errand-accepted-conflict

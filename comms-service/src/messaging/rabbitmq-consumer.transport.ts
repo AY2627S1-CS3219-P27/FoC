@@ -20,10 +20,11 @@ import type {
 import {
   COMMS_DEAD_LETTER_EXCHANGE,
   COMMS_DOMAIN_EXCHANGE,
-  COMMS_LIFECYCLE_STREAMS,
+  COMMS_EVENTS_QUEUE,
   COMMS_RETRY_DELAYS_MS,
   COMMS_RETRY_EXCHANGE,
   COMMS_RETRY_RETURN_EXCHANGE,
+  COMMS_SUPPORTED_LIFECYCLE_ROUTING_KEYS,
 } from './rabbitmq-topology.js';
 import { commsMetrics } from '../observability/comms-metrics.js';
 
@@ -34,6 +35,7 @@ const MAX_AMQP_SHORT_STRING_BYTES = 255;
 const SHUTDOWN_DRAIN_TIMEOUT_MS = 10_000;
 const CONSUMER_REPLACEMENT_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000];
 const PUBLICATION_ID_HEADER = 'x-comms-publication-id';
+const ORIGINAL_ROUTING_KEY_HEADER = 'x-comms-original-routing-key';
 const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true });
 const SAFE_TRACE_HEADERS = new Set(['traceparent', 'tracestate']);
 const TRANSPORT_HEADERS = new Set([
@@ -42,6 +44,7 @@ const TRANSPORT_HEADERS = new Set([
   'x-failure-category',
   'x-failure-reason',
   'x-failure-timestamp',
+  ORIGINAL_ROUTING_KEY_HEADER,
   PUBLICATION_ID_HEADER,
 ]);
 
@@ -71,6 +74,7 @@ interface FailureMetadata {
   reason: string;
   retryCount: number;
   eventId?: string;
+  routingKey?: string;
 }
 
 interface PendingPublication {
@@ -123,9 +127,9 @@ function sanitizeFailureReason(reason: string): string {
 }
 
 /**
- * Consumes only infrastructure-owned lifecycle queues. It deliberately never
- * declares a queue, exchange, or binding; Package 1's provisioner owns the
- * service topology and root RabbitMQ definitions own the primary queues.
+ * Consumes only the service-owned unified event queue. It deliberately never
+ * declares a queue, exchange, or binding; the startup provisioner owns the
+ * Communication Service topology.
  */
 @Injectable()
 export class RabbitMqConsumerTransport implements OnApplicationShutdown {
@@ -224,10 +228,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
   }
 
   private assertKnownStream(subscription: LifecycleSubscription): void {
-    const stream = COMMS_LIFECYCLE_STREAMS.find(
-      ({ queue }) => queue === subscription.queue,
-    );
-    if (!stream || stream.routingKey !== subscription.routingKey) {
+    if (subscription.queue !== COMMS_EVENTS_QUEUE) {
       throw new Error('RabbitMQ subscription is not a known lifecycle stream');
     }
   }
@@ -294,8 +295,8 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       throw new Error('RabbitMQ consumer transport is shutting down');
     }
     try {
-      // Passive inspection proves the infrastructure-owned queue exists. This
-      // service never asserts it or touches its foc.events binding.
+      // Passive inspection proves the provisioner installed the queue before
+      // consumption begins.
       await channel.checkQueue(subscription.queue);
       await channel.prefetch(CONSUMER_PREFETCH);
       const reply = await channel.consume(
@@ -371,25 +372,43 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
         reason: `x-retry-count must be an integer from 0 through ${MAX_RETRY_COUNT}`,
         retryCount: 0,
         eventId: safeAmqpShortString(message.properties.messageId),
+        routingKey: this.safeOriginalRoutingKey(message),
       });
       return;
     }
 
+    const originalRoutingKey = this.originalRoutingKey(message, retryCount);
+    // RabbitMQ exchange-to-exchange routing preserves the exchange from the
+    // original basic.publish frame, so deliveries routed through foc.pubsub
+    // still report foc.events here. The owned queue binding enforces the
+    // intermediate pub/sub path.
     const validInitialRoute =
       retryCount === 0 &&
       message.fields.exchange === COMMS_DOMAIN_EXCHANGE &&
-      message.fields.routingKey === subscription.routingKey;
+      originalRoutingKey === message.fields.routingKey;
     const validRetryRoute =
       retryCount > 0 &&
       message.fields.exchange === COMMS_RETRY_RETURN_EXCHANGE &&
-      message.fields.routingKey === subscription.queue;
+      message.fields.routingKey === subscription.queue &&
+      originalRoutingKey !== undefined;
     if (!validInitialRoute && !validRetryRoute) {
       await this.deadLetter(message, consumerChannel, subscription, {
         category: 'ROUTING_KEY_MISMATCH',
         reason: 'message route does not match the lifecycle stream',
         retryCount,
         eventId: safeAmqpShortString(message.properties.messageId),
+        routingKey: originalRoutingKey,
       });
+      return;
+    }
+
+    if (
+      originalRoutingKey === undefined ||
+      !COMMS_SUPPORTED_LIFECYCLE_ROUTING_KEYS.has(originalRoutingKey)
+    ) {
+      if (await this.ackOrReplace(message, consumerChannel, subscription)) {
+        commsMetrics.lifecycleDelivery('other_order_event', 'skipped');
+      }
       return;
     }
 
@@ -401,6 +420,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
         reason: 'content-type must be application/json when present',
         retryCount,
         eventId: safeAmqpShortString(message.properties.messageId),
+        routingKey: originalRoutingKey,
       });
       return;
     }
@@ -414,6 +434,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
         reason: 'content-encoding must be UTF-8 when present',
         retryCount,
         eventId: safeAmqpShortString(message.properties.messageId),
+        routingKey: originalRoutingKey,
       });
       return;
     }
@@ -427,6 +448,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
         reason: 'message body is not valid UTF-8 JSON',
         retryCount,
         eventId: safeAmqpShortString(message.properties.messageId),
+        routingKey: originalRoutingKey,
       });
       return;
     }
@@ -434,7 +456,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
     const eventId = extractEventId(body, message.properties);
     annotateConsumeSpan({
       messageId: eventId,
-      routingKey: subscription.routingKey,
+      routingKey: originalRoutingKey,
       retryCount,
     });
 
@@ -444,7 +466,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       result = await subscription.handler.handle({
         body,
         rawBody: Buffer.from(message.content),
-        routingKey: subscription.routingKey,
+        routingKey: originalRoutingKey,
         eventId,
         retryCount,
       });
@@ -459,16 +481,22 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
     }
 
     commsMetrics.observeLifecycleHandler(
-      subscription.routingKey,
+      originalRoutingKey,
       result.outcome,
       Number(process.hrtime.bigint() - handlerStarted) / 1_000_000_000,
     );
 
-    if (result.outcome === 'processed' || result.outcome === 'duplicate') {
+    if (
+      result.outcome === 'processed' ||
+      result.outcome === 'duplicate' ||
+      result.outcome === 'skipped'
+    ) {
       if (await this.ackOrReplace(message, consumerChannel, subscription)) {
         commsMetrics.lifecycleDelivery(
-          subscription.routingKey,
-          result.outcome === 'processed' ? 'successful' : 'duplicate',
+          result.outcome === 'skipped'
+            ? 'other_order_event'
+            : originalRoutingKey,
+          result.outcome === 'processed' ? 'successful' : result.outcome,
         );
       }
       return;
@@ -479,6 +507,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
         reason: result.reason,
         retryCount,
         eventId: result.eventId ?? eventId,
+        routingKey: originalRoutingKey,
       });
       return;
     }
@@ -491,6 +520,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
         retryCount + 1,
         eventId,
         result.reason,
+        originalRoutingKey,
       );
       return;
     }
@@ -499,6 +529,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       reason: 'message processing failed after five retries',
       retryCount,
       eventId,
+      routingKey: originalRoutingKey,
     });
   }
 
@@ -526,6 +557,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
     retryCount: number,
     eventId: string | undefined,
     reason: string,
+    routingKey: string,
   ): Promise<void> {
     try {
       await this.publishConfirmed(
@@ -538,10 +570,11 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
           reason,
           retryCount,
           eventId,
+          routingKey,
         }),
       );
       consumerChannel.ack(message);
-      commsMetrics.lifecycleDelivery(subscription.routingKey, 'retried');
+      commsMetrics.lifecycleDelivery(routingKey, 'retried');
     } catch (error) {
       this.logger.error(
         `Unable to safely publish retry for event ${eventId ?? 'unknown'}: ${String(error)}`,
@@ -566,7 +599,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       );
       consumerChannel.ack(message);
       commsMetrics.lifecycleDelivery(
-        subscription.routingKey,
+        failure.routingKey ?? 'other_order_event',
         failure.category === 'IDENTITY_CONFLICT'
           ? 'conflicting'
           : 'dead_lettered',
@@ -603,6 +636,9 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       'x-failure-timestamp': new Date().toISOString(),
     };
     if (failure.eventId) headers['x-event-id'] = failure.eventId;
+    if (failure.routingKey) {
+      headers[ORIGINAL_ROUTING_KEY_HEADER] = failure.routingKey;
+    }
 
     return {
       persistent: true,
@@ -620,6 +656,34 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       appId: safeAmqpShortString(properties.appId),
       headers,
     };
+  }
+
+  private safeOriginalRoutingKey(message: ConsumeMessage): string | undefined {
+    if (message.fields.exchange === COMMS_DOMAIN_EXCHANGE) {
+      return message.fields.routingKey.startsWith('order.')
+        ? message.fields.routingKey
+        : undefined;
+    }
+    const value = safeAmqpShortString(
+      message.properties.headers?.[ORIGINAL_ROUTING_KEY_HEADER],
+    );
+    return value !== undefined &&
+      COMMS_SUPPORTED_LIFECYCLE_ROUTING_KEYS.has(value)
+      ? value
+      : undefined;
+  }
+
+  private originalRoutingKey(
+    message: ConsumeMessage,
+    retryCount: number,
+  ): string | undefined {
+    if (retryCount === 0) {
+      return message.fields.exchange === COMMS_DOMAIN_EXCHANGE &&
+        message.fields.routingKey.startsWith('order.')
+        ? message.fields.routingKey
+        : undefined;
+    }
+    return this.safeOriginalRoutingKey(message);
   }
 
   private async publishConfirmed(

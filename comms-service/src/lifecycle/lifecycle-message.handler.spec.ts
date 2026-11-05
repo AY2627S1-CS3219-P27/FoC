@@ -150,14 +150,11 @@ describe('LifecycleMessageDispatcher', () => {
     await expect(dispatcher.handle(message)).resolves.toEqual(expected);
   });
 
-  it('rejects an unsupported logical route', async () => {
+  it('skips an unsupported logical route', async () => {
     const { dispatcher, process } = harness();
     await expect(
       dispatcher.handle(incoming('order.unknown.v1', 'Unknown', {})),
-    ).resolves.toMatchObject({
-      outcome: 'permanent-failure',
-      category: 'UNSUPPORTED_EVENT_TYPE',
-    });
+    ).resolves.toEqual({ outcome: 'skipped' });
     expect(process).not.toHaveBeenCalled();
   });
 });

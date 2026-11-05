@@ -1,9 +1,9 @@
 import { Injectable, type OnApplicationBootstrap } from '@nestjs/common';
 import { RabbitMqConsumerTransport } from '../messaging/rabbitmq-consumer.transport.js';
-import { COMMS_LIFECYCLE_STREAMS } from '../messaging/rabbitmq-topology.js';
+import { COMMS_EVENTS_QUEUE } from '../messaging/rabbitmq-topology.js';
 import { LifecycleMessageDispatcher } from './lifecycle-message.handler.js';
 
-/** Starts all four independent streams only after their durable handler exists. */
+/** Starts the unified Order event stream after its durable handler exists. */
 @Injectable()
 export class LifecycleConsumerLifecycle implements OnApplicationBootstrap {
   constructor(
@@ -12,11 +12,9 @@ export class LifecycleConsumerLifecycle implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
-    await this.transport.subscribeAll(
-      COMMS_LIFECYCLE_STREAMS.map((stream) => ({
-        ...stream,
-        handler: this.handler,
-      })),
-    );
+    await this.transport.subscribe({
+      queue: COMMS_EVENTS_QUEUE,
+      handler: this.handler,
+    });
   }
 }

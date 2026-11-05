@@ -15,12 +15,12 @@ if (request.list) {
 const body = await readFile(request.fixturePath);
 await publishFixture({
   url: process.env.RABBITMQ_FIXTURE_URL,
-  exchange: process.env.RABBITMQ_EXCHANGE ?? 'foc.events',
+  exchange: 'foc.events',
   routingKey: request.routingKey,
   body,
 });
 const event = JSON.parse(body.toString('utf8'));
 console.log(
   `Published ${String(event.eventType)} ${String(event.eventId)} to ` +
-    `${process.env.RABBITMQ_EXCHANGE ?? 'foc.events'}:${request.routingKey}`,
+    `foc.events:${request.routingKey}`,
 );

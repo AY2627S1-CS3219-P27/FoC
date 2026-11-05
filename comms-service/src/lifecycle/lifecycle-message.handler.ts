@@ -1,8 +1,8 @@
 import {
   AccountEventContractValidator,
-  type ContractValidationResult,
   type ContractViolation,
-  type EventContractFailureCode,
+  DomainEventDispatcher,
+  type DomainEventHandlers,
   ORDER_COURIER_CANCELLED_V1_ROUTING_KEY,
   ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY,
   ORDER_ERRAND_CANCELLED_V1_ROUTING_KEY,
@@ -44,74 +44,55 @@ export class LifecycleMessageDispatcher implements LifecycleMessageHandler {
   async handle(
     message: IncomingLifecycleMessage,
   ): Promise<LifecycleMessageHandlingResult> {
-    switch (message.routingKey) {
-      case ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY:
-        return this.processValidation(
-          message,
-          this.contracts.validate(
-            ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY,
-            message.body,
-          ),
-        );
-      case ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY:
-        return this.processValidation(
-          message,
-          this.contracts.validate(
-            ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
-            message.body,
-          ),
-        );
-      case ORDER_COURIER_CANCELLED_V1_ROUTING_KEY:
-        return this.processValidation(
-          message,
-          this.contracts.validate(
-            ORDER_COURIER_CANCELLED_V1_ROUTING_KEY,
-            message.body,
-          ),
-        );
-      case ORDER_ERRAND_CANCELLED_V1_ROUTING_KEY:
-        return this.processValidation(
-          message,
-          this.contracts.validate(
-            ORDER_ERRAND_CANCELLED_V1_ROUTING_KEY,
-            message.body,
-          ),
-        );
-      default:
-        return {
-          outcome: 'permanent-failure',
-          eventId: message.eventId,
-          category: 'UNSUPPORTED_EVENT_TYPE',
-          reason: 'routing key is not a supported lifecycle contract',
-        };
-    }
-  }
+    let handlingResult: LifecycleMessageHandlingResult | undefined;
+    const handle = async (event: LifecycleEvent, routingKey: string) => {
+      handlingResult = await this.processValidated(event, routingKey);
+    };
+    const handlers: DomainEventHandlers = {
+      [ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY]: (event) =>
+        handle(event, ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY),
+      [ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY]: (event) =>
+        handle(event, ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY),
+      [ORDER_COURIER_CANCELLED_V1_ROUTING_KEY]: (event) =>
+        handle(event, ORDER_COURIER_CANCELLED_V1_ROUTING_KEY),
+      [ORDER_ERRAND_CANCELLED_V1_ROUTING_KEY]: (event) =>
+        handle(event, ORDER_ERRAND_CANCELLED_V1_ROUTING_KEY),
+    };
+    const result = await new DomainEventDispatcher(this.contracts).dispatch(
+      message.routingKey,
+      message.body,
+      handlers,
+    );
 
-  private async processValidation<TEvent extends LifecycleEvent>(
-    message: IncomingLifecycleMessage,
-    validation: ContractValidationResult<TEvent, EventContractFailureCode>,
-  ): Promise<LifecycleMessageHandlingResult> {
-    if (!validation.valid) {
+    if (result.outcome === 'skipped') return { outcome: 'skipped' };
+    if (result.outcome === 'invalid') {
       return {
         outcome: 'permanent-failure',
         eventId: message.eventId,
-        category: validation.code,
-        reason: contractFailureReason(validation.code, validation.violations),
+        category: result.code,
+        reason: contractFailureReason(result.code, result.violations),
       };
     }
-    if (!hasDistinctParticipants(validation.value)) {
+    if (handlingResult === undefined) {
+      throw new Error('Domain event handler completed without a result');
+    }
+    return handlingResult;
+  }
+
+  private async processValidated(
+    event: LifecycleEvent,
+    routingKey: string,
+  ): Promise<LifecycleMessageHandlingResult> {
+    if (!hasDistinctParticipants(event)) {
       return {
         outcome: 'permanent-failure',
-        eventId: validation.value.eventId,
+        eventId: event.eventId,
         category: 'INVALID_PAYLOAD',
         reason: 'requester and courier must be different users',
       };
     }
 
-    const result = await this.ingestion.process(
-      validation.value,
-      message.routingKey,
-    );
+    const result = await this.ingestion.process(event, routingKey);
     switch (result.status) {
       case 'recorded':
         if (result.chatId !== undefined) commsMetrics.chatCreated();

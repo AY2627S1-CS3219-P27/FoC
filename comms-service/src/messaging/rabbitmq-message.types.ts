@@ -20,6 +20,7 @@ export type PermanentMessageFailure =
 export type LifecycleMessageHandlingResult =
   | { outcome: 'processed' }
   | { outcome: 'duplicate' }
+  | { outcome: 'skipped' }
   | { outcome: 'transient-failure'; reason: string }
   | {
       outcome: 'permanent-failure';
@@ -36,6 +37,5 @@ export interface LifecycleMessageHandler {
 
 export interface LifecycleSubscription {
   queue: string;
-  routingKey: string;
   handler: LifecycleMessageHandler;
 }
