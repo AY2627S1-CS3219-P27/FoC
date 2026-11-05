@@ -4,13 +4,13 @@
 
 Communication Service reacts to Order Service lifecycle changes. Order Service
 publishes through its transactional outbox, so delivery is at least once and a
-consumer can see duplicates or events from independent queues in a different
+consumer can see duplicates or independently published events in a different
 arrival order. A broker outage or an offline Communication Service must not
 lose the notice that will eventually create or close a chat.
 
-The shared `foc.events` exchange is platform infrastructure. Giving a consumer
-permission to reconfigure or publish to it would blur service ownership and
-allow Communication Service to impersonate a domain-event publisher.
+The shared `foc.events` and `foc.pubsub` exchanges are platform infrastructure.
+Giving a consumer permission to reconfigure or publish to them would blur
+service ownership and allow Communication Service to impersonate a publisher.
 
 ## Decision
 
@@ -23,27 +23,31 @@ The authoritative v1 contracts are:
 | `CourierCancelled` | `order.courier-cancelled.v1` | `errandId`, `requesterUserId`, `courierUserId` |
 | `ErrandCancelled`  | `order.errand-cancelled.v1`  | `errandId`                                     |
 
-Infrastructure owns one durable primary queue and exact `foc.events` binding
-per routing key. Communication Service cannot configure or publish to
-`foc.events`; it owns only `foc.comms.retry`, `foc.comms.back`,
-`foc.comms.dlx`, five retry queues per stream, and one DLQ per stream.
+Infrastructure forwards registered fact events from `foc.events` to
+`foc.pubsub`. Communication Service owns one durable `comms-service.events`
+queue bound to `foc.pubsub` with `order.#`, plus `foc.comms.retry`,
+`foc.comms.back`, `foc.comms.dlx`, one five-stage retry family, and one DLQ.
+The runtime identity may read `foc.pubsub` to create its binding but cannot
+configure or publish to either shared exchange. Other Order routes are
+acknowledged as skipped until a handler is deliberately added.
 
 Package 2 consumers will validate the envelope, routing key, publisher, and
 strict payload before persisting. The envelope `eventId` is the inbox
 deduplication identity. Repeated identical delivery is acknowledged safely;
 reuse of an event ID with different canonical evidence is rejected to the
-stream DLQ. Lifecycle facts are retained so independently arriving terminal
+unified DLQ. Lifecycle facts are retained so independently arriving terminal
 events can be reconciled. A terminal event without a matching chat is still
 recorded and acknowledged.
 
 ## Consequences
 
-- Notices published while Communication Service is offline remain in durable
-  infrastructure-owned queues.
+- Notices published after the service-owned queue is provisioned remain there
+  while Communication Service is offline.
 - Consumers must be idempotent and cannot infer lifecycle order from broker
   arrival order.
-- Root broker definitions must exist before Order Service publication starts.
-- Communication Service startup may provision only its retry topology and
-  fails if an expected primary queue is absent.
+- Root broker definitions and Communication Service topology provisioning must
+  complete before Order Service publication starts.
+- Communication Service startup provisions its queue, pub/sub binding, retry
+  family, and DLQ and fails if `foc.pubsub` is unavailable.
 - Package 1 provisions and verifies topology but intentionally has no lifecycle
   consumer.

@@ -9,14 +9,23 @@ all environments: use explicit TypeORM migrations. PostgreSQL is authoritative;
 Redis may only support future cross-replica Socket.IO delivery. The service
 must never publish domain events to `foc.events`.
 
-Root broker definitions own the four lifecycle primary queues and their
-`foc.events` bindings. Communication Service must not declare those queues or
-touch the shared exchange; it owns only `foc.comms.*`, retry queues, return
-bindings, and DLQs through its idempotent startup provisioner.
+Root broker definitions own `foc.pubsub` and the event-forwarding bindings.
+Communication Service owns `comms-service.events`, its `order.#` binding, one
+retry chain, and one DLQ through its idempotent startup provisioner. It must
+never configure or publish to either shared exchange.
 
-Package 1 currently provides infrastructure only. Do not add lifecycle
-consumers, chat APIs, a Socket.IO namespace, or archive workers until their
-roadmap packages are implemented.
+Package 2 lifecycle ingestion and authenticated reads are active: one unified
+Order-event consumer dispatches four lifecycle contracts, records
+inbox/lifecycle evidence, and create one chat per accepted-event identity.
+Participant-only chat listing and message history are exposed at `/v1/chats`.
+Socket.IO, message/read mutations, grace transitions, and archive workers remain
+deferred to their roadmap steps.
+
+Package 2 metrics use bounded operational labels only; never add participant,
+errand, chat, event, cursor, or token values as labels. DLQ inspection and
+redrive follow `../docs/runbooks/comms-service-package-2.md`: corrected messages
+return through `foc.events` with a dedicated operator identity and normal
+contract validation, never through a primary queue or direct database edits.
 
 The root stack keeps Communication Service and its PostgreSQL database on the
 private `internal` network without host ports. Use the opt-in

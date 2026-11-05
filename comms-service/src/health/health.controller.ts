@@ -3,6 +3,7 @@ import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { RabbitMqConnectionService } from '../messaging/rabbitmq-connection.service.js';
+import { RabbitMqConsumerTransport } from '../messaging/rabbitmq-consumer.transport.js';
 import { RedisService } from '../redis/redis.service.js';
 
 @ApiTags('health')
@@ -11,6 +12,7 @@ export class HealthController {
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly rabbitMq: RabbitMqConnectionService,
+    private readonly rabbitMqConsumers: RabbitMqConsumerTransport,
     private readonly redis: RedisService,
   ) {}
 
@@ -22,20 +24,23 @@ export class HealthController {
   }
 
   @Get('ready')
-  @ApiOperation({ summary: 'Foundation dependency readiness' })
+  @ApiOperation({ summary: 'Service dependency and consumer readiness' })
   @ApiResponse({
     status: 200,
-    description: 'PostgreSQL, RabbitMQ, and Redis are reachable.',
+    description:
+      'PostgreSQL, RabbitMQ, and Redis are reachable and lifecycle consumers are active.',
   })
   @ApiResponse({
     status: 503,
-    description: 'At least one dependency is unavailable.',
+    description:
+      'At least one dependency is unavailable or a lifecycle consumer is recovering.',
   })
   async ready(): Promise<{ status: 'ok' }> {
     try {
       await Promise.all([
         this.dataSource.query('SELECT 1'),
         this.rabbitMq.check(),
+        this.rabbitMqConsumers.checkConsumers(),
         this.redis.check(),
       ]);
       return { status: 'ok' };

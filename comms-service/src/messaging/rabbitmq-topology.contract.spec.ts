@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import {
   COMMS_DEAD_LETTER_EXCHANGE,
   COMMS_DOMAIN_EXCHANGE,
-  COMMS_LIFECYCLE_STREAMS,
+  COMMS_EVENTS_QUEUE,
+  COMMS_PUBSUB_EXCHANGE,
   COMMS_RETRY_EXCHANGE,
   COMMS_RETRY_RETURN_EXCHANGE,
 } from './rabbitmq-topology.js';
@@ -64,7 +65,7 @@ const serviceBindings = definitions.bindings.filter(({ destination }) =>
   destination.startsWith('comms-service.'),
 );
 
-describe('Communication Service infrastructure-owned RabbitMQ topology', () => {
+describe('Communication Service RabbitMQ topology boundary', () => {
   it('defines a non-administrator identity whose example password matches its hash', () => {
     const user = definitions.users.find(({ name }) => name === 'comms-service');
     expect(user).toBeDefined();
@@ -90,59 +91,43 @@ describe('Communication Service infrastructure-owned RabbitMQ topology', () => {
     const permission = definitions.permissions.find(
       ({ user }) => user === 'comms-service',
     );
-    const queueStem =
-      '(order-errand-accepted|order-errand-delivered|order-courier-cancelled|order-errand-cancelled)\\.v1';
     expect(permission).toEqual({
-      configure: `^(foc\\.comms\\.(retry|back|dlx)|comms-service\\.${queueStem}\\.(retry\\.[1-5]|dlq))$`,
-      read: `^(foc\\.comms\\.(retry|back|dlx)|comms-service\\.${queueStem}(\\.(retry\\.[1-5]|dlq))?)$`,
+      configure:
+        '^(foc\\.comms\\.(retry|back|dlx)|comms-service\\.events(\\.retry\\.[1-5]|\\.dlq)?)$',
+      read: '^(foc\\.pubsub|foc\\.comms\\.(retry|back|dlx)|comms-service\\.events(\\.retry\\.[1-5]|\\.dlq)?)$',
       user: 'comms-service',
       vhost: '/foc',
-      write: `^(foc\\.comms\\.(retry|back|dlx)|comms-service\\.${queueStem}(\\.(retry\\.[1-5]|dlq))?)$`,
+      write:
+        '^(foc\\.comms\\.(retry|back|dlx)|comms-service\\.events(\\.retry\\.[1-5]|\\.dlq)?)$',
     });
 
     const configure = new RegExp(permission!.configure);
     const read = new RegExp(permission!.read);
     const write = new RegExp(permission!.write);
-    const primary = COMMS_LIFECYCLE_STREAMS[0].queue;
-    expect(configure.test(primary)).toBe(false);
-    expect(read.test(primary)).toBe(true);
-    expect(write.test(primary)).toBe(true);
-    expect(configure.test(`${primary}.retry.1`)).toBe(true);
-    expect(configure.test(`${primary}.dlq`)).toBe(true);
+    expect(configure.test(COMMS_EVENTS_QUEUE)).toBe(true);
+    expect(read.test(COMMS_EVENTS_QUEUE)).toBe(true);
+    expect(write.test(COMMS_EVENTS_QUEUE)).toBe(true);
+    expect(configure.test(`${COMMS_EVENTS_QUEUE}.retry.1`)).toBe(true);
+    expect(configure.test(`${COMMS_EVENTS_QUEUE}.dlq`)).toBe(true);
     expect(write.test(COMMS_RETRY_EXCHANGE)).toBe(true);
     expect(write.test(COMMS_RETRY_RETURN_EXCHANGE)).toBe(true);
     expect(write.test(COMMS_DEAD_LETTER_EXCHANGE)).toBe(true);
     expect(configure.test(COMMS_DOMAIN_EXCHANGE)).toBe(false);
     expect(read.test(COMMS_DOMAIN_EXCHANGE)).toBe(false);
     expect(write.test(COMMS_DOMAIN_EXCHANGE)).toBe(false);
+    expect(configure.test(COMMS_PUBSUB_EXCHANGE)).toBe(false);
+    expect(read.test(COMMS_PUBSUB_EXCHANGE)).toBe(true);
+    expect(write.test(COMMS_PUBSUB_EXCHANGE)).toBe(false);
     expect(write.test('foc.credit.retry')).toBe(false);
     expect(write.test('credit-service.order-errand-cancelled.v1')).toBe(false);
   });
 
-  it('pre-provisions exactly four durable primary queues with empty arguments', () => {
-    expect(serviceQueues).toEqual(
-      COMMS_LIFECYCLE_STREAMS.map(({ queue }) => ({
-        arguments: {},
-        auto_delete: false,
-        durable: true,
-        name: queue,
-        type: 'classic',
-        vhost: '/foc',
-      })),
-    );
+  it('does not pre-provision service-owned queues', () => {
+    expect(serviceQueues).toEqual([]);
   });
 
-  it('pre-provisions only the four domain bindings', () => {
-    expect(serviceBindings).toEqual(
-      COMMS_LIFECYCLE_STREAMS.map(({ queue, routingKey }) => ({
-        arguments: {},
-        destination: queue,
-        destination_type: 'queue',
-        routing_key: routingKey,
-        source: COMMS_DOMAIN_EXCHANGE,
-        vhost: '/foc',
-      })),
-    );
+  it('does not pre-provision service-owned bindings', () => {
+    expect(serviceBindings).toEqual([]);
   });
 
   it('leaves all retry exchanges, retry queues, DLQs, and internal bindings to the service', () => {
