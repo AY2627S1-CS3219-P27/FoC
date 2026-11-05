@@ -13,6 +13,11 @@ import type {
   ChatState,
 } from '../database/entities/chat.entity.js';
 
+/**
+ * Deliberately deviates from N3.1.2's offset pagination: chat activity can
+ * reorder rows, while message history has a stable sequence, so an opaque
+ * keyset cursor avoids offset drift and supports efficient continuation.
+ */
 export class CursorPageQueryDto {
   @ApiPropertyOptional({ description: 'Opaque continuation cursor.' })
   @IsOptional()
