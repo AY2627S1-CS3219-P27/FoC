@@ -15,5 +15,6 @@ export const courierCancelledV1Contract =
     routingKey: ORDER_COURIER_CANCELLED_V1_ROUTING_KEY,
     eventType: 'CourierCancelled',
     publisher: 'order-service',
+    kind: 'event',
     schema,
   });

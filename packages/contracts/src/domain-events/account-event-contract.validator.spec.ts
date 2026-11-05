@@ -122,4 +122,41 @@ describe('AccountEventContractValidator', () => {
     });
     expect(JSON.stringify(first)).not.toContain(sensitiveValue);
   });
+
+  describe('validateReceived', () => {
+    it('selects the contract from the received routing key', () => {
+      const result = validator.validateReceived(
+        USER_REGISTERED_V1_ROUTING_KEY,
+        copy(userRegistered),
+      );
+
+      expect(result).toEqual({
+        valid: true,
+        key: USER_REGISTERED_V1_ROUTING_KEY,
+        value: userRegistered,
+      });
+    });
+
+    it('classifies an unregistered routing key as unsupported', () => {
+      const result = validator.validateReceived(
+        'user.deleted.v1',
+        copy(userRegistered),
+      );
+
+      expect(result).toMatchObject({
+        valid: false,
+        code: 'UNSUPPORTED_EVENT_TYPE',
+        violations: [{ instancePath: '/routingKey' }],
+      });
+    });
+
+    it('still enforces the payload shape for the selected contract', () => {
+      const input = copy(userRegistered);
+      input.payload.email = 'not-an-email';
+
+      expect(
+        validator.validateReceived(USER_REGISTERED_V1_ROUTING_KEY, input),
+      ).toMatchObject({ valid: false, code: 'INVALID_PAYLOAD' });
+    });
+  });
 });
