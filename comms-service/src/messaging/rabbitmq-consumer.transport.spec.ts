@@ -25,7 +25,17 @@ class FakeConsumerChannel extends EventEmitter {
   readonly cancelled: string[] = [];
   consumeCallback?: (message: ConsumeMessage | null) => void;
   closed = false;
+  closeWhenListenerRegistered = false;
   ackError?: Error;
+
+  override on(event: string, listener: () => void): this {
+    super.on(event, listener);
+    if (event === 'close' && this.closeWhenListenerRegistered) {
+      this.closeWhenListenerRegistered = false;
+      void this.close();
+    }
+    return this;
+  }
 
   async checkQueue(queue: string) {
     this.checkedQueues.push(queue);
@@ -124,9 +134,13 @@ class FakeConnection {
   readonly publisher = new FakePublisherChannel();
   readonly stopRecovery = vi.fn().mockResolvedValue(undefined);
   beforeClose?: () => Promise<void>;
+  closeNextConsumerWhenListenerRegistered = false;
 
   async createChannel() {
     const channel = new FakeConsumerChannel();
+    channel.closeWhenListenerRegistered =
+      this.closeNextConsumerWhenListenerRegistered;
+    this.closeNextConsumerWhenListenerRegistered = false;
     this.consumers.push(channel);
     return channel as unknown as Channel;
   }
@@ -224,6 +238,10 @@ async function deliver(
       handled || published || connection.consumers.length > index + 1,
     ).toBe(true);
   });
+}
+
+async function flushMicrotasks(): Promise<void> {
+  for (let turn = 0; turn < 10; turn += 1) await Promise.resolve();
 }
 
 describe('RabbitMqConsumerTransport', () => {
@@ -564,6 +582,124 @@ describe('RabbitMqConsumerTransport', () => {
       COMMS_LIFECYCLE_STREAMS[0].queue,
     ]);
     expect(connection.consumers[1].closed).toBe(false);
+  });
+
+  it('retries a failed channel-close replacement without an unhandled rejection', async () => {
+    vi.useFakeTimers();
+    try {
+      const { connection, subscription, transport } = harness();
+      await transport.subscribe(subscription);
+      const createChannel = vi
+        .spyOn(connection, 'createChannel')
+        .mockRejectedValueOnce(new Error('sensitive connection detail'));
+
+      await connection.consumers[0].close();
+      await flushMicrotasks();
+      expect(createChannel).toHaveBeenCalledOnce();
+      await expect(transport.checkConsumers()).rejects.toThrow(
+        'RabbitMQ lifecycle consumers are not ready',
+      );
+      expect(connection.consumers).toHaveLength(1);
+
+      await vi.advanceTimersByTimeAsync(999);
+      expect(createChannel).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(1);
+      await flushMicrotasks();
+      expect(connection.consumers).toHaveLength(2);
+
+      await expect(transport.checkConsumers()).resolves.toBeUndefined();
+      expect(createChannel).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('coalesces broker cancellation and channel-close replacement signals', async () => {
+    vi.useFakeTimers();
+    try {
+      const { connection, subscription, transport } = harness();
+      await transport.subscribe(subscription);
+      const createChannel = vi
+        .spyOn(connection, 'createChannel')
+        .mockRejectedValueOnce(new Error('installation failed'));
+      const failedChannel = connection.consumers[0];
+
+      failedChannel.consumeCallback?.(null);
+      failedChannel.emit('close');
+      await flushMicrotasks();
+      expect(createChannel).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(1_000);
+      await flushMicrotasks();
+      expect(connection.consumers).toHaveLength(2);
+
+      expect(createChannel).toHaveBeenCalledTimes(2);
+      expect(connection.consumers[1].consumeCalls).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('backs off failed replacements to the sixteen-second cap', async () => {
+    vi.useFakeTimers();
+    try {
+      const { connection, subscription, transport } = harness();
+      await transport.subscribe(subscription);
+      const createChannel = vi
+        .spyOn(connection, 'createChannel')
+        .mockRejectedValue(new Error('installation failed'));
+
+      await connection.consumers[0].close();
+      await flushMicrotasks();
+      expect(createChannel).toHaveBeenCalledOnce();
+      for (const [index, delay] of [
+        1_000, 2_000, 4_000, 8_000, 16_000, 16_000,
+      ].entries()) {
+        await vi.advanceTimersByTimeAsync(delay - 1);
+        expect(createChannel).toHaveBeenCalledTimes(index + 1);
+        await vi.advanceTimersByTimeAsync(1);
+        await flushMicrotasks();
+        expect(createChannel).toHaveBeenCalledTimes(index + 2);
+      }
+
+      await transport.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('continues supervision when a replacement closes before its supervisor exits', async () => {
+    const { connection, subscription, transport } = harness();
+    await transport.subscribe(subscription);
+    connection.closeNextConsumerWhenListenerRegistered = true;
+
+    await connection.consumers[0].close();
+    await vi.waitFor(() => expect(connection.consumers).toHaveLength(3));
+
+    expect(connection.consumers[1].closed).toBe(true);
+    expect(connection.consumers[2].closed).toBe(false);
+    await expect(transport.checkConsumers()).resolves.toBeUndefined();
+  });
+
+  it('cancels replacement backoff when shutdown begins', async () => {
+    vi.useFakeTimers();
+    try {
+      const { connection, subscription, transport } = harness();
+      await transport.subscribe(subscription);
+      const createChannel = vi
+        .spyOn(connection, 'createChannel')
+        .mockRejectedValueOnce(new Error('installation failed'));
+
+      await connection.consumers[0].close();
+      await flushMicrotasks();
+      expect(createChannel).toHaveBeenCalledOnce();
+      await transport.close();
+      await vi.advanceTimersByTimeAsync(16_000);
+
+      expect(createChannel).toHaveBeenCalledOnce();
+      expect(connection.stopRecovery).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('cancels intake, drains handlers and confirms, then closes channels', async () => {

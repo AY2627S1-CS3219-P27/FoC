@@ -32,6 +32,7 @@ const MAX_RETRY_COUNT = COMMS_RETRY_DELAYS_MS.length;
 const MAX_FAILURE_REASON_LENGTH = 512;
 const MAX_AMQP_SHORT_STRING_BYTES = 255;
 const SHUTDOWN_DRAIN_TIMEOUT_MS = 10_000;
+const CONSUMER_REPLACEMENT_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000];
 const PUBLICATION_ID_HEADER = 'x-comms-publication-id';
 const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true });
 const SAFE_TRACE_HEADERS = new Set(['traceparent', 'tracestate']);
@@ -76,6 +77,11 @@ interface PendingPublication {
   channel: ConfirmChannel;
   resolveRouting: () => void;
   rejectRouting: (error: Error) => void;
+}
+
+interface ConsumerReplacementRequest {
+  subscription: LifecycleSubscription;
+  failedChannels: Set<Channel>;
 }
 
 function safeAmqpShortString(value: unknown): string | undefined {
@@ -128,6 +134,12 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
   private readonly consumers = new Map<string, ConsumerState>();
   private readonly inFlight = new Set<Promise<void>>();
   private readonly pendingPublications = new Map<string, PendingPublication>();
+  private readonly replacementRequests = new Map<
+    string,
+    ConsumerReplacementRequest
+  >();
+  private readonly replacementTasks = new Map<string, Promise<void>>();
+  private readonly replacementAbort = new AbortController();
   private publisherChannel?: ConfirmChannel;
   private publisherPromise?: Promise<ConfirmChannel>;
   private closePromise?: Promise<void>;
@@ -183,6 +195,8 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
   close(): Promise<void> {
     if (!this.closePromise) {
       this.stopping = true;
+      this.replacementAbort.abort();
+      this.replacementRequests.clear();
       this.unregisterBeforeClose?.();
       this.unregisterBeforeClose = undefined;
       this.closePromise = this.closeWithinDeadline();
@@ -192,6 +206,21 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
 
   async onApplicationShutdown(): Promise<void> {
     await this.close();
+  }
+
+  async checkConsumers(): Promise<void> {
+    if (this.stopping || this.subscriptions.size === 0) {
+      throw new Error('RabbitMQ lifecycle consumers are not ready');
+    }
+    for (const queue of this.subscriptions.keys()) {
+      if (
+        !this.consumers.has(queue) ||
+        this.replacementRequests.has(queue) ||
+        this.replacementTasks.has(queue)
+      ) {
+        throw new Error('RabbitMQ lifecycle consumers are not ready');
+      }
+    }
   }
 
   private assertKnownStream(subscription: LifecycleSubscription): void {
@@ -295,7 +324,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
           this.logger.warn(
             `RabbitMQ consumer ${subscription.queue} closed unexpectedly`,
           );
-          void this.replaceConsumer(subscription, channel);
+          void this.requestConsumerReplacement(subscription, channel);
         }
       });
     } catch (error) {
@@ -313,7 +342,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       this.logger.error(
         `RabbitMQ cancelled consumer for ${subscription.queue}`,
       );
-      void this.replaceConsumer(subscription, channel);
+      void this.requestConsumerReplacement(subscription, channel);
       return;
     }
 
@@ -485,7 +514,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       this.logger.error(
         `Unable to acknowledge event from ${subscription.queue}: ${String(error)}`,
       );
-      await this.replaceConsumer(subscription, channel);
+      await this.requestConsumerReplacement(subscription, channel);
       return false;
     }
   }
@@ -517,7 +546,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       this.logger.error(
         `Unable to safely publish retry for event ${eventId ?? 'unknown'}: ${String(error)}`,
       );
-      await this.replaceConsumer(subscription, consumerChannel);
+      await this.requestConsumerReplacement(subscription, consumerChannel);
     }
   }
 
@@ -549,7 +578,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       this.logger.error(
         `Unable to safely publish dead letter for event ${failure.eventId ?? 'unknown'}: ${String(error)}`,
       );
-      await this.replaceConsumer(subscription, consumerChannel);
+      await this.requestConsumerReplacement(subscription, consumerChannel);
     }
   }
 
@@ -724,6 +753,8 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       );
     });
     this.consumers.clear();
+    this.replacementRequests.clear();
+    this.replacementTasks.clear();
     this.publisherChannel = undefined;
     this.publisherPromise = undefined;
     void graceful.catch((error) => {
@@ -735,6 +766,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
 
   private async drainGracefully(): Promise<void> {
     await this.cancelConsumers([...this.consumers.values()]);
+    await Promise.allSettled(this.replacementTasks.values());
     await this.mutation;
     const states = [...this.consumers.values()];
     await this.cancelConsumers(states);
@@ -761,32 +793,113 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
     );
   }
 
-  private async replaceConsumer(
+  private requestConsumerReplacement(
     subscription: LifecycleSubscription,
     failedChannel: Channel,
   ): Promise<void> {
-    await this.serializeMutation(async () => {
-      const current = this.consumers.get(subscription.queue);
-      if (
-        this.stopping ||
-        !current ||
-        current.channel !== failedChannel ||
-        current.replacing
-      ) {
-        return;
-      }
-      current.replacing = true;
-      this.consumers.delete(subscription.queue);
-      // Closing returns every unacknowledged delivery to RabbitMQ. A fresh
-      // channel then restores this stream without disturbing its siblings.
-      await failedChannel.close().catch(() => undefined);
-      if (!this.stopping) {
-        try {
-          await this.installSubscription(subscription);
-        } catch (error) {
-          if (!this.stopping) throw error;
+    if (this.stopping) return Promise.resolve();
+
+    const request = this.replacementRequests.get(subscription.queue) ?? {
+      subscription,
+      failedChannels: new Set<Channel>(),
+    };
+    request.failedChannels.add(failedChannel);
+    this.replacementRequests.set(subscription.queue, request);
+
+    const existing = this.replacementTasks.get(subscription.queue);
+    if (existing) return existing;
+    return this.startReplacementSupervisor(request);
+  }
+
+  private startReplacementSupervisor(
+    request: ConsumerReplacementRequest,
+  ): Promise<void> {
+    const queue = request.subscription.queue;
+    const task = this.superviseConsumerReplacement(request)
+      .catch(() => {
+        if (!this.stopping) {
+          this.logger.error(
+            `RabbitMQ consumer replacement supervisor failed for ${queue}: SUPERVISOR_FAILURE`,
+          );
+        }
+      })
+      .finally(() => {
+        if (this.replacementTasks.get(queue) === task) {
+          this.replacementTasks.delete(queue);
+        }
+        const pending = this.replacementRequests.get(queue);
+        if (!this.stopping && pending) {
+          void this.startReplacementSupervisor(pending);
+        }
+      });
+    this.replacementTasks.set(queue, task);
+    return task;
+  }
+
+  private async superviseConsumerReplacement(
+    request: ConsumerReplacementRequest,
+  ): Promise<void> {
+    const { subscription } = request;
+    while (!this.stopping) {
+      const failedChannels = new Set(request.failedChannels);
+      request.failedChannels.clear();
+      const needsInstallation = await this.serializeMutation(async () => {
+        const current = this.consumers.get(subscription.queue);
+        if (current && !failedChannels.has(current.channel)) return false;
+        if (current) {
+          current.replacing = true;
+          this.consumers.delete(subscription.queue);
+          // Closing returns every unacknowledged delivery to RabbitMQ.
+          await current.channel.close().catch(() => undefined);
+        }
+        return true;
+      });
+
+      if (needsInstallation) {
+        let attempt = 0;
+        while (!this.stopping && !this.consumers.has(subscription.queue)) {
+          try {
+            await this.serializeMutation(() =>
+              this.installSubscription(subscription),
+            );
+            this.logger.log(
+              `RabbitMQ consumer restored for ${subscription.queue}`,
+            );
+          } catch {
+            if (this.stopping) return;
+            attempt += 1;
+            this.logger.error(
+              `RabbitMQ consumer replacement failed for ${subscription.queue} on attempt ${attempt}: CHANNEL_INSTALLATION_FAILED`,
+            );
+            const delay =
+              CONSUMER_REPLACEMENT_DELAYS_MS[
+                Math.min(attempt - 1, CONSUMER_REPLACEMENT_DELAYS_MS.length - 1)
+              ];
+            if (!(await this.waitForReplacement(delay))) return;
+          }
         }
       }
+
+      if (request.failedChannels.size === 0) {
+        this.replacementRequests.delete(subscription.queue);
+        return;
+      }
+    }
+  }
+
+  private waitForReplacement(delay: number): Promise<boolean> {
+    if (this.stopping) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      const signal = this.replacementAbort.signal;
+      let timeout: NodeJS.Timeout | undefined;
+      const finish = (ready: boolean) => {
+        if (timeout) clearTimeout(timeout);
+        signal.removeEventListener('abort', aborted);
+        resolve(ready);
+      };
+      const aborted = () => finish(false);
+      signal.addEventListener('abort', aborted, { once: true });
+      timeout = setTimeout(() => finish(!this.stopping), delay);
     });
   }
 }
