@@ -28,7 +28,7 @@ import {
 import { ErrandsQueryService } from './errands.query.js';
 import { requesterCanCancel } from '../lifecycle/edges.js';
 import { toApiStatus } from './api-status.js';
-import { user } from '../lifecycle/transition.js';
+import { user, type TransitionInput } from '../lifecycle/transition.js';
 import { ACTIONS, type ActionContext, type ActionName } from './actions.js';
 import { IdempotencyKey } from './idempotency-key.js';
 import { isReplay, REPLAYED_HEADER, resultToHttp } from './result-to-http.js';
@@ -170,8 +170,10 @@ export class ErrandsController {
     return this.run('adjust', id, req.user.sub, idempotencyKey, res, body);
   }
 
-  // F2: one transition per edit. A new reward goes through credit (Adjusting-Credit),
-  // carrying any other changes with it; otherwise the errand changes in place.
+  // F2: one transition per edit, carrying the local changes with it. A new supplier
+  // or building is re-checked by supplier-service (Revalidating-Supplier), a new
+  // reward goes through credit (Adjusting-Credit), anything else changes in place.
+  // Routing looks only at the body, so a retried request takes the same edge.
   @Patch(':id')
   @Roles(Role.Requester)
   @HttpCode(200)
@@ -182,18 +184,38 @@ export class ErrandsController {
     @IdempotencyKey() idempotencyKey: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const { rewardCredits, expiryDurationMinutes, ...fields } = body;
+    const { rewardCredits, expiryDurationMinutes, supplierId, deliveryBuildingId, ...fields } = body;
     // Absent fields must not reach transition() as explicit undefineds.
     const set = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined));
     const expiry = expiryDurationMinutes === undefined ? {} : { expiryDurationMinutes };
+    let edge: Pick<TransitionInput, 'to' | 'payload' | 'set'>;
+    if (supplierId !== undefined || deliveryBuildingId !== undefined) {
+      // One in-flight status at a time.
+      if (rewardCredits !== undefined) {
+        return resultToHttp({ ok: false, reason: 'ONE_PENDING_CHANGE' });
+      }
+      // The half not being changed is re-checked as it stands.
+      const current = await this.lifecycle.replyErrandOf(id);
+      if (!current) return resultToHttp({ ok: false, reason: 'NOT_FOUND' });
+      edge = {
+        to: 'Revalidating-Supplier',
+        payload: expiry,
+        set: {
+          ...set,
+          pendingSupplierId: supplierId ?? current.supplierId,
+          pendingDeliveryBuildingId: deliveryBuildingId ?? current.deliveryBuildingId,
+        },
+      };
+    } else if (rewardCredits !== undefined) {
+      edge = { to: 'Adjusting-Credit', payload: { ...expiry, newAmount: rewardCredits }, set };
+    } else {
+      edge = { to: 'Open', payload: expiry, set };
+    }
     const result = await this.lifecycle.transition({
       errandId: id,
       expected: 'Open',
-      ...(rewardCredits === undefined
-        ? { to: 'Open', payload: expiry }
-        : { to: 'Adjusting-Credit', payload: { ...expiry, newAmount: rewardCredits } }),
+      ...edge,
       actor: user(req.user.sub),
-      set,
       idempotencyKey,
     });
     // F2.1.2: past Open (Adjusting-Credit still reads as Open, so that stays a plain retry).

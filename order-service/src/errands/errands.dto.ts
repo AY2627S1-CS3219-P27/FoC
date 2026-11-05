@@ -58,8 +58,17 @@ export class CreateErrandDto {
 }
 
 // The body of PATCH /v1/errands/:id (F2.1): any create field, same rules (F2.1.1).
-// Send rewardCredits only to change it: its presence routes the edit through credit.
+// Send rewardCredits, supplierId and deliveryBuildingId only to change them: their
+// presence routes the edit through credit or supplier-service.
 export class EditErrandDto {
+  @IsOptional()
+  @IsUUID()
+  supplierId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  deliveryBuildingId?: string;
+
   @IsOptional()
   @IsString()
   @Length(1, MAX_LOCATION_LENGTH)

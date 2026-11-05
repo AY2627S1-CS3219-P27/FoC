@@ -19,6 +19,7 @@ describe('ErrandsController', () => {
     transition: vi.fn(),
     currentStatus: vi.fn(),
     lastEvent: vi.fn(),
+    replyErrandOf: vi.fn(),
   };
   let app: INestApplication;
   let base: string;
@@ -227,6 +228,48 @@ describe('ErrandsController', () => {
         set: { deliveryDetail: 'Level 5' },
         payload: { newAmount: 9 },
       });
+    });
+
+    it('sends a new supplier to be re-checked, with the building as it stands (F2.1.1)', async () => {
+      const current = { status: 'Open', supplierId: randomUUID(), deliveryBuildingId: randomUUID() };
+      lifecycle.replyErrandOf.mockResolvedValue(current);
+      lifecycle.transition.mockResolvedValue({ ok: true, sequenceNumber: 4 });
+      const supplierId = randomUUID();
+      await patch({ supplierId, description: 'x', expiryDurationMinutes: 60 }, await requesterToken());
+      expect(lifecycle.transition).toHaveBeenCalledWith({
+        errandId, actor, expected: 'Open', to: 'Revalidating-Supplier',
+        set: { description: 'x', pendingSupplierId: supplierId, pendingDeliveryBuildingId: current.deliveryBuildingId },
+        payload: { expiryDurationMinutes: 60 },
+      });
+    });
+
+    it('sends a new building with the supplier as it stands', async () => {
+      const current = { status: 'Open', supplierId: randomUUID(), deliveryBuildingId: randomUUID() };
+      lifecycle.replyErrandOf.mockResolvedValue(current);
+      lifecycle.transition.mockResolvedValue({ ok: true, sequenceNumber: 4 });
+      const deliveryBuildingId = randomUUID();
+      await patch({ deliveryBuildingId }, await requesterToken());
+      expect(lifecycle.transition.mock.calls[0][0].set).toEqual({
+        pendingSupplierId: current.supplierId,
+        pendingDeliveryBuildingId: deliveryBuildingId,
+      });
+    });
+
+    it('refuses a supplier and a reward change together, before any write', async () => {
+      const res = await patch({ supplierId: randomUUID(), rewardCredits: 9 }, await requesterToken());
+      expect(res.status).toBe(422);
+      expect(await res.json()).toMatchObject({ code: 'ONE_PENDING_CHANGE' });
+      expect(lifecycle.transition).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 for a supplier edit on an unknown errand', async () => {
+      lifecycle.replyErrandOf.mockResolvedValue(undefined);
+      expect((await patch({ supplierId: randomUUID() }, await requesterToken())).status).toBe(404);
+      expect(lifecycle.transition).not.toHaveBeenCalled();
+    });
+
+    it('rejects a supplier id that is not a uuid', async () => {
+      expect((await patch({ supplierId: 'cool-spot' }, await requesterToken())).status).toBe(400);
     });
 
     it('drops fields that are not editable here', async () => {
