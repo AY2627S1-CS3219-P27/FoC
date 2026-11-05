@@ -11,9 +11,9 @@ describe('status transitions', () => {
     }
   }
 
-  // 20 edges (ADR 0006, dispute resolution); the two Adjusting-Credit -> Open exits share one pair.
-  it('has exactly 19 distinct status pairs', () => {
-    expect(Object.values(ALLOWED).flat()).toHaveLength(19);
+  // 21 edges (ADR 0006, dispute resolution, F2 edit); the two Adjusting-Credit -> Open exits share one pair.
+  it('has exactly 20 distinct status pairs', () => {
+    expect(Object.values(ALLOWED).flat()).toHaveLength(20);
   });
 });
 
@@ -37,9 +37,20 @@ describe('EDGES', () => {
     }
   });
 
-  it('has 20 edges; only Adjusting-Credit -> Open has two', () => {
+  it('lets only the requester edit an Open errand in place, before it expires (F2)', () => {
+    expect(findEdge('Open', 'Open')).toMatchObject({
+      type: 'ErrandEdited',
+      sets: [],
+      optional: ['description', 'deliveryDetail', 'collectionItems'],
+      who: ['requester'],
+      editsExpiry: true,
+      unexpiredOnly: true,
+    });
+  });
+
+  it('has 21 edges; only Adjusting-Credit -> Open has two', () => {
     const edges = Object.values(EDGES).flatMap((m) => Object.values(m!)).flat();
-    expect(edges).toHaveLength(20);
+    expect(edges).toHaveLength(21);
     expect(findEdge('Adjusting-Credit', 'Open')).toBeUndefined(); // ambiguous without a type
     expect(
       findEdge('Adjusting-Credit', 'Open', 'CreditAdjusted')?.sets,

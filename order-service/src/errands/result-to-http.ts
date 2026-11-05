@@ -56,7 +56,11 @@ const FAILURES: Record<FailureReason, { exception: ExceptionClass; message: stri
   },
   EXPIRED: {
     exception: ConflictException,
-    message: 'This errand has expired and can no longer be accepted.',
+    message: 'This errand has expired and can no longer be accepted or edited.',
+  },
+  EXPIRY_IN_PAST: {
+    exception: UnprocessableEntityException,
+    message: 'That duration would make the errand expire in the past. Choose a longer one.',
   },
   COURIER_BUSY: {
     exception: ConflictException,

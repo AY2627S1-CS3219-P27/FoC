@@ -40,6 +40,16 @@ describe('payloadValid', () => {
     ).toBe(false);
   });
 
+  it('takes only an in-bounds expiry duration on an edit (F2, F1.7.2)', () => {
+    expect(payloadValid('ErrandEdited', {})).toBe(true);
+    expect(payloadValid('ErrandEdited', { expiryDurationMinutes: 15 })).toBe(true);
+    expect(payloadValid('ErrandEdited', { expiryDurationMinutes: 168 * 60 })).toBe(true);
+    expect(payloadValid('ErrandEdited', { expiryDurationMinutes: 14 })).toBe(false);
+    expect(payloadValid('ErrandEdited', { expiryDurationMinutes: 168 * 60 + 1 })).toBe(false);
+    expect(payloadValid('ErrandEdited', { expiryDurationMinutes: '60' })).toBe(false);
+    expect(payloadValid('ErrandEdited', { description: 'x' })).toBe(false);
+  });
+
   it('requires a non-blank reason when the courier withdraws (F7.4)', () => {
     expect(payloadValid('CourierWithdrew', { reason: 'bike broke down' })).toBe(true);
     expect(payloadValid('CourierWithdrew', {})).toBe(false);

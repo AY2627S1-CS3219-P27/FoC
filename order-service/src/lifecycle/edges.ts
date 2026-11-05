@@ -19,7 +19,13 @@ export type Col =
   | 'pickupDescription'
   | 'deliveryLocation'
   | 'settlementAmount'
-  | 'settlementNote';
+  | 'settlementNote'
+  | 'description'
+  | 'deliveryDetail'
+  | 'collectionItems';
+
+// F2.1: create fields a requester may change on an Open errand without asking another service.
+export const EDITABLE: Col[] = ['description', 'deliveryDetail', 'collectionItems'];
 
 // Who may take an edge. `other` = any user who is not the requester.
 // `admin` = a user whose token carries isAdmin; transition() checks the flag, the row check lets them through.
@@ -49,11 +55,13 @@ export const USER_REASONS: CancellationReason[] = ['REQUESTER_CANCELLED'];
 export interface Edge {
   type: string; // event type
   sets: Col[]; // caller must supply exactly these
+  optional?: Col[]; // caller may also supply these; an edge with no `sets` needs at least one change
   clears: Col[]; // transition() nulls these
   who: Role[]; // allowed actors; enforced in the conditional UPDATE
   reasons?: CancellationReason[]; // allowed cancellationReason values
   unexpiredOnly?: true; // refuse once expires_at has passed (F5.5)
   setsExpiry?: true; // expires_at = now + the duration in event 1 (ADR 0007)
+  editsExpiry?: true; // payload expiryDurationMinutes: expires_at = opened-at + it, must be in the future
   notice?: NoticeBuilder; // outbox notice written in the transition's transaction (ADR 0008)
 }
 
@@ -106,8 +114,10 @@ const plain = (type: string, who: Role[], notice?: NoticeBuilder): Edge => ({
   notice,
 });
 const sys: Role[] = ['system'];
+// F2: requester edits on an Open errand; refused once it has expired.
+const editable = { optional: EDITABLE, editsExpiry: true, unexpiredOnly: true } as const;
 
-// 20 edges in total
+// 21 edges in total
 export const EDGES: Partial<
   Record<Status, Partial<Record<Status, Edge | Edge[]>>>
 > = {
@@ -163,6 +173,8 @@ export const EDGES: Partial<
         newAmount: c.payload.newAmount,
       },
     })),
+    // F2.1: fields that need no other service change in place.
+    Open: { ...plain('ErrandEdited', ['requester']), ...editable },
     Cancelled: cancel(['requester', 'system'], ['REQUESTER_CANCELLED', 'ERRAND_EXPIRED']),
   },
   'Adjusting-Credit': {

@@ -65,7 +65,8 @@ export type TransitionResult =
         | 'FORBIDDEN' // actor may not take this edge on this errand
         | 'COURIER_BUSY' // courier already holds an active errand
         | 'ROLE_BLOCKED' // accepting courier has a role block
-        | 'EXPIRED'; // accept after expires_at
+        | 'EXPIRED' // accept or edit after expires_at
+        | 'EXPIRY_IN_PAST'; // edited duration puts expires_at at or before now
     }
   | { ok: false; reason: 'STATE_MISMATCH'; currentStatus: Status };
 
@@ -76,6 +77,12 @@ const FORBIDDEN: TransitionResult = { ok: false, reason: 'FORBIDDEN' };
 const BLOCKED: TransitionResult = { ok: false, reason: 'ROLE_BLOCKED' };
 export const MAX_NOTE_WORDS = 100;
 const RELEASED = ['COURIER_BUSY', 'ROLE_BLOCKED'];
+// NOT NULL create fields an edit may change but never blank (F2.1.1 re-runs F1.1).
+const REQUIRED_TEXT: Col[] = ['deliveryDetail', 'collectionItems'];
+
+// The new duration on an expiry-editing edge, if the caller sent one.
+const expiryEditOf = (i: TransitionInput, edge: Edge): number | undefined =>
+  edge.editsExpiry ? (i.payload?.expiryDurationMinutes as number | undefined) : undefined;
 
 // Caller bugs, rejected before the transaction: not an outcome worth storing
 // under a key. Returns the refusal, or undefined when the input is well-formed.
@@ -91,14 +98,22 @@ function validate(
     return Array.isArray(EDGES[i.expected]?.[i.to]) ? INVALID : undefined;
   }
   if (!payloadValid(edge.type, i.payload)) return INVALID;
-  // `set` must carry exactly the columns this edge owns.
+  // `set` must carry every column this edge owns, plus only its optional ones.
   const given = Object.entries(i.set ?? {})
     .filter(([, v]) => v != null)
-    .map(([k]) => k);
+    .map(([k]) => k as Col);
+  const allowed = [...edge.sets, ...(edge.optional ?? [])];
   if (
-    given.length !== edge.sets.length ||
-    !edge.sets.every((c) => given.includes(c))
+    !edge.sets.every((c) => given.includes(c)) ||
+    !given.every((c) => allowed.includes(c))
   ) {
+    return INVALID;
+  }
+  // A pure edit must change something.
+  if (edge.optional && !edge.sets.length && !given.length && expiryEditOf(i, edge) === undefined) {
+    return INVALID;
+  }
+  if (REQUIRED_TEXT.some((c) => i.set && c in i.set && !/\S/.test(String(i.set[c] ?? '')))) {
     return INVALID;
   }
   // The courier is the actor who accepts, never a name passed in by the caller
@@ -271,6 +286,13 @@ const expiryFromCreated = (errandId: string) => sql`date_trunc('milliseconds', n
   + coalesce((SELECT (payload->>'expiryDurationMinutes')::int FROM errand_events
               WHERE errand_id = ${errandId} AND sequence_number = 1), 60) * interval '1 minute')`;
 
+// F2 expiry edit: the time the errand opened + the new duration, so an edit
+// never restarts the clock.
+const expiryFromOpened = (errandId: string, minutes: number) => sql`date_trunc('milliseconds',
+  (SELECT occurred_at FROM errand_events
+   WHERE errand_id = ${errandId} AND from_status = 'Reserving-Credit' AND to_status = 'Open')
+  + ${minutes}::int * interval '1 minute')`;
+
 // The status UPDATE. Returns the new sequence number, undefined if no row
 // matched (wrong status, actor, or expired), or COURIER_BUSY.
 async function updateErrand(
@@ -280,6 +302,8 @@ async function updateErrand(
   actor: string | null,
 ): Promise<{ seq: number; row: Returned } | 'COURIER_BUSY' | undefined> {
   const match = matchOf(i, edge, actor);
+  const minutes = expiryEditOf(i, edge);
+  const edited = minutes === undefined ? undefined : expiryFromOpened(i.errandId, minutes);
   const update = (q: Db) =>
     q
       .update(errands)
@@ -287,17 +311,19 @@ async function updateErrand(
         ...i.set,
         ...clearedOf(edge),
         ...(edge.setsExpiry && { expiresAt: expiryFromCreated(i.errandId) }),
+        ...(edited && { expiresAt: edited }),
         status: i.to,
         lastSequenceNumber: sql`${errands.lastSequenceNumber} + 1`,
         updatedAt: new Date(),
       })
       .where(
-        edge.unexpiredOnly
-          ? and(
-              match,
-              or(isNull(errands.expiresAt), sql`${errands.expiresAt} > now()`),
-            )
-          : match,
+        and(
+          match,
+          edge.unexpiredOnly
+            ? or(isNull(errands.expiresAt), sql`${errands.expiresAt} > now()`)
+            : undefined,
+          edited ? sql`${edited} > now()` : undefined,
+        ),
       )
       .returning({
         seq: errands.lastSequenceNumber,
@@ -362,7 +388,22 @@ async function explainNoRow(
       .from(errands)
       .where(matchOf(i, edge, actor));
     if (!permitted) return { ok: false, reason: 'FORBIDDEN' };
-    if (edge.unexpiredOnly) return { ok: false, reason: 'EXPIRED' };
+    if (edge.unexpiredOnly) {
+      // Still live, so the edited expiry is what failed.
+      if (expiryEditOf(i, edge) !== undefined) {
+        const [live] = await tx
+          .select({ id: errands.id })
+          .from(errands)
+          .where(
+            and(
+              eq(errands.id, i.errandId),
+              or(isNull(errands.expiresAt), sql`${errands.expiresAt} > now()`),
+            ),
+          );
+        if (live) return { ok: false, reason: 'EXPIRY_IN_PAST' };
+      }
+      return { ok: false, reason: 'EXPIRED' };
+    }
   }
 
   // Keyless repeat (#349): the errand's latest event is this very edge by this
@@ -408,7 +449,9 @@ async function apply(
     edge,
     actor,
     row.seq,
-    edge.setsExpiry ? { expiresAt: row.row.expiresAt } : {},
+    edge.setsExpiry || expiryEditOf(i, edge) !== undefined
+      ? { expiresAt: row.row.expiresAt }
+      : {},
   );
   // Same transaction as the event: both commit or neither does (ADR 0008).
   // Payload includes the stored columns, so the builder sees e.g. cancellationReason.

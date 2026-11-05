@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { createTestDb } from '../../test/db.js';
 import { errandEvents, errands } from '../db/schema.js';
 import type { Status } from './status.js';
@@ -754,6 +754,89 @@ describe('transition', () => {
       const id = await seed('Open');
       await expireAt(id, new Date(Date.now() + 60_000));
       expect(await accept(id)).toMatchObject({ ok: true });
+    });
+  });
+
+  describe('edit in place (F2)', () => {
+    const edit = (
+      id: string,
+      set: Record<string, unknown>,
+      payload?: Record<string, unknown>,
+      actor: Actor = user(requester),
+    ) => transition(t.db, { errandId: id, expected: 'Open', to: 'Open', actor, set, payload });
+
+    // Goes Open through the real edge, so the opened-at event exists.
+    async function opened() {
+      const id = await seed('Reserving-Credit');
+      await transition(t.db, { actor: SYSTEM, errandId: id, expected: 'Reserving-Credit', to: 'Open', payload: creditReserved() });
+      return id;
+    }
+    const openedAt = async (id: string) =>
+      (await events(id)).find((e) => e.type === 'CreditReserved')!.occurredAt;
+
+    it('changes only the fields given and records them in the event', async () => {
+      const id = await seed('Open');
+      const res = await edit(id, { description: 'ring twice', collectionItems: 'two coffees' });
+      expect(res).toEqual({ ok: true, sequenceNumber: 1 });
+      expect(await projection(id)).toMatchObject({
+        status: 'Open',
+        description: 'ring twice',
+        collectionItems: 'two coffees',
+        deliveryDetail: 'Level 3 04-02',
+      });
+      expect(await events(id)).toMatchObject([
+        {
+          type: 'ErrandEdited', fromStatus: 'Open', toStatus: 'Open', actorId: requester,
+          payload: { description: 'ring twice', collectionItems: 'two coffees' },
+        },
+      ]);
+    });
+
+    it('refuses an edit that changes nothing, a non-editable column, or a blanked required field', async () => {
+      const id = await seed('Open');
+      for (const set of [{}, { rewardCredits: 9 }, { supplierId: randomUUID() }, { deliveryDetail: '  ' }, { collectionItems: null }]) {
+        expect(await edit(id, set)).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
+      }
+      expect(await events(id)).toHaveLength(0);
+    });
+
+    it('lets only the requester edit', async () => {
+      const id = await seed('Open');
+      expect(await edit(id, { description: 'x' }, undefined, user(courier))).toEqual({ ok: false, reason: 'FORBIDDEN' });
+      expect(await edit(id, { description: 'x' }, undefined, SYSTEM)).toEqual({ ok: false, reason: 'FORBIDDEN' });
+    });
+
+    it('refuses an edit once the errand is no longer Open (F2.1.2)', async () => {
+      const id = await seed('Accepted');
+      expect(await edit(id, { description: 'x' })).toEqual({ ok: false, reason: 'STATE_MISMATCH', currentStatus: 'Accepted' });
+    });
+
+    it('refuses an edit after expiry', async () => {
+      const id = await seed('Open');
+      await t.db.update(errands).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(errands.id, id));
+      expect(await edit(id, { description: 'x' })).toEqual({ ok: false, reason: 'EXPIRED' });
+    });
+
+    it('sets expires_at from the time the errand opened, and records it', async () => {
+      const id = await opened();
+      const res = await edit(id, {}, { expiryDurationMinutes: 120 });
+      expect(res).toMatchObject({ ok: true });
+      const at = (await openedAt(id)).getTime() + 120 * 60_000;
+      expect(Math.abs((await projection(id)).expiresAt!.getTime() - at)).toBeLessThan(1);
+      const last = (await events(id)).at(-1)!;
+      expect(last.payload).toMatchObject({ expiryDurationMinutes: 120 });
+      expect(new Date((last.payload as { expiresAt: string }).expiresAt)).toEqual((await projection(id)).expiresAt);
+    });
+
+    it('refuses a duration that would already have run out', async () => {
+      const id = await opened();
+      // Pretend it opened two hours ago.
+      await t.db.execute(sql`UPDATE errand_events SET occurred_at = now() - interval '2 hours'
+        WHERE errand_id = ${id} AND type = 'CreditReserved'`);
+      const before = (await projection(id)).expiresAt;
+      expect(await edit(id, { description: 'x' }, { expiryDurationMinutes: 60 })).toEqual({ ok: false, reason: 'EXPIRY_IN_PAST' });
+      expect((await projection(id)).expiresAt).toEqual(before);
+      expect((await projection(id)).description).toBeNull();
     });
   });
 

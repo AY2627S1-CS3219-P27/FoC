@@ -24,7 +24,7 @@ export const statusEnum = pgEnum('errand_status', STATUSES);
 export const ALLOWED: Record<Status, Status[]> = {
   'Pending-Supplier': ['Reserving-Credit', 'Cancelled'],
   'Reserving-Credit': ['Open', 'Cancelled'],
-  Open: ['Accepted', 'Adjusting-Credit', 'Cancelled'],
+  Open: ['Accepted', 'Adjusting-Credit', 'Cancelled', 'Open'],
   'Adjusting-Credit': ['Open'],
   Accepted: ['Picked Up', 'Open'],
   'Picked Up': ['Delivered', 'Cancelled'],

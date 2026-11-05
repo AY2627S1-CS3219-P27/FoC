@@ -26,6 +26,7 @@ describe('resultToHttp', () => {
     ['NOT_FOUND', 404],
     ['ILLEGAL_TRANSITION', 409],
     ['EXPIRED', 409],
+    ['EXPIRY_IN_PAST', 422],
     ['COURIER_BUSY', 409],
     ['ROLE_BLOCKED', 403],
     ['IDEMPOTENCY_KEY_REUSED', 422],

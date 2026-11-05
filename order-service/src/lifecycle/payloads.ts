@@ -9,6 +9,8 @@ const uuid = Joi.string().uuid().required();
 const amount = Joi.number().integer().min(1);
 const reason = Joi.string().max(100).required(); // credit's rejection reason, already contract-checked
 const none = Joi.object({});
+// F1.7.2 bounds (create.ts); the edit edges turn this into expiresAt.
+const expiryDurationMinutes = Joi.number().integer().min(15).max(168 * 60);
 
 export const PAYLOADS: Record<string, Joi.ObjectSchema> = {
   // Snapshot is already contract-checked on receipt.
@@ -29,6 +31,8 @@ export const PAYLOADS: Record<string, Joi.ObjectSchema> = {
     .and('supplierEventId', 'supplierOutcome')
     .oxor('creditEventId', 'supplierEventId'),
   ErrandAccepted: none,
+  // Edited columns ride in `set`; only the new duration is payload.
+  ErrandEdited: Joi.object({ expiryDurationMinutes }),
   AdjustmentRequested: Joi.object({ newAmount: amount.required() }),
   CreditAdjusted: Joi.object({ creditEventId: uuid, creditTransactionId: uuid }),
   CreditAdjustmentFailed: Joi.object({
