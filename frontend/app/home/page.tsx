@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { AdminUserErrands } from "./_errands/admin-user-errands";
 import { ApiLogPanel } from "./_errands/api-log-panel";
 import { ErrandsTab } from "./_errands/errands-tab";
@@ -12,7 +12,8 @@ import { UserAdminActions } from "./_admin/user-admin-actions";
 import { CategoriesPanel } from "./_admin/categories-panel";
 import { CreateUserForm } from "./_admin/create-user-form";
 import { ArchiveAccount } from "./_account/archive-account";
-import { CreditTransactionHistory } from "./_account/credit-transaction-history";
+import { CreditTransactionHistoryLink } from "./_account/credit-transaction-history-link";
+import { parseHomeTab, type HomeTab } from "./_navigation/tabs";
 import { MyRequests } from "./_suppliers/my-requests";
 import { SupplierForm } from "./_suppliers/supplier-form";
 import { authFetch, refreshSession, setSessionExpiredHandler } from "@/lib/api";
@@ -70,13 +71,27 @@ interface UserListItem {
   isArchived?: boolean;
 }
 
-type Tab = "errands" | "suppliers" | "profile" | "users" | "requests";
-
 export default function HomePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex flex-1 items-center justify-center">
+          <div className="text-muted fade-in">Loading...</div>
+        </div>
+      }
+    >
+      <HomePageContent />
+    </Suspense>
+  );
+}
+
+function HomePageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedTab = parseHomeTab(searchParams.get("tab"));
   const [user, setUser] = useState<UserProfile | null>(null);
   const [userLoading, setUserLoading] = useState(true);
-  const [tab, setTab] = useState<Tab>("errands");
+  const [tab, setTab] = useState<HomeTab>(requestedTab ?? "errands");
   const [creditBalance, setCreditBalance] = useState<CreditBalance | null>(null);
   const [creditBalanceStatus, setCreditBalanceStatus] =
     useState<CreditBalanceStatus>("loading");
@@ -144,12 +159,14 @@ export default function HomePage() {
       .then((data: UserProfile) => {
         setUser(data);
         setSelectedRoles(data.roles);
-        if (data.isAdmin && data.roles.length === 0) setTab("users");
+        if (!requestedTab && data.isAdmin && data.roles.length === 0) {
+          setTab("users");
+        }
         void loadCreditBalance();
       })
       .catch(() => router.push("/login"))
       .finally(() => setUserLoading(false));
-  }, [loadCreditBalance, router]);
+  }, [loadCreditBalance, requestedTab, router]);
 
   const loadSuppliers = useCallback(async () => {
     setSuppliersLoading(true);
@@ -1143,7 +1160,7 @@ function ProfileTab({
         onRetry={loadCreditBalance}
       />
 
-      <CreditTransactionHistory userId={user.uuid} />
+      <CreditTransactionHistoryLink />
 
       {/* Profile card */}
       <div className="rounded-2xl border border-border bg-surface p-6 mb-6 shadow-sm">
