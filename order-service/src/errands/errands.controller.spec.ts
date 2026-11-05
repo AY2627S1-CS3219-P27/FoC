@@ -100,7 +100,6 @@ describe('ErrandsController', () => {
     it.each([
       ['a missing supplierId', { ...validBody, supplierId: undefined }],
       ['a non-uuid supplierId', { ...validBody, supplierId: 'abc' }],
-      ['a missing deliveryBuildingId', { ...validBody, deliveryBuildingId: undefined }],
       ['a non-uuid deliveryBuildingId', { ...validBody, deliveryBuildingId: 'COM2' }],
       ['a missing deliveryDetail', { ...validBody, deliveryDetail: undefined }],
       ['a blank deliveryDetail', { ...validBody, deliveryDetail: '   ' }],

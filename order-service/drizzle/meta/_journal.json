@@ -134,6 +134,13 @@
       "when": 1793756972581,
       "tag": "0018_errand_delivery_building",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1793891727394,
+      "tag": "0019_delivery_building_optional",
+      "breakpoints": true
     }
   ]
 }

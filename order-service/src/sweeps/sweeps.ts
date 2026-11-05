@@ -122,7 +122,7 @@ async function resendSupplierRequests(db: Db, cfg: SweepConfig): Promise<number>
   const due = await db.execute<{
     id: string;
     supplier_id: string;
-    delivery_building_id: string;
+    delivery_building_id: string | null;
     attempts: number;
   }>(sql`
     SELECT e.id, e.supplier_id, e.delivery_building_id, coalesce(r.attempts, 0) AS attempts

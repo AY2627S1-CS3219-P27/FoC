@@ -16,7 +16,7 @@ export const SUPPLIER_REPLY_SPECS: ReplySpec[] = [
         supplierId: p.supplierId,
         expected: 'Pending-Supplier',
         to: 'Reserving-Credit',
-        set: { supplierValidatedAt: new Date(e.timestamp), ...pickupOf(p.supplier), deliveryLocation: p.deliveryBuilding.shortName }, // supplier's time, stable on redelivery
+        set: { supplierValidatedAt: new Date(e.timestamp), ...pickupOf(p.supplier), deliveryLocation: p.deliveryBuilding?.shortName }, // supplier's time, stable on redelivery
         payload: { supplierEventId: e.eventId, supplier: p.supplier },
       };
     }

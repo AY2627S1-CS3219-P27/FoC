@@ -39,7 +39,7 @@ export const errands = pgTable(
     pickupLocation: text('pickup_location'),
     pickupName: text('pickup_name'), // supplier display name, from the supplier snapshot
     pickupDescription: text('pickup_description'), // floor and spot, from the supplier snapshot
-    deliveryBuildingId: uuid('delivery_building_id').notNull(),
+    deliveryBuildingId: uuid('delivery_building_id'), // TODO(rollout): notNull again once the frontend sends it
     deliveryDetail: text('delivery_detail').notNull(), // requester's room or level; never sent to supplier-service
     deliveryLocation: text('delivery_location'), // building short name, from the delivery building snapshot
     rewardCredits: integer('reward_credits').notNull(),

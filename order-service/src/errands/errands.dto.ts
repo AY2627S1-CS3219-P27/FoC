@@ -27,8 +27,10 @@ export class CreateErrandDto {
   @IsUUID()
   supplierId: string;
 
+  // TODO(rollout): optional until the frontend sends it; make required again then.
+  @IsOptional()
   @IsUUID()
-  deliveryBuildingId: string;
+  deliveryBuildingId?: string;
 
   // Room or level, e.g. "Level 3 04-02". Stays in order-service.
   @IsString()

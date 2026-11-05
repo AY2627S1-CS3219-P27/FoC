@@ -9,7 +9,7 @@ import type { Db } from './transition.js';
 export interface CreateRequestInputs {
   requesterId: string;
   supplierId: string;
-  deliveryBuildingId: string;
+  deliveryBuildingId?: string; // TODO(rollout): required again once the frontend sends it
   deliveryDetail: string; // room or level; stays in order-service
   rewardCredits: number;
   description?: string;

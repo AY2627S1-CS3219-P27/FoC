@@ -1,0 +1,1 @@
+ALTER TABLE "errands" ALTER COLUMN "delivery_building_id" DROP NOT NULL;
