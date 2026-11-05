@@ -1,4 +1,5 @@
 import {
+  Check,
   Column,
   CreateDateColumn,
   Entity,
@@ -9,6 +10,7 @@ import {
   Unique,
   UpdateDateColumn,
 } from 'typeorm';
+import type { NotificationMessage } from '../../dispatch/notification-message.js';
 import { InboxEvent } from './inbox-event.entity.js';
 import { Subscription } from './subscription.entity.js';
 
@@ -31,6 +33,10 @@ export enum NotificationDeliveryStatus {
   'subscriptionId',
 ])
 @Index('IDX_notification_deliveries_event_status', ['eventId', 'status'])
+@Check(
+  'CHK_notification_deliveries_message',
+  `jsonb_typeof("message") = 'object'`,
+)
 export class NotificationDelivery {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -66,6 +72,14 @@ export class NotificationDelivery {
     default: NotificationDeliveryStatus.Pending,
   })
   status: NotificationDeliveryStatus;
+
+  /**
+   * The push body decided by the event's dispatcher. Persisting it means the
+   * sender never re-derives copy from a routing key, and a retry sends exactly
+   * what the handler chose.
+   */
+  @Column({ name: 'message', type: 'jsonb' })
+  message: NotificationMessage;
 
   @Column({ name: 'attempts', type: 'integer', default: 0 })
   attempts: number;
