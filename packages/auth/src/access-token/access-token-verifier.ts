@@ -40,9 +40,6 @@ export class AccessTokenVerifier {
 
   /**
    * Verifies an access token and returns identity plus its absolute expiry.
-   *
-   * This applies exactly the same signature, issuer, expiry, and strict claim
-   * validation as `verify()`.
    */
   async verifyWithMetadata(token: string): Promise<VerifiedAccessToken> {
     let decoded: unknown;
