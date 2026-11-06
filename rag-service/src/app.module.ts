@@ -13,6 +13,7 @@ import {
 } from './config/environment.schema.js';
 import { DatabaseModule } from './database/database.module.js';
 import { HealthController } from './health/health.controller.js';
+import { StartupIndexingModule } from './indexing/startup-indexing.module.js';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { HealthController } from './health/health.controller.js';
       }),
     }),
     DatabaseModule,
+    StartupIndexingModule,
   ],
   controllers: [HealthController],
   providers: [
