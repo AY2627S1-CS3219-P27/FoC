@@ -14,14 +14,22 @@ import {
   Supplier,
   SupplierOpeningInterval,
 } from '../src/database/entities/index.js';
+import { BuildingSeedService } from '../src/seed/building-seed.service.js';
 import { SupplierSeedService } from '../src/seed/supplier-seed.service.js';
+import { parseVenueSeed } from '../src/seed/venue-seed-file.js';
 import { SuppliersService } from '../src/suppliers/suppliers.service.js';
 
 const SEED_FILE = readFileSync('../data/csv/supplier-seed-data.csv');
+// Every building in the seed JSON, whichever the suppliers sit in, plus the
+// map-pin placeholder that every seeded database holds.
+const SEED_BUILDING_COUNT =
+  parseVenueSeed(readFileSync('../data/json/venues-seed.json')).buildings
+    .length + 1;
 
 const CONFIG: Record<string, unknown> = {
   SEED_ON_STARTUP: true,
   SEED_CSV_PATH: '../data/csv/supplier-seed-data.csv',
+  VENUE_SEED_PATH: '../data/json/venues-seed.json',
   CAMPUS_MIN_LATITUDE: 1.28,
   CAMPUS_MAX_LATITUDE: 1.31,
   CAMPUS_MIN_LONGITUDE: 103.74,
@@ -62,6 +70,7 @@ describe('seed import (real PostgreSQL)', () => {
     seed = new SupplierSeedService(
       config,
       buildings,
+      new BuildingSeedService(config, buildings),
       categories,
       new SuppliersService(dataSource, config),
     );
@@ -74,7 +83,7 @@ describe('seed import (real PostgreSQL)', () => {
   beforeEach(async () => {
     await dataSource.query(`
       TRUNCATE supplier_requests, supplier_categories, supplier_opening_intervals, suppliers, categories,
-               building_name_keys, buildings
+               venues, building_name_keys, buildings
     `);
     warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
     vi.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
@@ -99,7 +108,9 @@ describe('seed import (real PostgreSQL)', () => {
     });
 
     expect(await dataSource.getRepository(Supplier).count()).toBe(21);
-    expect(await dataSource.getRepository(Building).count()).toBe(14);
+    expect(await dataSource.getRepository(Building).count()).toBe(
+      SEED_BUILDING_COUNT,
+    );
     const categories = await dataSource.getRepository(Category).find();
     expect(categories.map((category) => category.name).sort()).toEqual([
       'Coffee',
@@ -124,10 +135,10 @@ describe('seed import (real PostgreSQL)', () => {
        FROM audit_entries WHERE id > $1 GROUP BY action, actor_id`,
       [last],
     );
-    // 14 buildings, 4 categories and 21 suppliers, none by a user.
+    // Every building of the seed file (62, with the map pin), 4 categories and 21 suppliers, none by a user.
     expect(Object.fromEntries(added.map((row) => [row.action, row.n]))).toEqual(
       {
-        'building.created': 14,
+        'building.created': 62,
         'category.created': 4,
         'supplier.created': 21,
       },
@@ -144,7 +155,9 @@ describe('seed import (real PostgreSQL)', () => {
       rejected: 0,
     });
     expect(await dataSource.getRepository(Supplier).count()).toBe(21);
-    expect(await dataSource.getRepository(Building).count()).toBe(14);
+    expect(await dataSource.getRepository(Building).count()).toBe(
+      SEED_BUILDING_COUNT,
+    );
   });
 
   it('imports on startup only while there are no suppliers', async () => {
@@ -176,7 +189,9 @@ describe('seed import (real PostgreSQL)', () => {
 
     expect(reports[0].created + reports[1].created).toBe(21);
     expect(await dataSource.getRepository(Supplier).count()).toBe(21);
-    expect(await dataSource.getRepository(Building).count()).toBe(14);
+    expect(await dataSource.getRepository(Building).count()).toBe(
+      SEED_BUILDING_COUNT,
+    );
     expect(await dataSource.getRepository(Category).count()).toBe(4);
   });
 
@@ -281,7 +296,9 @@ describe('seed import (real PostgreSQL)', () => {
       alreadyPresent: 21,
       rejected: 0,
     });
-    expect(await dataSource.getRepository(Building).count()).toBe(14);
+    expect(await dataSource.getRepository(Building).count()).toBe(
+      SEED_BUILDING_COUNT,
+    );
     await expect(buildings.resolve('Frontier')).resolves.toBeNull();
   });
 

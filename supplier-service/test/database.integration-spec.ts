@@ -61,7 +61,7 @@ describe('supplier schema (real PostgreSQL)', () => {
   beforeEach(async () => {
     await dataSource.query(`
       TRUNCATE inbox_events, outbox_events, supplier_requests, supplier_categories, supplier_opening_intervals, suppliers, categories,
-               building_name_keys, buildings
+               venues, building_name_keys, buildings
     `);
   });
 
@@ -106,6 +106,9 @@ describe('supplier schema (real PostgreSQL)', () => {
           'UQ_suppliers_name_key_building_floor',
           'CHK_suppliers_floor',
           'FK_suppliers_building',
+          'UQ_venues_building_code',
+          'CHK_venues_floor',
+          'FK_venues_building',
           'FK_supplier_categories_category',
           'PK_inbox_events',
           'FK_inbox_events_reply',
@@ -113,6 +116,111 @@ describe('supplier schema (real PostgreSQL)', () => {
           'CHK_outbox_events_attempt_count',
         ]),
       );
+    });
+
+    it('moves E3 and E4 to the corrected coordinates, only while still at the old ones', async () => {
+      const at = async (shortName: string, lat: number, lng: number) =>
+        (
+          await buildings.create({
+            canonicalName: `Block ${shortName}`,
+            shortName,
+            aliases: [],
+            latitude: lat,
+            longitude: lng,
+          })
+        ).id;
+      const e3 = await at('E3', 1.299434, 103.75263);
+      const e4 = await at('E4', 1.3, 103.77); // set by an admin since
+      const coords = async (id: string) =>
+        (
+          await dataSource.query<{ latitude: number; longitude: number }[]>(
+            'SELECT latitude, longitude FROM buildings WHERE id = $1',
+            [id],
+          )
+        )[0];
+
+      // The coordinate migration is second to last (the AS8 rename follows).
+      await dataSource.undoLastMigration({ transaction: 'all' });
+      await dataSource.undoLastMigration({ transaction: 'all' });
+      await dataSource.runMigrations({ transaction: 'all' });
+      expect(await coords(e3)).toEqual({
+        latitude: 1.299484,
+        longitude: 103.771747,
+      });
+      expect(await coords(e4)).toEqual({ latitude: 1.3, longitude: 103.77 });
+
+      await dataSource.undoLastMigration({ transaction: 'all' });
+      await dataSource.undoLastMigration({ transaction: 'all' });
+      expect(await coords(e3)).toEqual({
+        latitude: 1.299434,
+        longitude: 103.75263,
+      });
+      expect(await coords(e4)).toEqual({ latitude: 1.3, longitude: 103.77 });
+      await dataSource.runMigrations({ transaction: 'all' });
+    });
+
+    it('renames AS8, keeps "Blk AS8" as an alias, and reverts; another building is untouched', async () => {
+      const at = async (canonicalName: string, shortName: string) =>
+        (
+          await buildings.create({
+            canonicalName,
+            shortName,
+            aliases: [],
+            latitude: 1.296252,
+            longitude: 103.772093,
+          })
+        ).id;
+      const as8 = await at('Blk AS8', 'AS8');
+      const other = await at('Blk AS7', 'AS7');
+      const state = async () =>
+        (
+          await dataSource.query<
+            {
+              canonical_name: string;
+              aliases: string[];
+              keys: string[] | null;
+            }[]
+          >(
+            `SELECT b.canonical_name, b.aliases,
+                    (SELECT array_agg(key ORDER BY key) FROM building_name_keys
+                      WHERE building_id = b.id) AS keys
+               FROM buildings b WHERE b.id = $1`,
+            [as8],
+          )
+        )[0];
+
+      await dataSource.undoLastMigration({ transaction: 'all' });
+      await dataSource.runMigrations({ transaction: 'all' });
+      expect(await state()).toEqual({
+        canonical_name: 'Arts and Social Sciences 8',
+        aliases: ['Blk AS8'],
+        keys: ['artsandsocialsciences8', 'as8', 'blkas8'],
+      });
+      expect((await buildings.resolve('Blk AS8'))?.id).toBe(as8);
+      expect((await buildings.findById(other))?.canonicalName).toBe('Blk AS7');
+
+      await dataSource.undoLastMigration({ transaction: 'all' });
+      expect(await state()).toEqual({
+        canonical_name: 'Blk AS8',
+        aliases: [],
+        keys: ['as8', 'blkas8'],
+      });
+      await dataSource.runMigrations({ transaction: 'all' });
+    });
+
+    it('reverts cleanly and runs again', async () => {
+      // Venues is the third-to-last migration; the last two only alter rows.
+      await dataSource.undoLastMigration({ transaction: 'all' });
+      await dataSource.undoLastMigration({ transaction: 'all' });
+      await dataSource.undoLastMigration({ transaction: 'all' });
+      await expect(
+        dataSource.query(`SELECT to_regclass('venues') AS t`),
+      ).resolves.toEqual([{ t: null }]);
+
+      await dataSource.runMigrations({ transaction: 'all' });
+      await expect(
+        dataSource.query(`SELECT to_regclass('venues') AS t`),
+      ).resolves.toEqual([{ t: 'venues' }]);
     });
   });
 
@@ -164,6 +272,42 @@ describe('supplier schema (real PostgreSQL)', () => {
       });
       await expect(insert('1', 91)).rejects.toMatchObject({
         driverError: { code: '23514', constraint: 'CHK_suppliers_latitude' },
+      });
+    });
+
+    it('rejects a malformed venue floor, out-of-range coordinates and a repeated code', async () => {
+      const building = await com3();
+      const insert = (code: string, floor: string, latitude: number) =>
+        dataSource.query(
+          `INSERT INTO venues (id, building_id, code, floor, latitude, longitude)
+           VALUES (gen_random_uuid(), $1, $2, $3, $4, 103.77)`,
+          [building.id, code, floor, latitude],
+        );
+
+      await expect(insert('A', '03', 1.29)).rejects.toMatchObject({
+        driverError: { code: '23514', constraint: 'CHK_venues_floor' },
+      });
+      await expect(insert('A', 'B1', 91)).rejects.toMatchObject({
+        driverError: { code: '23514', constraint: 'CHK_venues_latitude' },
+      });
+      await insert('A', 'B1', 1.29);
+      await expect(insert('A', '2', 1.29)).rejects.toMatchObject({
+        driverError: { code: '23505', constraint: 'UQ_venues_building_code' },
+      });
+    });
+
+    it('refuses to delete a building that still has venues', async () => {
+      const building = await com3();
+      await dataSource.query(
+        `INSERT INTO venues (id, building_id, code, floor, latitude, longitude)
+         VALUES (gen_random_uuid(), $1, 'A', '1', 1.29, 103.77)`,
+        [building.id],
+      );
+
+      await expect(
+        dataSource.query(`DELETE FROM buildings WHERE id = $1`, [building.id]),
+      ).rejects.toMatchObject({
+        driverError: { code: '23001', constraint: 'FK_venues_building' },
       });
     });
   });

@@ -5,6 +5,7 @@ import { Test } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
+import { BuildingSeedService } from '../src/seed/building-seed.service.js';
 import { BrandsService } from '../src/brands/brands.service.js';
 import { signAccessToken } from './access-token.js';
 import { seedTestEnvironment } from './test-env.js';
@@ -41,6 +42,8 @@ describe('brand endpoints (e2e)', () => {
     const moduleFixture = await withoutBroker(
       Test.createTestingModule({ imports: [AppModule] }),
     )
+      .overrideProvider(BuildingSeedService)
+      .useValue({})
       .overrideProvider(DataSource)
       .useValue({
         entityMetadatas: [],

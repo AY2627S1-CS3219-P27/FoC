@@ -10,6 +10,7 @@ import { SupplierCategory } from './supplier-category.entity.js';
 import { SupplierOpeningInterval } from './supplier-opening-interval.entity.js';
 import { SupplierRequest } from './supplier-request.entity.js';
 import { Supplier } from './supplier.entity.js';
+import { Venue } from './venue.entity.js';
 
 export {
   AUDIT_TARGET_TYPES,
@@ -31,6 +32,7 @@ export {
   SupplierRequest,
 } from './supplier-request.entity.js';
 export { Supplier, SupplierKind, SupplierStatus } from './supplier.entity.js';
+export { Venue } from './venue.entity.js';
 
 // Every TypeORM entity of the supplier schema, plus the outbox table that
 // @foc/outbox reads.
@@ -45,6 +47,7 @@ export const databaseEntities: Function[] = [
   SupplierCategory,
   SupplierOpeningInterval,
   SupplierRequest,
+  Venue,
   InboxEvent,
   OutboxEvent,
 ];

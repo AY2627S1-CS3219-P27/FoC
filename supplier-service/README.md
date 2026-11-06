@@ -90,6 +90,7 @@ Full reasoning, alternatives and consequences: [ADR 0001](../docs/adr/supplier-s
 erDiagram
     BUILDINGS ||--o{ BUILDING_NAME_KEYS : "is known by"
     BUILDINGS ||--o{ SUPPLIERS : "houses"
+    BUILDINGS ||--o{ VENUES : "contains"
     SUPPLIERS ||--|{ SUPPLIER_CATEGORIES : "has"
     CATEGORIES ||--o{ SUPPLIER_CATEGORIES : "tags"
     BRANDS |o--o{ SUPPLIERS : "groups outlets of"
@@ -100,6 +101,18 @@ erDiagram
         varchar canonical_name "e.g. Computing 2"
         varchar short_name "e.g. COM2"
         text_array aliases "other spellings"
+        double latitude
+        double longitude
+        timestamptz retired_at "null = in use"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+    VENUES {
+        uuid id PK
+        uuid building_id FK
+        varchar code "e.g. LT19, unique per building"
+        varchar name "optional"
+        varchar floor "B1-B9, 1-99, M"
         double latitude
         double longitude
         timestamptz retired_at "null = in use"
@@ -189,7 +202,8 @@ erDiagram
 | Table | Purpose | Rules the database enforces |
 |---|---|---|
 | `suppliers` | One row per pickup point | `UNIQUE (name_key, building_id, floor)` blocks duplicates, even when two requests race (F1.5, F1.5.2). CHECKs on name length, floor format, non-blank location and coordinate ranges. `building_id` must exist. |
-| `buildings` | The controlled list of campus buildings (F4) | Coordinate range CHECKs |
+| `buildings` | The controlled list of campus buildings (F4) | Coordinate range CHECKs. One placeholder row, "Other (map pin)", is the building with short name `PIN` (see below). |
+| `venues` | Delivery rooms inside a building (migration `1791417600000-create-venues.ts`) | `UNIQUE (building_id, code)`; CHECKs on floor format and coordinate ranges; `building_id` must exist and a building with venues can't be deleted. Venues are retired (`retired_at`), never deleted, so past orders still resolve. |
 | `building_name_keys` | Every name, short name and alias of each in-use building, normalised | The primary key makes two in-use buildings sharing a name impossible (F4.2). Looking up a building by any name is one key lookup (F4.5). |
 | `audit_entries` (✅ step 17, migration `1791331200000-add-audit-entries.ts`) | One append-only row per committed change to a supplier, request, category, brand or building (F14.4). **No foreign keys**, so entries outlive the records they describe (F14.5) | Triggers refuse `UPDATE`, `DELETE` and `TRUNCATE`, so not even a bug in the service can alter the log (F14.5). CHECKs: the target type is one of the five, and the action is not blank. |
 | `brands` (✅ step 14, migration `1791158400000-add-brands.ts`) | The controlled list of brands: businesses with several outlets (F3). `suppliers.brand_id` is optional, at most one (F3.4) | Partial unique index on `name_key` among non-retired brands (F3.2, a retired brand's name can be reused), non-blank name CHECK. The foreign key refuses deleting a brand that suppliers hold, so brands are retired, never deleted (F1.8). |
@@ -222,6 +236,8 @@ Rules the database **can't** express are checked in the service, inside the same
 - `building_name_keys` is derived from it, like an index: one row per name (full, short and every alias), lower-cased with spaces removed and every apostrophe style made the same, for in-use buildings only. It is rebuilt whenever a building's names change. So "COM2", "Com 2" and "com2" are one name, as are "Prince George's Park" and "Prince George’s Park".
 - It exists because F4.2 forbids two in-use buildings sharing **any** name. A normal unique index can't span three columns plus every item in a list, but a primary key on one row per name can, so the database itself enforces the rule.
 
+**Delivery venues and the map-pin building.** A requester picks a building, then optionally a venue in it. `GET /buildings` items carry `venueCount` (active venues; 0 means skip the venue step) and `allowsPin`. `allowsPin` is true for exactly one building, the one with short name `PIN` ("Other (map pin)"; there is no column, and `building_name_keys` keeps the short name unique). It cannot be given another short name, and it is a fixed placeholder at the campus centre, created at every startup if no building has the short name `PIN` (independent of `VENUE_SEED_PATH` and `SEED_ON_STARTUP`). A pin errand sends that building's id and no venue id, so `deliveryBuildingId` stays required and the contract is unchanged; the pin's own coordinates are Order Service's concern. The service refuses to retire it, to add venues to it, or to put suppliers in it (409 / 400 `building cannot hold suppliers`). Migration `1791590400000-rename-as8-building.ts` renames "Blk AS8" to "Arts and Social Sciences 8" (keeping "Blk AS8" as an alias).
+
 ### How the D2 metadata is stored and queried
 
 | Metadata | Stored as | Queried by |
@@ -237,7 +253,8 @@ Rules the database **can't** express are checked in the service, inside the same
 - **Loaded on startup** (`SEED_ON_STARTUP`, default on). Each row goes through the same `SuppliersService.create` as the admin API, so seed data obeys every rule (F12.3).
 - **First fill only:** the startup import runs only while there are no suppliers at all. "Already present" is judged by name, so without this guard an admin's rename would make the next start create the original again. Once any supplier exists, the data belongs to the admins. (Follow-up: a stable `seed_key` per supplier would let later seed rows still be added.)
 - **Safe to run again:** rows already present are skipped, keyed by the duplicate rule (F12.1). Even two copies seeding at once end with exactly 21. The log shows e.g. `seed: 0 created, 21 already present, 0 rejected`.
-- **Buildings:** the 14 initial buildings (`src/seed/reference-data.ts`) resolve every building spelling in the file (F12.2.1). Case, spaces and apostrophe style are ignored automatically, so "Com 2", "Com2" and "COM2" all match COM2, and "Prince George’s Park" (curly apostrophe) matches PGP. The only alias needed is "Terrace" → COM3: the Terrace is the food court inside COM3, and the data file uses it as a building. Building coordinates are the average of each building's seed suppliers, fixed once.
+- **Buildings:** the buildings in `data/json/venues-seed.json` (61, with their aliases) resolve every building spelling in the file (F12.2.1); the supplier importer creates any that are missing first. Case, spaces and apostrophe style are ignored automatically, so "Com 2", "Com2" and "COM2" all match COM2, and "Prince George’s Park" (curly apostrophe) matches PGP. The "Terrace" alias → COM3 is in the JSON: the Terrace is the food court inside COM3, and the data file uses it as a building. Coordinates come from the JSON and are never moved by a re-run.
+- **Venues:** the same JSON holds the delivery venues. Set `VENUE_SEED_PATH` (default in the env example; compose mounts `data/json` read-only) and they load on every start, whether or not any suppliers exist and regardless of `SEED_ON_STARTUP`. Each is inserted only if missing, keyed on (building, code): a retired venue is never revived, none is added to a retired building or to the pin building, and rows flagged for review are skipped and logged. A malformed file stops startup. Running it twice changes nothing.
 - **Names:** an own-building suffix is removed ("Printer @ Com 2" → "Printer", shown as "Printer @ COM2"; F12.2.6). The Terrace outlets are named "InstaChef (Terrace)" and "Smooy (Terrace)", so they stay distinct from other outlets of the same business in COM3.
 - **Kind:** "Printer @ Com 2" is a Facility; everything else is a Store (F12.2.5).
 - **"Food/Coffee"** becomes two categories, created if missing (F12.2.2).
@@ -420,7 +437,8 @@ It also returns the version in an `ETag` header (e.g. `"3"`), which an admin edi
 | POST | `/brands` | **admin** | Create a brand: `{"name": "..."}` (1-100 chars); 409 `DUPLICATE_NAME` if a non-retired brand has it | F3.1-F3.3 |
 | PATCH | `/brands/{id}` | **admin** | Rename: `{"name": "..."}`; 409 `DUPLICATE_NAME` if another non-retired brand has it, 409 if retired | F3.2, F3.3 |
 | POST | `/brands/{id}/retire` | **admin** | Retire: suppliers keep it, it is no longer listed or selectable; retiring twice is harmless | F3.3, F3.3.1 |
-| GET | `/buildings` | any logged-in user | In-use buildings with names and coordinates | F4.4 |
+| GET | `/buildings` | any logged-in user | In-use buildings with names, coordinates, `venueCount` and `allowsPin` | F4.4 |
+| GET | `/buildings/{id}/venues` | any logged-in user | The building's active venues (`id`, `code`, `name`, `floor`, `coordinates`): basements first, then floors, then code. 404 for an unknown or retired building | |
 | POST | `/buildings` | **admin** | Create a building: `canonicalName`, `shortName`, optional `aliases`, `coordinates` (must lie inside the campus box); 409 `DUPLICATE_NAME` if any name belongs to another in-use building | F4.3, F4.2 |
 | PATCH | `/buildings/{id}` | **admin** | Rename, or replace the aliases (at least one of `canonicalName`, `shortName`, `aliases`); coordinates are not editable; 409 if retired | F4.3 |
 | POST | `/buildings/{id}/retire` | **admin** | Retire: suppliers keep it, it is no longer listed or selectable, its names become free | F4.3, F4.3.1 |
@@ -751,8 +769,8 @@ Pending migrations are applied automatically on startup (`DB_MIGRATIONS_RUN`, de
 
 | Message | Routing key | Sent by | Contents |
 |---|---|---|---|
-| The question | `order.supplier-validation-requested.v1` | order-service | `errandId`, `supplierId`, `deliveryBuildingId` |
-| The answer | `supplier.validation-completed.v1` | supplier-service | `errandId`, `supplierId`, `outcome`: `FOUND` with the supplier's status, version, name, display name, building, floor, location description and coordinates, plus the delivery building (`id`, `shortName`, `canonicalName`); `NOT_FOUND` (no such supplier); or `BUILDING_NOT_FOUND` (the supplier exists, the delivery building doesn't) |
+| The question | `order.supplier-validation-requested.v1` | order-service | `errandId`, `supplierId`, `deliveryBuildingId`, optional `deliveryVenueId` (only with a building) |
+| The answer | `supplier.validation-completed.v1` | supplier-service | `errandId`, `supplierId`, `outcome`: `FOUND` with the supplier's status, version, name, display name, building, floor, location description and coordinates, plus the delivery building (`id`, `shortName`, `canonicalName`); `NOT_FOUND` (no such supplier); `BUILDING_NOT_FOUND` (the supplier exists, the delivery building doesn't); or `VENUE_NOT_FOUND` (supplier and building exist, the venue is unknown, retired or in another building). `FOUND` also carries the delivery venue (`id`, `code`, `name`, `floor`, `coordinates`) when one was asked for |
 
 **Why messages, not an API call:**
 - Order Service already waits in `Pending-Supplier`.
@@ -775,7 +793,7 @@ sequenceDiagram
         C->>MQ: dead-letter (…requested.v1.dlq), no retry
     else valid
         C->>DB: one transaction: lock event id, inbox already has it? → skip
-        C->>DB: look up supplier, then the delivery building → build FOUND / NOT_FOUND / BUILDING_NOT_FOUND reply, check it against its contract
+        C->>DB: look up supplier, then the delivery building, then the venue in it → build FOUND / NOT_FOUND / BUILDING_NOT_FOUND / VENUE_NOT_FOUND reply, check it against its contract
         C->>DB: insert reply into outbox_events + request into inbox_events, commit
         C->>MQ: acknowledge (only after the commit)
         R->>DB: claim unpublished replies
@@ -790,7 +808,8 @@ sequenceDiagram
 - **Exactly one answer per question.** `inbox_events` records each answered request, keyed by its event id, with the reply it produced, in the same transaction as the reply in `outbox_events` (F15.7.3). A redelivery is acknowledged without a second reply (F15.7.4); an event id reused for different content is dead-lettered.
 - **Temporary rollout bridge.** Until Order Service's change is in main, the contract makes `deliveryBuildingId` (and the `FOUND` reply's `deliveryBuilding`) optional. A question without a building id is answered the old way: `FOUND` with no building check. This is removed, with its tests, when the contract makes the field required again (marked `TODO(rollout)` in `src/validation/supplier-validation.service.ts`).
 - **Delivery building checked in the same round trip** (Order Service ADR 0011). The building is checked only for a supplier that exists: `NOT_FOUND` (no supplier) wins over `BUILDING_NOT_FOUND`. A retired building counts as unknown, so Order Service only needs to say "pick another building".
-- **`NOT_FOUND` and `BUILDING_NOT_FOUND` mean "does not exist"**, never "couldn't read the database" (F15.7.5).
+- **Delivery venue checked in the same round trip.** Precedence: `NOT_FOUND`, then `BUILDING_NOT_FOUND`, then `VENUE_NOT_FOUND`. A venue id sent with the map-pin building is `VENUE_NOT_FOUND`. A question without a venue id behaves and hashes exactly as before, so in-flight messages never conflict after rollout; reusing an event id with a different venue is a conflict.
+- **`NOT_FOUND`, `BUILDING_NOT_FOUND` and `VENUE_NOT_FOUND` mean "does not exist"**, never "couldn't read the database" (F15.7.5).
 - **Bad questions aren't retried:** missing or unknown fields, or not from `order-service`, go straight to the dead-letter queue and are logged (F15.7.6, F13.7).
 - **Acknowledged only after the reply is committed** to the outbox (F15.7.8). The relay publishes it with broker confirmation (`@foc/outbox`).
 
@@ -808,7 +827,7 @@ sequenceDiagram
 
 **Tests:**
 - unit: the handler's outcomes, the consumer start-up, and the shared broker setup (`rabbitmq-topology.contract.spec.ts`)
-- integration, against real PostgreSQL: FOUND (with the building) / Inactive / NOT_FOUND / BUILDING_NOT_FOUND (unknown and retired), a redelivery, two copies at once, a reused event id, a data-store failure that writes nothing
+- integration, against real PostgreSQL: FOUND (with the building) / Inactive / NOT_FOUND / BUILDING_NOT_FOUND (unknown and retired) / VENUE_NOT_FOUND (unknown, retired, other building, pin building), a redelivery, two copies at once, a reused event id, a data-store failure that writes nothing
 - `test:messaging`, against a real throwaway RabbitMQ: one question → exactly one reply, a redelivery → one reply, malformed → dead-letter
 
 **Demo (D3):** `npm run db:test:up && npm run broker:test:up && npm run demo:validation`. It runs the real consumer, handler, outbox and relay against the test broker and test database, plays Order Service's part, and prints:
@@ -825,6 +844,10 @@ sequenceDiagram
   ← Supplier Service answers: BUILDING_NOT_FOUND
 5. Neither exists (the missing supplier is reported first)
   ← Supplier Service answers: NOT_FOUND
+5a. A delivery venue inside the building
+  ← Supplier Service answers: FOUND: …; deliver to COM2 (Computing 2), room LT19
+5b. A venue that does not exist (the supplier and building are fine)
+  ← Supplier Service answers: VENUE_NOT_FOUND
 6. The same question delivered twice
   → … no second answer: it was already in the inbox
 7. A malformed question

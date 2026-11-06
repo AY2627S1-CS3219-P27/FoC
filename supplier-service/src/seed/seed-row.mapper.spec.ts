@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { buildingKey } from '../common/normalise/normalise.js';
-import { SEED_BUILDINGS, seedKind } from './reference-data.js';
+import { seedKind } from './reference-data.js';
+import { parseVenueSeed } from './venue-seed-file.js';
 import {
   categoryNamesOf,
   seedHoursViolations,
@@ -8,6 +10,10 @@ import {
   splitBuildingSuffix,
   toSupplierInput,
 } from './seed-row.mapper.js';
+
+const SEED_BUILDINGS = parseVenueSeed(
+  readFileSync('../data/json/venues-seed.json'),
+).buildings;
 
 const ROW = {
   Name: 'Cool Spot',

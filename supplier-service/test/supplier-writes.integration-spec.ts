@@ -100,7 +100,7 @@ describe('admin supplier writes (real PostgreSQL)', () => {
   beforeEach(async () => {
     await dataSource.query(`
       TRUNCATE supplier_requests, supplier_categories, supplier_opening_intervals, suppliers, brands, categories,
-               building_name_keys, buildings
+               venues, building_name_keys, buildings
     `);
     com2 = await buildings.create({
       canonicalName: 'Computing 2',
@@ -308,6 +308,31 @@ describe('admin supplier writes (real PostgreSQL)', () => {
       await expect(
         suppliers.update(other.id, 1, { buildingId: com4.id }),
       ).resolves.toBeUndefined();
+    });
+
+    it('refuses the map-pin building for a new supplier and for a move', async () => {
+      const pin = await buildings.create({
+        canonicalName: 'Other (map pin)',
+        shortName: 'PIN',
+        aliases: [],
+        latitude: 1.295,
+        longitude: 103.765,
+      });
+      const unusable = [
+        { field: 'buildingId', reason: 'building cannot hold suppliers' },
+      ];
+
+      const created = await failure(
+        suppliers.create({ ...coolSpot(), buildingId: pin.id }),
+      );
+      expect(created.status).toBe(400);
+      expect(created.body.violations).toEqual(unusable);
+
+      const { id } = await suppliers.create(coolSpot());
+      const moved = await failure(
+        suppliers.update(id, 1, { buildingId: pin.id }),
+      );
+      expect(moved.body.violations).toEqual(unusable);
     });
 
     it('answers a distinct not-found for an unknown supplier', async () => {

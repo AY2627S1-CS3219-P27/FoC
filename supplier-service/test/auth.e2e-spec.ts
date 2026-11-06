@@ -9,6 +9,7 @@ import { CategoriesService } from '../src/categories/categories.service.js';
 import { signAccessToken } from './access-token.js';
 import { seedTestEnvironment } from './test-env.js';
 import { withoutBroker } from './without-broker.js';
+import { BuildingSeedService } from '../src/seed/building-seed.service.js';
 
 /** In-memory stand-in so the guards are tested without a database. */
 function fakeCategoriesService() {
@@ -74,6 +75,9 @@ describe('authentication and roles (e2e)', () => {
         imports: [AppModule],
       }),
     )
+      // There is no database here: the startup pin seed is covered against PostgreSQL.
+      .overrideProvider(BuildingSeedService)
+      .useValue({})
       .overrideProvider(DataSource)
       .useValue({
         entityMetadatas: [],
@@ -288,6 +292,7 @@ describe('authentication and roles (e2e)', () => {
         { method: 'post', path: '/buildings' },
         { method: 'patch', path: '/buildings/:id' },
         { method: 'post', path: '/buildings/:id/retire' },
+        { method: 'get', path: '/buildings/:id/venues' },
         { method: 'post', path: '/suppliers' },
         { method: 'patch', path: '/suppliers/:id' },
         { method: 'put', path: '/suppliers/:id/status' },

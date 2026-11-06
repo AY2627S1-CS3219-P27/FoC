@@ -9,6 +9,7 @@ import { SupplierRequestsService } from '../src/requests/supplier-requests.servi
 import { signAccessToken, TEST_USER_ID } from './access-token.js';
 import { seedTestEnvironment } from './test-env.js';
 import { withoutBroker } from './without-broker.js';
+import { BuildingSeedService } from '../src/seed/building-seed.service.js';
 
 const REQUEST_ID = randomUUID();
 
@@ -59,6 +60,9 @@ describe('supplier request endpoints (e2e)', () => {
         imports: [AppModule],
       }),
     )
+      // There is no database here: the startup pin seed is covered against PostgreSQL.
+      .overrideProvider(BuildingSeedService)
+      .useValue({})
       .overrideProvider(DataSource)
       .useValue({
         entityMetadatas: [],

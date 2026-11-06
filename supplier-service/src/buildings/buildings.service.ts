@@ -28,6 +28,17 @@ export interface CreateBuildingInput {
   longitude: number;
 }
 
+/**
+ * The short name of the map-pin placeholder. Name keys are unique across
+ * in-use buildings, so at most one building can carry it, and it cannot be
+ * changed once the pin exists (see updateNames).
+ */
+export const PIN_SHORT_NAME = 'PIN';
+
+/** True for the "Other (map pin)" placeholder, which stands in for a dropped pin. */
+export const isPinBuilding = (building: Pick<Building, 'shortName'>) =>
+  building.shortName === PIN_SHORT_NAME;
+
 export interface BuildingNameChanges {
   canonicalName?: string;
   shortName?: string;
@@ -148,6 +159,16 @@ export class BuildingsService {
       this.dataSource.transaction(async (manager) => {
         const building = await this.lockActive(manager, id);
         const before = buildingSnapshot(building);
+        if (
+          isPinBuilding(building) &&
+          changes.shortName !== undefined &&
+          changes.shortName.trim() !== PIN_SHORT_NAME
+        ) {
+          throw new ConflictException({
+            code: ErrorCode.Conflict,
+            message: 'The map-pin building cannot be given another short name.',
+          });
+        }
         if (changes.canonicalName !== undefined) {
           building.canonicalName = changes.canonicalName.trim();
         }
@@ -188,6 +209,12 @@ export class BuildingsService {
       });
       if (!building) {
         throw buildingNotFound(id);
+      }
+      if (isPinBuilding(building)) {
+        throw new ConflictException({
+          code: ErrorCode.Conflict,
+          message: 'The map-pin building cannot be retired.',
+        });
       }
       if (building.retiredAt !== null) {
         return building;

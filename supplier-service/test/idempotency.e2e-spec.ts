@@ -5,6 +5,8 @@ import { Test } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
+import { VenuesService } from '../src/venues/venues.service.js';
+import { BuildingSeedService } from '../src/seed/building-seed.service.js';
 import { BrandsService } from '../src/brands/brands.service.js';
 import { BuildingsService } from '../src/buildings/buildings.service.js';
 import { CategoriesService } from '../src/categories/categories.service.js';
@@ -129,6 +131,10 @@ describe('idempotency keys on the create endpoints (e2e, F14.2)', () => {
     const moduleFixture = await withoutBroker(
       Test.createTestingModule({ imports: [AppModule] }),
     )
+      .overrideProvider(BuildingSeedService)
+      .useValue({})
+      .overrideProvider(VenuesService)
+      .useValue({ countActiveByBuilding: async () => new Map() })
       .overrideProvider(DataSource)
       .useValue({
         entityMetadatas: [],
