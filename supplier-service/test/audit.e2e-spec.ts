@@ -5,6 +5,7 @@ import { Test } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
+import { BuildingSeedService } from '../src/seed/building-seed.service.js';
 import { currentActor } from '../src/audit/audit-context.js';
 import { BrandsService } from '../src/brands/brands.service.js';
 import { CategoriesService } from '../src/categories/categories.service.js';
@@ -55,6 +56,8 @@ describe('the acting user reaches the services (e2e, F14.4)', () => {
     const moduleFixture = await withoutBroker(
       Test.createTestingModule({ imports: [AppModule] }),
     )
+      .overrideProvider(BuildingSeedService)
+      .useValue({})
       .overrideProvider(DataSource)
       .useValue({
         entityMetadatas: [],

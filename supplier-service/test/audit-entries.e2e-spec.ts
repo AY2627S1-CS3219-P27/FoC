@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
+import { BuildingSeedService } from '../src/seed/building-seed.service.js';
 import { AuditEntriesService } from '../src/audit/audit-entries.service.js';
 import { signAccessToken } from './access-token.js';
 import { seedTestEnvironment } from './test-env.js';
@@ -33,6 +34,8 @@ describe('GET /audit-entries (e2e, F14.4)', () => {
     const moduleFixture = await withoutBroker(
       Test.createTestingModule({ imports: [AppModule] }),
     )
+      .overrideProvider(BuildingSeedService)
+      .useValue({})
       .overrideProvider(DataSource)
       .useValue({
         entityMetadatas: [],

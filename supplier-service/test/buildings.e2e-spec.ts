@@ -5,6 +5,8 @@ import { Test } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
+import { BuildingSeedService } from '../src/seed/building-seed.service.js';
+import { VenuesService } from '../src/venues/venues.service.js';
 import { BuildingsService } from '../src/buildings/buildings.service.js';
 import { signAccessToken } from './access-token.js';
 import { seedTestEnvironment } from './test-env.js';
@@ -58,6 +60,10 @@ describe('building management endpoints (e2e)', () => {
     const moduleFixture = await withoutBroker(
       Test.createTestingModule({ imports: [AppModule] }),
     )
+      .overrideProvider(BuildingSeedService)
+      .useValue({})
+      .overrideProvider(VenuesService)
+      .useValue({ countActiveByBuilding: async () => new Map() })
       .overrideProvider(DataSource)
       .useValue({
         entityMetadatas: [],
