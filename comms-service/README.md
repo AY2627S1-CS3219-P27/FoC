@@ -7,20 +7,25 @@ the shared User Service JWT verifier, and the repository observability package.
 The current HTTP surface exposes:
 
 - `GET /health/live` for process liveness;
-- `GET /health/ready` for PostgreSQL, RabbitMQ, and Redis readiness;
+- `GET /health/ready` for PostgreSQL, RabbitMQ, the command Redis client, and
+  both Socket.IO adapter Redis connections;
 - `GET /v1/chats` for the authenticated participant's active/grace chats;
 - `GET /v1/chats/:chatId/messages` for participant-only cursor-paginated
   history;
+- `/chat` as the authenticated Socket.IO namespace on `SOCKET_PATH` for
+  participant-only `chat:join` admission;
 - `/docs` and `/docs-json` for the implemented OpenAPI document; and
 - `/metrics` for Prometheus metrics.
 
 In the background, one RabbitMQ consumer reads the Order event stream and
-dispatches four lifecycle notices for validation and deduplication. Accepted notices create one private chat
-per event identity; delivered and cancellation notices are retained as
-immutable facts for later deadline reconciliation. Both chat routes verify the
-shared User Service JWT, use opaque keyset cursors, and conceal absent chats
-from non-participants. Socket.IO connections, message/read mutations,
-grace-period transitions, and archives remain deferred.
+dispatches four lifecycle notices for validation and deduplication. Accepted
+notices create one private chat per event identity; delivered and cancellation
+notices are retained as immutable facts for later deadline reconciliation.
+Both chat routes verify the shared User Service JWT, use opaque keyset cursors,
+and conceal absent chats from non-participants. Socket.IO authentication,
+participant room admission, expiry disconnects, transactional message sends,
+explicit read receipts, and cross-replica Redis fan-out are active;
+grace-period transitions and archives remain deferred.
 
 ## Lifecycle contracts and publication
 
@@ -91,10 +96,27 @@ Then start the versioned stack with:
 Plain `docker compose up -d --wait` uses the `dev` image tag. Communication
 Service and its PostgreSQL database remain private on the root stack's
 `internal` network. The frontend or deployment ingress is the application
-access path, including the future same-site Socket.IO route. The root Compose
+access path, including the same-site Socket.IO route. The root Compose
 dependency gates startup on healthy PostgreSQL, RabbitMQ, and Redis.
-PostgreSQL remains authoritative; Redis is only shared delivery infrastructure
-for a later realtime package.
+PostgreSQL remains authoritative; Redis provides transient realtime fan-out
+only and stores no message, read-state, sequence, room-authority, or replay
+truth.
+
+The frontend exposes Communication Service through same-origin rewrites:
+
+| Browser path                | Private destination                          |
+| --------------------------- | -------------------------------------------- |
+| `/api/chats/:path*`         | `${COMMS_SERVICE_URL}/v1/chats/:path*`       |
+| `${SOCKET_PATH}/:path*`     | `${COMMS_SERVICE_URL}${SOCKET_PATH}/:path*`  |
+
+The socket rewrite covers the base path and every Socket.IO subpath. Next.js
+external rewrites retain the query string, cookies, and `Origin` header and
+proxy the `Upgrade` and `Connection` handshake. Production ingress must provide
+the same behavior if it terminates traffic before the frontend. The browser
+must never connect directly to Communication Service, which remains only on the
+private `internal` network. `SOCKET_ALLOWED_ORIGINS` must list the exact public
+frontend origins, including `http://localhost:3001` for the root development
+stack.
 
 For loopback-only direct access to health/OpenAPI on port `3006` and PostgreSQL
 on port `5437`, opt into the repository debug overlay:
@@ -118,6 +140,10 @@ acceptance identity and archived chat row, while mutable message rows can later
 be removed only after an immutable JSONB archive is committed. Per-chat
 sequence constraints provide stable message ordering; participant, errand,
 due-chat, and archive-list indexes support the later API and worker queries.
+The realtime forward migration adds the partial
+`IDX_messages_chat_sender_unread_sequence` index for received-message read
+updates and caller-relative unread lookup without modifying existing read
+timestamps.
 
 Run the PostgreSQL migration suite only against the disposable database
 documented in `.env.example`:
@@ -138,22 +164,100 @@ npm run db:test:down
 npm run rabbitmq:test:up
 npm run test:rabbitmq-permissions
 npm run rabbitmq:test:down
+
+npm run socket:test:up
+npm run test:socket-integration
+npm run socket:test:down
 ```
 
 The disposable PostgreSQL service listens on loopback host port `5441`. The
 isolated RabbitMQ service listens on loopback ports `5678` (AMQP) and `15678`
 (management). The latter imports the same infrastructure-owned identity,
-permissions, exchanges, and event-forwarding bindings as the root broker;
-starting Communication Service against it provisions the service-owned queue,
-`order.#` binding, retry topology, and DLQ.
+primary queues, permissions, and domain bindings as the root broker; starting
+Communication Service against it provisions only the service-owned retry
+topology.
+The isolated Redis adapter service listens on loopback port `6381` and stores
+no durable data.
 
 `JWT_PUBLIC_KEY_FILE`, `DB_PASSWORD_FILE`, and `RABBITMQ_PASSWORD_FILE`
 contain container file paths, never secret values. The corresponding secret
 files are mounted read-only under `/run/secrets`.
 
-`SOCKET_PATH`, `SOCKET_ALLOWED_ORIGINS`, and the fixed WebSocket-only transport
-are validated now so deployment configuration remains stable. No socket server
-is registered in this package.
+## Realtime protocol
+
+`SOCKET_PATH` is the HTTP/WebSocket transport path and defaults to
+`/socket.io`; `/chat` is the Socket.IO namespace selected after connection.
+They are separate concepts and neither replaces the other. Both server and
+client must use WebSocket transport only. Polling and upgrade fallback are
+disabled.
+
+The handshake accepts the HTTP-only `access_token` cookie only from an exact
+allowed origin. Tokens in query parameters, Socket.IO auth payloads, or events
+are rejected. The gateway stores only the verified user ID, disconnects the
+socket at the validated token expiry, and requires a new handshake after token
+refresh. A socket may join one authorized chat; opening another chat requires a
+separate connection or reconnect.
+
+Every client event requires an acknowledgement callback with one response
+shape: `{ ok: true, data }` or
+`{ ok: false, error: { code, message } }`. Payloads reject unknown properties.
+Errors expose only the sanitized codes `UNAUTHENTICATED`, `FORBIDDEN`,
+`NOT_FOUND`, `INVALID_REQUEST`, `INVALID_MESSAGE`, `CHAT_ARCHIVED`, `CONFLICT`,
+and `INTERNAL_ERROR`. Unknown and unauthorized chat IDs remain
+indistinguishable.
+
+| Client event | Payload | Committed behavior |
+| --- | --- | --- |
+| `chat:join` | `{ chatId }` | Authorizes membership, joins the caller's user-scoped room, and returns `latestSequence`. |
+| `message:send` | `{ chatId, clientMessageId, content }` | Accepts non-blank content up to 4,000 Unicode code points, deduplicates sender retries, allocates the next sequence transactionally, then acknowledges. |
+| `messages:read` | `{ chatId, throughSequence }` | Marks only unread messages from the other participant through the committed sequence using one database timestamp. Repeated and multi-tab reads are no-op successes. |
+
+| Server event | Delivery |
+| --- | --- |
+| `message:new` | Emitted after commit to the recipient's room and other sender tabs; idempotent retries emit nothing. |
+| `messages:read-receipt` | Emitted after a changed read transaction commits, only to the affected sender's room. |
+
+Redis carries best-effort room fan-out between replicas through dedicated
+publisher and subscriber connections. Both connections participate in startup,
+shutdown, and `/health/ready`, but Redis stores no authoritative chat state. If
+delivery is missed, reconnect, call `chat:join`, compare `latestSequence`, and
+recover gaps through `GET /v1/chats/:chatId/messages`. Fetching history never
+marks messages read.
+
+### Realtime smoke fixture
+
+The local realtime fixture exercises the browser-facing frontend rewrite, the
+authenticated `/chat` namespace, committed sends, idempotent retries, explicit
+reads, receipts, and HTTP-history reconciliation. The root stack must already
+be healthy, and the supplied chat must be live with the two cookies belonging
+to its requester and courier. Create the chat separately through the normal
+Order flow or lifecycle fixture.
+
+Store each HTTP-only access-token cookie in its own ignored file. The file must
+contain exactly `access_token=<JWT>` with no newline or cookie attributes:
+
+```powershell
+New-Item -ItemType Directory -Force .tmp
+Set-Content -NoNewline -Path .tmp/sender.cookie `
+  -Value 'access_token=<sender JWT>'
+Set-Content -NoNewline -Path .tmp/recipient.cookie `
+  -Value 'access_token=<recipient JWT>'
+
+npm run realtime:fixture -- `
+  --chat-id 00000000-0000-4000-8000-000000000000 `
+  --sender-cookie-file .tmp/sender.cookie `
+  --recipient-cookie-file .tmp/recipient.cookie
+```
+
+The command defaults to `http://localhost:3001`, `/socket.io`, and a five-second
+operation timeout. Override them with `--url`, `--origin`, `--socket-path`, or
+`--timeout-ms` when testing another local ingress. An optional
+`--outsider-cookie-file` also proves that an authenticated non-participant and
+an unknown chat receive the same `NOT_FOUND` acknowledgement. The fixture
+checks missing-cookie, disallowed-origin, and polling rejection on every run.
+It never prints credentials or message content and exits nonzero on a protocol,
+delivery, persistence, or cleanup failure. Delete the temporary cookie files
+after testing.
 
 ## RabbitMQ topology
 
@@ -253,10 +357,12 @@ archived, or unauthorized history target always returns the same sanitized 404.
 
 ## Metrics and recovery operations
 
-`/metrics` exposes Package 2 delivery outcomes, handler latency, committed chat
-creation, normalized chat API latency, and HTTP status classes. Labels are
-limited to stream, outcome, normalized route, status class, and fixed source;
-participant, errand, chat, event, cursor, and token values are never labels.
+`/metrics` exposes delivery outcomes, handler latency, committed chat creation,
+normalized HTTP latency, handshake results, active sockets, join/send/read
+outcomes and latency, idempotent sends, no-op reads, and adapter errors. Labels
+are limited to bounded operation, outcome, role, stream, normalized route,
+status class, and fixed source; participant, errand, chat, message, event,
+cursor, and token values are never labels.
 
 Malformed or contract-invalid notices are confirmed into their stream DLQ.
 Transient handler failures enter the five-stage retry chain and are confirmed
@@ -266,11 +372,15 @@ evidence and are isolated in the DLQ.
 
 The complete inspection, one-message corrected redrive, monitoring, rollout,
 and rollback procedure is in
-[`docs/runbooks/comms-service-package-2.md`](../docs/runbooks/comms-service-package-2.md).
+[`docs/runbooks/comms-service-lifecycle-operations.md`](../docs/runbooks/comms-service-lifecycle-operations.md).
 The redrive tool publishes only through the normal `foc.events` route, validates
 the corrected event with `@foc/contracts`, and acknowledges the DLQ copy only
 after publisher confirmation. It must use a dedicated operator identity, never
 the runtime Communication Service credentials.
+
+Realtime readiness, Redis-outage recovery, cross-replica verification, rollout,
+and rollback are documented in
+[`docs/runbooks/comms-service-realtime-operations.md`](../docs/runbooks/comms-service-realtime-operations.md).
 
 ## Publish lifecycle fixtures
 
@@ -354,14 +464,13 @@ or retry-return exchange. Tear down the disposable services after testing:
 npm run fixtures:test:down
 ```
 
-## Deferred roadmap behavior
+## Deferred behavior
 
-The current Package 2 slice consumes lifecycle messages, creates accepted
-chats, and exposes participant-only live chat reads. It does not expose archive
-APIs, open a Socket.IO namespace, send messages, change read state, transition
-chats into grace, or run an archive worker. Later roadmap steps add those
-behaviors in dependency order. The reserved socket configuration is not
-evidence of an available realtime endpoint.
+The service consumes lifecycle messages, creates accepted chats, exposes
+participant-only chat reads, and supports the authenticated Socket.IO
+namespace, participant room admission, ordered idempotent message sending,
+explicit read receipts, and cross-replica Redis fan-out. Archive APIs, grace
+transitions, the archive worker, and frontend chat screens remain deferred.
 
 The governing decisions are recorded under
 `docs/adr/comms-service/0001`–`0004`: PostgreSQL authority and message

@@ -9,6 +9,7 @@ export {
   initMetrics,
   createMetricsHandler,
   createLabeledCounter,
+  createLabeledGauge,
   createLabeledHistogram,
   registry,
   METRICS_PREFIX,

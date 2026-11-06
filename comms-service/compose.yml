@@ -38,7 +38,7 @@ services:
       REDIS_USERNAME: ${REDIS_USERNAME:-default}
       REDIS_DB_INDEX: ${REDIS_DB_INDEX:-0}
       SOCKET_PATH: ${SOCKET_PATH:-/socket.io}
-      SOCKET_ALLOWED_ORIGINS: ${SOCKET_ALLOWED_ORIGINS:-http://localhost:3000}
+      SOCKET_ALLOWED_ORIGINS: ${SOCKET_ALLOWED_ORIGINS:-http://localhost:3001}
       SOCKET_TRANSPORT: ${SOCKET_TRANSPORT:-websocket}
     secrets:
       - comms_db_password
@@ -164,6 +164,19 @@ services:
       interval: 5s
       timeout: 5s
       retries: 12
+
+  comms-redis-test:
+    image: redis:8.6.1-alpine
+    profiles: ['test']
+    ports:
+      - '127.0.0.1:${COMMS_REDIS_TEST_HOST_PORT:-6381}:6379'
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 3s
+      retries: 15
 
 volumes:
   comms-db-data:

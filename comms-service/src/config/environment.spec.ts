@@ -32,7 +32,7 @@ describe('environmentSchema', () => {
     expect(environment.REDIS_DB_INDEX).toBe(0);
     expect(environment.SOCKET_PATH).toBe('/socket.io');
     expect(environment.SOCKET_ALLOWED_ORIGINS).toEqual([
-      'http://localhost:3000',
+      'http://localhost:3001',
     ]);
     expect(environment.SOCKET_TRANSPORT).toBe('websocket');
     expect(environment.RABBITMQ_PUBSUB_EXCHANGE).toBe('foc.pubsub');

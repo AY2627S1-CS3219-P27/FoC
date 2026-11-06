@@ -6,6 +6,8 @@ import {
   databaseEntities,
   readDatabasePassword,
 } from './database-options.js';
+import { InitialPersistence1793552400000 } from './migrations/1793552400000-initial-persistence.js';
+import { AddUnreadMessageIndex1793638800000 } from './migrations/1793638800000-add-unread-message-index.js';
 
 describe('database options', () => {
   const directory = mkdtempSync(join(tmpdir(), 'comms-db-options-'));
@@ -33,7 +35,10 @@ describe('database options', () => {
     expect(options.migrationsTransactionMode).toBe('all');
     expect(options.migrationsTableName).toBe('comms_service_migrations');
     expect(options.entities).toEqual(databaseEntities);
-    expect(options.migrations).toHaveLength(1);
+    expect(options.migrations).toEqual([
+      InitialPersistence1793552400000,
+      AddUnreadMessageIndex1793638800000,
+    ]);
   });
 
   it('rejects an empty password file', () => {

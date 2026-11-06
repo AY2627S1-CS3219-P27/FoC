@@ -71,6 +71,7 @@ describe('inbox-backed lifecycle ingestion', () => {
   afterAll(async () => {
     if (dataSource?.isInitialized) {
       await dataSource.undoLastMigration({ transaction: 'all' });
+      await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.destroy();
     }
   });

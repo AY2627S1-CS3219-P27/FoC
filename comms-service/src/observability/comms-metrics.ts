@@ -1,5 +1,6 @@
 import {
   createLabeledCounter,
+  createLabeledGauge,
   createLabeledHistogram,
 } from '@foc/observability';
 import type { RequestHandler } from 'express';
@@ -11,6 +12,19 @@ export type LifecycleDeliveryOutcome =
   | 'retried'
   | 'dead_lettered'
   | 'conflicting';
+
+export type SocketOperation = 'join' | 'send' | 'read';
+export type SocketOperationOutcome =
+  | 'successful'
+  | 'idempotent'
+  | 'noop'
+  | 'unauthenticated'
+  | 'invalid'
+  | 'forbidden'
+  | 'not_found'
+  | 'archived'
+  | 'conflict'
+  | 'internal';
 
 const deliveryCounter = createLabeledCounter(
   'comms_lifecycle_deliveries_total',
@@ -39,6 +53,32 @@ const apiDuration = createLabeledHistogram(
   ['route', 'status_class'],
   [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
 );
+const socketHandshakeCounter = createLabeledCounter(
+  'comms_socket_handshakes_total',
+  'Socket handshakes by authentication outcome.',
+  ['outcome'],
+);
+const activeSocketGauge = createLabeledGauge(
+  'comms_socket_active',
+  'Currently connected authenticated chat sockets.',
+  [],
+);
+const socketOperationCounter = createLabeledCounter(
+  'comms_socket_operations_total',
+  'Acknowledged chat socket operations by bounded outcome.',
+  ['operation', 'outcome'],
+);
+const socketOperationDuration = createLabeledHistogram(
+  'comms_socket_operation_duration_seconds',
+  'Acknowledged chat socket operation latency by bounded outcome.',
+  ['operation', 'outcome'],
+  [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
+);
+const socketAdapterErrorCounter = createLabeledCounter(
+  'comms_socket_adapter_errors_total',
+  'Socket Redis adapter connection errors by connection role.',
+  ['role'],
+);
 
 export const commsMetrics = {
   lifecycleDelivery(stream: string, outcome: LifecycleDeliveryOutcome): void {
@@ -55,6 +95,31 @@ export const commsMetrics = {
 
   chatCreated(): void {
     chatCreatedCounter.inc({ source: 'errand_accepted' });
+  },
+
+  socketHandshake(outcome: 'accepted' | 'rejected'): void {
+    socketHandshakeCounter.inc({ outcome });
+  },
+
+  socketConnected(): void {
+    activeSocketGauge.inc();
+  },
+
+  socketDisconnected(): void {
+    activeSocketGauge.dec();
+  },
+
+  observeSocketOperation(
+    operation: SocketOperation,
+    outcome: SocketOperationOutcome,
+    seconds: number,
+  ): void {
+    socketOperationCounter.inc({ operation, outcome });
+    socketOperationDuration.observe({ operation, outcome }, seconds);
+  },
+
+  socketAdapterError(role: 'publisher' | 'subscriber'): void {
+    socketAdapterErrorCounter.inc({ role });
   },
 };
 

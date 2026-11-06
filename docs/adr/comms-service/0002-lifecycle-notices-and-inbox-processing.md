@@ -31,7 +31,7 @@ The runtime identity may read `foc.pubsub` to create its binding but cannot
 configure or publish to either shared exchange. Other Order routes are
 acknowledged as skipped until a handler is deliberately added.
 
-Package 2 consumers will validate the envelope, routing key, publisher, and
+Lifecycle consumers validate the envelope, routing key, publisher, and
 strict payload before persisting. The envelope `eventId` is the inbox
 deduplication identity. Repeated identical delivery is acknowledged safely;
 reuse of an event ID with different canonical evidence is rejected to the
@@ -49,5 +49,5 @@ recorded and acknowledged.
   complete before Order Service publication starts.
 - Communication Service startup provisions its queue, pub/sub binding, retry
   family, and DLQ and fails if `foc.pubsub` is unavailable.
-- Package 1 provisions and verifies topology but intentionally has no lifecycle
-  consumer.
+- Topology provisioning and consumer activation remain separate startup
+  responsibilities.
