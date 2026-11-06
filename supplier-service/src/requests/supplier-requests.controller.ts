@@ -11,12 +11,14 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { Idempotent } from '../idempotency/idempotent.decorator.js';
 import { parseIfMatch } from '../common/validation/if-match.js';
 import { uuidParam } from '../common/validation/parse-uuid.pipe.js';
 import type { Page } from '../suppliers/supplier-view.js';
 import { DenyRequestDto } from './dto/deny-request.dto.js';
 import { ListMyRequestsQueryDto } from './dto/list-my-requests-query.dto.js';
 import { ListRequestsQueryDto } from './dto/list-requests-query.dto.js';
+import { SubmitStatusChangeRequestDto } from './dto/submit-status-change-request.dto.js';
 import { SubmitUpdateRequestDto } from './dto/submit-update-request.dto.js';
 import type { RequestView } from './request-view.js';
 import { SupplierRequestsService } from './supplier-requests.service.js';
@@ -38,6 +40,7 @@ export class SupplierRequestsController {
    * problems come back together in one 400 (F1.6.1).
    */
   @Post('creations')
+  @Idempotent()
   submitCreation(
     @Body() body: unknown,
     @Req() request: AuthenticatedRequest,
@@ -50,6 +53,7 @@ export class SupplierRequestsController {
    * If-Match, as for an admin edit: missing → 428, out of date → 409.
    */
   @Post('updates')
+  @Idempotent()
   submitUpdate(
     @Body() body: SubmitUpdateRequestDto,
     @Headers('if-match') ifMatch: string | undefined,
@@ -59,6 +63,24 @@ export class SupplierRequestsController {
       body.supplierId,
       parseIfMatch(ifMatch),
       body.changes,
+      actingUserId(request),
+    );
+  }
+
+  /**
+   * Files a request to activate or deactivate a supplier (F9.3). No If-Match:
+   * the request records the supplier's version when it is filed (F6.2).
+   */
+  @Post('status-changes')
+  @Idempotent()
+  submitStatusChange(
+    @Body() body: SubmitStatusChangeRequestDto,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<RequestView> {
+    return this.requests.submitStatusChange(
+      body.supplierId,
+      body.status,
+      body.reason,
       actingUserId(request),
     );
   }

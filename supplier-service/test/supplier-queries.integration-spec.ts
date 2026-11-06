@@ -44,6 +44,9 @@ function query(
   return Object.assign(new ListSuppliersQueryDto(), values);
 }
 
+/** A fixed Wednesday 10:30 in Singapore, so opening hours are predictable. */
+const NOW = new Date('2026-11-04T10:30:00+08:00');
+
 describe('supplier listing and lookup (real PostgreSQL, seeded)', () => {
   let dataSource: DataSource;
   let queries: SupplierQueriesService;
@@ -89,7 +92,7 @@ describe('supplier listing and lookup (real PostgreSQL, seeded)', () => {
     await seed.importSeed(readFileSync('../data/csv/supplier-seed-data.csv'));
     vi.restoreAllMocks();
 
-    queries = new SupplierQueriesService(dataSource, config());
+    queries = new SupplierQueriesService(dataSource, config(), () => NOW);
   });
 
   afterAll(async () => {
@@ -117,7 +120,8 @@ describe('supplier listing and lookup (real PostgreSQL, seeded)', () => {
         building: { id: expect.any(String), shortName: expect.any(String) },
         floor: expect.any(String),
         status: 'Active',
-        isOpenNow: null,
+        // Every seed row has hours, so open or closed, never null (F12.2.3).
+        isOpenNow: expect.any(Boolean),
         thumbnailUrl: expect.toBeOneOf([expect.any(String), null]),
       });
     });
@@ -371,8 +375,14 @@ describe('supplier listing and lookup (real PostgreSQL, seeded)', () => {
         locationDescription: 'Opp LT16',
         coordinates: { latitude: 1.2940156, longitude: 103.7738478 },
         status: 'Active',
-        openingHours: null,
-        nextChangeAt: null,
+        // Seed row: 0900hrs to 2130hrs every day (F12.2.3); at NOW it is open.
+        openingHours: expect.objectContaining({
+          days: expect.objectContaining({
+            mon: [{ opens: '09:00', closes: '21:30' }],
+          }),
+        }),
+        isOpenNow: true,
+        nextChangeAt: new Date('2026-11-04T21:30:00+08:00'),
         version: 1,
         createdAt: expect.any(Date),
         updatedAt: expect.any(Date),

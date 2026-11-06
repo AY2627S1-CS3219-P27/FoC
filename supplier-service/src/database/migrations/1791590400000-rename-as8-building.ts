@@ -11,8 +11,8 @@ const OLD_NAME = 'Blk AS8';
 const NEW_NAME = 'Arts and Social Sciences 8';
 const NEW_KEY = 'artsandsocialsciences8';
 
-export class RenameAs8Building1791331200000 implements MigrationInterface {
-  name = 'RenameAs8Building1791331200000';
+export class RenameAs8Building1791590400000 implements MigrationInterface {
+  name = 'RenameAs8Building1791590400000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
     const renamed = await rename(queryRunner, OLD_NAME, NEW_NAME);

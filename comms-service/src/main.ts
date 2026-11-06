@@ -21,6 +21,13 @@ async function bootstrap(): Promise<void> {
   app.use('/metrics', createMetricsHandler());
 
   const config = app.get(ConfigService);
+  const { SocketRedisAdapterService } =
+    await import('./redis/socket-redis-adapter.service.js');
+  const socketRedis = app.get(SocketRedisAdapterService);
+  await socketRedis.connect();
+  const { ChatSocketIoAdapter } =
+    await import('./socket/chat-socket.adapter.js');
+  app.useWebSocketAdapter(new ChatSocketIoAdapter(app, config, socketRedis));
   await app.listen(config.getOrThrow<number>('PORT'), '0.0.0.0');
 }
 

@@ -21,8 +21,8 @@ const MOVES = [
   },
 ] as const;
 
-export class CorrectE3E4Coordinates1791158400000 implements MigrationInterface {
-  name = 'CorrectE3E4Coordinates1791158400000';
+export class CorrectE3E4Coordinates1791504000000 implements MigrationInterface {
+  name = 'CorrectE3E4Coordinates1791504000000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
     for (const { shortName, old, corrected } of MOVES) {

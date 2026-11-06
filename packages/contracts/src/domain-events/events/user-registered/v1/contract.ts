@@ -14,5 +14,6 @@ export const userRegisteredV1Contract =
     routingKey: USER_REGISTERED_V1_ROUTING_KEY,
     eventType: 'UserRegistered',
     publisher: 'user-service',
+    kind: 'event',
     schema,
   });

@@ -8,6 +8,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { isUUID } from 'class-validator';
 import { DataSource, type EntityManager, In, Not } from 'typeorm';
+import { recordAudit } from '../audit/record-audit.js';
+import { loadSupplierSnapshot } from '../audit/supplier-snapshot.js';
 import { isPinBuilding } from '../buildings/buildings.service.js';
 import {
   ErrorCode,
@@ -16,13 +18,16 @@ import {
 import { nameKey, normaliseFloor } from '../common/normalise/normalise.js';
 import type { EnvironmentVariables } from '../config/environment.schema.js';
 import {
+  Brand,
   Building,
   Category,
   Supplier,
   SupplierCategory,
+  SupplierOpeningInterval,
   SupplierStatus,
 } from '../database/entities/index.js';
 import { isUniqueViolation } from '../database/postgres-errors.js';
+import { type OpeningHours, toRows } from '../opening-hours/opening-hours.js';
 import type { SupplierInputDto } from './dto/supplier-input.dto.js';
 import {
   type CampusBox,
@@ -33,6 +38,7 @@ import {
 /** What a supplier already references; F1.8 lets these stay retired. */
 interface CurrentReferences {
   buildingId: string;
+  brandId: string | null;
   categoryIds: string[];
 }
 
@@ -192,14 +198,19 @@ export class SuppliersService {
           nameKey: nameKey(dto.name),
           kind: dto.kind,
           buildingId: dto.buildingId,
+          brandId: dto.brandId ?? null,
           floor: dto.floor,
           locationDescription: dto.locationDescription,
           latitude: dto.coordinates.latitude,
           longitude: dto.coordinates.longitude,
           photoUrl: dto.photoUrl ?? null,
+          open24Hours: dto.openingHours
+            ? toRows(dto.openingHours).open24Hours
+            : false,
           status: SupplierStatus.Active,
         });
         const saved = await manager.save(supplier);
+        await writeIntervals(manager, saved.id, dto.openingHours ?? null);
         await manager.insert(
           SupplierCategory,
           dto.categoryIds.map((categoryId) => ({
@@ -207,6 +218,15 @@ export class SuppliersService {
             categoryId,
           })),
         );
+        // In the same transaction as the create (F14.4).
+        const after = await loadSupplierSnapshot(manager, saved.id);
+        await recordAudit(manager, {
+          action: 'supplier.created',
+          targetType: 'supplier',
+          targetId: saved.id,
+          after,
+          version: after.version as number,
+        });
         return saved;
       }),
     );
@@ -242,6 +262,7 @@ export class SuppliersService {
           throw validationFailed(violations);
         }
 
+        const before = await loadSupplierSnapshot(manager, id);
         const dto = checked.value;
         const changes: Partial<Supplier> = {};
         if (dto.name !== undefined) {
@@ -250,6 +271,7 @@ export class SuppliersService {
         }
         if (dto.kind !== undefined) changes.kind = dto.kind;
         if (dto.buildingId !== undefined) changes.buildingId = dto.buildingId;
+        if (dto.brandId !== undefined) changes.brandId = dto.brandId;
         if (dto.floor !== undefined) changes.floor = dto.floor;
         if (dto.locationDescription !== undefined) {
           changes.locationDescription = dto.locationDescription;
@@ -259,6 +281,14 @@ export class SuppliersService {
           changes.longitude = dto.coordinates.longitude;
         }
         if (dto.photoUrl !== undefined) changes.photoUrl = dto.photoUrl;
+        if (dto.openingHours !== undefined) {
+          // The whole schedule is replaced; null removes it (F1.2.8).
+          await manager.delete(SupplierOpeningInterval, { supplierId: id });
+          await writeIntervals(manager, id, dto.openingHours);
+          changes.open24Hours = dto.openingHours
+            ? toRows(dto.openingHours).open24Hours
+            : false;
+        }
 
         if (dto.categoryIds !== undefined) {
           await manager.delete(SupplierCategory, { supplierId: id });
@@ -274,6 +304,15 @@ export class SuppliersService {
         // replaced the categories (F1.3.1). The unique constraint judges
         // the edited record as a whole (F1.5.1).
         await bumpVersion(manager, id, changes);
+        const after = await loadSupplierSnapshot(manager, id);
+        await recordAudit(manager, {
+          action: 'supplier.updated',
+          targetType: 'supplier',
+          targetId: id,
+          before,
+          after,
+          version: after.version as number,
+        });
       }),
     );
   }
@@ -293,12 +332,49 @@ export class SuppliersService {
     await this.inTransaction(within, async (manager) => {
       const supplier = await lockForChange(manager, id, expectedVersion);
       if (supplier.status === status) {
-        throw new ConflictException({
-          code: ErrorCode.InvalidStatusTransition,
-          message: `The supplier is already ${status}.`,
-        });
+        throw alreadyInStatus(status);
       }
-      await bumpVersion(manager, id, { status });
+      await applyStatus(manager, id, status);
+    });
+  }
+
+  /**
+   * Checks that a status-change request can be filed (F9.3.1): the supplier
+   * exists (404) and does not already have the requested status (409). It is
+   * share-locked until the request is saved, and its version is returned so
+   * the request can record it (F6.2).
+   */
+  async checkStatusChange(
+    id: string,
+    status: SupplierStatus,
+    within?: EntityManager,
+  ): Promise<{ version: number }> {
+    return this.inTransaction(within, async (manager) => {
+      const supplier = await lockSupplier(manager, id, 'pessimistic_read');
+      if (supplier.status === status) {
+        throw alreadyInStatus(status);
+      }
+      return { version: supplier.version };
+    });
+  }
+
+  /**
+   * Sets the status of a supplier whatever its version, for approving a
+   * status-change request (F9.4): only the status must differ, so a supplier
+   * edited since the request was filed does not block it. The version still
+   * goes up by one.
+   */
+  async setStatus(
+    id: string,
+    status: SupplierStatus,
+    within?: EntityManager,
+  ): Promise<void> {
+    await this.inTransaction(within, async (manager) => {
+      const supplier = await lockSupplier(manager, id, 'pessimistic_write');
+      if (supplier.status === status) {
+        throw alreadyInStatus(status);
+      }
+      await applyStatus(manager, id, status);
     });
   }
 
@@ -322,16 +398,7 @@ async function lockForChange(
   expectedVersion: number,
   mode: 'pessimistic_write' | 'pessimistic_read' = 'pessimistic_write',
 ): Promise<Supplier> {
-  const supplier = await manager.findOne(Supplier, {
-    where: { id },
-    lock: { mode },
-  });
-  if (!supplier) {
-    throw new NotFoundException({
-      code: ErrorCode.SupplierNotFound,
-      message: `Supplier ${id} does not exist.`,
-    });
-  }
+  const supplier = await lockSupplier(manager, id, mode);
   if (supplier.version !== expectedVersion) {
     throw new ConflictException({
       code: ErrorCode.VersionConflict,
@@ -343,7 +410,70 @@ async function lockForChange(
   return supplier;
 }
 
-/** The building and categories the supplier references now (F1.8). */
+/** Loads the supplier with a row lock held until the transaction ends; 404 if it does not exist. */
+async function lockSupplier(
+  manager: EntityManager,
+  id: string,
+  mode: 'pessimistic_write' | 'pessimistic_read',
+): Promise<Supplier> {
+  const supplier = await manager.findOne(Supplier, {
+    where: { id },
+    lock: { mode },
+  });
+  if (!supplier) {
+    throw new NotFoundException({
+      code: ErrorCode.SupplierNotFound,
+      message: `Supplier ${id} does not exist.`,
+    });
+  }
+  return supplier;
+}
+
+/**
+ * Sets the status, raising the version, and records it in the audit log
+ * (F14.4). The caller holds the row lock.
+ */
+async function applyStatus(
+  manager: EntityManager,
+  id: string,
+  status: SupplierStatus,
+): Promise<void> {
+  const before = await loadSupplierSnapshot(manager, id);
+  await bumpVersion(manager, id, { status });
+  const after = await loadSupplierSnapshot(manager, id);
+  await recordAudit(manager, {
+    action: 'supplier.status_changed',
+    targetType: 'supplier',
+    targetId: id,
+    before,
+    after,
+    version: after.version as number,
+  });
+}
+
+function alreadyInStatus(status: SupplierStatus): ConflictException {
+  return new ConflictException({
+    code: ErrorCode.InvalidStatusTransition,
+    message: `The supplier is already ${status}.`,
+  });
+}
+
+/** Stores the weekly intervals of opening hours; open 24 hours has none (F2.2). */
+async function writeIntervals(
+  manager: EntityManager,
+  supplierId: string,
+  hours: OpeningHours | null,
+): Promise<void> {
+  const { intervals } = hours ? toRows(hours) : { intervals: [] };
+  if (intervals.length > 0) {
+    await manager.insert(
+      SupplierOpeningInterval,
+      intervals.map((row) => ({ supplierId, ...row })),
+    );
+  }
+}
+
+/** The building, brand and categories the supplier references now (F1.8). */
 async function currentReferences(
   manager: EntityManager,
   supplier: Supplier,
@@ -353,6 +483,7 @@ async function currentReferences(
   });
   return {
     buildingId: supplier.buildingId,
+    brandId: supplier.brandId,
     categoryIds: links.map((link) => link.categoryId),
   };
 }
@@ -416,6 +547,7 @@ async function referenceViolations(
 ): Promise<FieldViolation[]> {
   const raw = (typeof input === 'object' && input !== null ? input : {}) as {
     buildingId?: unknown;
+    brandId?: unknown;
     categoryIds?: unknown;
   };
   const violations: FieldViolation[] = [];
@@ -444,6 +576,21 @@ async function referenceViolations(
       violations.push({
         field: 'buildingId',
         reason: 'building is retired and cannot be chosen',
+      });
+    }
+  }
+
+  if (typeof raw.brandId === 'string' && isUUID(raw.brandId)) {
+    const brand = await manager.findOne(Brand, {
+      where: { id: raw.brandId.toLowerCase() },
+      lock: { mode: 'pessimistic_read' },
+    });
+    if (!brand) {
+      violations.push({ field: 'brandId', reason: 'brand does not exist' });
+    } else if (brand.retiredAt !== null && brand.id !== current?.brandId) {
+      violations.push({
+        field: 'brandId',
+        reason: 'brand is retired and cannot be chosen',
       });
     }
   }

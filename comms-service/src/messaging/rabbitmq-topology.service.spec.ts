@@ -3,7 +3,9 @@ import { RabbitMqConnectionService } from './rabbitmq-connection.service.js';
 import {
   COMMS_DEAD_LETTER_EXCHANGE,
   COMMS_DOMAIN_EXCHANGE,
-  COMMS_LIFECYCLE_STREAMS,
+  COMMS_EVENTS_BINDING_KEY,
+  COMMS_EVENTS_QUEUE,
+  COMMS_PUBSUB_EXCHANGE,
   COMMS_RETRY_DELAYS_MS,
   COMMS_RETRY_EXCHANGE,
   COMMS_RETRY_RETURN_EXCHANGE,
@@ -42,49 +44,51 @@ describe('RabbitMqTopologyService', () => {
     );
   });
 
-  it('creates every retry chain, return binding, and DLQ without declaring a primary', async () => {
+  it('creates the unified primary, retry chain, return binding, and DLQ', async () => {
     const { channel, service } = harness();
     await service.provision();
 
     expect(channel.assertQueue).toHaveBeenCalledTimes(
-      COMMS_LIFECYCLE_STREAMS.length * (COMMS_RETRY_DELAYS_MS.length + 1),
+      COMMS_RETRY_DELAYS_MS.length + 2,
     );
-    for (const { queue } of COMMS_LIFECYCLE_STREAMS) {
-      expect(channel.assertQueue).not.toHaveBeenCalledWith(
-        queue,
-        expect.anything(),
-      );
-      expect(channel.bindQueue).toHaveBeenCalledWith(
-        queue,
-        COMMS_RETRY_RETURN_EXCHANGE,
-        queue,
-      );
+    expect(channel.assertQueue).toHaveBeenCalledWith(COMMS_EVENTS_QUEUE, {
+      durable: true,
+    });
+    expect(channel.bindQueue).toHaveBeenCalledWith(
+      COMMS_EVENTS_QUEUE,
+      COMMS_PUBSUB_EXCHANGE,
+      COMMS_EVENTS_BINDING_KEY,
+    );
+    expect(channel.bindQueue).toHaveBeenCalledWith(
+      COMMS_EVENTS_QUEUE,
+      COMMS_RETRY_RETURN_EXCHANGE,
+      COMMS_EVENTS_QUEUE,
+    );
 
-      COMMS_RETRY_DELAYS_MS.forEach((delay, index) => {
-        const retryQueue = `${queue}.retry.${index + 1}`;
-        expect(channel.assertQueue).toHaveBeenCalledWith(retryQueue, {
-          durable: true,
-          messageTtl: delay,
-          deadLetterExchange: COMMS_RETRY_RETURN_EXCHANGE,
-          deadLetterRoutingKey: queue,
-        });
-        expect(channel.bindQueue).toHaveBeenCalledWith(
-          retryQueue,
-          COMMS_RETRY_EXCHANGE,
-          retryQueue,
-        );
-      });
-
-      const deadLetterQueue = `${queue}.dlq`;
-      expect(channel.assertQueue).toHaveBeenCalledWith(deadLetterQueue, {
+    COMMS_RETRY_DELAYS_MS.forEach((delay, index) => {
+      const retryQueue = `${COMMS_EVENTS_QUEUE}.retry.${index + 1}`;
+      expect(channel.assertQueue).toHaveBeenCalledWith(retryQueue, {
         durable: true,
+        messageTtl: delay,
+        deadLetterExchange: COMMS_RETRY_RETURN_EXCHANGE,
+        deadLetterRoutingKey: COMMS_EVENTS_QUEUE,
       });
       expect(channel.bindQueue).toHaveBeenCalledWith(
-        deadLetterQueue,
-        COMMS_DEAD_LETTER_EXCHANGE,
-        deadLetterQueue,
+        retryQueue,
+        COMMS_RETRY_EXCHANGE,
+        retryQueue,
       );
-    }
+    });
+
+    const deadLetterQueue = `${COMMS_EVENTS_QUEUE}.dlq`;
+    expect(channel.assertQueue).toHaveBeenCalledWith(deadLetterQueue, {
+      durable: true,
+    });
+    expect(channel.bindQueue).toHaveBeenCalledWith(
+      deadLetterQueue,
+      COMMS_DEAD_LETTER_EXCHANGE,
+      deadLetterQueue,
+    );
 
     const calls = JSON.stringify([
       ...channel.assertExchange.mock.calls,
@@ -108,23 +112,22 @@ describe('RabbitMqTopologyService', () => {
     expect(channel.close).toHaveBeenCalledTimes(2);
   });
 
-  it('closes its channel and fails startup when a primary queue is absent', async () => {
+  it('closes its channel and fails startup when the pubsub binding cannot be installed', async () => {
     const { channel, service } = harness();
-    const missingQueue = COMMS_LIFECYCLE_STREAMS[0].queue;
     channel.bindQueue.mockImplementation(
       async (queue: string, exchange: string) => {
         if (
-          queue === missingQueue &&
-          exchange === COMMS_RETRY_RETURN_EXCHANGE
+          queue === COMMS_EVENTS_QUEUE &&
+          exchange === COMMS_PUBSUB_EXCHANGE
         ) {
-          throw new Error('NOT_FOUND - no queue');
+          throw new Error('NOT_FOUND - no exchange');
         }
         return {};
       },
     );
 
     await expect(service.onModuleInit()).rejects.toThrow(
-      'NOT_FOUND - no queue',
+      'NOT_FOUND - no exchange',
     );
     expect(channel.close).toHaveBeenCalledOnce();
   });

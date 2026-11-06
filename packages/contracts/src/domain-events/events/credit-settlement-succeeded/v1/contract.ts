@@ -19,5 +19,6 @@ export const creditSettlementSucceededV1Contract =
     routingKey: CREDIT_SETTLEMENT_SUCCEEDED_V1_ROUTING_KEY,
     eventType: 'CreditSettlementSucceeded',
     publisher: 'credit-service',
+    kind: 'event',
     schema,
   });

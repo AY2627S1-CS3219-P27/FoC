@@ -13,6 +13,8 @@ import {
   Not,
   type Repository,
 } from 'typeorm';
+import { recordAudit } from '../audit/record-audit.js';
+import { buildingSnapshot } from '../audit/snapshots.js';
 import { ErrorCode } from '../common/errors/error-response.js';
 import { buildingKey } from '../common/normalise/normalise.js';
 import { Building, BuildingNameKey } from '../database/entities/index.js';
@@ -137,6 +139,12 @@ export class BuildingsService {
         await this.assertNamesFree(manager, building);
         const saved = await manager.save(building);
         await this.writeNameKeys(manager, saved);
+        await recordAudit(manager, {
+          action: 'building.created',
+          targetType: 'building',
+          targetId: saved.id,
+          after: buildingSnapshot(saved),
+        });
         return saved;
       }),
     );
@@ -150,6 +158,7 @@ export class BuildingsService {
     return this.withDuplicateNamesMapped(() =>
       this.dataSource.transaction(async (manager) => {
         const building = await this.lockActive(manager, id);
+        const before = buildingSnapshot(building);
         if (
           isPinBuilding(building) &&
           changes.shortName !== undefined &&
@@ -174,6 +183,13 @@ export class BuildingsService {
         const saved = await manager.save(building);
         await manager.delete(BuildingNameKey, { buildingId: id });
         await this.writeNameKeys(manager, saved);
+        await recordAudit(manager, {
+          action: 'building.updated',
+          targetType: 'building',
+          targetId: id,
+          before,
+          after: buildingSnapshot(saved),
+        });
         return saved;
       }),
     );
@@ -204,9 +220,17 @@ export class BuildingsService {
         return building;
       }
 
+      const before = buildingSnapshot(building);
       building.retiredAt = new Date();
       const saved = await manager.save(building);
       await manager.delete(BuildingNameKey, { buildingId: id });
+      await recordAudit(manager, {
+        action: 'building.retired',
+        targetType: 'building',
+        targetId: id,
+        before,
+        after: buildingSnapshot(saved),
+      });
       return saved;
     });
   }

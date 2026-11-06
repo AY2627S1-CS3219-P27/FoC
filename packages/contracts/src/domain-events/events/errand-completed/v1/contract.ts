@@ -16,5 +16,6 @@ export const errandCompletedV1Contract =
     routingKey: ORDER_ERRAND_COMPLETED_V1_ROUTING_KEY,
     eventType: 'ErrandCompleted',
     publisher: 'order-service',
+    kind: 'event',
     schema,
   });

@@ -22,6 +22,7 @@ import { type SeedCsvRow, readSeedCsv } from './seed-csv.js';
 import {
   SEED_COLUMNS,
   categoryNamesOf,
+  seedHoursViolations,
   seedSupplierName,
   splitBuildingSuffix,
   toSupplierInput,
@@ -176,6 +177,7 @@ export class SupplierSeedService implements OnApplicationBootstrap {
       categoryIds: [PLACEHOLDER_CATEGORY_ID],
     });
     const fieldViolations = await this.suppliers.fieldViolations(draft);
+    fieldViolations.push(...seedHoursViolations(row.values));
     if (categoryNames.length === 0) {
       fieldViolations.push({
         field: SEED_COLUMNS.type,

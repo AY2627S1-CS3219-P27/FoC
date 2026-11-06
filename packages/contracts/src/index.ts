@@ -13,6 +13,14 @@ export {
   validateAccessTokenPayload,
 } from './access-token/validate-access-token-payload.js';
 export { AccountEventContractValidator } from './domain-events/account-event-contract.validator.js';
+export type { ReceivedEventValidation } from './domain-events/account-event-contract.validator.js';
+export { DomainEventDispatcher } from './domain-events/domain-event-dispatcher.js';
+export type {
+  AnyDomainEvent,
+  DomainEventDispatchResult,
+  DomainEventHandler,
+  DomainEventHandlers,
+} from './domain-events/domain-event-dispatcher.js';
 export type { EventEnvelope } from './domain-events/event-envelope.types.js';
 export { eventRegistry } from './domain-events/event-registry.js';
 export type {

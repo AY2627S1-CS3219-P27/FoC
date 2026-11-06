@@ -15,5 +15,6 @@ export const creditReservationAdjustmentV1Contract =
     routingKey: CREDIT_RESERVATION_ADJUSTMENT_V1_ROUTING_KEY,
     eventType: 'CreditReservationAdjustment',
     publisher: 'order-service',
+    kind: 'message',
     schema,
   });

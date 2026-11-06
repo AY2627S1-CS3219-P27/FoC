@@ -5,8 +5,8 @@ import type { MigrationInterface, QueryRunner } from 'typeorm';
  * database can express is a named constraint, so a rejected write names the
  * rule it broke. Venues are retired, never deleted.
  */
-export class CreateVenues1791072000000 implements MigrationInterface {
-  name = 'CreateVenues1791072000000';
+export class CreateVenues1791417600000 implements MigrationInterface {
+  name = 'CreateVenues1791417600000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`

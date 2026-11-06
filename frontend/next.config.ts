@@ -9,8 +9,11 @@ const nextConfig: NextConfig = {
       process.env.CREDIT_SERVICE_URL ?? "http://localhost:3003";
     const orderService =
       process.env.ORDER_SERVICE_URL ?? "http://localhost:3004";
+    const commsService =
+      process.env.COMMS_SERVICE_URL ?? "http://localhost:3006";
     const notificationService =
       process.env.NOTIFICATION_SERVICE_URL ?? "http://localhost:3007";
+    const socketPath = process.env.SOCKET_PATH ?? "/socket.io";
     return [
       // Matches the refresh cookie's Path=/auth/refresh, so the browser sends it.
       { source: "/auth/refresh", destination: `${userService}/auth/refresh` },
@@ -53,8 +56,16 @@ const nextConfig: NextConfig = {
         destination: `${orderService}/v1/admin/:path*`,
       },
       {
+        source: "/api/chats/:path*",
+        destination: `${commsService}/v1/chats/:path*`,
+      },
+      {
         source: "/api/notifications/:path*",
-        destination: `${notificationService}/notifications/:path*`,
+        destination: `${notificationService}/v1/:path*`,
+      },
+      {
+        source: `${socketPath}/:path*`,
+        destination: `${commsService}${socketPath}/:path*`,
       },
     ];
   },

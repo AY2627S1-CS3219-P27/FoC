@@ -38,11 +38,11 @@ D2 asks for Supplier Service **"significant progress"**: Part 2 points 1-4 of th
 
 **Not in D2** (designed, built later):
 
-- **the rest of moderation:** status-change requests (F9.3, F9.4). Requests to *add* or *edit* a supplier, and following and withdrawing your own, are built (F6.1-F6.8, F7.1-F7.3.1, F8.1-F8.4.1, F13.6); admins amending a request before approving it (F7.4, F8.5) comes after D2.
-- opening hours (F2)
-- brands (F3)
+- **the rest of moderation:** admins amending a request before approving it (F7.4, F8.5) is not planned for D4. Requests to *add*, *edit* or *change the status of* a supplier, and following and withdrawing your own, are built (F6.1-F6.8, F7.1-F7.3.1, F8.1-F8.4.1, F9.3-F9.4, F13.6).
+- opening hours (F2): built after D2, see [Opening hours](#opening-hours-f2)
+- brands (F3): built after D2, see [Brands](#brands-f3)
 - Order validation over RabbitMQ (F15.7)
-- safe retries, audit log and rate limits (F14.2, F14.4, F16)
+- safe retries (F14.2): built after D2, see [Safe retries](#safe-retries-idempotency-keys-f142); the audit log (F14.4, F14.5) is built too, see [Audit log](#audit-log-f144-f145); rate limits (F16) are not built (future work)
 - images (F17)
 - hard delete (F10)
 
@@ -93,6 +93,8 @@ erDiagram
     BUILDINGS ||--o{ VENUES : "contains"
     SUPPLIERS ||--|{ SUPPLIER_CATEGORIES : "has"
     CATEGORIES ||--o{ SUPPLIER_CATEGORIES : "tags"
+    BRANDS |o--o{ SUPPLIERS : "groups outlets of"
+    SUPPLIERS ||--o{ SUPPLIER_OPENING_INTERVALS : "is open during"
 
     BUILDINGS {
         uuid id PK
@@ -121,6 +123,14 @@ erDiagram
         text key PK "normalised name, short name or alias"
         uuid building_id FK
     }
+    BRANDS {
+        uuid id PK
+        varchar name "1-100 chars, e.g. Cheers"
+        text name_key "lower-cased, unique among non-retired"
+        timestamptz retired_at "null = in use"
+        timestamptz created_at
+        timestamptz updated_at
+    }
     CATEGORIES {
         uuid id PK
         varchar name "e.g. Food"
@@ -135,11 +145,13 @@ erDiagram
         text name_key "normalised name"
         enum kind "Store | Facility | Landmark"
         uuid building_id FK
+        uuid brand_id FK "optional, at most one (F3.4)"
         varchar floor "B1-B9, 1-99, M"
         varchar location_description "e.g. Next to LT19"
         double latitude
         double longitude
         varchar photo_url "optional"
+        boolean open_24_hours "open around the clock (F2.2)"
         enum status "Active | Inactive"
         int version "starts at 1, +1 per change"
         timestamptz created_at
@@ -148,6 +160,23 @@ erDiagram
     SUPPLIER_CATEGORIES {
         uuid supplier_id PK, FK
         uuid category_id PK, FK
+    }
+    AUDIT_ENTRIES {
+        bigint id PK "identity: orders the log"
+        timestamptz occurred_at
+        uuid actor_id "null = the system (the seed)"
+        varchar action "e.g. supplier.updated"
+        varchar target_type "supplier | request | category | brand | building"
+        uuid target_id "no foreign key: survives hard delete"
+        jsonb before "null for a creation"
+        jsonb after
+        int version "supplier version, where applicable"
+    }
+    SUPPLIER_OPENING_INTERVALS {
+        uuid supplier_id PK, FK
+        smallint day PK "0 = Monday to 6 = Sunday"
+        smallint opens_at PK "minutes since midnight, Singapore time"
+        smallint closes_at "earlier than opens_at = overnight (F2.3)"
     }
     SUPPLIERS |o--o{ SUPPLIER_REQUESTS : "is the target of"
     BUILDINGS ||--o{ SUPPLIER_REQUESTS : "is proposed in"
@@ -174,16 +203,20 @@ erDiagram
 |---|---|---|
 | `suppliers` | One row per pickup point | `UNIQUE (name_key, building_id, floor)` blocks duplicates, even when two requests race (F1.5, F1.5.2). CHECKs on name length, floor format, non-blank location and coordinate ranges. `building_id` must exist. |
 | `buildings` | The controlled list of campus buildings (F4) | Coordinate range CHECKs. One placeholder row, "Other (map pin)", is the building with short name `PIN` (see below). |
-| `venues` | Delivery rooms inside a building (migration `1791072000000-create-venues.ts`) | `UNIQUE (building_id, code)`; CHECKs on floor format and coordinate ranges; `building_id` must exist and a building with venues can't be deleted. Venues are retired (`retired_at`), never deleted, so past orders still resolve. |
+| `venues` | Delivery rooms inside a building (migration `1791417600000-create-venues.ts`) | `UNIQUE (building_id, code)`; CHECKs on floor format and coordinate ranges; `building_id` must exist and a building with venues can't be deleted. Venues are retired (`retired_at`), never deleted, so past orders still resolve. |
 | `building_name_keys` | Every name, short name and alias of each in-use building, normalised | The primary key makes two in-use buildings sharing a name impossible (F4.2). Looking up a building by any name is one key lookup (F4.5). |
+| `audit_entries` (✅ step 17, migration `1791331200000-add-audit-entries.ts`) | One append-only row per committed change to a supplier, request, category, brand or building (F14.4). **No foreign keys**, so entries outlive the records they describe (F14.5) | Triggers refuse `UPDATE`, `DELETE` and `TRUNCATE`, so not even a bug in the service can alter the log (F14.5). CHECKs: the target type is one of the five, and the action is not blank. |
+| `brands` (✅ step 14, migration `1791158400000-add-brands.ts`) | The controlled list of brands: businesses with several outlets (F3). `suppliers.brand_id` is optional, at most one (F3.4) | Partial unique index on `name_key` among non-retired brands (F3.2, a retired brand's name can be reused), non-blank name CHECK. The foreign key refuses deleting a brand that suppliers hold, so brands are retired, never deleted (F1.8). |
 | `categories` | The controlled list of categories (F11) | Partial unique index on `name_key` among non-retired categories (F11.2.1) |
 | `supplier_categories` | Which categories each supplier has (many-to-many) | The primary key stops the same category being added twice (F1.2.3). A category in use can't be removed. |
+| `supplier_opening_intervals` (✅ step 13, migration `1791072000000-add-opening-hours.ts`) | One row per interval of a supplier's regular weekly hours (F2.1), plus `suppliers.open_24_hours` for open around the clock (F2.2). No rows and no flag means no fixed hours (F1.2.8) | CHECKs: day 0-6, minutes 0-1439, and opening minute different from closing minute (F2.4.2). The foreign key deletes the intervals with their supplier. |
 | `supplier_requests` (✅ step 8, migration `1790640000000-create-supplier-requests.ts`) | A basic user's request to add (and later edit or change the status of) a supplier, moderated by an admin (F6) | A partial unique index on `(name_key, building_id, floor)` among **Pending Create** requests: two identical requests can't both be pending, even when filed at the same moment (F7.2). Another on `(supplier_id, type)` among Pending non-Create requests: one pending edit per supplier (F8.3; migration `1790726400000-add-pending-target-index.ts`). CHECKs: a Create carries the duplicate key and no target supplier, the other types the reverse; Pending means no resolver, and a resolved request always records who and when; only a Denied request has a reason, never blank (F6.4). |
 
 Rules the database **can't** express are checked in the service, inside the same transaction:
 - **"at least one category"** (F1.2.3)
 - **"coordinates inside the NUS campus box"** (F1.2.7): the box comes from configuration, which a DB CHECK can't read
 - **"only non-retired buildings and categories for new values"** (F1.8)
+- **"no two opening intervals overlap"**, including an overnight interval running into the next day (F2.4.3): SQL can't compare ranges across rows this simply, so `checkOpeningHours` does it, before anything is written
 
 **System-managed fields** (`id`, `status`, `version`, `created_at`, `updated_at`) are set only by the server. A request that tries to set one is rejected (F1.3, F1.3.2).
 
@@ -203,7 +236,7 @@ Rules the database **can't** express are checked in the service, inside the same
 - `building_name_keys` is derived from it, like an index: one row per name (full, short and every alias), lower-cased with spaces removed and every apostrophe style made the same, for in-use buildings only. It is rebuilt whenever a building's names change. So "COM2", "Com 2" and "com2" are one name, as are "Prince George's Park" and "Prince George’s Park".
 - It exists because F4.2 forbids two in-use buildings sharing **any** name. A normal unique index can't span three columns plus every item in a list, but a primary key on one row per name can, so the database itself enforces the rule.
 
-**Delivery venues and the map-pin building.** A requester picks a building, then optionally a venue in it. `GET /buildings` items carry `venueCount` (active venues; 0 means skip the venue step) and `allowsPin`. `allowsPin` is true for exactly one building, the one with short name `PIN` ("Other (map pin)"; there is no column, and `building_name_keys` keeps the short name unique). It cannot be given another short name, and it is a fixed placeholder at the campus centre, created at every startup if no building has the short name `PIN` (independent of `VENUE_SEED_PATH` and `SEED_ON_STARTUP`). A pin errand sends that building's id and no venue id, so `deliveryBuildingId` stays required and the contract is unchanged; the pin's own coordinates are Order Service's concern. The service refuses to retire it, to add venues to it, or to put suppliers in it (409 / 400 `building cannot hold suppliers`). Migration `1791331200000-rename-as8-building.ts` renames "Blk AS8" to "Arts and Social Sciences 8" (keeping "Blk AS8" as an alias).
+**Delivery venues and the map-pin building.** A requester picks a building, then optionally a venue in it. `GET /buildings` items carry `venueCount` (active venues; 0 means skip the venue step) and `allowsPin`. `allowsPin` is true for exactly one building, the one with short name `PIN` ("Other (map pin)"; there is no column, and `building_name_keys` keeps the short name unique). It cannot be given another short name, and it is a fixed placeholder at the campus centre, created at every startup if no building has the short name `PIN` (independent of `VENUE_SEED_PATH` and `SEED_ON_STARTUP`). A pin errand sends that building's id and no venue id, so `deliveryBuildingId` stays required and the contract is unchanged; the pin's own coordinates are Order Service's concern. The service refuses to retire it, to add venues to it, or to put suppliers in it (409 / 400 `building cannot hold suppliers`). Migration `1791590400000-rename-as8-building.ts` renames "Blk AS8" to "Arts and Social Sciences 8" (keeping "Blk AS8" as an alias).
 
 ### How the D2 metadata is stored and queried
 
@@ -227,13 +260,13 @@ Rules the database **can't** express are checked in the service, inside the same
 - **"Food/Coffee"** becomes two categories, created if missing (F12.2.2).
 - **Bad characters** from Windows-1252 encoding are repaired, e.g. `George\x92s` → `George’s` (F12.3).
 - **A bad row** is skipped and logged with its row number, field and reason; it never stops the import (F12.4).
-- **Photos** are stored where the ImageURL cell has one, otherwise none (F12.2.4). **Opening hours** in the file are ignored until step 13.
+- **Photos** are stored where the ImageURL cell has one, otherwise none (F12.2.4). **Opening hours** come from StartingTime and ClosingTime: the same interval on all seven days, `0000hrs` to `2359hrs` meaning open 24 hours, and an overnight pair such as `1100hrs` to `0200hrs` (Supersnacks) kept as it is (F12.2.3). Blank times mean no fixed hours; an unreadable time or equal times reject the row, and the log names the cell (F12.4).
 
 ---
 
 ## 4. D2 point 2: Query patterns and API
 
-Built so far ✅: `GET /health`; `GET`/`POST /categories` (step 2); `GET /suppliers`, `GET /suppliers/{id}`, `GET /buildings` (step 5); `POST /suppliers`, `PATCH /suppliers/{id}`, `PUT /suppliers/{id}/status` (step 6); and the `/supplier-requests` endpoints for moderated changes (steps 8-10, 12; see [§6](#6-d2-point-3-crud-without-a-ui)). Category rename/retire, building management and status-change requests are planned for after D2.
+Built so far ✅: `GET /health`; `GET`/`POST /categories` (step 2); `GET /suppliers`, `GET /suppliers/{id}`, `GET /buildings` (step 5); `POST /suppliers`, `PATCH /suppliers/{id}`, `PUT /suppliers/{id}/status` (step 6); and the `/supplier-requests` endpoints for moderated changes (steps 8-10, 12; see [§6](#6-d2-point-3-crud-without-a-ui)). Category rename/retire, building management and status-change requests were added after D2 (see the table below).
 
 **How to call it:**
 
@@ -246,11 +279,13 @@ Built so far ✅: `GET /health`; `GET`/`POST /categories` (step 2); `GET /suppli
 | Pattern | Call | FR |
 |---|---|---|
 | Get one supplier by id | `GET /suppliers/{id}` | F5.9 |
-| Search by name (partial, any case) | `GET /suppliers?name=cool` | F5.4.1 |
+| Search by name (partial, any case), matching the supplier's own name **or its brand's name** | `GET /suppliers?name=cool` | F5.4.1 |
+| By brand | `GET /suppliers?brandId={id}` (repeatable; matches any) | F5.4.6 |
 | By location (building) | `GET /suppliers?buildingId={id}` (repeatable) | F5.4.3 |
 | By category | `GET /suppliers?categoryId={id}` (repeatable; matches any) | F5.4.2 |
 | By kind | `GET /suppliers?kind=Store` (repeatable) | F5.4.4 |
 | By status | `GET /suppliers?status=Active` (default: both) | F5.4.5, F5.7 |
+| Open now | `GET /suppliers?openNow=true`: only suppliers open at this moment in Singapore time (`false` is the same as leaving it out) | F5.4.7 |
 | Combined | `GET /suppliers?categoryId={food}&buildingId={com3}&status=Active`: filters are ANDed | F5.5 |
 | Sort | Default: display name A→Z, then id, or `?sort=name\|building\|createdAt\|updatedAt&order=asc\|desc`, always ending with id as the tie-breaker | F5.3, F5.3.1 |
 | Pages | `?offset=0&limit=25` (max 1000) | F5.2, N3.1 |
@@ -272,13 +307,13 @@ Repeatable filters are passed by repeating the parameter, e.g. `?categoryId=a&ca
       "id": "7c9e…",
       "displayName": "Cool Spot @ COM3",
       "name": "Cool Spot",
-      "brand": null,
+      "brand": { "id": "…", "name": "Cheers" },
       "kind": "Store",
       "categories": [{ "id": "…", "name": "Food" }],
       "building": { "id": "…", "shortName": "COM3" },
       "floor": "1",
       "status": "Active",
-      "isOpenNow": null,
+      "isOpenNow": true,
       "thumbnailUrl": null
     }
   ],
@@ -289,18 +324,99 @@ Repeatable filters are passed by repeating the parameter, e.g. `?categoryId=a&ca
 }
 ```
 
-- `brand` stays `null` until brands (step 14).
-- `isOpenNow` stays `null` ("not applicable", F2.5.1) until opening hours (step 13).
+- `brand` is `{id, name}`, or `null` for a supplier without one (F5.1). A brand retired later still shows on the suppliers that hold it (F1.8).
+- `isOpenNow` is `true` or `false`, worked out when you ask, in Singapore time (F2.5), or `null` ("not applicable", F2.5.1) for a supplier without opening hours.
 - With no photo, `thumbnailUrl` is the placeholder link from the `PLACEHOLDER_IMAGE_URL` setting (F1.2.9). The setting is blank until images are hosted (step 19), so for now it is `null`.
 
 **Single supplier (`GET /suppliers/{id}`)** returns every list field plus:
 
 - `building.canonicalName`, `locationDescription`, `coordinates {latitude, longitude}`
-- `openingHours`, `nextChangeAt` (null for now)
+- `openingHours` (see [Opening hours](#opening-hours-f2); `null` when there are none) and `nextChangeAt`, the time of the next opening or closing (`null` when it never changes, or without hours)
 - `images: {original, thumbnail}`: the photo for both until thumbnails exist (F17.3), the placeholder when there's no photo, or `null` when neither is set
 - `version`, `createdAt`, `updatedAt`
 
 It also returns the version in an `ETag` header (e.g. `"3"`), which an admin edit must send back as `If-Match` (step 6). A malformed id answers 400 (`VALIDATION_FAILED`, field `id`); an unknown one 404 `SUPPLIER_NOT_FOUND`. This response is also what other services rely on: it has enough detail for them to keep their own copy (F15.1). The endpoint is read-only, so it is safe to retry (F15.4).
+
+### Audit log (F14.4, F14.5)
+
+✅ step 17. Every committed change to a **supplier, request, category, brand or building** writes an **audit entry**: who did it, what it was, which record, the record's values **before and after**, the supplier's resulting version, and when (F14.4). Think of a bank statement: every transaction gets a line in the same moment the money moves, and nobody can edit or tear out past lines.
+
+| Record | Actions recorded |
+|---|---|
+| Supplier | `supplier.created`, `supplier.updated`, `supplier.status_changed` |
+| Request | `request.submitted` (creation, edit or status change), `request.approved`, `request.denied`, `request.withdrawn` |
+| Category | `category.created`, `category.renamed`, `category.retired` |
+| Brand | `brand.created`, `brand.renamed`, `brand.retired` |
+| Building | `building.created`, `building.updated`, `building.retired` |
+
+- **Same transaction as the change.** The entry is written inside the transaction of the change it describes, so an entry exists **if and only if** the change committed: a refused change (a validation error, a duplicate, a stale version, a lost race) leaves no entry, and a change cannot commit without one. Approving a request writes two entries in one transaction: the request's, and the supplier change it caused (for example `supplier.created`), both by the approving admin. Retiring something already retired changes nothing and records nothing.
+- **Who.** The actor is the verified token's `sub`, never anything in the body (F13.1). A global interceptor, which runs after the login guard, puts it in an `AsyncLocalStorage` context for the whole request, so none of the write methods needs an extra parameter. The seed import records its entries with **no actor** (`actor_id` is null: the system).
+- **Before and after** are full snapshots of the record as plain JSON: for a supplier its name, kind, building, brand, categories, floor, location, coordinates, photo, opening hours, status and version. A creation has no `before`.
+- **Append-only (F14.5).** Database triggers refuse `UPDATE`, `DELETE` and `TRUNCATE` on `audit_entries`, so the log cannot be altered even by a bug. There is **no foreign key** to the audited record, so entries are **kept after it is hard-deleted** (a hard delete would write its own entry).
+- **Reading it.** `GET /audit-entries` is for **admins only**, newest first, with the filters `targetType`, `targetId`, `actorId` and `action`, paged like every listing (`offset`, `limit`, with `total` and `hasMore`). An unknown parameter is a 400. There is no route to write, change or delete an entry.
+- **Same principle as User Service's `user_update_audit`** (written in the same transaction, actor and target ids, the changes as JSON). Differences: ours covers five kinds of record with before and after snapshots, and the database itself enforces append-only, where theirs relies on the code never updating rows.
+- **How it is built:** `src/audit/` (the actor context and interceptor, `recordAudit`, the snapshot mappers, the read endpoint) and the `audit_entries` table. Each write method calls `recordAudit` on its own transaction. Categories and brands now save inside a transaction opened from the repository's own manager, so their constructors are unchanged.
+
+### Safe retries: idempotency keys (F14.2)
+
+✅ step 16. If a client sends a create and the connection drops before the reply, it can't tell whether the record exists. With an `Idempotency-Key` header it can simply send the request again: a repeat returns the **original answer** and nothing is created twice.
+
+**Applies to the seven endpoints that create a record (F14.2):** `POST /suppliers`, `POST /supplier-requests/creations`, `/updates` and `/status-changes`, and `POST` on `/categories`, `/brands` and `/buildings`. Approve, deny, withdraw, retire, `PATCH` and `PUT` create nothing, and edits are already protected by `If-Match` versions.
+
+| The client sends | The service answers |
+|---|---|
+| No header | As always: the work is done each time. The header is optional. |
+| A new key | The request runs. If it **succeeds**, its status, `Location`, `ETag` and body are stored under the key. |
+| The same key and the same request again, within 24 hours | The stored answer, with `Idempotent-Replayed: true`, and nothing is done again (F14.2.1) |
+| The same key for a different request | 422 `IDEMPOTENCY_KEY_REUSED`, and nothing is done (F14.2.2) |
+| The same key while the first request is still running | 409 `IDEMPOTENCY_IN_PROGRESS` with `Retry-After: 1`: try again shortly |
+| A key that is empty, over 255 characters or not printable | 400 `VALIDATION_FAILED` naming `Idempotency-Key` |
+
+- **"The same request"** means the same user, method, path, body (the order of keys doesn't matter) and `If-Match`. The same key on another endpoint, with another body or against another version is a different request. Keys belong to the user in the token, so two users can use the same key.
+- **Only a success is stored.** A failure (a validation error, a duplicate, a database outage) releases the key, so the client can correct the request and retry with the same key. That is deliberate: Order Service keeps rejections under the key too, but a corrected retry is the more useful behaviour here.
+- **After 24 hours** a key is forgotten and may be reused. An hourly job (and one at start-up) removes old keys.
+- **The login comes first.** Guards run before the key is looked at, so no token is 401 and a non-admin on an admin endpoint is 403 whatever the key.
+- **If the server dies mid-request:** its claim goes stale after 60 seconds and the retry runs again. The unique constraints on suppliers, requests, categories, brands and buildings still refuse a double create, so the worst case is a 409 where the original 201 would have been replayed.
+- **No connection is held while the request runs.** Claiming, storing and releasing are three short statements around it, so many slow requests can't exhaust the database pool.
+- **How it is built:** the `idempotency_keys` table (`(user_id, key)` is the primary key; migration `1791244800000-add-idempotency-keys.ts`), `src/idempotency/` (the service, an interceptor and the `@Idempotent()` marker on the seven handlers). The requests, suppliers, categories, brands and buildings code is unchanged.
+- **Same idea as Order Service** (`Idempotency-Key` header, an `idempotency_keys` table with a fingerprint and the stored outcome); the differences are that ours is keyed by user rather than errand, lives in a separate step rather than the same transaction, remembers keys for 24 hours rather than 7 days, and stores only successes.
+
+### Brands (F3)
+
+✅ step 14. A brand groups suppliers that are branches of the same business, such as several Cheers outlets. Each outlet is still its own supplier with its own building, floor and hours, told apart by those and by its display name (F3.4, F1.4). The brand is **optional** (F1.2.10); none of the 21 seeded suppliers has one, because the seed has no brand column and every seeded business appears once (F12.2).
+
+- **A brand** has an id, a name of 1-100 characters, and a retired flag. Names are unique among non-retired brands, ignoring case and extra spaces (409 `DUPLICATE_NAME`, F3.2); a retired brand's name can be used again. There is no logo (F3.1 makes it optional; images are out of scope).
+- **Admins** create, rename and retire brands (F3.3). A retired brand cannot be renamed. Retiring twice is harmless.
+- **Anyone logged in** can list the non-retired brands with `GET /brands` (F3.5).
+- **On a supplier:** `brandId` is an optional field of `POST /suppliers`, `PATCH /suppliers/{id}`, `POST /supplier-requests/creations` and the `changes` of `POST /supplier-requests/updates`. An unknown id is a 400 naming `brandId`. A **retired brand cannot be newly chosen**, but a supplier that already holds one keeps it and may be edited with it (F3.3.1, F1.8). On an edit, leaving it out keeps the brand, a new id changes it, and `null` removes it; any change raises the supplier's version.
+- **In requests:** a user can propose a brand in a creation or edit request, but only from the existing brands: only admins create brands. The brand is checked again when an admin approves; if it was retired meanwhile, the approval is refused with 409 `REQUEST_NOT_APPLICABLE` and the request stays Pending.
+- **Reading and filtering:** the list and detail show `brand: {id, name}` or `null` (F5.1). `GET /suppliers?brandId=` filters by one or several brands (repeatable, any match, F5.4.6): an unknown brand is a 400 (F5.8), a retired brand returns an empty list even though suppliers keep it (F5.8.1). The name search `?name=` also matches the brand's name, so `?name=cheers` finds every Cheers outlet (F5.4.1).
+- **Not in Order Service's validation reply:** the snapshot sent to Order has no brand, so the shared contract is unchanged.
+
+### Opening hours (F2)
+
+✅ step 13. `openingHours` is an optional field of a supplier, in the same body as every other field of `POST /suppliers`, `PATCH /suppliers/{id}`, `POST /supplier-requests/creations` and the `changes` of `POST /supplier-requests/updates`. A user can propose hours in a request; an admin approving it makes them live with the rest.
+
+```json
+"openingHours": { "open24Hours": true }
+
+"openingHours": { "days": {
+  "mon": [{ "opens": "09:00", "closes": "12:00" }, { "opens": "13:00", "closes": "18:00" }],
+  "sat": [{ "opens": "09:00", "closes": "13:00" }],
+  "fri": [{ "opens": "22:00", "closes": "02:00" }]
+} }
+```
+
+- **Days and times (F2.1):** days are `mon` to `sun`, times are 24-hour `HH:MM` in Singapore time. A day left out, or with no intervals, is **closed** (F2.1.2). A day may have several intervals, for example a lunch break.
+- **Overnight (F2.3):** an interval closing earlier than it opens runs into the next day and belongs to the day it opens: the Friday interval above is open until 02:00 on Saturday.
+- **Open around the clock (F2.2):** `{ "open24Hours": true }`, never combined with `days`.
+- **No hours:** leave the field out (a creation), or send `null` on an edit to remove them (F1.2.8). An empty schedule such as `{ "days": {} }` is refused.
+- **Rejected (F2.4):** a time that isn't valid `HH:MM`, opening equal to closing, and overlapping intervals, including an overnight one running into the next day (across Sunday into Monday too). Intervals that only touch (12:00 closing, 12:00 opening) are fine. Every problem comes back in one 400 with its path, e.g. `openingHours.days.mon[1]` (F1.6.1). At most 10 intervals per day.
+- **Editing:** an edit that mentions `openingHours` replaces the whole schedule and raises the supplier's version like any change, so a stale edit is still caught (F14.3). An edit that doesn't mention it leaves the hours alone.
+- **Reading (F2.5):** `GET /suppliers/{id}` returns `openingHours`, `isOpenNow` and `nextChangeAt`; the list returns `isOpenNow`. Adjacent intervals count as one, so `nextChangeAt` skips a handover with no gap. Open around the clock gives `isOpenNow: true` and `nextChangeAt: null`. Without hours, all three are `null` (F2.5.1).
+- **Filter (F5.4.7):** `openNow=true` is done in SQL, so `total` and paging are right, and it combines with the other filters (F5.5).
+
+**What opening hours do and don't do (F2.7).** They are informational only. The system never changes a supplier's status because of them, and never blocks anything. In particular, Order Service's validation reply carries only whether the supplier exists, its status and its details (§11), so an errand can still be created against a supplier that is closed right now. A frontend can show "Closed, opens 09:00" from `isOpenNow` and `nextChangeAt`; making a supplier unavailable on purpose is what Inactive is for. Checking opening hours during validation is possible future work: it needs a contract change agreed with Order Service, and the answer would only be true at validation time.
 
 ### Endpoints
 
@@ -309,25 +425,31 @@ It also returns the version in an `ETag` header (e.g. `"3"`), which an admin edi
 | GET | `/health` | anyone, no login | Is the service up? ✅ | |
 | GET | `/suppliers` | any logged-in user | List / search / filter / sort / paginate | F5 |
 | GET | `/suppliers/{id}` | any logged-in user | One supplier in full | F5.9, F15.1 |
-| POST | `/suppliers` | **admin** | Create (starts Active) | F7.5, F9.1 |
-| PATCH | `/suppliers/{id}` | **admin** | Edit some fields; needs `If-Match` | F8.6, F14.3 |
+| POST | `/suppliers` | **admin** | Create (starts Active); optional `openingHours` and `brandId` | F7.5, F9.1, F2, F3 |
+| PATCH | `/suppliers/{id}` | **admin** | Edit some fields (`openingHours` replaces the schedule and `brandId` sets the brand, `null` removes either); needs `If-Match` | F8.6, F14.3, F2 |
 | PUT | `/suppliers/{id}/status` | **admin** | Set Active / Inactive; needs `If-Match` | F9.2, F9.5 |
 | GET | `/categories` | any logged-in user | In-use categories | F11.4 |
 | POST | `/categories` | **admin** | Create a category | F11.2 |
-| PATCH | `/categories/{id}` | **admin** | Rename (after D2) | F11.2 |
-| POST | `/categories/{id}/retire` | **admin** | Retire (after D2) | F11.3 |
+| PATCH | `/categories/{id}` | **admin** | Rename: `{"name": "..."}`; 409 `DUPLICATE_NAME` if another in-use category has it, 409 if retired | F11.2, F11.2.1 |
+| POST | `/categories/{id}/retire` | **admin** | Retire: suppliers keep it, it is no longer listed or selectable; retiring twice is harmless | F11.3, F11.3.1 |
+| GET | `/audit-entries` | **admin** | The audit log, newest first: filters `targetType`, `targetId`, `actorId`, `action`; paged | F14.4 |
+| GET | `/brands` | any logged-in user | Non-retired brands, by name: `{id, name}` | F3.5 |
+| POST | `/brands` | **admin** | Create a brand: `{"name": "..."}` (1-100 chars); 409 `DUPLICATE_NAME` if a non-retired brand has it | F3.1-F3.3 |
+| PATCH | `/brands/{id}` | **admin** | Rename: `{"name": "..."}`; 409 `DUPLICATE_NAME` if another non-retired brand has it, 409 if retired | F3.2, F3.3 |
+| POST | `/brands/{id}/retire` | **admin** | Retire: suppliers keep it, it is no longer listed or selectable; retiring twice is harmless | F3.3, F3.3.1 |
 | GET | `/buildings` | any logged-in user | In-use buildings with names, coordinates, `venueCount` and `allowsPin` | F4.4 |
 | GET | `/buildings/{id}/venues` | any logged-in user | The building's active venues (`id`, `code`, `name`, `floor`, `coordinates`): basements first, then floors, then code. 404 for an unknown or retired building | |
-| POST | `/buildings` | **admin** | Create a building (after D2) | F4.3 |
-| PATCH | `/buildings/{id}` | **admin** | Rename or change aliases (after D2) | F4.3 |
-| POST | `/buildings/{id}/retire` | **admin** | Retire (after D2) | F4.3.1 |
+| POST | `/buildings` | **admin** | Create a building: `canonicalName`, `shortName`, optional `aliases`, `coordinates` (must lie inside the campus box); 409 `DUPLICATE_NAME` if any name belongs to another in-use building | F4.3, F4.2 |
+| PATCH | `/buildings/{id}` | **admin** | Rename, or replace the aliases (at least one of `canonicalName`, `shortName`, `aliases`); coordinates are not editable; 409 if retired | F4.3 |
+| POST | `/buildings/{id}/retire` | **admin** | Retire: suppliers keep it, it is no longer listed or selectable, its names become free | F4.3, F4.3.1 |
 | POST | `/supplier-requests/creations` | any logged-in user | Ask for a supplier to be added (same body as `POST /suppliers`); 201, Pending | F7.1, F7.2 |
 | POST | `/supplier-requests/updates` | any logged-in user | Ask for a supplier to be edited: `{"supplierId": "...", "changes": {...same fields as PATCH...}}` with `If-Match`; 201, Pending | F8.1-F8.3 |
+| POST | `/supplier-requests/status-changes` | any logged-in user | Ask for a supplier to be activated or deactivated: `{"supplierId": "...", "status": "Active\|Inactive", "reason": "..."}` (reason optional, 1-500 chars); no `If-Match`; 201, Pending. 404 unknown supplier, 409 `INVALID_STATUS_TRANSITION` if it already has that status, 409 `DUPLICATE_REQUEST` if one is already pending | F9.3, F9.3.1, F9.3.2 |
 | GET | `/supplier-requests?type=&offset=&limit=` | **admin** | Pending requests, oldest first, paged | F6.7 |
 | GET | `/supplier-requests/mine?type=&state=&offset=&limit=` | any logged-in user | Their own requests, every type and state, newest first, paged; includes denial reasons | F6.5 |
 | GET | `/supplier-requests/{id}` | the submitter or an **admin** | One request; anyone else gets 404, exactly as for an unknown id | F13.6 |
 | POST | `/supplier-requests/{id}/withdraw` | the submitter only | Withdraw a Pending request; anyone else gets 404 | F6.6, F13.6 |
-| POST | `/supplier-requests/{id}/approve` | **admin** | Approve: creates the supplier, or applies the edit | F6.3, F6.8, F7.3, F8.4 |
+| POST | `/supplier-requests/{id}/approve` | **admin** | Approve: creates the supplier, applies the edit, or sets the status | F6.3, F6.8, F7.3, F8.4, F9.4 |
 | POST | `/supplier-requests/{id}/deny` | **admin** | Deny, with `{"reason": "..."}` (1-500 chars) | F6.4 |
 
 `retire` is a `POST` action rather than `DELETE`, so it can't be confused with deleting data.
@@ -359,8 +481,9 @@ Every error, from any endpoint, has one shape (✅ built in `src/common/errors/`
 | 401 | `UNAUTHENTICATED` ✅ | No login cookie, or the token is invalid or expired |
 | 403 | `FORBIDDEN` ✅ | Logged in, but not an admin, on an admin endpoint |
 | 404 | `NOT_FOUND` / `SUPPLIER_NOT_FOUND` / `REQUEST_NOT_FOUND` ✅ | Unknown id (F5.9.1), or someone else's request (F13.6) |
-| 409 | `DUPLICATE_SUPPLIER`, `DUPLICATE_NAME`, `VERSION_CONFLICT`, `INVALID_STATUS_TRANSITION`, `DUPLICATE_REQUEST`, `REQUEST_ALREADY_RESOLVED`, `REQUEST_NOT_APPLICABLE` ✅ | Same name+building+floor exists; the name is taken; someone else edited first (includes `currentVersion`); already in that status; an identical request (or another edit of the same supplier) is already pending; the request was already approved or denied; an approval that can no longer be applied (its building or category was retired since) |
+| 409 | `DUPLICATE_SUPPLIER`, `DUPLICATE_NAME`, `VERSION_CONFLICT`, `INVALID_STATUS_TRANSITION`, `DUPLICATE_REQUEST`, `REQUEST_ALREADY_RESOLVED`, `REQUEST_NOT_APPLICABLE`, `IDEMPOTENCY_IN_PROGRESS` ✅ | Same name+building+floor exists; the name is taken; someone else edited first (includes `currentVersion`); already in that status; an identical request (or another edit of the same supplier) is already pending; the request was already approved or denied; an approval that can no longer be applied (its building or category was retired since); an identical request with the same `Idempotency-Key` is still running |
 | 413 | `PAYLOAD_TOO_LARGE` ✅ | Request body too big |
+| 422 | `IDEMPOTENCY_KEY_REUSED` ✅ | The `Idempotency-Key` was already used for a different request (F14.2.2) |
 | 428 | `PRECONDITION_REQUIRED` ✅ | An edit sent without `If-Match` |
 | 503 | `DEPENDENCY_UNAVAILABLE` ✅ (`retryable: true`) | The database can't be reached. Never reported as "not found" (F15.3). |
 | 500 | `INTERNAL_ERROR` ✅ | Unexpected. Details are logged, never sent to the client. |
@@ -507,8 +630,8 @@ A basic user can't create or edit a supplier directly, but can **ask** for one t
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Pending: POST /supplier-requests/creations or /updates
-    Pending --> Approved: admin approves (supplier created or edited)
+    [*] --> Pending: POST /supplier-requests/creations, /updates or /status-changes
+    Pending --> Approved: admin approves (supplier created, edited or its status set)
     Pending --> Denied: admin denies, with a reason
     Pending --> Withdrawn: submitter withdraws
     Approved --> [*]
@@ -518,7 +641,8 @@ stateDiagram-v2
 
 - **Filing (F7.1, F7.2):** the body is validated exactly like an admin's `POST /suppliers`, with every problem in one 400. It is refused with 409 `DUPLICATE_SUPPLIER` if the supplier already exists, or 409 `DUPLICATE_REQUEST` if an identical request is already pending (enforced by the database, so it holds even for two requests filed at once). The submitter comes only from the token (F13.1). The supplier **doesn't exist yet**, so it isn't listed.
 - **Approving (F6.3, F6.8, F7.3):** runs the same create code as `POST /suppliers`, in the **same transaction** as marking the request Approved. Everything is checked again at that moment: if an admin created the same supplier meanwhile (409 `DUPLICATE_SUPPLIER`), or a building or category was retired (409 `REQUEST_NOT_APPLICABLE`, with the `violations`), nothing changes and the request stays Pending. The message says so and what to do: the admin denies it with a reason, or the submitter withdraws it and files it again.
-- **Edit requests (F8.1-F8.4.1):** `changes` holds the same fields as an admin `PATCH` and is checked by the same rules, including whether the edited record would duplicate another supplier. Like an admin edit, it must send the version the user saw in `If-Match` (428 if missing, 409 `VERSION_CONFLICT` if already out of date). Only the fields sent are stored. The live supplier keeps being listed unchanged until approval (F8.2), and a supplier has at most one pending edit (F8.3, a partial unique index). Approving runs the same code as `PATCH` with the request's recorded version, so if the supplier changed after the request was filed, approval is refused with 409 `VERSION_CONFLICT` and nothing changes (F8.4.1). Until admins can amend a request (F8.5, after D2), the admin denies a stale one and the user files it again.
+- **Edit requests (F8.1-F8.4.1):** `changes` holds the same fields as an admin `PATCH` and is checked by the same rules, including whether the edited record would duplicate another supplier. Like an admin edit, it must send the version the user saw in `If-Match` (428 if missing, 409 `VERSION_CONFLICT` if already out of date). Only the fields sent are stored. The live supplier keeps being listed unchanged until approval (F8.2), and a supplier has at most one pending edit (F8.3, a partial unique index). Approving runs the same code as `PATCH` with the request's recorded version, so if the supplier changed after the request was filed, approval is refused with 409 `VERSION_CONFLICT` and nothing changes (F8.4.1). Admins cannot amend a request (F8.5 is not planned for D4), so the admin denies a stale one and the user files it again.
+- **Status-change requests (F9.3-F9.4):** the body is `{supplierId, status, reason?}`. It is refused with 404 if the supplier doesn't exist, and with 409 `INVALID_STATUS_TRANSITION` if the supplier already has that status (F9.3.1). A supplier has at most one pending status change (F9.3.2, the same partial unique index as edits, so a pending edit and a pending status change can sit side by side). No `If-Match` is needed: the request records the supplier's version when filed (F6.2). **Approving applies the status whatever the supplier's current version** (F9.4 only asks that the status differs), so an unrelated edit made meanwhile does not block it; the version still goes up by one. If the supplier already has the status by then, approval is refused with 409 `INVALID_STATUS_TRANSITION` and the request stays Pending.
 - **Denying (F6.4):** needs a reason of 1-500 characters, stored with who denied it and when.
 - **Following your own requests (F6.5, F6.6, F13.6):** `GET /supplier-requests/mine` lists the caller's requests of every type and state, newest first, with denial reasons. A Pending one can be withdrawn by its submitter only, which frees its slot so the same request can be filed again. Someone else's request, whether viewed or withdrawn, gets the **same 404 as an id that doesn't exist**, so ids reveal nothing. Admins can view any request, but withdraw only their own; they reject other people's by denying them.
 - **Exactly once (F6.3):** the request row is locked while it is resolved, so of two people acting at once (two admins, or an admin approving while the submitter withdraws), one wins and the other gets 409 `REQUEST_ALREADY_RESOLVED`. The allowed moves are one small table (`src/requests/request-state.ts`); Approved, Denied and Withdrawn are final.
@@ -558,7 +682,12 @@ Branches are few and large: one per area, each merged into `supplier-service` by
 | 9 | "Add supplier" requests | F7.1-F7.3.1 | `crud` | ✅ built (F7.4 amend: after D2) |
 | 10 | "Edit supplier" requests | F8.1-F8.4.1 | `crud` | ✅ built (F8.5 amend: after D2) |
 | 12 | My requests, withdraw | F6.5, F6.6, F13.6 | `crud` | ✅ built |
-| 11 | "Change status" requests | F9.3, F9.3.1, F9.3.2, F9.4 | `crud` | 🔜 after D2 |
+| 11 | "Change status" requests | F9.3, F9.3.1, F9.3.2, F9.4 | `moderation` | ✅ built |
+| 13 | Opening hours | F1.2.8, F2.1-F2.5, F2.7, F12.2.3, F5.4.7 (not F2.6, overrides) | `moderation` (same branch) | ✅ built |
+| 14 | Brands | F1.2.10, F3.1-F3.5, F5.4.6, F5.4.1 (brand name), F5.1 (brand) (no logo) | `moderation` (same branch) | ✅ built |
+| 16 | Safe retries: idempotency keys | F14.2, F14.2.1, F14.2.2 | `moderation` (same branch) | ✅ built |
+| 17 | Audit log | F14.4, F14.5 | `moderation` (same branch) | ✅ built |
+| 18 | Rate limits | F16 | none | ✗ not built (future work) |
 | 15b | Supplier validation for Order Service over RabbitMQ | F15.7-F15.7.8, F13.7 | `order-integration` (+ `contracts`, PR #642) | ✅ built and switched on ([§11](#11-supplier-validation-for-order-service-rabbitmq)); Order Service's side to come |
 
 ---

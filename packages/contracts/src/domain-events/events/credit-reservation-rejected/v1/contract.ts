@@ -19,5 +19,6 @@ export const creditReservationRejectedV1Contract =
     routingKey: CREDIT_RESERVATION_REJECTED_V1_ROUTING_KEY,
     eventType: 'CreditReservationRejected',
     publisher: 'credit-service',
+    kind: 'event',
     schema,
   });

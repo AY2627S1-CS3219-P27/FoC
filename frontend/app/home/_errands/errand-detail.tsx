@@ -6,6 +6,7 @@ import {
   ACTION_LABELS,
   ALL_ACTIONS,
   availableActions,
+  formatDelivery,
   type ActionName,
   type Errand,
   type SupplierOption,
@@ -152,7 +153,7 @@ export function ErrandDetail({
                 )}
               </dd>
               <dt className="text-muted">Deliver to</dt>
-              <dd>{errand.deliveryLocation}</dd>
+              <dd>{formatDelivery(errand)}</dd>
               <dt className="text-muted">Items</dt>
               <dd className="whitespace-pre-wrap">{errand.collectionItems}</dd>
               {errand.description && (
