@@ -15,9 +15,33 @@ export class OpenRouterError extends Error {
   }
 }
 
+interface ReplyError {
+  code?: unknown;
+  message?: unknown;
+}
+
 interface EmbeddingsReply {
   data?: { index?: unknown; embedding?: unknown }[];
-  error?: { code?: unknown; message?: unknown };
+  error?: ReplyError;
+}
+
+interface ChatReply {
+  choices?: { message?: { content?: unknown } }[];
+  usage?: { prompt_tokens?: unknown; completion_tokens?: unknown };
+  error?: ReplyError;
+}
+
+export interface ChatRequest {
+  system: string;
+  user: string;
+  maxTokens: number;
+  timeoutMs: number;
+}
+
+export interface ChatCompletion {
+  text: string;
+  promptTokens: number | null;
+  completionTokens: number | null;
 }
 
 /** The one place that calls OpenRouter. */
@@ -69,7 +93,35 @@ export class OpenRouterClient {
     return texts.map((_text, index) => embeddings.get(index)!);
   }
 
-  private async post<T extends { error?: EmbeddingsReply['error'] }>(
+  /** Asks the chat model for one reply. */
+  async complete(request: ChatRequest): Promise<ChatCompletion> {
+    const reply = await this.post<ChatReply>(
+      '/chat/completions',
+      {
+        model: this.config.get('OPENROUTER_CHAT_MODEL', { infer: true }),
+        messages: [
+          { role: 'system', content: request.system },
+          { role: 'user', content: request.user },
+        ],
+        max_tokens: request.maxTokens,
+        // Students' questions must not go to providers that may store them.
+        provider: { data_collection: 'deny' },
+      },
+      request.timeoutMs,
+    );
+
+    const text = reply.choices?.[0]?.message?.content;
+    if (typeof text !== 'string') {
+      throw new OpenRouterError('invalid-response', 'The reply has no text');
+    }
+    return {
+      text,
+      promptTokens: tokenCount(reply.usage?.prompt_tokens),
+      completionTokens: tokenCount(reply.usage?.completion_tokens),
+    };
+  }
+
+  private async post<T extends { error?: ReplyError }>(
     path: string,
     body: unknown,
     timeoutMs: number,
@@ -142,6 +194,10 @@ export class OpenRouterClient {
     }
     return key;
   }
+}
+
+function tokenCount(value: unknown): number | null {
+  return typeof value === 'number' ? value : null;
 }
 
 function isEmbedding(value: unknown): value is number[] {
