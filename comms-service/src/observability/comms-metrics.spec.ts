@@ -43,6 +43,7 @@ describe('Communication Service metrics', () => {
     commsMetrics.observeSocketOperation('send', 'idempotent', 0.01);
     commsMetrics.observeSocketOperation('read', 'noop', 0.02);
     commsMetrics.socketAdapterError('subscriber');
+    commsMetrics.socketNotification('closing', 'emitted');
     commsMetrics.socketDisconnected();
 
     const metrics = await registry.metrics();
@@ -57,6 +58,9 @@ describe('Communication Service metrics', () => {
     );
     expect(metrics).toContain(
       'foc_comms_socket_adapter_errors_total{role="subscriber"}',
+    );
+    expect(metrics).toContain(
+      'foc_comms_socket_notifications_total{event="closing",outcome="emitted"}',
     );
     expect(metrics).not.toMatch(/chat_id|user_id|message_id/);
   });

@@ -12,6 +12,7 @@ import { RabbitMqConnectionService } from '../src/messaging/rabbitmq-connection.
 import { createRabbitMqConnectionUrl } from '../src/messaging/rabbitmq-connection-url.provider.js';
 import { RabbitMqConsumerTransport } from '../src/messaging/rabbitmq-consumer.transport.js';
 import { RabbitMqTopologyService } from '../src/messaging/rabbitmq-topology.service.js';
+import { ChatRealtimePublisher } from '../src/socket/chat-realtime.publisher.js';
 import { publishFixture } from '../scripts/lifecycle-fixture-publisher.mjs';
 
 const EVENTS_QUEUE = 'comms-service.events';
@@ -137,6 +138,9 @@ describe('lifecycle fixtures through RabbitMQ and PostgreSQL', () => {
         dataSource,
         new LifecycleFactQueryService(dataSource),
       ),
+      {
+        publishClosing: () => undefined,
+      } as unknown as ChatRealtimePublisher,
     );
     await new LifecycleConsumerLifecycle(
       transport,

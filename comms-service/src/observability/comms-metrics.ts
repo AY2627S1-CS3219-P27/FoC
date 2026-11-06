@@ -79,6 +79,11 @@ const socketAdapterErrorCounter = createLabeledCounter(
   'Socket Redis adapter connection errors by connection role.',
   ['role'],
 );
+const socketNotificationCounter = createLabeledCounter(
+  'comms_socket_notifications_total',
+  'Post-commit chat lifecycle socket notifications by bounded event and outcome.',
+  ['event', 'outcome'],
+);
 
 export const commsMetrics = {
   lifecycleDelivery(stream: string, outcome: LifecycleDeliveryOutcome): void {
@@ -120,6 +125,13 @@ export const commsMetrics = {
 
   socketAdapterError(role: 'publisher' | 'subscriber'): void {
     socketAdapterErrorCounter.inc({ role });
+  },
+
+  socketNotification(
+    event: 'closing' | 'archived',
+    outcome: 'emitted' | 'failed',
+  ): void {
+    socketNotificationCounter.inc({ event, outcome });
   },
 };
 

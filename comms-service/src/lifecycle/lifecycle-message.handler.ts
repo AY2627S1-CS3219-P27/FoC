@@ -15,6 +15,7 @@ import type {
   LifecycleMessageHandlingResult,
 } from '../messaging/rabbitmq-message.types.js';
 import { commsMetrics } from '../observability/comms-metrics.js';
+import { ChatRealtimePublisher } from '../socket/chat-realtime.publisher.js';
 import {
   type LifecycleEvent,
   hasDistinctParticipants,
@@ -39,6 +40,7 @@ export class LifecycleMessageDispatcher implements LifecycleMessageHandler {
   constructor(
     private readonly contracts: AccountEventContractValidator,
     private readonly ingestion: LifecycleIngestionService,
+    private readonly realtime: ChatRealtimePublisher,
   ) {}
 
   async handle(
@@ -96,6 +98,9 @@ export class LifecycleMessageDispatcher implements LifecycleMessageHandler {
     switch (result.status) {
       case 'recorded':
         if (result.chatId !== undefined) commsMetrics.chatCreated();
+        for (const transition of result.deadlineTransitions) {
+          this.realtime.publishClosing(transition);
+        }
         return { outcome: 'processed' };
       case 'duplicate':
         return { outcome: 'duplicate' };
