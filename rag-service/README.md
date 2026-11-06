@@ -1,8 +1,10 @@
-# rag-service
+# RAG Service
 
-The FoC help chatbot. It answers general questions from the plain-language documents in `docs/support/` and names the section each answer came from. It cannot see anyone's account or change anything.
+The RAG Service is FoC's help chatbot. It answers general questions from the plain-language documents in `docs/support/` and names the section each answer came from. It cannot see anyone's account or change anything.
 
-The service indexes the help documents and answers questions from them.
+Other services don't call it, and it doesn't call them: it only reads user-service's public key, to check login tokens. If it's down, the rest of FoC is unaffected.
+
+## 1. Overview
 
 It's a fixed pipeline rather than an agent: our code always runs the same steps, and the model only writes the answer. Why it's built this way: [ADR 0001](../docs/adr/rag-service/0001-rag-with-pgvector-and-openrouter.md).
 
@@ -50,7 +52,23 @@ sequenceDiagram
     end
 ```
 
-## First-time setup
+## 2. Tech stack, compared with the other services
+
+| Concern | RAG Service | Same as | Notes |
+|---|---|---|---|
+| Framework | NestJS 12, TypeScript, ES modules | The other Nest services | |
+| Database | PostgreSQL 18, own container `rag-db` | The other services | **Different image:** `pgvector/pgvector:pg18`, because the plain image has no pgvector |
+| Talking to the database | TypeORM, hand-written migrations applied on startup | supplier-service | `synchronize` is always off |
+| Config checks at startup | Joi schema | The other Nest services | |
+| Request validation and errors | class-validator DTOs, one JSON error format | supplier-service | |
+| Login check | The shared `@foc/auth` guard, public key only | The other Nest services | |
+| Logs, metrics, traces | The shared `@foc/observability` | The other Nest services | **Addition:** removes login tokens from its request logs |
+| Tests and lint | vitest (unit, e2e, integration), oxlint | supplier-service | |
+| Docker | Multi-stage Dockerfile built from the repo root, `npm run start:dev` | The other Nest services | |
+| Message broker | **None** | | A question is a direct request and reply |
+| Outside calls | **OpenRouter**, with `fetch` and timeouts | None | The only service that depends on an outside AI company |
+
+## 3. Running
 
 From the repository root:
 
@@ -64,8 +82,6 @@ Change the database password if you like. The placeholder OpenRouter key is enou
 
 The service also reads user-service's public key from `user-service/secrets/jwt_public_key.secret`.
 
-## Running
-
 `docker compose up -d --build rag-service` from the repository root. To reach it from your machine, add `-f compose.yaml -f compose.debug.yaml`: the service is on `127.0.0.1:3008` and its database on `127.0.0.1:5442`.
 
 | Setting | Default | Meaning |
@@ -75,7 +91,7 @@ The service also reads user-service's public key from `user-service/secrets/jwt_
 
 The database image is [`pgvector/pgvector:pg18`](https://hub.docker.com/r/pgvector/pgvector), because the plain Postgres image has no pgvector.
 
-## Asking a question
+## 4. API
 
 `POST /assistant/questions` with `{ "question": "..." }`, 1 to 500 characters. It needs a login token, like every route except `/health`.
 
@@ -112,7 +128,18 @@ Request logs have the `Authorization`, `Cookie` and `Set-Cookie` headers removed
 
 Set a spending limit on any real key: the per-user limit doesn't stop someone using several accounts.
 
-## Limits and the question log
+## 5. Database
+
+Two tables, in `rag-db`. Migrations are the only way the schema changes.
+
+| Table | Holds |
+|---|---|
+| `chunks` | One row per section of the help documents: its source, words, embedding (`vector(1536)`) and the model that made it. Rebuilt from the documents on every re-index |
+| `chat_log` | One row per accepted question (see [§6](#6-limits-and-the-question-log)) |
+
+There's no vector index: with about 120 rows, comparing every row is instant and exact.
+
+## 6. Limits and the question log
 
 Each user can ask `RAG_RATE_LIMIT_PER_MINUTE` questions (default 10) in any rolling 60 seconds. Every accepted question counts, including ones stopped by the cutoff, because each costs an embedding call. Requests refused with a 400 or 429 don't count.
 
@@ -143,7 +170,7 @@ SELECT created_at::date AS day, sum(prompt_tokens) AS tokens_in, sum(completion_
 FROM chat_log GROUP BY day ORDER BY day DESC;
 ```
 
-## Updating the help documents
+## 7. Updating the help documents
 
 The bot answers from an index of `docs/support/`, not from the files directly. After editing a document, do either of these:
 
@@ -152,7 +179,7 @@ The bot answers from an index of `docs/support/`, not from the files directly. A
 
 Until then the bot keeps answering from the old version. If re-indexing fails, for example because OpenRouter is down or a document breaks the format rules, the old index stays in use. Each document needs `title` and `service` in its front matter, and its `##` headings must be unique.
 
-## Evaluation
+## 8. Evaluation
 
 A fixed set of questions in `eval/questions.json` measures the bot through the real API. Each answerable question lists the sections that hold its answer and the key facts it must contain; the others must be refused (account, off-topic and injection questions). It uses a real key and costs under a cent, so CI never runs it. Rerun it after changing the documents, the prompt or the cutoff.
 
@@ -170,13 +197,40 @@ It waits out the rate limit, so it takes a few minutes. It prints a report, incl
 | Should-refuse questions refused | 100% |
 | 95% of questions within | 10 seconds |
 
-**Results:** not run yet on this version of the documents.
+**Results** (6 November 2026, `anthropic/claude-haiku-5.5`, 21 answerable and 9 should-refuse questions). The full report, with every answer, is in [`eval/report.md`](eval/report.md).
 
-## Trying it with Postman
+| Measure | Result | Target |
+|---|---|---|
+| Right section retrieved in the top 4 | 21/21 (100%) | |
+| Answer names the right section | 21/21 (100%) | At least 90% |
+| Answer contains every key fact | 21/21 (100%) | At least 90% |
+| Should-refuse questions refused | 9/9 (100%) | 100% |
+| Answerable questions wrongly refused | 0/21 | |
+| Average time / 95% of questions within | 2.4 s / 3.6 s | 10 s |
 
-Import `api/rag-service.postman_collection.json` and `api/local.postman_environment.json`. Start the service with debug ports (`-f compose.yaml -f compose.debug.yaml`), run `node rag-service/scripts/sign-eval-token.mjs`, and paste the token into `token`. Folders 1 and 2 ask the real model, and folder 4 uses up the rate limit, so run it last or wait a minute afterwards. Answers can contain Markdown.
+**The cutoff stays at 0.3.** The lowest score for an answerable question was 0.39, and the injection attempt the cutoff stopped scored about 0.26. At 0.40 and above, real questions start being stopped.
 
-## Known limits
+| Cutoff | Answerable questions wrongly stopped | Should-refuse questions stopped with no chat call |
+|---|---|---|
+| 0.25 | 0 | 3 |
+| **0.30** | **0** | **4** |
+| 0.35 | 0 | 4 |
+| 0.40 | 1 | 5 |
+| 0.50 | 2 | 6 |
+
+**How far to trust these numbers:**
+
+- The questions were written by the developer, who had read the documents, so they aren't what real students would type. Real gaps will show up in `chat_log`.
+- 30 questions show the bot works, not exactly how accurate it is.
+- The key-fact check only looks for wordings, so all 30 answers were also read against the documents, with AI assistance. None contradicted them. One added a small inference: that a closed shop may not be able to fulfil an errand. Service owners should still read the answers about their service in the report.
+- It measures agreement with the documents. A wrong document gives a wrong answer that still passes, which is why service owners read theirs.
+- The figure is for one run, and answers vary slightly. An earlier run marked a correct answer as failing because the fact check wanted "unlock" and the answer said "unlocks", so that wording was added. Rerun it after changing the documents, prompt or model.
+
+## 9. Trying it with Postman
+
+See [`api/README.md`](api/README.md).
+
+## 10. Known limits
 
 - Each question stands alone, so there are no follow-up questions.
 - It gives general guidance only and can't look up anyone's account, errands or requests.
@@ -186,7 +240,7 @@ Import `api/rag-service.postman_collection.json` and `api/local.postman_environm
 - The rate limit is per account, so the spending limit on the key is the real backstop.
 - The chat model's own settings can't be tuned further: its OpenRouter listing doesn't show temperature among the settings it accepts.
 
-## Tests
+## 11. Testing
 
 Run these from `rag-service/`:
 

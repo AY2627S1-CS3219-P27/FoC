@@ -52,6 +52,19 @@ Evaluation results describe the model that produced them. A model chosen in a da
 
 The pipeline is a few steps, and a framework such as LangChain would add a large dependency for little gain. Splitting is about 20 lines, because the documents follow a strict format.
 
+## Alternatives considered
+
+- **Sending every document on every question.** The simplest option, and the documents are small enough. Rejected for the reasons above: higher cost per question, less precise citations, and no way to stop off-topic questions before a model call.
+- **Keyword search (PostgreSQL full-text search).** No outside embedding call, but it matches words rather than meaning, so "new shop" would not find a section about adding a "supplier", and students rarely use the app's exact terms.
+- **A dedicated vector database (e.g. Pinecone, Weaviate).** Another kind of database to run, for no gain at this size.
+- **An agent with tools.** Could answer account questions, but the model could then trigger real calls, which brings real security risks. Future work.
+- **An LLM framework (e.g. LangChain).** A large dependency for a pipeline of a few steps.
+- **Calling a model provider directly.** Works, but ties the code to one provider's API, and the embedding and chat models may come from different companies.
+
+## Results
+
+The evaluation in `rag-service/eval/` measures the bot through the real API. On 6 November 2026, with 30 questions, every target was met: 21 of 21 answers named the right section and contained every key fact, 9 of 9 should-refuse questions were refused, and 95% of questions finished within 3.6 seconds. The lowest score for an answerable question was 0.39, so the cutoff stays at 0.3. The numbers, the full report and how far to trust them are in the [service README](../../../rag-service/README.md#8-evaluation).
+
 ## Safeguards
 
 | Risk | Safeguard |
