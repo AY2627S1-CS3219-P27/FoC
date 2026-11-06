@@ -26,7 +26,10 @@ export interface Errand {
   pickupName: string | null;
   pickupLocation: string | null;
   pickupDescription: string | null;
-  deliveryLocation: string;
+  /** Building short-name snapshot; null until the supplier validates. */
+  deliveryLocation: string | null;
+  /** Requester's room or level, e.g. "Level 3 04-02". */
+  deliveryDetail: string;
   collectionItems: string;
   description: string | null;
   rewardCredits: number;
@@ -35,6 +38,15 @@ export interface Errand {
   requesterId?: string;
   courierId?: string | null;
   cancellationReason?: string | null;
+}
+
+/** Building snapshot plus the requester's room/level, for display. */
+export function formatDelivery(
+  errand: Pick<Errand, "deliveryLocation" | "deliveryDetail">,
+): string {
+  return `${errand.deliveryLocation ?? "—"}${
+    errand.deliveryDetail ? ` · ${errand.deliveryDetail}` : ""
+  }`;
 }
 
 export interface AdminErrand extends Errand {
