@@ -4,6 +4,52 @@ The FoC help chatbot. It answers general questions from the plain-language docum
 
 The service indexes the help documents and answers questions from them.
 
+It's a fixed pipeline rather than an agent: our code always runs the same steps, and the model only writes the answer. Why it's built this way: [ADR 0001](../docs/adr/rag-service/0001-rag-with-pgvector-and-openrouter.md).
+
+```mermaid
+flowchart LR
+    client["Frontend / Postman"] -- "POST /assistant/questions" --> api
+    subgraph rag["rag-service"]
+        api["AssistantController<br/>login guard, question rules"] --> svc["AssistantService"]
+        svc --> log["ChatLogRepository<br/>rate limit, question log"]
+        svc --> search["ChunkSearchService"]
+        svc --> client2["OpenRouterClient"]
+        idx["IndexingService<br/>startup + index-docs"] --> client2
+    end
+    docs["docs/support/<br/>(mounted read-only)"] --> idx
+    log --> db[("rag-db<br/>PostgreSQL + pgvector")]
+    search --> db
+    idx --> db
+    client2 -- "embeddings, chat" --> or["OpenRouter"]
+    user["user-service"] -. "public key file:<br/>checks tokens without calling it" .-> api
+```
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as Student
+    participant R as rag-service
+    participant D as rag-db
+    participant O as OpenRouter
+    U->>R: POST /assistant/questions (login token)
+    R->>R: check token and question
+    R->>D: check limit, write pending row
+    alt over the limit
+        R-->>U: 429 with Retry-After
+    else within the limit
+        R->>O: embed the question
+        R->>D: find the 4 nearest sections
+        alt none above the cutoff
+            R-->>U: 200, answered false (no chat call)
+        else
+            R->>O: rules + sections + question
+            O-->>R: answer + SOURCES line
+            R-->>U: 200, answer and sources
+        end
+        R->>D: complete the row
+    end
+```
+
 ## First-time setup
 
 From the repository root:
@@ -105,6 +151,40 @@ The bot answers from an index of `docs/support/`, not from the files directly. A
 - **Re-index without a restart:** `docker compose exec rag-service npm run index-docs`
 
 Until then the bot keeps answering from the old version. If re-indexing fails, for example because OpenRouter is down or a document breaks the format rules, the old index stays in use. Each document needs `title` and `service` in its front matter, and its `##` headings must be unique.
+
+## Evaluation
+
+A fixed set of questions in `eval/questions.json` measures the bot through the real API. Each answerable question lists the sections that hold its answer and the key facts it must contain; the others must be refused (account, off-topic and injection questions). It uses a real key and costs under a cent, so CI never runs it. Rerun it after changing the documents, the prompt or the cutoff.
+
+```sh
+docker compose up -d --build rag-service
+docker compose exec -e EVAL_TOKEN="$(node rag-service/scripts/sign-eval-token.mjs)" rag-service npm run evaluate
+```
+
+It waits out the rate limit, so it takes a few minutes. It prints a report, including what each cutoff value would have done, and exits with an error if a target is missed.
+
+| Measure | Target |
+|---|---|
+| Answer names the right section | At least 90% |
+| Answer contains every key fact | At least 90% |
+| Should-refuse questions refused | 100% |
+| 95% of questions within | 10 seconds |
+
+**Results:** not run yet on this version of the documents.
+
+## Trying it with Postman
+
+Import `api/rag-service.postman_collection.json` and `api/local.postman_environment.json`. Start the service with debug ports (`-f compose.yaml -f compose.debug.yaml`), run `node rag-service/scripts/sign-eval-token.mjs`, and paste the token into `token`. Folders 1 and 2 ask the real model, and folder 4 uses up the rate limit, so run it last or wait a minute afterwards. Answers can contain Markdown.
+
+## Known limits
+
+- Each question stands alone, so there are no follow-up questions.
+- It gives general guidance only and can't look up anyone's account, errands or requests.
+- Refusing account questions depends on the model following its rules, because they match the documents closely enough to pass the cutoff.
+- Answers vary slightly between runs.
+- After a document changes, the bot uses the old version until a restart or `npm run index-docs`.
+- The rate limit is per account, so the spending limit on the key is the real backstop.
+- The chat model's own settings can't be tuned further: its OpenRouter listing doesn't show temperature among the settings it accepts.
 
 ## Tests
 
