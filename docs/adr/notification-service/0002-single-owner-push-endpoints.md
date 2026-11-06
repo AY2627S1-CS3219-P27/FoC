@@ -44,6 +44,27 @@ subscription:
   conflicts and PATCH takes the endpoint back.
 - **DELETE** stays owner-scoped and idempotent.
 
+A push service can re-issue an endpoint for an otherwise unchanged browser
+subscription (`pushsubscriptionchange` — VAPID key rotation, or the previous
+subscription answering `404`/`410`). That is a *rotation*, distinct from an
+account takeover: it is the same user changing endpoints, not another account
+claiming one.
+
+- **POST** with a `previousEndpoint` deactivates the `(user_id, previousEndpoint)`
+  row and inserts the `(user_id, new endpoint)` row in one transaction, so no
+  moment exists where the user has neither a live destination nor a stale one
+  still receiving deliveries. The deactivate is an idempotent attempt: a missing
+  or already-inactive previous endpoint is a no-op. If the new endpoint is owned
+  by another account on a shared browser, the takeover logic above runs inside
+  the same transaction.
+- A `previousEndpoint` equal to `endpoint` is not a rotation — it is a
+  re-registration that reconciles with PATCH, so it is ignored and falls through
+  to the normal create path (a `409` if the pair is already present).
+
+The frontend re-subscribes in the service worker on `pushsubscriptionchange` and
+hands the new subscription (plus the old endpoint) to the app, so a background
+rotation is rotated on the server without the user opening the app.
+
 Rows remain soft-deleted, so each account's registration history is preserved.
 
 ## Consequences
