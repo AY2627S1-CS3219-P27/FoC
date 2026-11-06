@@ -1,0 +1,19 @@
+import { Module } from '@nestjs/common';
+import { OpenRouterModule } from '../openrouter/openrouter.module.js';
+import { AssistantController } from './assistant.controller.js';
+import { AssistantService } from './assistant.service.js';
+import { ChatLogCleanupService } from './chat-log-cleanup.service.js';
+import { ChatLogRepository } from './chat-log.repository.js';
+import { ChunkSearchService } from './chunk-search.service.js';
+
+@Module({
+  imports: [OpenRouterModule],
+  controllers: [AssistantController],
+  providers: [
+    AssistantService,
+    ChatLogCleanupService,
+    ChatLogRepository,
+    ChunkSearchService,
+  ],
+})
+export class AssistantModule {}

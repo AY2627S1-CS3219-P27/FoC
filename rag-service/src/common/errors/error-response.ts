@@ -26,7 +26,7 @@ export interface FieldViolation {
  * The single error body every RAG Service endpoint returns, the same shape as
  * Supplier Service's. It keeps Nest's default fields (statusCode, error,
  * message) and adds `code`, plus `violations` for validation errors and
- * `retryable` for transient failures.
+ * `retryable` for transient failures and `retryAfterSeconds` for a 429.
  */
 export interface ErrorResponseBody {
   statusCode: number;
@@ -35,4 +35,6 @@ export interface ErrorResponseBody {
   code: string;
   violations?: FieldViolation[];
   retryable?: boolean;
+  /** How long to wait after a 429; also sent as `Retry-After`. */
+  retryAfterSeconds?: number;
 }
