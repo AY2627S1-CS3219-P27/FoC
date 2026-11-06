@@ -30,6 +30,7 @@ import {
   ArchiveListResponseDto,
   ChatListResponseDto,
   CursorPageQueryDto,
+  MessageHistoryQueryDto,
   MessageHistoryResponseDto,
 } from './chats.dto.js';
 
@@ -98,7 +99,7 @@ export class ChatsController {
   @ApiOperation({
     summary: 'Read a live chat’s message history',
     description:
-      'Unknown, archived, and unauthorized chat IDs share the same not-found response.',
+      'Forward paging is the backward-compatible default. Backward paging starts with the latest bounded page and continues toward older messages. Every page is returned in ascending sequence order. Unknown, archived, and unauthorized chat IDs share the same not-found response.',
   })
   @ApiOkResponse({ type: MessageHistoryResponseDto })
   @ApiNotFoundResponse({
@@ -109,13 +110,14 @@ export class ChatsController {
   history(
     @Req() request: AuthenticatedRequest,
     @Param('chatId', new ParseUUIDPipe({ version: '4' })) chatId: string,
-    @Query() query: CursorPageQueryDto,
+    @Query() query: MessageHistoryQueryDto,
   ): Promise<MessageHistoryResponseDto> {
     return this.chats.history(
       request.user.sub,
       chatId,
       query.cursor,
       query.limit,
+      query.direction,
     );
   }
 }

@@ -371,14 +371,21 @@ All `/v1/chats` routes accept the shared `access_token` cookie or supported
 Bearer token. Live list responses contain only the caller's `ACTIVE` and `GRACE`
 chats, including their latest message and caller-relative unread state. History
 returns messages in ascending per-chat sequence order and derives `UNREAD` or
-`READ` from the persisted read timestamp. Archive lists contain only rows where
-the caller is the persisted requester or courier and are ordered by
-`archivedAt DESC, archiveId DESC`. Archive detail returns schema version 1 and
-ordered `{ role, content, timestamp }` messages. Paginated endpoints accept an
-opaque `cursor` and a `limit` from 1 to 50 (default 20). Cursors are
-endpoint-specific and modified, malformed, or cross-endpoint values return 400. Unknown and unauthorized live-history targets share one sanitized 404;
-unknown and unauthorized archive IDs share another. Archives expose GET only
-and remain immutable at the database boundary.
+`READ` from the persisted read timestamp. The optional
+`direction=forward|backward` query defaults to the existing forward behavior.
+Backward paging without a cursor returns the latest bounded window; its opaque
+continuation cursor retrieves older windows, which are also returned in
+ascending sequence order. Message cursors are direction-scoped, while legacy
+message cursors remain valid only for forward paging. Archive lists contain
+only rows where the caller is the persisted requester or courier and are
+ordered by `archivedAt DESC, archiveId DESC`. Archive detail returns schema
+version 1 and ordered `{ role, content, timestamp }` messages. Paginated
+endpoints accept an opaque `cursor` and a `limit` from 1 to 50 (default 20).
+Cursors are endpoint-specific; modified, malformed, cross-endpoint, or
+cross-direction values return 400. Unknown and unauthorized live-history
+targets share one sanitized 404; unknown and unauthorized archive IDs share
+another. Archives expose GET only and remain immutable at the database
+boundary.
 
 ## Metrics and recovery operations
 
