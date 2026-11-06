@@ -63,7 +63,7 @@ The pipeline is a few steps, and a framework such as LangChain would add a large
 
 ## Results
 
-The evaluation in `rag-service/eval/` measures the bot through the real API. On 6 November 2026, with 30 questions, every target was met: 21 of 21 answers named the right section and contained every key fact, 9 of 9 should-refuse questions were refused, and 95% of questions finished within 3.6 seconds. The lowest score for an answerable question was 0.39, so the cutoff stays at 0.3. The numbers, the full report and how far to trust them are in the [service README](../../../rag-service/README.md#8-evaluation).
+The evaluation in `rag-service/eval/` measures the bot through the real API. On 6 November 2026, with 30 questions, every target was met: 21 of 21 answers named the right section and contained every key fact, 9 of 9 should-refuse questions were refused, and 95% of questions finished within 3.5 seconds. The lowest score for an answerable question was 0.39, so the cutoff stays at 0.3. The numbers, the full report and how far to trust them are in the [service README](../../../rag-service/README.md#8-evaluation).
 
 ## Safeguards
 
@@ -72,7 +72,7 @@ The evaluation in `rag-service/eval/` measures the bot through the real API. On 
 | The bot makes things up | A relevance cutoff, answer-only-from-sections rules, and sources taken from our database rather than the model |
 | Prompt injection | The question is escaped and treated as data; the bot has no tools or user data |
 | Cost or abuse | Login required, a per-user rate limit written before any paid call, a question length limit, an answer length limit, and a spending limit on the key |
-| OpenRouter is down or slow | Timeouts and a retryable 503, never a wrong answer. Startup does not wait for it |
+| OpenRouter is down or slow | Timeouts and a retryable 503, never a wrong answer. A reply cut off at the token limit gets the same 503, never half an answer. Startup does not wait for it |
 | A bad re-index | Embeddings are fetched before the transaction and the swap is all or nothing, so the old index stays in use |
 | Personal data | The user's id only, never email or token. Questions stay out of the logs and are deleted after 30 days |
 

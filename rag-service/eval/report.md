@@ -11,9 +11,9 @@ Chat model: `anthropic/claude-haiku-5.5`. 21 answerable questions, 9 that should
 | Should-refuse questions refused | 9/9 (100%) | 100% |
 | Answerable questions wrongly refused | 0/21 (0%) | |
 | Failed requests | 0 | 0 |
-| Average time | 2.4 s | |
-| 95% of questions within | 3.6 s | 10 s |
-| Chat tokens in / out | 28962 / 5306 | |
+| Average time | 2.3 s | |
+| 95% of questions within | 3.5 s | 10 s |
+| Chat tokens in / out | 28990 / 4777 | |
 
 **Targets met.**
 
@@ -44,9 +44,11 @@ None.
 
 **Best score:** 0.612
 
-Credits are FoC's own points, used to reward students for errands. Requesters spend them, and couriers earn them by delivering errands. They cannot be bought, withdrawn, exchanged for money, or transferred directly to another student. Every new account starts with 100 credits, once, when registered, and they may take a moment to appear.
+Credits are FoC's own points, used to reward students for errands. Requesters spend them and couriers earn them. They cannot be bought, withdrawn, or exchanged for money, so the only way to earn more is to deliver errands as a courier.
 
-When you create an errand, the reward is held from your available balance right away, even though nothing has been paid yet. If the errand is cancelled, the credits return to you. If it is completed, they go to the courier. Your reserved credits cover errands that have not finished yet, including those in Pending, Open, Accepted, Picked Up, Delivered and Incomplete status.
+Every new account gets 100 credits once, when it is registered. Typical rewards are 10 to 20 credits. You also get credits back when your own errands are cancelled. Credits only move between students through a completed errand or a settled dispute.
+
+When you create an errand, your available balance drops straight away, because those credits are held for it. They return if the errand is cancelled, and they go to the courier if it is completed.
 
 ### credits-start (pass)
 
@@ -56,25 +58,21 @@ When you create an errand, the reward is held from your available balance right 
 
 **Best score:** 0.646
 
-Every new FoC account starts with 100 credits. You receive them once, when you register. They can take a moment to appear, so if they don't show up right away, wait a moment and refresh the page.
+Every new account starts with 100 credits, given once when you register. Credits can take a moment to appear, so if you don't see them right away, wait a moment and refresh the page.
 
 ### credits-lower (pass)
 
 **Question:** my credits look lower than they should be, where did they go
 
-**Sources:** Why do my credits look lower than expected?; My credits look lower than expected. Where did they go?; My new account shows no credits. What should I do?; Can I lose credits if something goes wrong in FoC?
+**Sources:** Why do my credits look lower than expected?; My credits look lower than expected. Where did they go?; Can I lose credits if something goes wrong in FoC?
 
 **Best score:** 0.687
 
-Your credits are most likely being held for errands you've created that haven't finished yet. As soon as you create an errand, your available balance drops, even though nothing has been paid.
+Your credits may be reserved, not gone. When you create an errand, its credits are held right away, even though nothing has been paid yet. That lowers your available balance while the errand is still unfinished. Unfinished errands include those with the status Pending, Open, Accepted, Picked Up, Delivered, or Incomplete.
 
-Errands that count as unfinished include those with the status Pending, Open, Accepted, Picked Up, Delivered, or Incomplete.
+To check, compare your available and reserved balances, then look through your unfinished errands. Reserved credits return to you if an errand is cancelled. If an errand is completed, those credits go to the courier.
 
-To check:
-1. Compare your available and reserved balances.
-2. Look through your unfinished errands.
-
-If an errand is cancelled, its reserved credits come back to you. If it is completed, the credits go to the courier. If the numbers still look wrong after you've checked, contact an admin
+If the numbers still don't add up after that, contact an admin. FoC is designed so credits aren't lost or paid twice, and a brief delay can mean balances take a moment to update, so refresh the page first.
 
 ### credits-cash (pass)
 
@@ -84,7 +82,7 @@ If an errand is cancelled, its reserved credits come back to you. If it is compl
 
 **Best score:** 0.549
 
-Credits can't be cashed out or turned into money. They can't be bought, withdrawn, exchanged for money, or transferred directly to another student. The only ways credits move between students are through a completed errand or a settled dispute.
+No. Credits can't be withdrawn, exchanged for money, or bought. You can earn more only by delivering errands as a courier, and you also get credits back when your own errands are cancelled. Credits can't be transferred directly to another student either. The only way credits move between students is through a completed errand or a settled dispute.
 
 ### errand-pending (pass)
 
@@ -94,36 +92,33 @@ Credits can't be cashed out or turned into money. They can't be bought, withdraw
 
 **Best score:** 0.769
 
-An errand stays Pending while FoC checks that the supplier is available and holds your credits. These checks usually take just seconds, so a short wait is normal.
+An errand stays Pending while FoC checks that the supplier is available and holds your credits. This normally takes just seconds, so wait a little first.
 
-If it has been Pending for a long time, one of those steps may be delayed. Wait a little longer. An errand does not stay Pending forever. If the checks take too long, it is cancelled and no credits are lost. You can then create the errand again. If it keeps happening, contact an admin.
+If the checks take too long, the errand is cancelled automatically and no credits are lost. You can then create the errand again. If this keeps happening, contact an admin.
 
 ### errand-courier-missing (pass)
 
 **Question:** my courier picked up my food but never came, what do i do
 
-**Sources:** My courier picked up the item but has not delivered it. What should I do?; My errand says Delivered but I did not get the item. What should I do?; What happens if a courier does not deliver after picking up?
+**Sources:** My courier picked up the item but has not delivered it. What should I do?; What happens if a courier does not deliver after picking up?
 
 **Best score:** 0.651
 
-Your courier may still be on the way, or they may have run into a problem. You can't cancel an errand once a courier has accepted it.
+The courier may still be on the way, or they may have run into a problem. You can't cancel the errand yourself once a courier has accepted it, so start by messaging the courier in the errand's chat.
 
-1. **Message the courier** in the errand's chat and ask where the food is.
-2. **Wait for the 24-hour window.** The courier has 24 hours from pickup to mark the errand as Delivered. If they haven't by then, FoC cancels the errand automatically and returns your held credits.
-
-If the courier marks the errand as Delivered but you don't get the food, act within 24 hours. Message the courier first. If it still isn't sorted out, mark the delivery as incomplete. Your credits stay held, and an admin will decide what happens to them. If you don't act within 24 hours, FoC confirms the delivery automatically and pays the courier.
+If the errand is still not marked as Delivered 24 hours after pickup, FoC cancels it automatically and returns your credits.
 
 ### errand-cancel (pass)
 
 **Question:** can i cancel after someone accepted my errand?
 
-**Sources:** Can I cancel my errand as a requester?
+**Sources:** Can I cancel my errand as a requester?; Can a courier give up an errand after accepting it?
 
 **Best score:** 0.736
 
-No. You can only cancel while your errand is **Open**, before a courier accepts it. Once a courier has accepted, you can no longer cancel it.
+No. You can only cancel an errand while it is **Open**, before a courier accepts it. Once a courier has accepted, you can no longer cancel it.
 
-If the courier doesn't deliver, the errand is either released by the courier or cancelled automatically 24 hours after pickup.
+If the courier doesn't deliver, the errand is either released by the courier or cancelled automatically 24 hours after pickup. Couriers can also withdraw before they pick up the item, and the errand then goes back to Open for another courier.
 
 ### errand-reason (pass)
 
@@ -133,29 +128,26 @@ If the courier doesn't deliver, the errand is either released by the courier or 
 
 **Best score:** 0.560
 
-ERRAND_EXPIRED means no courier accepted your errand before its open time ran out. The open time is the window you chose when posting it, from 15 minutes to 168 hours (default 60 minutes), and it only starts once the errand becomes Open, so time spent in Pending does not count. When this happens, the errand is cancelled, shows as Cancelled, and any held credits are returned to you.
+ERRAND_EXPIRED means no courier accepted the errand before its open time ended. Open time starts when the errand becomes Open, so time spent in Pending does not count. When this happens, the errand is cancelled and any held credits are returned to you as the requester.
 
-To try again, you can post the errand again, and consider choosing a longer open time so more couriers have a chance to accept it.
+If you still need the item, you can post the errand again. You can choose a longer open time, up to 168 hours, to give couriers more time to accept.
 
 ### errand-one-active (pass)
 
 **Question:** why can't i accept another errand
 
-**Sources:** Why can I not accept another errand?; I cannot accept an errand. What is wrong?; How do I accept an errand as a courier?
+**Sources:** Why can I not accept another errand?; I cannot accept an errand. What is wrong?
 
 **Best score:** 0.712
 
-You can only hold one active errand at a time. An errand is active while it is **Accepted** or **Picked Up**, so the most likely cause is that you already have one of these.
+A courier can only hold one active errand at a time. An errand is active while it is Accepted or Picked Up, so you can't accept another while you hold one.
 
-To fix this, deliver your current errand. If you haven't picked it up yet, you can withdraw from it instead. Then you can accept another.
+Other reasons an accept can be refused:
+- Another courier accepted the errand first.
+- The errand's open time has ended.
+- You don't have the courier role, or it's your own errand.
 
-If that isn't the problem, check these:
-- **Another courier accepted it first.** Only one courier can win an errand.
-- **Its open time has ended.** You can't accept an errand after this.
-- **You don't have the courier role.** Check your role on the My Account page.
-- **It's your own errand.** Your own errands don't appear in the list you can accept from.
-
-If this errand has gone, choose a different one.
+What to do: deliver your current errand, or withdraw from it if you haven't picked it up. Then you can accept another. You can check your role on the My Account page.
 
 ### errand-no-confirm (pass)
 
@@ -165,9 +157,9 @@ If this errand has gone, choose a different one.
 
 **Best score:** 0.553
 
-If you don't confirm or dispute a delivery within 24 hours of the courier marking it as Delivered, FoC confirms it automatically and the courier is paid.
+If you don't confirm a delivery within 24 hours, FoC confirms it automatically and the courier is paid.
 
-If something is wrong, act before that 24-hour window closes. You can either confirm the delivery, which sends the reward to the courier, or mark the delivery as incomplete. If the item didn't arrive, message the courier first, then mark it as incomplete if the problem isn't resolved. Your credits stay held while an admin decides what happens to them.
+If you have a problem with the delivery, act within that 24-hour window. Message the courier first. If it cannot be sorted out, mark the delivery as incomplete. Your credits stay held and an admin will decide what happens to them.
 
 ### errand-delivered-missing (pass)
 
@@ -175,13 +167,13 @@ If something is wrong, act before that 24-hour window closes. You can either con
 
 **Sources:** My errand says Delivered but I did not get the item. What should I do?
 
-**Best score:** 0.527
+**Best score:** 0.528
 
-The courier may have marked the errand as **Delivered** by mistake, or there may be a real problem with the delivery.
+The courier may have marked the errand as Delivered by mistake, or the item may really not have arrived.
 
 1. **Act within 24 hours.** After that, FoC confirms the delivery automatically and pays the courier.
-2. **Message the courier first** and ask them to check.
-3. **If it still can't be sorted out,** mark the delivery as **Incomplete**. Your credits stay held, and an admin will decide what happens to them.
+2. **Message the courier first** to try to sort it out.
+3. **If it can't be resolved,** mark the delivery as incomplete. Your credits stay held, and an admin will decide what happens to them.
 
 ### glossary-resolved (pass)
 
@@ -193,8 +185,8 @@ The courier may have marked the errand as **Delivered** by mistake, or there may
 
 Completed and Resolved are both final statuses, but they mean different things:
 
-- **Completed**: the delivery was confirmed, and the courier received the whole reward.
-- **Resolved**: there was a dispute, and an admin decided how the reward was shared between the courier and the requester.
+- **Completed**: The delivery was confirmed, and the courier received the whole reward.
+- **Resolved**: There was a dispute, and an admin decided how the reward was split between the courier and the requester.
 
 ### account-email (pass)
 
@@ -204,19 +196,19 @@ Completed and Resolved are both final statuses, but they mean different things:
 
 **Best score:** 0.420
 
-You need an NUS email address that ends exactly in @u.nus.edu or @nus.edu.sg. Personal addresses such as Gmail are refused, and so are NUS subdomain addresses like @comp.nus.edu.sg. Each email address can only be used for one account.
+You need an NUS email address that ends in exactly `@u.nus.edu` or `@nus.edu.sg`. Personal addresses such as Gmail are refused, and so are NUS subdomain addresses such as `@comp.nus.edu.sg`. Each email address can only have one account.
 
 ### account-locked (pass)
 
 **Question:** i forgot my password and my account is locked
 
-**Sources:** What do I do if I forgot my password?; I cannot sign in to FoC. What should I do?; Why is my FoC account locked?
+**Sources:** What do I do if I forgot my password?; Why is my FoC account locked?
 
 **Best score:** 0.573
 
-Forgetting your password and having a locked account are both fixed by the same step. On the sign-in page, choose the forgotten password option and enter your email address. FoC will email you a reset link, which works for 10 minutes. Open it and set a new password. Resetting your password also unlocks your account.
+Since you're locked out, the good news is one step fixes both problems. Go to the sign-in page, choose the forgotten password option, and enter your email address. FoC will email you a reset link, which works for 10 minutes. Open it and set a new password.
 
-If the link has expired, request a new one. If you still cannot sign in after resetting, contact an admin.
+Resetting your password also unlocks your account, so you can sign in with the new one afterwards. If the link has expired, request a new one. If you still cannot sign in, contact an admin.
 
 ### supplier-add (pass)
 
@@ -226,17 +218,14 @@ If the link has expired, request a new one. If you still cannot sign in after re
 
 **Best score:** 0.513
 
-You can ask for a new shop (called a supplier in the app) to be added as long as you're signed in. Include:
+You can ask for a new shop to be added if you're signed in. Include its name, type, categories, building, floor, how to find it, and its map position.
 
-- the supplier's name and type
-- its categories
-- its building and floor (floors are written as B1 to B9, 1 to 99, or M)
-- directions on how to find it
-- its map position, which must be on the NUS campus
+- **Floor** must be written as B1 to B9, 1 to 99, or M.
+- **Map position** must be on the NUS campus.
 
-Your request will show as Pending until an admin reviews it. The shop won't appear in the list until an admin approves it.
+Your request will show as **Pending** until an admin reviews it. The shop won't appear in the supplier list until an admin approves it.
 
-Your request will be refused straight away if the same supplier already exists (same name, same floor, same building), or if an identical request is already waiting.
+If your request is refused right away, the shop may already exist (same name, same floor, same building), or an identical request may already be waiting.
 
 ### supplier-denied (pass)
 
@@ -258,7 +247,7 @@ If the problem can be fixed, file a new request with the corrected details.
 
 **Best score:** 0.616
 
-Yes. FoC does not block an errand just because a supplier is closed at that moment. Supplier opening hours are shown for information only, so check them before you post, since the shop may not be able to fulfil the errand while it is closed. Some suppliers also have no hours listed.
+Yes, you can. FoC does not block an errand just because a supplier is closed at that moment. The supplier's opening hours are shown for information only, so it's still a good idea to check them before you post. Note that a supplier may also have no hours listed.
 
 ### chat-window (pass)
 
@@ -278,13 +267,11 @@ The chat stays open for 3 hours after the errand is delivered. If the courier wi
 
 **Best score:** 0.586
 
-To turn on FoC push notifications:
+To turn on FoC push notifications, open the My Account page and find the push notifications card. Choose "Enable on this device", then allow notifications when your browser asks. You need to do this on each device or browser where you want alerts.
 
-1. Open the My Account page.
-2. Find the push notifications card and choose "Enable on this device".
-3. When your browser asks for permission to show notifications, allow it.
+If it doesn't work, your browser may have blocked notifications for FoC or may not support push. Check your browser's site settings and allow notifications, then try again. If the card says it could not register the device, choose "Retry". Private browsing windows often don't support push.
 
-You need to do this on each device or browser where you want alerts. If your browser has blocked notifications for FoC, or does not support push, you won't be able to turn them on until you allow notifications in your browser's site settings. Private browsing windows often don't support push. Also note that alerts for errand updates are still being rolled out, so you may not receive them yet.
+Note that alerts for errand updates are still being rolled out, so you may not receive them yet.
 
 ### emails-sent (pass)
 
@@ -299,7 +286,7 @@ FoC sends two kinds of email, both for account security:
 - A one-time code when you register, to prove your address is yours.
 - A password reset link when you ask for one on the sign-in page.
 
-Both come from Friend on Campus and last 10 minutes. FoC does not currently send emails about errands or credits.
+Both come from Friend on Campus and last 10 minutes. FoC does not currently email you about errands or credits.
 
 ### guide-start (pass)
 
@@ -311,12 +298,12 @@ Both come from Friend on Campus and last 10 minutes. FoC does not currently send
 
 Welcome to FoC! Here's how to get started:
 
-1. **Register** with your NUS email, which must end in `@u.nus.edu` or `@nus.edu.sg`. Enter the one-time code FoC emails you. It works for 10 minutes.
-2. **Set up your profile.** Choose a display name and a password of at least 12 characters.
-3. **Pick a role** on the My Account page: requester (to ask for errands), courier (to deliver them), or both.
-4. **Check your credits.** New accounts start with 100 credits, which may take a moment to appear.
-5. **Browse the Suppliers tab** to see the pickup points on campus.
-6.
+1. Register with your NUS email (ending in @u.nus.edu or @nus.edu.sg). Enter the one-time code FoC emails you. It works for 10 minutes. If it doesn't arrive, check your junk folder and request a new one. Only the latest code works.
+2. Choose a display name and a password of at least 12 characters.
+3. On the My Account page, pick a role: requester (asks for errands), courier (delivers them), or both.
+4. Check your credit balance. New accounts start with 100 credits, which may take a moment to appear. Refresh the page if needed.
+5. Browse the Suppliers tab to see campus pickup points.
+6. As a requester, create your first errand. As a courier, look through open errands and accept one.
 
 ### account-balance (pass)
 
@@ -334,7 +321,7 @@ I can't answer that from the FoC help documents. I also can't see your account, 
 
 **Sources:** none
 
-**Best score:** 0.578
+**Best score:** 0.581
 
 I can't answer that from the FoC help documents. I also can't see your account, so to check your own balance or errands, open them in the app. For anything else, please contact an admin.
 
@@ -384,7 +371,7 @@ I can't answer that from the FoC help documents. I also can't see your account, 
 
 **Sources:** none
 
-**Best score:** 0.263
+**Best score:** 0.261
 
 I can't answer that from the FoC help documents. I also can't see your account, so to check your own balance or errands, open them in the app. For anything else, please contact an admin.
 

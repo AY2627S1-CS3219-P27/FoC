@@ -206,7 +206,7 @@ It waits out the rate limit, so it takes a few minutes. It prints a report, incl
 | Answer contains every key fact | 21/21 (100%) | At least 90% |
 | Should-refuse questions refused | 9/9 (100%) | 100% |
 | Answerable questions wrongly refused | 0/21 | |
-| Average time / 95% of questions within | 2.4 s / 3.6 s | 10 s |
+| Average time / 95% of questions within | 2.3 s / 3.5 s | 10 s |
 
 **The cutoff stays at 0.3.** The lowest score for an answerable question was 0.39, and the injection attempt the cutoff stopped scored about 0.26. At 0.40 and above, real questions start being stopped.
 
@@ -222,9 +222,9 @@ It waits out the rate limit, so it takes a few minutes. It prints a report, incl
 
 - The questions were written by the developer, who had read the documents, so they aren't what real students would type. Real gaps will show up in `chat_log`.
 - 30 questions show the bot works, not exactly how accurate it is.
-- The key-fact check only looks for wordings, so all 30 answers were also read against the documents, with AI assistance. None contradicted them. One added a small inference: that a closed shop may not be able to fulfil an errand. Service owners should still read the answers about their service in the report.
+- The key-fact check only looks for wordings, so all 30 answers were also read in full against the documents, with AI assistance. None contradicted them. Service owners should still read the answers about their service in the report.
 - It measures agreement with the documents. A wrong document gives a wrong answer that still passes, which is why service owners read theirs.
-- The figure is for one run, and answers vary slightly. An earlier run marked a correct answer as failing because the fact check wanted "unlock" and the answer said "unlocks", so that wording was added. Rerun it after changing the documents, prompt or model.
+- The figures are from one run, and answers vary slightly. Reading the answers from earlier runs found two things the scores missed or got wrong: an answer cut off by a 500-token limit, which still passed (fixed: the limit is now 1000, and a cut-off reply is a retryable 503), and a correct answer failed because the check wanted "unlock" and it said "unlocks" (the wording was added). Rerun it after changing the documents, prompt or model.
 
 ## 9. Trying it with Postman
 
@@ -236,6 +236,7 @@ See [`api/README.md`](api/README.md).
 - It gives general guidance only and can't look up anyone's account, errands or requests.
 - Refusing account questions depends on the model following its rules, because they match the documents closely enough to pass the cutoff.
 - Answers vary slightly between runs.
+- The model's hidden reasoning counts toward tokens and cost. Answers measured up to 540 tokens out, against a limit of 1000.
 - After a document changes, the bot uses the old version until a restart or `npm run index-docs`.
 - The rate limit is per account, so the spending limit on the key is the real backstop.
 - The chat model's own settings can't be tuned further: its OpenRouter listing doesn't show temperature among the settings it accepts.
