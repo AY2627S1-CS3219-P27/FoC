@@ -3,7 +3,7 @@ import {
   ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY,
   ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
 } from '@foc/contracts';
-import type { NoticeBuilder } from './notice.js';
+import { supplierRequest, supplierRevalidationId, type NoticeBuilder } from './notice.js';
 import type { Status } from './status.js';
 
 // Projection columns a transition may write; values come from the caller.
@@ -19,7 +19,17 @@ export type Col =
   | 'pickupDescription'
   | 'deliveryLocation'
   | 'settlementAmount'
-  | 'settlementNote';
+  | 'settlementNote'
+  | 'description'
+  | 'deliveryDetail'
+  | 'collectionItems'
+  | 'supplierId'
+  | 'deliveryBuildingId'
+  | 'pendingSupplierId'
+  | 'pendingDeliveryBuildingId';
+
+// F2.1: create fields a requester may change on an Open errand without asking another service.
+export const EDITABLE: Col[] = ['description', 'deliveryDetail', 'collectionItems'];
 
 // Who may take an edge. `other` = any user who is not the requester.
 // `admin` = a user whose token carries isAdmin; transition() checks the flag, the row check lets them through.
@@ -49,11 +59,13 @@ export const USER_REASONS: CancellationReason[] = ['REQUESTER_CANCELLED'];
 export interface Edge {
   type: string; // event type
   sets: Col[]; // caller must supply exactly these
+  optional?: Col[]; // caller may also supply these; an in-place edge needs at least one change
   clears: Col[]; // transition() nulls these
   who: Role[]; // allowed actors; enforced in the conditional UPDATE
   reasons?: CancellationReason[]; // allowed cancellationReason values
   unexpiredOnly?: true; // refuse once expires_at has passed (F5.5)
   setsExpiry?: true; // expires_at = now + the duration in event 1 (ADR 0007)
+  editsExpiry?: true; // payload expiryDurationMinutes: expires_at = opened-at + it, must be in the future
   notice?: NoticeBuilder; // outbox notice written in the transition's transaction (ADR 0008)
 }
 
@@ -106,8 +118,20 @@ const plain = (type: string, who: Role[], notice?: NoticeBuilder): Edge => ({
   notice,
 });
 const sys: Role[] = ['system'];
+// F2: requester edits on an Open errand; refused once it has expired.
+const editable = { optional: EDITABLE, editsExpiry: true, unexpiredOnly: true } as const;
+const PENDING: Col[] = ['pendingSupplierId', 'pendingDeliveryBuildingId'];
+// Attempt 0 here; the resend sweep re-creates this id and counts on from it.
+const revalidation: NoticeBuilder = (c) => ({
+  ...supplierRequest(
+    c.errandId,
+    c.payload.pendingSupplierId as string,
+    c.payload.pendingDeliveryBuildingId as string,
+  ),
+  eventId: supplierRevalidationId(c.errandId, c.sequenceNumber, 0),
+});
 
-// 20 edges in total
+// 24 edges in total
 export const EDGES: Partial<
   Record<Status, Partial<Record<Status, Edge | Edge[]>>>
 > = {
@@ -154,21 +178,52 @@ export const EDGES: Partial<
       unexpiredOnly: true,
       notice: accepted,
     },
-    // New amount rides in the payload.
-    'Adjusting-Credit': plain('AdjustmentRequested', ['requester'], (c) => ({
-      key: 'credit.reservation-adjustment.v1',
-      payload: {
-        errandId: c.errandId,
-        oldAmount: c.rewardCredits,
-        newAmount: c.payload.newAmount,
-      },
-    })),
+    // New amount rides in the payload; an edit may change local fields in the same step.
+    'Adjusting-Credit': {
+      ...plain('AdjustmentRequested', ['requester'], (c) => ({
+        key: 'credit.reservation-adjustment.v1',
+        payload: {
+          errandId: c.errandId,
+          oldAmount: c.rewardCredits,
+          newAmount: c.payload.newAmount,
+        },
+      })),
+      ...editable,
+    },
+    // F2.1: fields that need no other service change in place.
+    Open: { ...plain('ErrandEdited', ['requester']), ...editable },
+    // F2.1.1: a new supplier or building is re-checked first; the errand keeps the old ones meanwhile.
+    'Revalidating-Supplier': {
+      ...plain('SupplierRevalidationRequested', ['requester'], revalidation),
+      sets: PENDING,
+      ...editable,
+    },
     Cancelled: cancel(['requester', 'system'], ['REQUESTER_CANCELLED', 'ERRAND_EXPIRED']),
   },
   'Adjusting-Credit': {
     Open: [
       { type: 'CreditAdjusted', sets: ['rewardCredits'], clears: [], who: sys },
       plain('CreditAdjustmentFailed', sys),
+    ],
+  },
+  // Supplier-service's answer (or the hold sweep) settles the edit; a refusal keeps the old supplier.
+  'Revalidating-Supplier': {
+    Open: [
+      {
+        type: 'SupplierRevalidated',
+        sets: [
+          'supplierId',
+          'deliveryBuildingId',
+          'supplierValidatedAt',
+          'pickupName',
+          'pickupLocation',
+          'pickupDescription',
+          'deliveryLocation',
+        ],
+        clears: PENDING,
+        who: sys,
+      },
+      { type: 'SupplierRevalidationFailed', sets: [], clears: PENDING, who: sys },
     ],
   },
   Accepted: {

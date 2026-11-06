@@ -11,9 +11,10 @@ describe('status transitions', () => {
     }
   }
 
-  // 20 edges (ADR 0006, dispute resolution); the two Adjusting-Credit -> Open exits share one pair.
-  it('has exactly 19 distinct status pairs', () => {
-    expect(Object.values(ALLOWED).flat()).toHaveLength(19);
+  // 24 edges (ADR 0006, dispute resolution, F2 edit); the Adjusting-Credit and
+  // Revalidating-Supplier -> Open exits each share one pair.
+  it('has exactly 22 distinct status pairs', () => {
+    expect(Object.values(ALLOWED).flat()).toHaveLength(22);
   });
 });
 
@@ -37,9 +38,71 @@ describe('EDGES', () => {
     }
   });
 
-  it('has 20 edges; only Adjusting-Credit -> Open has two', () => {
+  it('lets only the requester edit an Open errand in place, before it expires (F2)', () => {
+    expect(findEdge('Open', 'Open')).toMatchObject({
+      type: 'ErrandEdited',
+      sets: [],
+      optional: ['description', 'deliveryDetail', 'collectionItems'],
+      who: ['requester'],
+      editsExpiry: true,
+      unexpiredOnly: true,
+    });
+  });
+
+  it('re-checks a new supplier or building before switching to it (F2.1.1)', () => {
+    expect(findEdge('Open', 'Revalidating-Supplier')).toMatchObject({
+      type: 'SupplierRevalidationRequested',
+      sets: ['pendingSupplierId', 'pendingDeliveryBuildingId'],
+      who: ['requester'],
+      unexpiredOnly: true,
+    });
+    expect(findEdge('Revalidating-Supplier', 'Open')).toBeUndefined(); // ambiguous without a type
+    const done = findEdge('Revalidating-Supplier', 'Open', 'SupplierRevalidated');
+    expect(done?.sets).toEqual(expect.arrayContaining(['supplierId', 'deliveryBuildingId', 'pickupName', 'deliveryLocation']));
+    expect(done?.clears).toEqual(['pendingSupplierId', 'pendingDeliveryBuildingId']);
+    expect(findEdge('Revalidating-Supplier', 'Open', 'SupplierRevalidationFailed')).toMatchObject({
+      sets: [],
+      clears: ['pendingSupplierId', 'pendingDeliveryBuildingId'],
+      who: ['system'],
+    });
+  });
+
+  it('asks supplier-service about the pending ids, under an id tied to the edit', () => {
+    const c = {
+      errandId: '11111111-1111-4111-8111-111111111111',
+      requesterId: '22222222-2222-4222-8222-222222222222',
+      courierId: null,
+      actorUserId: '22222222-2222-4222-8222-222222222222',
+      rewardCredits: 5,
+      payload: {
+        pendingSupplierId: '33333333-3333-4333-8333-333333333333',
+        pendingDeliveryBuildingId: '44444444-4444-4444-8444-444444444444',
+      },
+      attempt: 1,
+      sequenceNumber: 7,
+    };
+    const notice = findEdge('Open', 'Revalidating-Supplier')?.notice?.(c);
+    expect(notice).toEqual({
+      key: 'order.supplier-validation-requested.v1',
+      payload: {
+        errandId: c.errandId,
+        supplierId: c.payload.pendingSupplierId,
+        deliveryBuildingId: c.payload.pendingDeliveryBuildingId,
+      },
+      eventId: expect.any(String),
+    });
+    const again = findEdge('Open', 'Revalidating-Supplier')?.notice?.({ ...c, sequenceNumber: 8 });
+    expect(again?.eventId).not.toBe(notice?.eventId);
+  });
+
+  it('has 24 edges; only the Adjusting-Credit and Revalidating-Supplier -> Open pairs have two', () => {
     const edges = Object.values(EDGES).flatMap((m) => Object.values(m!)).flat();
-    expect(edges).toHaveLength(20);
+    expect(edges).toHaveLength(24);
+    for (const [from, tos] of Object.entries(EDGES)) {
+      for (const [to, e] of Object.entries(tos!)) {
+        expect(Array.isArray(e)).toBe(to === 'Open' && ['Adjusting-Credit', 'Revalidating-Supplier'].includes(from));
+      }
+    }
     expect(findEdge('Adjusting-Credit', 'Open')).toBeUndefined(); // ambiguous without a type
     expect(
       findEdge('Adjusting-Credit', 'Open', 'CreditAdjusted')?.sets,

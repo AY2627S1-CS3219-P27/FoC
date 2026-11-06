@@ -9,6 +9,8 @@ const uuid = Joi.string().uuid().required();
 const amount = Joi.number().integer().min(1);
 const reason = Joi.string().max(100).required(); // credit's rejection reason, already contract-checked
 const none = Joi.object({});
+// F1.7.2 bounds (create.ts); the edit edges turn this into expiresAt.
+const expiryDurationMinutes = Joi.number().integer().min(15).max(168 * 60);
 
 export const PAYLOADS: Record<string, Joi.ObjectSchema> = {
   // Snapshot is already contract-checked on receipt.
@@ -28,8 +30,22 @@ export const PAYLOADS: Record<string, Joi.ObjectSchema> = {
     .and('creditEventId', 'requestedAmount')
     .and('supplierEventId', 'supplierOutcome')
     .oxor('creditEventId', 'supplierEventId'),
+  // F2: pending ids ride in `set`; same supplier snapshot shape as SupplierValidated.
+  SupplierRevalidationRequested: Joi.object({ expiryDurationMinutes }),
+  SupplierRevalidated: Joi.object({ supplierEventId: uuid, supplier: Joi.object().required() }),
+  // TIMEOUT comes from the hold sweep, every other outcome from a supplier reply.
+  SupplierRevalidationFailed: Joi.object({
+    supplierOutcome: Joi.string()
+      .valid('NOT_FOUND', 'INACTIVE', 'BUILDING_NOT_FOUND', 'TIMEOUT')
+      .required(),
+    supplierEventId: Joi.string()
+      .uuid()
+      .when('supplierOutcome', { is: 'TIMEOUT', then: Joi.forbidden(), otherwise: Joi.required() }),
+  }),
   ErrandAccepted: none,
-  AdjustmentRequested: Joi.object({ newAmount: amount.required() }),
+  // Edited columns ride in `set`; only the new duration is payload.
+  ErrandEdited: Joi.object({ expiryDurationMinutes }),
+  AdjustmentRequested: Joi.object({ newAmount: amount.required(), expiryDurationMinutes }),
   CreditAdjusted: Joi.object({ creditEventId: uuid, creditTransactionId: uuid }),
   CreditAdjustmentFailed: Joi.object({
     creditEventId: uuid,

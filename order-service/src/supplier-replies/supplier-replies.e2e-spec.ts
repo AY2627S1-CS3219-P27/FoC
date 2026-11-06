@@ -151,4 +151,66 @@ describe('supplier validation reply against the database', () => {
     });
     expect(await events(id)).toHaveLength(2);
   });
+
+  describe('re-checking an edited supplier (F2.1.1)', () => {
+    // Open errand with a pending change to a new supplier and building.
+    async function revalidating() {
+      const { id, supplierId: oldSupplier } = await create();
+      await transition(t.db, {
+        errandId: id, expected: 'Pending-Supplier', to: 'Reserving-Credit', actor: SYSTEM,
+        set: { supplierValidatedAt: new Date(timestamp), pickupName: 'Old Spot', pickupLocation: 'AS6', pickupDescription: 'x', deliveryLocation: 'AS6' },
+        payload: { supplierEventId: randomUUID(), supplier: supplierSnapshot },
+      });
+      await transition(t.db, {
+        errandId: id, expected: 'Reserving-Credit', to: 'Open', actor: SYSTEM,
+        payload: { creditEventId: randomUUID(), creditTransactionId: randomUUID(), reservedAmount: 5 },
+      });
+      const supplierId = randomUUID();
+      const requester = (await row(id))!.requesterId;
+      const res = await lifecycle.transition({
+        errandId: id, expected: 'Open', to: 'Revalidating-Supplier', actor: { kind: 'user', id: requester },
+        set: { pendingSupplierId: supplierId, pendingDeliveryBuildingId: deliveryBuilding.id },
+      });
+      if (!res.ok) throw new Error(res.reason);
+      return { id, oldSupplier, supplierId };
+    }
+
+    it('switches the errand to the new supplier once, and the log rebuilds it', async () => {
+      const { id, supplierId } = await revalidating();
+      const eventId = randomUUID();
+      const reply = { errandId: id, supplierId, outcome: 'FOUND', supplier: supplierSnapshot, deliveryBuilding };
+      expect(await deliver(reply, eventId)).toEqual({ outcome: 'ack' });
+      expect(await deliver(reply, eventId)).toEqual({ outcome: 'ack' }); // redelivery
+
+      const live = await row(id);
+      expect(live).toMatchObject({
+        status: 'Open',
+        supplierId,
+        deliveryBuildingId: deliveryBuilding.id,
+        pickupName: 'Cool Spot @ COM2',
+        pendingSupplierId: null,
+        pendingDeliveryBuildingId: null,
+      });
+      expect((await events(id)).map((e) => e.type)).toEqual([
+        'ErrandCreated', 'SupplierValidated', 'CreditReserved', 'SupplierRevalidationRequested', 'SupplierRevalidated',
+      ]);
+      const { idempotencyKey: _, createdAt: __, updatedAt: ___, ...projection } = live!;
+      expect(await rebuildProjection(t.db, id)).toEqual(projection);
+    });
+
+    it('keeps the old supplier when the new one is inactive', async () => {
+      const { id, oldSupplier, supplierId } = await revalidating();
+      const res = await deliver({ errandId: id, supplierId, outcome: 'FOUND', supplier: { ...supplierSnapshot, status: 'Inactive' }, deliveryBuilding });
+      expect(res).toEqual({ outcome: 'ack' });
+      expect(await row(id)).toMatchObject({ status: 'Open', supplierId: oldSupplier, pickupName: 'Old Spot', pendingSupplierId: null });
+      expect((await events(id)).at(-1)).toMatchObject({ type: 'SupplierRevalidationFailed', payload: { supplierOutcome: 'INACTIVE' } });
+    });
+
+    it('acks a stale reply about the old supplier without touching the errand', async () => {
+      const { id, oldSupplier } = await revalidating();
+      const res = await deliver({ errandId: id, supplierId: oldSupplier, outcome: 'FOUND', supplier: supplierSnapshot, deliveryBuilding });
+      expect(res).toEqual({ outcome: 'ack' });
+      expect((await row(id))!.status).toBe('Revalidating-Supplier');
+    });
+  });
 });

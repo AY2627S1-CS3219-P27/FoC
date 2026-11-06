@@ -87,6 +87,43 @@ describe('rebuildProjection', () => {
     expect(await rebuildProjection(t.db, id)).toEqual(await liveRow(id));
   });
 
+  it('equals the live row after in-place edits and supplier revalidations (F2)', async () => {
+    const id = await create();
+    await step(id, 'Pending-Supplier', 'Reserving-Credit', supplierValidated());
+    await step(id, 'Reserving-Credit', 'Open', { payload: creditReserved() });
+    await step(id, 'Open', 'Open', {
+      actor: user(requester),
+      set: { description: 'ring twice', deliveryDetail: 'Level 5' },
+      payload: { expiryDurationMinutes: 240 },
+    });
+    const pending = () => ({ pendingSupplierId: randomUUID(), pendingDeliveryBuildingId: randomUUID() });
+    // A refused revalidation keeps the old supplier...
+    await step(id, 'Open', 'Revalidating-Supplier', { actor: user(requester), set: pending() });
+    await step(id, 'Revalidating-Supplier', 'Open', {
+      type: 'SupplierRevalidationFailed',
+      payload: { supplierEventId: randomUUID(), supplierOutcome: 'INACTIVE' },
+    });
+    // ...an accepted one switches to the new one.
+    const next = pending();
+    await step(id, 'Open', 'Revalidating-Supplier', { actor: user(requester), set: next, payload: { expiryDurationMinutes: 300 } });
+    const validated = supplierValidated();
+    await step(id, 'Revalidating-Supplier', 'Open', {
+      type: 'SupplierRevalidated',
+      payload: validated.payload,
+      set: { ...validated.set, pickupName: 'New Spot', supplierId: next.pendingSupplierId, deliveryBuildingId: next.pendingDeliveryBuildingId },
+    });
+
+    const live = await liveRow(id);
+    expect(live).toMatchObject({
+      supplierId: next.pendingSupplierId,
+      deliveryBuildingId: next.pendingDeliveryBuildingId,
+      pickupName: 'New Spot',
+      pendingSupplierId: null,
+      description: 'ring twice',
+    });
+    expect(await rebuildProjection(t.db, id)).toEqual(live);
+  });
+
   it('equals the live row when credit rejects the transfer', async () => {
     const id = await create();
     await step(id, 'Pending-Supplier', 'Reserving-Credit', supplierValidated());
