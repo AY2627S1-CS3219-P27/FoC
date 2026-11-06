@@ -24,7 +24,9 @@ HTTP requests use `/api/chats/*`, while Socket.IO uses the configured
 the WebSocket connection is established. Both routes are rewritten to private
 Communication Service through `COMMS_SERVICE_URL`.
 
-The Socket.IO client must use WebSocket transport only and rely on the
+The frontend custom server explicitly forwards `Upgrade` requests on the
+configured socket path to Communication Service and delegates other upgrades,
+including development HMR, to Next.js. The Socket.IO client must use WebSocket transport only and rely on the
 HTTP-only same-site `access_token` cookie; do not place the token in JavaScript
 storage, query parameters, auth payloads, or socket events. The rewrite must
 preserve cookies, query parameters, `Origin`, `Upgrade`, and `Connection`.
@@ -56,6 +58,16 @@ under `lib/chat/` before entering frontend state. Unknown fields, invalid IDs or
 timestamps, inconsistent grace state, malformed pagination, non-ascending
 history, and invalid acknowledgement/event shapes are rejected as contract
 failures rather than accepted through unchecked casts.
+
+`/home/chats` lists active and grace-period conversations newest first, with
+cursor pagination, unread state, and last-message summaries. Opening
+`/home/chats/[chatId]` creates one route-scoped `/chat` socket, loads the latest
+history window, and joins the authorized room. Reconnect synchronization
+buffers realtime events, refetches authoritative history, pages backward until
+it overlaps the mounted transcript, and then merges by both message ID and
+sequence. Pending sends stay outside the committed transcript and retain their
+`clientMessageId` when explicitly retried. Read commands run only after render;
+receipt labels are shown only on the authenticated caller's sent messages.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
