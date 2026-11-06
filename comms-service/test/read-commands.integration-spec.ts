@@ -222,6 +222,19 @@ describe('transactional read commands', () => {
         WHERE id = $1`,
       [chatId],
     );
+    await expect(
+      reads.markRead({
+        chatId,
+        readerUserId: requesterId,
+        throughSequence: 1,
+      }),
+    ).rejects.toMatchObject({ code: 'CHAT_ARCHIVED' });
+    const [expiredMessage] = await dataSource.query<{ read_at: Date | null }[]>(
+      'SELECT read_at FROM messages WHERE chat_id = $1',
+      [chatId],
+    );
+    expect(expiredMessage!.read_at).toBeNull();
+
     await dataSource.query(
       `INSERT INTO chat_archives
        (id, chat_id, errand_id, requester_user_id, courier_user_id, snapshot)
