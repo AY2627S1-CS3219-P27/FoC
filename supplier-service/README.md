@@ -622,8 +622,8 @@ Pending migrations are applied automatically on startup (`DB_MIGRATIONS_RUN`, de
 
 | Message | Routing key | Sent by | Contents |
 |---|---|---|---|
-| The question | `order.supplier-validation-requested.v1` | order-service | `errandId`, `supplierId` |
-| The answer | `supplier.validation-completed.v1` | supplier-service | `errandId`, `supplierId`, `outcome`: `FOUND` with the supplier's status, version, name, display name, building, floor, location description and coordinates, or `NOT_FOUND` |
+| The question | `order.supplier-validation-requested.v1` | order-service | `errandId`, `supplierId`, `deliveryBuildingId` |
+| The answer | `supplier.validation-completed.v1` | supplier-service | `errandId`, `supplierId`, `outcome`: `FOUND` with the supplier's status, version, name, display name, building, floor, location description and coordinates, plus the delivery building (`id`, `shortName`, `canonicalName`); `NOT_FOUND` (no such supplier); or `BUILDING_NOT_FOUND` (the supplier exists, the delivery building doesn't) |
 
 **Why messages, not an API call:**
 - Order Service already waits in `Pending-Supplier`.
@@ -646,7 +646,7 @@ sequenceDiagram
         C->>MQ: dead-letter (…requested.v1.dlq), no retry
     else valid
         C->>DB: one transaction: lock event id, inbox already has it? → skip
-        C->>DB: look up supplier → build FOUND / NOT_FOUND reply, check it against its contract
+        C->>DB: look up supplier, then the delivery building → build FOUND / NOT_FOUND / BUILDING_NOT_FOUND reply, check it against its contract
         C->>DB: insert reply into outbox_events + request into inbox_events, commit
         C->>MQ: acknowledge (only after the commit)
         R->>DB: claim unpublished replies
@@ -659,7 +659,9 @@ sequenceDiagram
 **The rules:**
 - **Facts only.** An Inactive supplier is `FOUND` with `status: "Inactive"`; Order Service decides what that means for the errand (F15.2).
 - **Exactly one answer per question.** `inbox_events` records each answered request, keyed by its event id, with the reply it produced, in the same transaction as the reply in `outbox_events` (F15.7.3). A redelivery is acknowledged without a second reply (F15.7.4); an event id reused for different content is dead-lettered.
-- **`NOT_FOUND` means "does not exist"**, never "couldn't read the database" (F15.7.5).
+- **Temporary rollout bridge.** Until Order Service's change is in main, the contract makes `deliveryBuildingId` (and the `FOUND` reply's `deliveryBuilding`) optional. A question without a building id is answered the old way: `FOUND` with no building check. This is removed, with its tests, when the contract makes the field required again (marked `TODO(rollout)` in `src/validation/supplier-validation.service.ts`).
+- **Delivery building checked in the same round trip** (Order Service ADR 0011). The building is checked only for a supplier that exists: `NOT_FOUND` (no supplier) wins over `BUILDING_NOT_FOUND`. A retired building counts as unknown, so Order Service only needs to say "pick another building".
+- **`NOT_FOUND` and `BUILDING_NOT_FOUND` mean "does not exist"**, never "couldn't read the database" (F15.7.5).
 - **Bad questions aren't retried:** missing or unknown fields, or not from `order-service`, go straight to the dead-letter queue and are logged (F15.7.6, F13.7).
 - **Acknowledged only after the reply is committed** to the outbox (F15.7.8). The relay publishes it with broker confirmation (`@foc/outbox`).
 
@@ -677,22 +679,26 @@ sequenceDiagram
 
 **Tests:**
 - unit: the handler's outcomes, the consumer start-up, and the shared broker setup (`rabbitmq-topology.contract.spec.ts`)
-- integration, against real PostgreSQL: FOUND / Inactive / NOT_FOUND, a redelivery, two copies at once, a reused event id, a data-store failure that writes nothing
+- integration, against real PostgreSQL: FOUND (with the building) / Inactive / NOT_FOUND / BUILDING_NOT_FOUND (unknown and retired), a redelivery, two copies at once, a reused event id, a data-store failure that writes nothing
 - `test:messaging`, against a real throwaway RabbitMQ: one question → exactly one reply, a redelivery → one reply, malformed → dead-letter
 
 **Demo (D3):** `npm run db:test:up && npm run broker:test:up && npm run demo:validation`. It runs the real consumer, handler, outbox and relay against the test broker and test database, plays Order Service's part, and prints:
 
 ```
 1. An Active supplier
-  → Order Service asks (event a3d37432): is supplier 07ea8c47 OK?
-  ← Supplier Service answers: FOUND: Cool Spot @ COM2, Active, version 1, floor 1
+  → Order Service asks (event a3d37432): is supplier 07ea8c47 OK, and delivery building 5c1e9b20?
+  ← Supplier Service answers: FOUND: Cool Spot @ COM2, Active, version 1, floor 1; deliver to COM2 (Computing 2)
 2. An Inactive supplier (Order Service decides what that means)
   ← Supplier Service answers: FOUND: Old Kiosk @ COM2, Inactive, version 2, floor 2
 3. A supplier that does not exist
   ← Supplier Service answers: NOT_FOUND
-4. The same question delivered twice
+4. A real supplier, but an unknown delivery building
+  ← Supplier Service answers: BUILDING_NOT_FOUND
+5. Neither exists (the missing supplier is reported first)
+  ← Supplier Service answers: NOT_FOUND
+6. The same question delivered twice
   → … no second answer: it was already in the inbox
-5. A malformed question
+7. A malformed question
   ✗ moved to the dead-letter queue …requested.v1.dlq, no answer, no retry
 ```
 

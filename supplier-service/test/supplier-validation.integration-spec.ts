@@ -38,19 +38,21 @@ const config = {
 
 const request = (
   supplierId: string,
+  deliveryBuildingId: string,
   eventId: string = randomUUID(),
 ): SupplierValidationRequestedEvent => ({
   eventId,
   eventType: 'SupplierValidationRequested',
   timestamp: '2026-10-20T10:00:00.000Z',
   publisher: 'order-service',
-  payload: { errandId: randomUUID(), supplierId },
+  payload: { errandId: randomUUID(), supplierId, deliveryBuildingId },
 });
 
 describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
   let dataSource: DataSource;
   let suppliers: SuppliersService;
   let queries: SupplierQueriesService;
+  let buildings: BuildingsService;
   let validation: SupplierValidationService;
   let contracts: AccountEventContractValidator;
   let com2: Building;
@@ -73,10 +75,16 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
 
     suppliers = new SuppliersService(dataSource, config);
     queries = new SupplierQueriesService(dataSource, config);
+    buildings = new BuildingsService(
+      dataSource,
+      dataSource.getRepository(Building),
+      dataSource.getRepository(BuildingNameKey),
+    );
     contracts = new AccountEventContractValidator();
     validation = new SupplierValidationService(
       dataSource,
       queries,
+      buildings,
       contracts,
       config,
     );
@@ -92,11 +100,6 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
                supplier_categories, suppliers, categories,
                building_name_keys, buildings
     `);
-    const buildings = new BuildingsService(
-      dataSource,
-      dataSource.getRepository(Building),
-      dataSource.getRepository(BuildingNameKey),
-    );
     com2 = await buildings.create({
       canonicalName: 'Computing 2',
       shortName: 'COM2',
@@ -123,7 +126,7 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
   const outbox = () => dataSource.getRepository(OutboxEvent).find();
   const inbox = () => dataSource.getRepository(InboxEvent).find();
 
-  it('answers on the transaction\'s own connection, so one pooled connection is enough', async () => {
+  it("answers on the transaction's own connection, so one pooled connection is enough", async () => {
     const { id } = await coolSpot();
     // A pool of one: a lookup on a second connection would wait for the
     // transaction's connection, and fail after the acquire timeout.
@@ -137,11 +140,16 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
       const singleValidation = new SupplierValidationService(
         single,
         new SupplierQueriesService(single, config),
+        new BuildingsService(
+          single,
+          single.getRepository(Building),
+          single.getRepository(BuildingNameKey),
+        ),
         contracts,
         config,
       );
 
-      const result = await singleValidation.process(request(id));
+      const result = await singleValidation.process(request(id, com2.id));
 
       expect(result).toMatchObject({ status: 'answered', outcome: 'FOUND' });
     } finally {
@@ -151,7 +159,7 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
 
   it('answers FOUND with the supplier snapshot, recording request and reply together (F15.7.2, F15.7.3)', async () => {
     const { id } = await coolSpot();
-    const question = request(id);
+    const question = request(id, com2.id);
 
     const result = await validation.process(question);
 
@@ -182,6 +190,11 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
           locationDescription: 'Next to LT19',
           coordinates: { latitude: 1.294, longitude: 103.7738 },
         },
+        deliveryBuilding: {
+          id: com2.id,
+          shortName: 'COM2',
+          canonicalName: 'Computing 2',
+        },
       },
     });
     // The stored reply is exactly what the shared contract accepts.
@@ -198,7 +211,7 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
     const { id } = await coolSpot();
     await suppliers.changeStatus(id, 1, SupplierStatus.Inactive);
 
-    await validation.process(request(id));
+    await validation.process(request(id, com2.id));
 
     const [reply] = await outbox();
     expect(reply.envelope).toMatchObject({
@@ -210,7 +223,7 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
   });
 
   it('answers NOT_FOUND, without a snapshot, for a supplier that does not exist', async () => {
-    const result = await validation.process(request(randomUUID()));
+    const result = await validation.process(request(randomUUID(), com2.id));
 
     expect(result).toMatchObject({ status: 'answered', outcome: 'NOT_FOUND' });
     const [reply] = await outbox();
@@ -222,9 +235,69 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
     ).not.toHaveProperty('supplier');
   });
 
+  it('answers BUILDING_NOT_FOUND, without a snapshot, when the supplier exists but the delivery building is unknown', async () => {
+    const { id } = await coolSpot();
+
+    const result = await validation.process(request(id, randomUUID()));
+
+    expect(result).toMatchObject({
+      status: 'answered',
+      outcome: 'BUILDING_NOT_FOUND',
+    });
+    const [reply] = await outbox();
+    const payload = (reply.envelope as { payload: Record<string, unknown> })
+      .payload;
+    expect(payload).toMatchObject({ outcome: 'BUILDING_NOT_FOUND' });
+    expect(payload).not.toHaveProperty('supplier');
+    expect(payload).not.toHaveProperty('deliveryBuilding');
+    expect(
+      contracts.validate('supplier.validation-completed.v1', reply.envelope)
+        .valid,
+    ).toBe(true);
+  });
+
+  it('treats a retired delivery building like an unknown one', async () => {
+    const { id } = await coolSpot();
+    const old = await buildings.create({
+      canonicalName: 'Old Block',
+      shortName: 'OLD',
+      aliases: [],
+      latitude: 1.295,
+      longitude: 103.775,
+    });
+    await buildings.retire(old.id);
+
+    const result = await validation.process(request(id, old.id));
+
+    expect(result).toMatchObject({ outcome: 'BUILDING_NOT_FOUND' });
+  });
+
+  it('answers NOT_FOUND when both the supplier and the building are unknown', async () => {
+    const result = await validation.process(
+      request(randomUUID(), randomUUID()),
+    );
+
+    expect(result).toMatchObject({ outcome: 'NOT_FOUND' });
+  });
+
+  it('reports an event id reused with a different building as a conflict', async () => {
+    const { id } = await coolSpot();
+    const question = request(id, com2.id);
+    await validation.process(question);
+
+    const result = await validation.process(
+      request(id, randomUUID(), question.eventId),
+    );
+
+    expect(result).toEqual({
+      status: 'event-id-conflict',
+      eventId: question.eventId,
+    });
+  });
+
   it('answers a redelivered request only once (F15.7.4)', async () => {
     const { id } = await coolSpot();
-    const question = request(id);
+    const question = request(id, com2.id);
 
     const first = await validation.process(question);
     const again = await validation.process(structuredClone(question));
@@ -239,7 +312,7 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
 
   it('answers only once when the same request arrives twice at the same moment', async () => {
     const { id } = await coolSpot();
-    const question = request(id);
+    const question = request(id, com2.id);
 
     const results = await Promise.all([
       validation.process(question),
@@ -255,11 +328,11 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
 
   it('reports an event id reused for a different request, writing nothing', async () => {
     const { id } = await coolSpot();
-    const question = request(id);
+    const question = request(id, com2.id);
     await validation.process(question);
 
     const result = await validation.process(
-      request(randomUUID(), question.eventId),
+      request(randomUUID(), com2.id, question.eventId),
     );
 
     expect(result).toEqual({
@@ -275,13 +348,14 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
       {
         get: () => Promise.reject(new Error('connection terminated')),
       } as unknown as SupplierQueriesService,
+      buildings,
       contracts,
       config,
     );
 
-    await expect(failing.process(request(randomUUID()))).rejects.toThrow(
-      'connection terminated',
-    );
+    await expect(
+      failing.process(request(randomUUID(), com2.id)),
+    ).rejects.toThrow('connection terminated');
     await expect(outbox()).resolves.toHaveLength(0);
     await expect(inbox()).resolves.toHaveLength(0);
   });

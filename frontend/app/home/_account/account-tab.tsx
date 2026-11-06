@@ -9,6 +9,7 @@ import { List, ListRow, PageHeader, Section } from "@/components/ui/layout";
 import { Sheet } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import type { CreditBalance, CreditBalanceStatus, UserProfile } from "../_shared/types";
+import { PushNotificationsCard } from "../_notifications/push-settings";
 import { ArchiveAccount } from "./archive-account";
 
 const ROLES = [
@@ -125,6 +126,8 @@ export function AccountTab({
           ))}
         </ul>
       </Section>
+
+      <PushNotificationsCard />
 
       <Section title="Security">
         <ul>

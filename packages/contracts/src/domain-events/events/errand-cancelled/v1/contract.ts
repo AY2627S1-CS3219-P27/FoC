@@ -13,5 +13,6 @@ export const errandCancelledV1Contract =
     routingKey: ORDER_ERRAND_CANCELLED_V1_ROUTING_KEY,
     eventType: 'ErrandCancelled',
     publisher: 'order-service',
+    kind: 'event',
     schema,
   });

@@ -23,6 +23,14 @@ include:
     env_file:
       - env/shared.env
       - env/credit-service.env
+  - path: notification-service/compose.yml
+    env_file:
+      - env/shared.env
+      - env/notification-service.env
+  - path: comms-service/compose.yml
+    env_file:
+      - env/shared.env
+      - env/comms-service.env
 
 services:
   rabbitmq:
@@ -170,7 +178,21 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  comms-service:
+    networks: [internal]
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   supplier-service:
+    networks: [internal]
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  notification-service:
     networks: [internal]
     depends_on:
       rabbitmq:
@@ -192,6 +214,10 @@ services:
   order-db:
     networks: [internal]
   credit-db:
+    networks: [internal]
+  notification-db:
+    networks: [internal]
+  comms-db:
     networks: [internal]
 
 # Communication isolation: the browser talks only to the frontend (public);

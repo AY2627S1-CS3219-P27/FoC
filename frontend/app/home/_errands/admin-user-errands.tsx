@@ -5,7 +5,7 @@ import { api, errorText } from "@/lib/api";
 import { FilterSelect } from "@/components/ui/field";
 import { BoxIcon } from "@/components/ui/icons";
 import { EmptyState, IconTile, SkeletonList } from "@/components/ui/layout";
-import { ERRAND_STATUSES, type AdminErrand, type Page } from "./types";
+import { ERRAND_STATUSES, formatDelivery, type AdminErrand, type Page } from "./types";
 import { formatCredits, formatTime, shortId, statusColor, StatusBadge } from "./ui";
 
 // Pushed inside a user's sheet: their errands as requester or courier, with the internal sub-state admins need.
@@ -72,7 +72,7 @@ export function AdminUserErrands({ user }: { user: { uuid: string; displayName: 
               <div className="row-content ml-3 min-w-0 flex-1 border-border py-3 pr-4">
                 <div className="flex items-baseline justify-between gap-3">
                   <span className="truncate text-[15px] font-semibold">
-                    {e.pickupLocation ?? "—"} → {e.deliveryLocation}
+                    {e.pickupLocation ?? "—"} → {formatDelivery(e)}
                   </span>
                   <span className="tabular shrink-0 text-[15px] font-semibold text-nus-orange">
                     {formatCredits(e.rewardCredits)}

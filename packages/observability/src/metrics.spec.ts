@@ -1,6 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { ServerResponse, IncomingMessage } from 'node:http';
-import { initMetrics, createMetricsHandler, createLabeledCounter, METRICS_PREFIX } from '../src/metrics.js';
+import {
+  initMetrics,
+  createMetricsHandler,
+  createLabeledCounter,
+  createLabeledGauge,
+  createLabeledHistogram,
+  METRICS_PREFIX,
+} from '../src/metrics.js';
 
 describe('metrics', () => {
   beforeEach(() => {
@@ -53,5 +60,41 @@ describe('metrics', () => {
 
   it('uses the correct metrics prefix', () => {
     expect(METRICS_PREFIX).toBe('foc_');
+  });
+
+  it('creates a labeled gauge', async () => {
+    const gauge = createLabeledGauge('test_active', 'active items', ['kind']);
+    gauge.inc({ kind: 'socket' });
+    gauge.dec({ kind: 'socket' });
+
+    const handler = createMetricsHandler();
+    const chunks: string[] = [];
+    const response = {
+      setHeader: vi.fn(),
+      end: vi.fn((chunk: string) => chunks.push(chunk)),
+    };
+    await handler({} as never, response as never);
+    expect(chunks.join('')).toContain('foc_test_active{kind="socket"} 0');
+  });
+
+  it('creates labeled histograms with explicit buckets', async () => {
+    const histogram = createLabeledHistogram(
+      'test_duration_seconds',
+      'test duration',
+      ['route'],
+      [0.1, 1],
+    );
+    histogram.observe({ route: '/test' }, 0.5);
+
+    const handler = createMetricsHandler();
+    const chunks: string[] = [];
+    const response = {
+      setHeader: vi.fn(),
+      end: vi.fn((chunk: string) => chunks.push(chunk)),
+    };
+    await handler({} as never, response as never);
+    expect(chunks.join('')).toContain(
+      'foc_test_duration_seconds_bucket{le="1",route="/test"} 1',
+    );
   });
 });

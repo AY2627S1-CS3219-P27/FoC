@@ -66,7 +66,7 @@ export async function authFetch(input: string, init: RequestInit = {}): Promise<
 }
 
 export async function api<T = unknown>(
-  method: "GET" | "POST" | "PATCH" | "PUT",
+  method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
   path: string,
   options: { body?: unknown; idempotencyKey?: string; ifMatch?: string } = {},
 ): Promise<ApiResult<T>> {

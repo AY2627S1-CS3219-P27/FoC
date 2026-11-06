@@ -16,6 +16,7 @@ import { CreateErrandForm } from "./create-errand-form";
 import { ErrandDetail } from "./errand-detail";
 import {
   ERRAND_STATUSES,
+  formatDelivery,
   type BuildingOption,
   type Errand,
   type Page,
@@ -367,7 +368,7 @@ function ErrandRow({
             <span className="mt-0.5 flex items-start justify-between gap-3 text-[13px] text-muted">
               {/* The route wraps to a second line instead of cutting the pickup building short. */}
               <span className="line-clamp-2 min-w-0 break-words">
-                {errand.pickupLocation ?? "—"} → {errand.deliveryLocation}
+                {errand.pickupLocation ?? "—"} → {formatDelivery(errand)}
               </span>
               <span className="shrink-0">{meta}</span>
             </span>

@@ -7,6 +7,7 @@ import { ErrandsTab } from "./_errands/errands-tab";
 import { SupplierRequestsTab } from "./_admin/supplier-requests-tab";
 import { UsersTab } from "./_admin/users-tab";
 import { AccountTab } from "./_account/account-tab";
+import { PushRegistrationSync } from "./_notifications/push-registration";
 import { SuppliersTab } from "./_suppliers/suppliers-tab";
 import { AppShell } from "./_shell/app-shell";
 import {
@@ -285,6 +286,7 @@ function Home() {
 
   return (
     <AppShell tabs={tabs} tab={tab} onTab={goTo} user={user} signingOut={signingOut} onSignOut={() => void signOut()}>
+      <PushRegistrationSync />
       <div key={tab} className="tab-enter">
         {tab === "errands" && user.roles.length > 0 && (
           <ErrandsTab me={user.uuid} roles={user.roles} buildings={buildings} />

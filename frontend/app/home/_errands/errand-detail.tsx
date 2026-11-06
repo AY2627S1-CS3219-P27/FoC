@@ -11,6 +11,7 @@ import { Sheet } from "@/components/ui/sheet";
 import {
   ACTION_LABELS,
   availableActions,
+  formatDelivery,
   type ActionName,
   type Errand,
   type SupplierOption,
@@ -171,7 +172,7 @@ export function ErrandDetail({
                 <span className="mt-0.5 block text-[13px] text-muted">{errand.pickupDescription}</span>
               )}
             </DetailRow>
-            <DetailRow label="Deliver to">{errand.deliveryLocation}</DetailRow>
+            <DetailRow label="Deliver to">{formatDelivery(errand)}</DetailRow>
           </Section>
 
           <Section title="Request">

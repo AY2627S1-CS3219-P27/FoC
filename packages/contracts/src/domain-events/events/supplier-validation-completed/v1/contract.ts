@@ -9,7 +9,31 @@ import schema from './schema.json' with { type: 'json' };
 export const SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY =
   'supplier.validation-completed.v1';
 
-export type SupplierValidationOutcome = 'FOUND' | 'NOT_FOUND';
+/**
+ * NOT_FOUND: the supplier does not exist (it wins when the building is unknown
+ * too). BUILDING_NOT_FOUND: the supplier exists but the delivery building does not.
+ * VENUE_NOT_FOUND: supplier and building exist but the venue is unknown,
+ * retired, or belongs to another building.
+ */
+export type SupplierValidationOutcome =
+  | 'FOUND'
+  | 'NOT_FOUND'
+  | 'BUILDING_NOT_FOUND'
+  | 'VENUE_NOT_FOUND';
+
+export interface DeliveryBuildingSnapshot {
+  id: string;
+  shortName: string;
+  canonicalName: string;
+}
+
+export interface DeliveryVenueSnapshot {
+  id: string;
+  code: string;
+  name: string | null;
+  floor: string;
+  coordinates: { latitude: number; longitude: number };
+}
 
 /** The supplier's current details, enough for a consumer's own copy (F15.1). */
 export interface SupplierValidationSnapshot {
@@ -27,8 +51,15 @@ export type SupplierValidationCompletedPayload = {
   errandId: string;
   supplierId: string;
 } & (
-  | { outcome: 'FOUND'; supplier: SupplierValidationSnapshot }
+  | {
+      outcome: 'FOUND';
+      supplier: SupplierValidationSnapshot;
+      deliveryBuilding: DeliveryBuildingSnapshot;
+      deliveryVenue?: DeliveryVenueSnapshot;
+    }
   | { outcome: 'NOT_FOUND' }
+  | { outcome: 'BUILDING_NOT_FOUND' }
+  | { outcome: 'VENUE_NOT_FOUND' }
 );
 
 export const supplierValidationCompletedV1Contract =
@@ -36,5 +67,6 @@ export const supplierValidationCompletedV1Contract =
     routingKey: SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY,
     eventType: 'SupplierValidationCompleted',
     publisher: 'supplier-service',
+    kind: 'event',
     schema,
   });

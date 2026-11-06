@@ -50,43 +50,43 @@ describe('Credit Service predeclared RabbitMQ topology', () => {
 
     expect(creditQueues).toEqual([
       {
-        arguments: {},
+        arguments: { 'x-queue-type': 'quorum' },
         auto_delete: false,
         durable: true,
         name: 'credit-service.user-registered.v1',
-        type: 'classic',
+        type: 'quorum',
         vhost: '/foc',
       },
       {
-        arguments: {},
+        arguments: { 'x-queue-type': 'quorum' },
         auto_delete: false,
         durable: true,
         name: 'credit-service.credit-reservation.v1',
-        type: 'classic',
+        type: 'quorum',
         vhost: '/foc',
       },
       {
-        arguments: {},
+        arguments: { 'x-queue-type': 'quorum' },
         auto_delete: false,
         durable: true,
         name: 'credit-service.credit-reservation-adjustment.v1',
-        type: 'classic',
+        type: 'quorum',
         vhost: '/foc',
       },
       {
-        arguments: {},
+        arguments: { 'x-queue-type': 'quorum' },
         auto_delete: false,
         durable: true,
         name: 'credit-service.order-errand-completed.v1',
-        type: 'classic',
+        type: 'quorum',
         vhost: '/foc',
       },
       {
-        arguments: {},
+        arguments: { 'x-queue-type': 'quorum' },
         auto_delete: false,
         durable: true,
         name: 'credit-service.order-errand-cancelled.v1',
-        type: 'classic',
+        type: 'quorum',
         vhost: '/foc',
       },
     ]);
@@ -182,13 +182,17 @@ describe('Credit Service predeclared RabbitMQ topology', () => {
   });
 
   it('routes release rejection without declaring an unused success queue', () => {
+    // Release-success is intentionally not consumed by order-service. This
+    // guards consumer queues; the pub/sub forwarding of the event contract is
+    // asserted by the @foc/contracts registry drift test.
     const releaseQueues = definitions.queues.filter(({ name }) =>
       name.startsWith('order-service.credit-release-'),
     );
     const releaseBindings = definitions.bindings.filter(
-      ({ destination, routing_key: routingKey }) =>
+      ({ destination, destination_type, routing_key: routingKey }) =>
         destination.startsWith('order-service.credit-release-') ||
-        routingKey === 'credit.release-success.v1',
+        (routingKey === 'credit.release-success.v1' &&
+          destination_type === 'queue'),
     );
 
     expect(releaseQueues).toEqual([

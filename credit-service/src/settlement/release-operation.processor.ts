@@ -312,15 +312,10 @@ export class ReleaseOperationProcessor {
         'Release operation disagrees with authoritative requester context',
       );
     }
-    if (operation.amount !== null && operation.amount !== amount) {
-      throw new CreditReleaseExecutionError(
-        'Release operation disagrees with authoritative amount context',
-      );
-    }
     const changed =
-      operation.requesterUserId === null || operation.amount === null;
+      operation.requesterUserId === null || operation.amount !== amount;
     operation.requesterUserId ??= requesterUserId;
-    operation.amount ??= amount;
+    operation.amount = amount;
     return changed;
   }
 
@@ -343,15 +338,6 @@ export class ReleaseOperationProcessor {
     ) {
       throw new CreditReleaseExecutionError(
         'Reservation and reserve operation disagree on requester',
-      );
-    }
-    if (
-      reserveOperation?.amount !== null &&
-      reserveOperation?.amount !== undefined &&
-      reserveOperation.amount !== reservation.reservedAmount
-    ) {
-      throw new CreditReleaseExecutionError(
-        'Reservation and reserve operation disagree on amount',
       );
     }
   }

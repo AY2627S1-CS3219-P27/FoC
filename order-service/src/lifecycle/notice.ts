@@ -13,8 +13,11 @@ export interface NoticeContext {
   errandId: string;
   requesterId: string;
   courierId: string | null;
+  actorUserId: string | null;
   rewardCredits: number;
   payload: Record<string, unknown>;
+  // Events of this edge's type on the errand, this one included (credit.settlement.v1).
+  attempt: number;
 }
 
 // `key` is the contract's routing key; builders may return undefined to skip.
@@ -81,10 +84,14 @@ export const enqueueSupplierRequest = (
   db: Db,
   errandId: string,
   supplierId: string,
+  deliveryBuildingId: string,
   attempt: number,
 ) =>
   enqueueNotice(
     db,
-    { key: 'order.supplier-validation-requested.v1', payload: { errandId, supplierId } },
+    {
+      key: 'order.supplier-validation-requested.v1',
+      payload: { errandId, supplierId, deliveryBuildingId },
+    },
     supplierRequestId(errandId, attempt),
   );

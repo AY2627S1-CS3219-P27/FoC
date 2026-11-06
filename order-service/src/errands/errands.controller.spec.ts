@@ -42,7 +42,8 @@ describe('ErrandsController', () => {
 
   const validBody = {
     supplierId: randomUUID(),
-    deliveryLocation: 'COM2',
+    deliveryBuildingId: randomUUID(),
+    deliveryDetail: 'Level 3 04-02',
     rewardCredits: 5,
     expiryDurationMinutes: 60,
     collectionItems: 'bubble tea',
@@ -99,7 +100,12 @@ describe('ErrandsController', () => {
     it.each([
       ['a missing supplierId', { ...validBody, supplierId: undefined }],
       ['a non-uuid supplierId', { ...validBody, supplierId: 'abc' }],
-      ['a blank deliveryLocation', { ...validBody, deliveryLocation: '   ' }],
+      ['a missing deliveryBuildingId', { ...validBody, deliveryBuildingId: undefined }],
+      ['a non-uuid deliveryBuildingId', { ...validBody, deliveryBuildingId: 'COM2' }],
+      ['a missing deliveryDetail', { ...validBody, deliveryDetail: undefined }],
+      ['a blank deliveryDetail', { ...validBody, deliveryDetail: '   ' }],
+      ['an over-long deliveryDetail', { ...validBody, deliveryDetail: 'x'.repeat(201) }],
+      ['only the old deliveryLocation', { ...validBody, deliveryBuildingId: undefined, deliveryDetail: undefined, deliveryLocation: 'COM2' }],
       ['zero rewardCredits', { ...validBody, rewardCredits: 0 }],
       ['a string rewardCredits', { ...validBody, rewardCredits: '5' }],
       ['rewardCredits past the Postgres integer limit', { ...validBody, rewardCredits: MAX_INT + 1 }],
@@ -113,6 +119,12 @@ describe('ErrandsController', () => {
     ])('rejects %s before reaching the lifecycle', async (_, body) => {
       expect((await post(body, await signAccessToken())).status).toBe(400);
       expect(lifecycle.create).not.toHaveBeenCalled();
+    });
+
+    it('strips a stray deliveryLocation before the lifecycle', async () => {
+      lifecycle.create.mockResolvedValue({ ok: true, errandId: 'e1' });
+      expect((await post({ ...validBody, deliveryLocation: 'COM2' }, await signAccessToken())).status).toBe(201);
+      expect(lifecycle.create.mock.calls[0][0]).not.toHaveProperty('deliveryLocation');
     });
 
     it('takes rewardCredits at the Postgres integer limit', async () => {
