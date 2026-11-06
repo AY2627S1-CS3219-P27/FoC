@@ -27,9 +27,9 @@ interface OpenBuilding {
 
 /**
  * Loads the delivery venues from the seed JSON on startup whenever
- * VENUE_SEED_PATH is set, independent of SEED_ON_STARTUP and of whether
- * suppliers exist. Only ever adds: a venue already present (retired or not)
- * is left as it is, a retired building gets none, and rows flagged for review
+ * VENUE_SEED_PATH is set and no venue exists yet, independent of
+ * SEED_ON_STARTUP and of whether suppliers exist. Only ever adds: a venue
+ * already present (retired or not) is left as it is, a retired building gets none, and rows flagged for review
  * are skipped and logged. Re-running changes nothing. A missing or malformed
  * file fails startup.
  */
@@ -47,6 +47,13 @@ export class VenueSeedService implements OnApplicationBootstrap {
   async onApplicationBootstrap(): Promise<void> {
     if (!this.config.get('VENUE_SEED_PATH', { infer: true })) {
       this.logger.debug('Skipping venue seed: VENUE_SEED_PATH is not set.');
+      return;
+    }
+    // Only ever the first fill, like the supplier seed: matching by name would
+    // recreate a building (and its venues) after an admin renamed it. Once any
+    // venue exists, the data is the admins'.
+    if (await this.venues.hasAny()) {
+      this.logger.log('Skipping venue seed: venues already exist.');
       return;
     }
     await this.load();

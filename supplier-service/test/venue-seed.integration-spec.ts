@@ -64,7 +64,7 @@ describe('venue seed (real PostgreSQL)', () => {
 
   beforeEach(async () => {
     await dataSource.query(`
-      TRUNCATE supplier_requests, supplier_categories, suppliers, categories,
+      TRUNCATE supplier_requests, supplier_categories, supplier_opening_intervals, suppliers, brands, categories,
                venues, building_name_keys, buildings
     `);
     config = {
@@ -356,6 +356,23 @@ describe('venue seed (real PostgreSQL)', () => {
     expect(await dataSource.getRepository(Building).count()).toBe(
       BUILDING_COUNT,
     );
+  });
+
+  it('does not recreate a renamed building on the next startup', async () => {
+    await venueSeed.onApplicationBootstrap();
+    const building = (await dataSource.getRepository(Building).find()).find(
+      (b) => b.shortName !== 'PIN',
+    )!;
+    await buildings.updateNames(building.id, {
+      canonicalName: 'Renamed',
+      shortName: 'RN',
+      aliases: [],
+    });
+    const before = await dataSource.getRepository(Building).count();
+
+    await venueSeed.onApplicationBootstrap();
+
+    expect(await dataSource.getRepository(Building).count()).toBe(before);
   });
 
   it('loads on startup whenever the path is set, even with the supplier seed off', async () => {

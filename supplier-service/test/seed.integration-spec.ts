@@ -135,10 +135,10 @@ describe('seed import (real PostgreSQL)', () => {
        FROM audit_entries WHERE id > $1 GROUP BY action, actor_id`,
       [last],
     );
-    // 14 buildings, 4 categories and 21 suppliers, none by a user.
+    // Every building of the seed file (62, with the map pin), 4 categories and 21 suppliers, none by a user.
     expect(Object.fromEntries(added.map((row) => [row.action, row.n]))).toEqual(
       {
-        'building.created': 14,
+        'building.created': 62,
         'category.created': 4,
         'supplier.created': 21,
       },

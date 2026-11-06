@@ -80,6 +80,11 @@ export class VenuesService {
     });
   }
 
+  /** Whether any venue exists, retired or not. */
+  hasAny(): Promise<boolean> {
+    return this.venues.exists();
+  }
+
   /** Every code in the building, retired venues included. */
   async codesIn(buildingId: string): Promise<Set<string>> {
     const rows = await this.venues.find({
