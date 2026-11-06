@@ -29,7 +29,12 @@
               "format": "uuid"
             },
             "outcome": {
-              "enum": ["FOUND", "NOT_FOUND", "BUILDING_NOT_FOUND"]
+              "enum": [
+                "FOUND",
+                "NOT_FOUND",
+                "BUILDING_NOT_FOUND",
+                "VENUE_NOT_FOUND"
+              ]
             },
             "supplier": {
               "type": "object",
@@ -126,6 +131,46 @@
                   "minLength": 1
                 }
               }
+            },
+            "deliveryVenue": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "code", "name", "floor", "coordinates"],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "code": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "name": {
+                  "type": ["string", "null"],
+                  "minLength": 1
+                },
+                "floor": {
+                  "type": "string",
+                  "pattern": "^(B[1-9]|[1-9][0-9]?|M)$"
+                },
+                "coordinates": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["latitude", "longitude"],
+                  "properties": {
+                    "latitude": {
+                      "type": "number",
+                      "minimum": -90,
+                      "maximum": 90
+                    },
+                    "longitude": {
+                      "type": "number",
+                      "minimum": -180,
+                      "maximum": 180
+                    }
+                  }
+                }
+              }
             }
           },
           "if": {
@@ -140,20 +185,23 @@
             "type": "object",
             "properties": {
               "supplier": true,
-              "deliveryBuilding": true
+              "deliveryBuilding": true,
+              "deliveryVenue": true
             },
-            "required": ["supplier"]
+            "required": ["supplier", "deliveryBuilding"]
           },
           "else": {
             "type": "object",
             "properties": {
               "supplier": true,
-              "deliveryBuilding": true
+              "deliveryBuilding": true,
+              "deliveryVenue": true
             },
             "not": {
               "anyOf": [
                 { "required": ["supplier"] },
-                { "required": ["deliveryBuilding"] }
+                { "required": ["deliveryBuilding"] },
+                { "required": ["deliveryVenue"] }
               ]
             }
           }

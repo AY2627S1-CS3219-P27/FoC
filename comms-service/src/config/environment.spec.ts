@@ -32,22 +32,11 @@ describe('environmentSchema', () => {
     expect(environment.REDIS_DB_INDEX).toBe(0);
     expect(environment.SOCKET_PATH).toBe('/socket.io');
     expect(environment.SOCKET_ALLOWED_ORIGINS).toEqual([
-      'http://localhost:3000',
+      'http://localhost:3001',
     ]);
     expect(environment.SOCKET_TRANSPORT).toBe('websocket');
-    expect(environment.RABBITMQ_EXCHANGE).toBe('foc.events');
-    expect(environment.RABBITMQ_ORDER_ERRAND_ACCEPTED_QUEUE).toBe(
-      'comms-service.order-errand-accepted.v1',
-    );
-    expect(environment.RABBITMQ_ORDER_ERRAND_DELIVERED_QUEUE).toBe(
-      'comms-service.order-errand-delivered.v1',
-    );
-    expect(environment.RABBITMQ_ORDER_COURIER_CANCELLED_QUEUE).toBe(
-      'comms-service.order-courier-cancelled.v1',
-    );
-    expect(environment.RABBITMQ_ORDER_ERRAND_CANCELLED_QUEUE).toBe(
-      'comms-service.order-errand-cancelled.v1',
-    );
+    expect(environment.RABBITMQ_PUBSUB_EXCHANGE).toBe('foc.pubsub');
+    expect(environment.RABBITMQ_EVENTS_QUEUE).toBe('comms-service.events');
     expect(environment.RABBITMQ_RETRY_EXCHANGE).toBe('foc.comms.retry');
     expect(environment.RABBITMQ_RETRY_RETURN_EXCHANGE).toBe('foc.comms.back');
     expect(environment.RABBITMQ_DEAD_LETTER_EXCHANGE).toBe('foc.comms.dlx');
@@ -112,11 +101,8 @@ describe('environmentSchema', () => {
   });
 
   it.each([
-    ['RABBITMQ_EXCHANGE', 'foc.other'],
-    ['RABBITMQ_ORDER_ERRAND_ACCEPTED_QUEUE', 'comms-service.other.v1'],
-    ['RABBITMQ_ORDER_ERRAND_DELIVERED_QUEUE', 'comms-service.other.v1'],
-    ['RABBITMQ_ORDER_COURIER_CANCELLED_QUEUE', 'comms-service.other.v1'],
-    ['RABBITMQ_ORDER_ERRAND_CANCELLED_QUEUE', 'comms-service.other.v1'],
+    ['RABBITMQ_PUBSUB_EXCHANGE', 'foc.other'],
+    ['RABBITMQ_EVENTS_QUEUE', 'comms-service.other'],
     ['RABBITMQ_RETRY_EXCHANGE', 'foc.other.retry'],
     ['RABBITMQ_RETRY_RETURN_EXCHANGE', 'foc.other.back'],
     ['RABBITMQ_DEAD_LETTER_EXCHANGE', 'foc.other.dlx'],

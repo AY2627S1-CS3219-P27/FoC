@@ -16,5 +16,6 @@ export const creditReleaseSuccessV1Contract =
     routingKey: CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY,
     eventType: 'CreditReleaseSuccess',
     publisher: 'credit-service',
+    kind: 'event',
     schema,
   });

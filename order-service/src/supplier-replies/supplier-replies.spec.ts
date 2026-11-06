@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { AccountEventContractValidator } from '@foc/contracts';
-import { supplierSnapshot } from '../../test/payloads.js';
+import { deliveryBuilding, supplierSnapshot } from '../../test/payloads.js';
 import { CreditReplyHandler } from '../credit-replies/credit-reply.handler.js';
 import { SYSTEM } from '../lifecycle/transition.js';
 import type { IncomingDomainMessage } from '../messaging/rabbitmq-message.types.js';
@@ -19,7 +19,7 @@ const envelope = (payload: object, publisher = 'supplier-service') => ({
   payload,
 });
 const found = (status: 'Active' | 'Inactive') =>
-  envelope({ errandId, supplierId, outcome: 'FOUND', supplier: { ...supplierSnapshot, status } });
+  envelope({ errandId, supplierId, outcome: 'FOUND', supplier: { ...supplierSnapshot, status }, deliveryBuilding });
 const message = (body: { eventId: string }): IncomingDomainMessage => ({
   body,
   rawBody: Buffer.from(JSON.stringify(body)),
@@ -57,6 +57,7 @@ describe('supplier validation reply', () => {
         pickupName: 'Cool Spot @ COM2',
         pickupLocation: 'COM2',
         pickupDescription: 'Floor 1 · Next to LT19',
+        deliveryLocation: 'COM2',
       },
       payload: { supplierEventId: body.eventId, supplier: { ...supplierSnapshot, status: 'Active' } },
       actor: SYSTEM,
@@ -78,6 +79,21 @@ describe('supplier validation reply', () => {
         payload: { supplierEventId: body.eventId, supplierOutcome },
       }),
     );
+  });
+
+  it('cancels for a missing delivery building with BUILDING_UNAVAILABLE', async () => {
+    const { lifecycle, handler } = setup();
+    const body = envelope({ errandId, supplierId, outcome: 'BUILDING_NOT_FOUND' });
+    expect(await handler.handle(message(body))).toEqual({ outcome: 'ack' });
+    expect(lifecycle.transition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expected: 'Pending-Supplier',
+        to: 'Cancelled',
+        set: { cancellationReason: 'BUILDING_UNAVAILABLE' },
+        payload: { supplierEventId: body.eventId, supplierOutcome: 'BUILDING_NOT_FOUND' },
+      }),
+    );
+    expect(lifecycle.releaseCredit).not.toHaveBeenCalled();
   });
 
   it('acks a late reply for an errand already cancelled, releasing nothing', async () => {
