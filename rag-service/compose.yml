@@ -1,0 +1,121 @@
+# Host-facing values are read from RAG_*-prefixed variables so that one shared
+# env file cannot hand this service another service's DB_* settings. Inside the
+# container the app reads plain names, like every service.
+services:
+  rag-service:
+    build:
+      # Repository root, so packages/ (the shared @foc/* packages) can be built
+      # into the image.
+      context: ..
+      dockerfile: rag-service/Dockerfile
+      target: development
+    image: ${FOC_IMAGE_PREFIX:-foc}/rag-service:${RAG_SERVICE_IMAGE_TAG:-dev}
+    command: npm run start:dev
+    depends_on:
+      rag-db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3000
+      LOG_LEVEL: ${RAG_LOG_LEVEL:-log}
+      DB_HOST: rag-db
+      DB_PORT: 5432
+      DB_USERNAME: ${RAG_DB_USERNAME:-rag_service}
+      DB_DATABASE: ${RAG_DB_DATABASE:-rag_service}
+      DB_PASSWORD_FILE: /run/secrets/rag_db_password
+      DB_MIGRATIONS_RUN: ${RAG_DB_MIGRATIONS_RUN:-true}
+      JWT_PUBLIC_KEY_FILE: /run/secrets/rag_jwt_public_key
+      OPENROUTER_API_KEY_FILE: /run/secrets/rag_openrouter_api_key
+      OPENROUTER_BASE_URL: ${RAG_OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      OPENROUTER_CHAT_MODEL: ${RAG_OPENROUTER_CHAT_MODEL:-anthropic/claude-haiku-5.5}
+      OPENROUTER_EMBEDDING_MODEL: ${RAG_OPENROUTER_EMBEDDING_MODEL:-openai/text-embedding-3-small}
+      SUPPORT_DOCS_PATH: /support-docs
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4318}
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:-http://loki:3100/otlp/v1/logs}
+    volumes:
+      # The help documents, read in place so they change without an image
+      # rebuild (never copied into the image).
+      - ../docs/support:/support-docs:ro
+    secrets:
+      - rag_db_password
+      - rag_jwt_public_key
+      - rag_openrouter_api_key
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'wget --no-verbose --tries=1 --spider "http://127.0.0.1:3000/health"',
+        ]
+      interval: 10s
+      timeout: 3s
+      start_period: 120s
+      retries: 3
+    develop:
+      watch:
+        - action: sync
+          path: .
+          target: /usr/src/app
+          ignore:
+            - node_modules/
+            - dist/
+            - coverage/
+            - test/
+            - secrets/
+        - action: rebuild
+          path: package.json
+        - action: rebuild
+          path: package-lock.json
+
+  rag-db:
+    # Plain postgres has no pgvector; this is the pgvector project's own image.
+    image: pgvector/pgvector:pg18
+    environment:
+      POSTGRES_USER: ${RAG_DB_USERNAME:-rag_service}
+      POSTGRES_DB: ${RAG_DB_DATABASE:-rag_service}
+      POSTGRES_PASSWORD_FILE: /run/secrets/rag_db_password
+    volumes:
+      - rag-db-data:/var/lib/postgresql
+    secrets:
+      - rag_db_password
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Throwaway database for DB-backed tests: npm run db:test:up / db:test:down.
+  rag-db-test:
+    image: pgvector/pgvector:pg18
+    profiles: ['test']
+    ports:
+      - '127.0.0.1:${RAG_DB_TEST_HOST_PORT:-5443}:5432'
+    environment:
+      POSTGRES_USER: ${RAG_DB_USERNAME:-rag_service}
+      POSTGRES_DB: rag_service_test
+      POSTGRES_PASSWORD_FILE: /run/secrets/rag_db_password
+    tmpfs:
+      - /var/lib/postgresql
+    secrets:
+      - rag_db_password
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  rag-db-data:
+
+secrets:
+  rag_db_password:
+    file: ./secrets/rag_db_password.secret
+  # user-service's JWT public key: read from user-service's own file so both
+  # services always use the same key pair. Override the path if it moves.
+  rag_jwt_public_key:
+    file: ${RAG_JWT_PUBLIC_KEY_PATH:-../user-service/secrets/jwt_public_key.secret}
+  # The OpenRouter API key. Any value lets the service start; questions need a
+  # real one.
+  rag_openrouter_api_key:
+    file: ./secrets/openrouter_api_key.secret
