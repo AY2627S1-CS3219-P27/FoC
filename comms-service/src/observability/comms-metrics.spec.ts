@@ -44,6 +44,8 @@ describe('Communication Service metrics', () => {
     commsMetrics.observeSocketOperation('read', 'noop', 0.02);
     commsMetrics.socketAdapterError('subscriber');
     commsMetrics.socketNotification('closing', 'emitted');
+    commsMetrics.archiveClaim('reclaimed');
+    commsMetrics.observeArchive('archived', 0.05);
     commsMetrics.socketDisconnected();
 
     const metrics = await registry.metrics();
@@ -61,6 +63,12 @@ describe('Communication Service metrics', () => {
     );
     expect(metrics).toContain(
       'foc_comms_socket_notifications_total{event="closing",outcome="emitted"}',
+    );
+    expect(metrics).toContain(
+      'foc_comms_archive_claims_total{outcome="reclaimed"}',
+    );
+    expect(metrics).toContain(
+      'foc_comms_archive_operations_total{outcome="archived"}',
     );
     expect(metrics).not.toMatch(/chat_id|user_id|message_id/);
   });

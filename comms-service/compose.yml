@@ -40,6 +40,9 @@ services:
       SOCKET_PATH: ${SOCKET_PATH:-/socket.io}
       SOCKET_ALLOWED_ORIGINS: ${SOCKET_ALLOWED_ORIGINS:-http://localhost:3001}
       SOCKET_TRANSPORT: ${SOCKET_TRANSPORT:-websocket}
+      ARCHIVE_POLL_INTERVAL_MS: ${ARCHIVE_POLL_INTERVAL_MS:-5000}
+      ARCHIVE_BATCH_SIZE: ${ARCHIVE_BATCH_SIZE:-25}
+      ARCHIVE_CLAIM_TTL_MS: ${ARCHIVE_CLAIM_TTL_MS:-60000}
     secrets:
       - comms_db_password
       - rabbitmq_password_comms_service

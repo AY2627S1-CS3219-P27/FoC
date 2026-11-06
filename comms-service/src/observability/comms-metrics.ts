@@ -84,6 +84,22 @@ const socketNotificationCounter = createLabeledCounter(
   'Post-commit chat lifecycle socket notifications by bounded event and outcome.',
   ['event', 'outcome'],
 );
+const archiveClaimCounter = createLabeledCounter(
+  'comms_archive_claims_total',
+  'Archive worker claim outcomes.',
+  ['outcome'],
+);
+const archiveOperationCounter = createLabeledCounter(
+  'comms_archive_operations_total',
+  'Archive transaction outcomes.',
+  ['outcome'],
+);
+const archiveDuration = createLabeledHistogram(
+  'comms_archive_operation_duration_seconds',
+  'Archive transaction latency by bounded outcome.',
+  ['outcome'],
+  [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+);
 
 export const commsMetrics = {
   lifecycleDelivery(stream: string, outcome: LifecycleDeliveryOutcome): void {
@@ -132,6 +148,18 @@ export const commsMetrics = {
     outcome: 'emitted' | 'failed',
   ): void {
     socketNotificationCounter.inc({ event, outcome });
+  },
+
+  archiveClaim(outcome: 'claimed' | 'reclaimed' | 'empty' | 'failed'): void {
+    archiveClaimCounter.inc({ outcome });
+  },
+
+  observeArchive(
+    outcome: 'archived' | 'stale' | 'failed',
+    seconds: number,
+  ): void {
+    archiveOperationCounter.inc({ outcome });
+    archiveDuration.observe({ outcome }, seconds);
   },
 };
 

@@ -35,6 +35,9 @@ describe('environmentSchema', () => {
       'http://localhost:3001',
     ]);
     expect(environment.SOCKET_TRANSPORT).toBe('websocket');
+    expect(environment.ARCHIVE_POLL_INTERVAL_MS).toBe(5_000);
+    expect(environment.ARCHIVE_BATCH_SIZE).toBe(25);
+    expect(environment.ARCHIVE_CLAIM_TTL_MS).toBe(60_000);
     expect(environment.RABBITMQ_PUBSUB_EXCHANGE).toBe('foc.pubsub');
     expect(environment.RABBITMQ_EVENTS_QUEUE).toBe('comms-service.events');
     expect(environment.RABBITMQ_RETRY_EXCHANGE).toBe('foc.comms.retry');
@@ -73,8 +76,29 @@ describe('environmentSchema', () => {
     ['SOCKET_PATH', '/socket.io#fragment'],
     ['SOCKET_ALLOWED_ORIGINS', 'https://foc.example/path'],
     ['SOCKET_TRANSPORT', 'polling'],
+    ['ARCHIVE_POLL_INTERVAL_MS', 249],
+    ['ARCHIVE_POLL_INTERVAL_MS', 60_001],
+    ['ARCHIVE_BATCH_SIZE', 0],
+    ['ARCHIVE_BATCH_SIZE', 101],
+    ['ARCHIVE_CLAIM_TTL_MS', 4_999],
+    ['ARCHIVE_CLAIM_TTL_MS', 600_001],
   ])('rejects invalid %s', (name, value) => {
     expect(() => validate({ [name]: value })).toThrow();
+  });
+
+  it('requires the archive claim TTL to exceed the poll interval', () => {
+    expect(() =>
+      validate({
+        ARCHIVE_POLL_INTERVAL_MS: 5_000,
+        ARCHIVE_CLAIM_TTL_MS: 5_000,
+      }),
+    ).toThrow();
+    expect(
+      validate({
+        ARCHIVE_POLL_INTERVAL_MS: 5_000,
+        ARCHIVE_CLAIM_TTL_MS: 5_001,
+      }).ARCHIVE_CLAIM_TTL_MS,
+    ).toBe(5_001);
   });
 
   it('requires all dependency connection settings', () => {

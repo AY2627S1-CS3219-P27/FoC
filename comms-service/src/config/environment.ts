@@ -37,6 +37,9 @@ export interface EnvironmentVariables {
   SOCKET_PATH: string;
   SOCKET_ALLOWED_ORIGINS: string[];
   SOCKET_TRANSPORT: 'websocket';
+  ARCHIVE_POLL_INTERVAL_MS: number;
+  ARCHIVE_BATCH_SIZE: number;
+  ARCHIVE_CLAIM_TTL_MS: number;
 }
 
 const origins = Joi.any()
@@ -133,8 +136,24 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
     .default('/socket.io'),
   SOCKET_ALLOWED_ORIGINS: origins,
   SOCKET_TRANSPORT: Joi.string().valid('websocket').default('websocket'),
+  ARCHIVE_POLL_INTERVAL_MS: Joi.number()
+    .integer()
+    .min(250)
+    .max(60_000)
+    .default(5_000),
+  ARCHIVE_BATCH_SIZE: Joi.number().integer().min(1).max(100).default(25),
+  ARCHIVE_CLAIM_TTL_MS: Joi.number()
+    .integer()
+    .min(5_000)
+    .max(600_000)
+    .default(60_000),
 })
   .custom((environment: EnvironmentVariables, helpers) => {
+    if (
+      environment.ARCHIVE_CLAIM_TTL_MS <= environment.ARCHIVE_POLL_INTERVAL_MS
+    ) {
+      return helpers.error('any.invalid');
+    }
     if (
       environment.NODE_ENV === 'production' &&
       environment.SOCKET_ALLOWED_ORIGINS.some(
