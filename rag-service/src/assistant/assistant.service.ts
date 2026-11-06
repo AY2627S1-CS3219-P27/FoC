@@ -26,7 +26,7 @@ const CHAT_TIMEOUT_MS = 20_000;
 const MAX_ANSWER_TOKENS = 500;
 
 export const NO_ANSWER_MESSAGE =
-  "I can't find that in the FoC help documents. I give general guidance and can't see your account, so please contact an admin if you need more help.";
+  "I can't answer that from the FoC help documents. I also can't see your account, so to check your own balance or errands, open them in the app. For anything else, please contact an admin.";
 
 export interface AssistantAnswer {
   answer: string;
