@@ -6,7 +6,7 @@ services:
       target: development
     image: ${FOC_IMAGE_PREFIX:-foc}/credit-service:${CREDIT_SERVICE_IMAGE_TAG:-dev}
     command: npm run start:dev
-    restart: unless-stopped
+    restart: on-failure:3
     depends_on:
       credit-db:
         condition: service_healthy
@@ -72,8 +72,7 @@ services:
       test:
         [
           'CMD-SHELL',
-          'wget --no-verbose --tries=1 --spider
-          "http://127.0.0.1:$${PORT:-3000}/docs-json"',
+          'wget --no-verbose --tries=1 --spider "http://127.0.0.1:$${PORT:-3000}/health"',
         ]
       interval: 10s
       timeout: 3s
@@ -137,7 +136,7 @@ services:
 
   credit-db:
     image: postgres:18-alpine
-    restart: unless-stopped
+    restart: on-failure:3
     environment:
       POSTGRES_USER: ${CREDIT_SERVICE_DB_USERNAME:-credit_service}
       POSTGRES_DB: ${CREDIT_SERVICE_DB_DATABASE:-credit_service}
