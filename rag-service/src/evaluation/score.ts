@@ -49,6 +49,7 @@ export interface CutoffRow {
 }
 
 export interface EvalReport {
+  results: QuestionResult[];
   answerable: number;
   shouldRefuse: number;
   sourceFound: number;
@@ -76,6 +77,15 @@ export const TARGETS = {
 
 const CUTOFFS = [0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55];
 
+/** Whole words only, so "no" does not match inside "not" or "know". */
+function mentions(answer: string, wording: string): boolean {
+  const escaped = wording.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(
+    `(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`,
+    'iu',
+  ).test(answer);
+}
+
 /** Scores one question. Wording is compared without regard to capitals. */
 export function scoreQuestion(
   question: EvalQuestion,
@@ -95,10 +105,9 @@ export function scoreQuestion(
   const position = observation.retrieved.findIndex(({ section }) =>
     question.sources.includes(section),
   );
-  const answer = observation.answer.toLowerCase();
   const missingFacts = question.facts.filter(
     (wordings) =>
-      !wordings.some((wording) => answer.includes(wording.toLowerCase())),
+      !wordings.some((wording) => mentions(observation.answer, wording)),
   );
   const citedExpected = observation.cited.some((section) =>
     question.sources.includes(section),
@@ -138,6 +147,7 @@ export function buildReport(results: QuestionResult[]): EvalReport {
   const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
 
   const report: EvalReport = {
+    results,
     answerable: answerable.length,
     shouldRefuse: shouldRefuse.length,
     sourceFound: answerable.filter(({ rank }) => rank !== null).length,
@@ -235,6 +245,24 @@ export function renderReport(report: EvalReport, model: string): string {
         ? [`  - missing: ${missingFacts.map((f) => f.join(' or ')).join(', ')}`]
         : []),
       `  - answer: ${observation.answer.replace(/\s+/g, ' ').slice(0, 300)}`,
+    );
+  }
+
+  // Every answer, so a person can read them: no script can catch a wrong
+  // statement inside an otherwise fine answer.
+  lines.push('', '## All answers');
+  for (const { question, observation, passed } of report.results) {
+    lines.push(
+      '',
+      `### ${question.id} (${passed ? 'pass' : 'FAIL'})`,
+      '',
+      `**Question:** ${question.question}`,
+      '',
+      `**Sources:** ${observation.cited.join('; ') || 'none'}`,
+      '',
+      `**Best score:** ${observation.retrieved[0]?.score.toFixed(3) ?? 'none'}`,
+      '',
+      observation.answer,
     );
   }
   return lines.join('\n');

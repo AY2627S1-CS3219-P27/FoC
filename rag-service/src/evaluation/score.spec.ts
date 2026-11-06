@@ -56,6 +56,22 @@ describe('scoreQuestion', () => {
     expect(result.missingFacts).toEqual([]);
   });
 
+  it('matches whole words only', () => {
+    const noFact: EvalQuestion = {
+      ...answerable,
+      facts: [['no']],
+    } as EvalQuestion;
+
+    expect(
+      scoreQuestion(noFact, observed({ answer: 'You do not know.' }))
+        .missingFacts,
+    ).toEqual([['no']]);
+    expect(
+      scoreQuestion(noFact, observed({ answer: 'No, you cannot.' }))
+        .missingFacts,
+    ).toEqual([]);
+  });
+
   it('reports the rank of a section found lower down', () => {
     const result = scoreQuestion(
       answerable,
@@ -186,6 +202,16 @@ describe('renderReport', () => {
     expect(text).toContain('test/model');
     expect(text).toContain('Targets NOT met');
     expect(text).toContain('missing: admin');
+  });
+
+  it('includes every answer, so a person can read them', () => {
+    const text = renderReport(
+      buildReport([scoreQuestion(answerable, observed())]),
+      'test/model',
+    );
+
+    expect(text).toContain('## All answers');
+    expect(text).toContain('Ask an Admin within 24 hours.');
   });
 });
 
