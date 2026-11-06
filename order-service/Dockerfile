@@ -44,6 +44,8 @@ COPY order-service/ .
 RUN npm run build
 RUN npm prune --omit=dev
 RUN npm prune --omit=dev --prefix /usr/src/packages/contracts
+# prune re-symlinks @foc/auth and @foc/observability; re-copy them so they share the app's @nestjs/core
+RUN NPM_CONFIG_OMIT=dev npm run auth:link && NPM_CONFIG_OMIT=dev npm run obs:link
 
 # Minimal production image
 FROM node:22-alpine AS production
@@ -72,4 +74,4 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider "http://127.0.0.1:${PORT:-3000}/health" || exit 1
 
-CMD ["npm", "run", "start:prod"]
+CMD ["node", "dist/main"]
