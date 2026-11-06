@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { ERRAND_STATUSES, type AdminErrand, type Page } from "./types";
+import {
+  ERRAND_STATUSES,
+  formatDelivery,
+  type AdminErrand,
+  type Page,
+} from "./types";
 import { formatTime, inputClass, shortId, StatusBadge } from "./ui";
 
 export function AdminUserErrands({
@@ -109,7 +114,7 @@ export function AdminUserErrands({
                       )}
                     </td>
                     <td className="px-3 py-2">
-                      {e.pickupLocation ?? "—"} → {e.deliveryLocation}
+                      {e.pickupLocation ?? "—"} → {formatDelivery(e)}
                     </td>
                     <td className="px-3 py-2">{e.rewardCredits}</td>
                     <td className="px-3 py-2 text-muted whitespace-nowrap">{formatTime(e.updatedAt)}</td>

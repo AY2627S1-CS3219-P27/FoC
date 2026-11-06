@@ -75,16 +75,32 @@ describe('DomainEventDispatcher', () => {
       { [USER_REGISTERED_V1_ROUTING_KEY]: handler },
     );
 
-    expect(result).toMatchObject({ outcome: 'invalid', code: 'INVALID_PAYLOAD' });
+    expect(result).toMatchObject({
+      outcome: 'invalid',
+      code: 'INVALID_PAYLOAD',
+    });
     expect(handler).not.toHaveBeenCalled();
   });
 
-  it('reports an unregistered routing key as invalid', async () => {
+  it('skips an unregistered routing key before contract validation', async () => {
     const result = await dispatcher.dispatch('user.deleted.v1', {}, {});
 
-    expect(result).toMatchObject({
-      outcome: 'invalid',
-      code: 'UNSUPPORTED_EVENT_TYPE',
+    expect(result).toEqual({
+      outcome: 'skipped',
+      routingKey: 'user.deleted.v1',
+    });
+  });
+
+  it('skips a malformed registered event when no handler is installed', async () => {
+    const result = await dispatcher.dispatch(
+      USER_REGISTERED_V1_ROUTING_KEY,
+      { malformed: true },
+      {},
+    );
+
+    expect(result).toEqual({
+      outcome: 'skipped',
+      routingKey: USER_REGISTERED_V1_ROUTING_KEY,
     });
   });
 });

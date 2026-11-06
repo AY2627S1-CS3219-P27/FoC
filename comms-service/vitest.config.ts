@@ -6,7 +6,7 @@ export default defineConfig({
   test: {
     globals: true,
     root: './',
-    include: ['src/**/*.spec.ts'],
+    include: ['src/**/*.spec.ts', 'scripts/**/*.spec.mjs'],
     env: { NODE_ENV: 'test', LOG_LEVEL: 'error' },
   },
 });

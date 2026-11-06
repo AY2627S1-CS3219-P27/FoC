@@ -51,7 +51,8 @@ export function CreateErrandForm({
   onCreated: (errandId: string) => void;
 }) {
   const [supplierId, setSupplierId] = useState("");
-  const [deliveryLocation, setDeliveryLocation] = useState("");
+  const [deliveryBuildingId, setDeliveryBuildingId] = useState("");
+  const [deliveryDetail, setDeliveryDetail] = useState("");
   const [collectionItems, setCollectionItems] = useState("");
   const [description, setDescription] = useState("");
   const [rewardCredits, setRewardCredits] = useState("");
@@ -67,6 +68,10 @@ export function CreateErrandForm({
   const rewardAmount = parseCreditAmount(rewardCredits);
   const canSubmit =
     !pending &&
+    supplierId !== "" &&
+    deliveryBuildingId !== "" &&
+    deliveryDetail.trim() !== "" &&
+    collectionItems.trim() !== "" &&
     sufficiencyStatus === "sufficient" &&
     rewardAmount !== null &&
     confirmedAmount === rewardAmount;
@@ -126,7 +131,8 @@ export function CreateErrandForm({
       idempotencyKey: crypto.randomUUID(),
       body: {
         supplierId,
-        deliveryLocation,
+        deliveryBuildingId,
+        deliveryDetail: deliveryDetail.trim(),
         collectionItems,
         description: description.trim() || undefined,
         rewardCredits: rewardAmount,
@@ -178,17 +184,28 @@ export function CreateErrandForm({
       <Field label="Deliver to (building)">
         <select
           required
-          value={deliveryLocation}
-          onChange={(e) => setDeliveryLocation(e.target.value)}
+          value={deliveryBuildingId}
+          onChange={(e) => setDeliveryBuildingId(e.target.value)}
           className={`w-full ${inputClass}`}
         >
           <option value="">Choose a building…</option>
           {buildings.map((b) => (
-            <option key={b.id} value={b.shortName}>
+            <option key={b.id} value={b.id}>
               {b.shortName} — {b.canonicalName}
             </option>
           ))}
         </select>
+      </Field>
+
+      <Field label="Room or level">
+        <input
+          required
+          maxLength={200}
+          value={deliveryDetail}
+          onChange={(e) => setDeliveryDetail(e.target.value)}
+          placeholder="Level 3 04-02"
+          className={`w-full ${inputClass}`}
+        />
       </Field>
 
       <Field label="Items to collect">

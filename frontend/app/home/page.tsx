@@ -12,6 +12,8 @@ import { UserAdminActions } from "./_admin/user-admin-actions";
 import { CategoriesPanel } from "./_admin/categories-panel";
 import { CreateUserForm } from "./_admin/create-user-form";
 import { ArchiveAccount } from "./_account/archive-account";
+import { PushNotificationsCard } from "./_notifications/push-settings";
+import { PushRegistrationSync } from "./_notifications/push-registration";
 import { CreditTransactionHistoryLink } from "./_account/credit-transaction-history-link";
 import { parseHomeTab, type HomeTab } from "./_navigation/tabs";
 import { MyRequests } from "./_suppliers/my-requests";
@@ -307,6 +309,7 @@ function HomePageContent() {
 
   return (
     <div className="flex flex-col min-h-full">
+      {user && <PushRegistrationSync />}
       {/* Translucent navigation bar (§12: glass material) */}
       <header className="glass-heavy text-white sticky top-0 z-40">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -1274,6 +1277,8 @@ function ProfileTab({
         </button>
         {roleMsg && <p className="text-sm text-nus-orange mt-2 fade-in">{roleMsg}</p>}
       </div>
+
+      <PushNotificationsCard />
 
       {/* Password reset */}
       <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
