@@ -260,6 +260,10 @@ export class SupplierValidationService {
         id: building.id,
         shortName: building.shortName,
         canonicalName: building.canonicalName,
+        coordinates: {
+          latitude: building.latitude,
+          longitude: building.longitude,
+        },
       },
       ...(venue && {
         deliveryVenue: {
