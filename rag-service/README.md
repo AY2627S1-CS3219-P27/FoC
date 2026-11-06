@@ -47,21 +47,55 @@ A refusal or "can't find it" is also a 200, with `answered: false` and no source
 |---|---|
 | 400 `VALIDATION_FAILED` | Bad question |
 | 401 `UNAUTHENTICATED` | No valid login |
+| 429 `RATE_LIMITED`, `retryAfterSeconds` and a `Retry-After` header | Over the limit |
 | 503 `DEPENDENCY_UNAVAILABLE`, `retryable: true` | OpenRouter or the database is down |
 
 How a question is answered:
 
-1. The question is turned into numbers with the embedding model.
-2. The 4 nearest sections are found. Any below `RAG_RELEVANCE_CUTOFF` are dropped.
-3. If none are left, the bot says it can't find the answer, **without calling the chat model**.
-4. Otherwise the chat model gets fixed rules, the sections and the question, and answers only from those sections.
-5. The reply's `SOURCES` line picks which sections to show. The titles come from our database, so a source can't be invented.
+1. The user's limit is checked and a `chat_log` row written, before any paid call.
+2. The question is turned into numbers with the embedding model.
+3. The 4 nearest sections are found. Any below `RAG_RELEVANCE_CUTOFF` are dropped.
+4. If none are left, the bot says it can't find the answer, **without calling the chat model**.
+5. Otherwise the chat model gets fixed rules, the sections and the question, and answers only from those sections.
+6. The reply's `SOURCES` line picks which sections to show. The titles come from our database, so a source can't be invented.
+7. The row is completed with the outcome, scores, timings and tokens.
 
 The rules are in `src/assistant/prompt-builder.ts`. The bot has no tools and no access to user data, and it can't change anything, so the worst a prompt injection can do is produce an odd answer. Only the rules, sections and question reach the model, never the user's id, email or token.
 
 Request logs have the `Authorization`, `Cookie` and `Set-Cookie` headers removed (`src/common/logging/logger-options.ts`), because they hold login tokens. Question text isn't logged.
 
-Set a spending limit on any real key: there's no per-user rate limit yet.
+Set a spending limit on any real key: the per-user limit doesn't stop someone using several accounts.
+
+## Limits and the question log
+
+Each user can ask `RAG_RATE_LIMIT_PER_MINUTE` questions (default 10) in any rolling 60 seconds. Every accepted question counts, including ones stopped by the cutoff, because each costs an embedding call. Requests refused with a 400 or 429 don't count.
+
+`chat_log` holds one row per accepted question: the user's id, the question, the outcome, every section retrieved with its score, timings and tokens. Rows are deleted after `RAG_CHAT_LOG_RETENTION_DAYS` (default 30), at startup and once a day. The question text stays in this table and out of the application logs, which go to Loki.
+
+| Outcome | Meaning |
+|---|---|
+| `pending` | Being answered, or the service stopped midway |
+| `answered` | The model answered |
+| `no_match` | Nothing was relevant enough, so the model wasn't called |
+| `refused` | The model declined, under its rules |
+| `error` | OpenRouter failed; the user got a 503 |
+
+To find what the documents couldn't answer:
+
+```sql
+SELECT question, outcome, created_at FROM chat_log
+WHERE outcome IN ('no_match', 'refused') ORDER BY created_at DESC;
+```
+
+To see the slowest answers and the tokens used per day:
+
+```sql
+SELECT question, embed_ms + search_ms + generate_ms AS total_ms FROM chat_log
+WHERE outcome = 'answered' ORDER BY total_ms DESC LIMIT 10;
+
+SELECT created_at::date AS day, sum(prompt_tokens) AS tokens_in, sum(completion_tokens) AS tokens_out
+FROM chat_log GROUP BY day ORDER BY day DESC;
+```
 
 ## Updating the help documents
 

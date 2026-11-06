@@ -30,6 +30,8 @@ export interface EnvironmentVariables {
   SUPPORT_DOCS_PATH: string;
   INDEX_ON_STARTUP: boolean;
   RELEVANCE_CUTOFF: number;
+  RATE_LIMIT_PER_MINUTE: number;
+  CHAT_LOG_RETENTION_DAYS: number;
 }
 
 /**
@@ -84,6 +86,10 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
   // the same meaning. Below it, the bot says it cannot find the answer without
   // calling the chat model. Set from the evaluation results.
   RELEVANCE_CUTOFF: Joi.number().min(-1).max(1).default(0.3),
+  // Every question costs money, so each user has a limit.
+  RATE_LIMIT_PER_MINUTE: Joi.number().integer().min(1).default(10),
+  // Questions are personal data: chat_log rows are deleted after this long.
+  CHAT_LOG_RETENTION_DAYS: Joi.number().integer().min(1).default(30),
 })
   .unknown(true)
   .prefs({ abortEarly: false, convert: true });

@@ -27,6 +27,8 @@ describe('environmentSchema', () => {
       SUPPORT_DOCS_PATH: '/support-docs',
       INDEX_ON_STARTUP: true,
       RELEVANCE_CUTOFF: 0.3,
+      RATE_LIMIT_PER_MINUTE: 10,
+      CHAT_LOG_RETENTION_DAYS: 30,
     });
   });
 

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 import { AssistantService } from '../src/assistant/assistant.service.js';
+import { ChatLogRepository } from '../src/assistant/chat-log.repository.js';
 import { ChunkSearchService } from '../src/assistant/chunk-search.service.js';
 import type { EnvironmentVariables } from '../src/config/environment.schema.js';
 import { createDatabaseOptions } from '../src/database/database-options.js';
@@ -22,6 +23,8 @@ function between(first: number, second: number): number[] {
   vector[second] = 1;
   return vector;
 }
+
+const USER = '11111111-1111-4111-8111-111111111111';
 
 describe('answering (real PostgreSQL with pgvector)', () => {
   let dataSource: DataSource;
@@ -65,7 +68,7 @@ describe('answering (real PostgreSQL with pgvector)', () => {
   });
 
   beforeEach(async () => {
-    await dataSource.query(`TRUNCATE chunks`);
+    await dataSource.query(`TRUNCATE chunks, chat_log`);
   });
 
   describe('ChunkSearchService', () => {
@@ -118,17 +121,17 @@ describe('answering (real PostgreSQL with pgvector)', () => {
           embeddingModel: 'test/model',
         } as unknown as OpenRouterClient,
         search,
-        { get: () => 0.5 } as unknown as ConfigService<
-          EnvironmentVariables,
-          true
-        >,
+        new ChatLogRepository(dataSource),
+        {
+          get: (key: string) => (key === 'RELEVANCE_CUTOFF' ? 0.5 : 10),
+        } as unknown as ConfigService<EnvironmentVariables, true>,
       );
     });
 
     it('answers from the section that matches', async () => {
       await store('Near', axis(0));
 
-      await expect(assistant.ask('how?')).resolves.toMatchObject({
+      await expect(assistant.ask(USER, 'how?')).resolves.toMatchObject({
         answered: true,
         sources: [{ title: 'Errands', section: 'Near' }],
       });
@@ -138,7 +141,7 @@ describe('answering (real PostgreSQL with pgvector)', () => {
       await store('Near', axis(0));
       await store('Far', axis(7));
 
-      await assistant.ask('how?');
+      await assistant.ask(USER, 'how?');
 
       expect(complete.mock.calls[0][0].user).not.toContain('About Far');
     });
@@ -146,14 +149,33 @@ describe('answering (real PostgreSQL with pgvector)', () => {
     it('makes no chat call when only far sections exist', async () => {
       await store('Far', axis(7));
 
-      await expect(assistant.ask('weather?')).resolves.toMatchObject({
+      await expect(assistant.ask(USER, 'weather?')).resolves.toMatchObject({
         answered: false,
       });
       expect(complete).not.toHaveBeenCalled();
     });
 
+    it('records the outcome and scores in chat_log', async () => {
+      await store('Near', axis(0));
+      await store('Far', axis(7));
+
+      await assistant.ask(USER, 'how?');
+
+      const [row] = await dataSource.query<Record<string, any>[]>(
+        `SELECT user_id, question, outcome, sections, cutoff_applied FROM chat_log`,
+      );
+      expect(row).toMatchObject({
+        user_id: USER,
+        question: 'how?',
+        outcome: 'answered',
+        cutoff_applied: false,
+      });
+      expect(row.sections).toHaveLength(2);
+      expect(row.sections[0].score).toBeCloseTo(1);
+    });
+
     it('makes no chat call on an empty index', async () => {
-      await expect(assistant.ask('how?')).resolves.toMatchObject({
+      await expect(assistant.ask(USER, 'how?')).resolves.toMatchObject({
         answered: false,
       });
       expect(complete).not.toHaveBeenCalled();
