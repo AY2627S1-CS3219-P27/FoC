@@ -65,8 +65,13 @@ describe('Communication Service metrics', () => {
     commsMetrics.observeSocketOperation('read', 'noop', 0.02);
     commsMetrics.socketAdapterError('subscriber');
     commsMetrics.socketNotification('closing', 'emitted');
+    commsMetrics.socketNotification('archived', 'failed');
+    commsMetrics.deadlineTransition('ERRAND_DELIVERED');
     commsMetrics.archiveClaim('reclaimed');
+    commsMetrics.observeArchiveClaim('successful', 0.01);
+    commsMetrics.archiveClaimsInFlight(2);
     commsMetrics.observeArchive('archived', 0.05);
+    commsMetrics.archiveClaimsInFlight(0);
     commsMetrics.socketDisconnected();
 
     const metrics = await registry.metrics();
@@ -86,11 +91,23 @@ describe('Communication Service metrics', () => {
       'foc_comms_socket_notifications_total{event="closing",outcome="emitted"}',
     );
     expect(metrics).toContain(
+      'foc_comms_socket_notifications_total{event="archived",outcome="failed"}',
+    );
+    expect(metrics).toContain(
+      'foc_comms_deadline_transitions_total{reason="ERRAND_DELIVERED"}',
+    );
+    expect(metrics).toContain(
       'foc_comms_archive_claims_total{outcome="reclaimed"}',
     );
     expect(metrics).toContain(
       'foc_comms_archive_operations_total{outcome="archived"}',
     );
-    expect(metrics).not.toMatch(/chat_id|user_id|message_id/);
+    expect(metrics).toContain(
+      'foc_comms_archive_claim_duration_seconds_count{outcome="successful"}',
+    );
+    expect(metrics).toContain('foc_comms_archive_claims_in_flight 0');
+    expect(metrics).not.toMatch(
+      /chat_id|user_id|message_id|archive_id|event_id|claim_token/,
+    );
   });
 });

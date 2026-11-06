@@ -99,6 +99,7 @@ export class LifecycleMessageDispatcher implements LifecycleMessageHandler {
       case 'recorded':
         if (result.chatId !== undefined) commsMetrics.chatCreated();
         for (const transition of result.deadlineTransitions) {
+          commsMetrics.deadlineTransition(transition.closeReason);
           this.realtime.publishClosing(transition);
         }
         return { outcome: 'processed' };

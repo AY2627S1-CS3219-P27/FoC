@@ -44,19 +44,28 @@ export class ArchiveWorker
   }
 
   async runOnce(): Promise<void> {
+    const claimStarted = process.hrtime.bigint();
     let claims;
     try {
       claims = await this.claims.claimDueBatch();
+      commsMetrics.observeArchiveClaim(
+        'successful',
+        elapsedSeconds(claimStarted),
+      );
+      commsMetrics.archiveClaimsInFlight(claims.length);
       if (claims.length === 0) commsMetrics.archiveClaim('empty');
       for (const claim of claims) {
         commsMetrics.archiveClaim(claim.reclaimed ? 'reclaimed' : 'claimed');
       }
     } catch (error) {
       commsMetrics.archiveClaim('failed');
+      commsMetrics.observeArchiveClaim('failed', elapsedSeconds(claimStarted));
+      commsMetrics.archiveClaimsInFlight(0);
       this.logFailure('archive:claim', error);
       return;
     }
 
+    let remainingClaims = claims.length;
     for (const claim of claims) {
       const started = process.hrtime.bigint();
       try {
@@ -70,6 +79,9 @@ export class ArchiveWorker
       } catch (error) {
         commsMetrics.observeArchive('failed', elapsedSeconds(started));
         this.logFailure('archive:commit', error);
+      } finally {
+        remainingClaims -= 1;
+        commsMetrics.archiveClaimsInFlight(remainingClaims);
       }
     }
   }
