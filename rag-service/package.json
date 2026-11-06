@@ -27,6 +27,8 @@
     "prestart:debug": "npm run shared:prepare",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
+    "index-docs": "node dist/indexing/index-docs.js",
+    "evaluate": "node dist/evaluation/evaluate.js",
     "lint": "oxlint --type-aware src/ test/",
     "pretest": "npm run shared:prepare",
     "test": "vitest run",

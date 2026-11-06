@@ -72,8 +72,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const response = host.switchToHttp().getResponse<unknown>();
     const body = this.toBody(exception);
 
-    if (body.retryable) {
-      httpAdapter.setHeader(response, 'Retry-After', `${RETRY_AFTER_SECONDS}`);
+    if (body.retryable || body.retryAfterSeconds) {
+      httpAdapter.setHeader(
+        response,
+        'Retry-After',
+        `${body.retryAfterSeconds ?? RETRY_AFTER_SECONDS}`,
+      );
     }
     httpAdapter.reply(response, body, body.statusCode);
   }
@@ -132,6 +136,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       code?: unknown;
       violations?: unknown;
       retryable?: unknown;
+      retryAfterSeconds?: unknown;
     } = typeof raw === 'object' && raw !== null ? raw : { message: raw };
 
     const message = Array.isArray(details.message)
@@ -155,6 +160,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     if (Array.isArray(details.violations)) {
       body.violations = details.violations as FieldViolation[];
+    }
+    if (typeof details.retryAfterSeconds === 'number') {
+      body.retryAfterSeconds = details.retryAfterSeconds;
     }
     if (
       details.retryable === true ||
