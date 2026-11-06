@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { clsx } from "clsx";
 import { api, errorText } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { OptionCombobox, type ComboboxOption } from "@/components/ui/combobox";
 import { Field, FormError, inputClass } from "@/components/ui/field";
 
 export type SupplierFormMode = "admin-create" | "admin-edit" | "request-create" | "request-update";
@@ -150,9 +151,26 @@ export function SupplierForm({
     }));
   }
 
+  // Rows lead with the short code; the collapsed input carries the full
+  // display name so users never see a bare code or the internal id.
+  const buildingOptions = useMemo<ComboboxOption<string>[]>(
+    () =>
+      buildings.map((b) => ({
+        value: b.id,
+        label: `${b.shortName} — ${b.canonicalName}`,
+        title: b.shortName,
+        detail: b.canonicalName,
+      })),
+    [buildings],
+  );
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    if (values.buildingId === "") {
+      setError("Choose the building the supplier is in.");
+      return;
+    }
     let res;
     if (mode === "admin-create") {
       res = await send(() => api("POST", "/api/suppliers", { body: toBody(values) }));
@@ -241,14 +259,12 @@ export function SupplierForm({
 
       <div className="space-y-4 rounded-2xl bg-surface p-4">
         <Field label="Building">
-          <select required value={values.buildingId} onChange={(e) => pickBuilding(e.target.value)} className={input}>
-            <option value="">Choose a building…</option>
-            {buildings.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.shortName} — {b.canonicalName}
-              </option>
-            ))}
-          </select>
+          <OptionCombobox
+            options={buildingOptions}
+            value={values.buildingId}
+            onValueChange={pickBuilding}
+            placeholder="Choose a building…"
+          />
         </Field>
         <Field label="Where exactly">
           <input

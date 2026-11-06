@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errorText } from "@/lib/api";
 import type { BuildingOption, SupplierOption } from "./types";
 import { Button } from "@/components/ui/button";
+import { OptionCombobox, type ComboboxOption } from "@/components/ui/combobox";
 import { textareaClass } from "@/components/ui/field";
 import { Field, inputClass } from "./ui";
 
@@ -67,6 +68,28 @@ export function CreateErrandForm({
   const sufficiencyRequestVersion = useRef(0);
 
   const supplier = suppliers.find((s) => s.id === supplierId);
+  // Rows lead with the short code; the collapsed input carries the full
+  // display name so users never see a bare code or the internal id.
+  const buildingOptions = useMemo<ComboboxOption<string>[]>(
+    () =>
+      buildings.map((b) => ({
+        value: b.id,
+        label: `${b.shortName} — ${b.canonicalName}`,
+        title: b.shortName,
+        detail: b.canonicalName,
+      })),
+    [buildings],
+  );
+  const supplierOptions = useMemo<ComboboxOption<string>[]>(
+    () =>
+      suppliers.map((s) => ({
+        value: s.id,
+        label: s.displayName,
+        detail: s.building?.shortName,
+        keywords: s.building ? [s.building.shortName] : [],
+      })),
+    [suppliers],
+  );
   const rewardAmount = parseCreditAmount(rewardCredits);
   const canSubmit =
     !pending &&
@@ -154,39 +177,24 @@ export function CreateErrandForm({
     <form onSubmit={onSubmit} className="space-y-5">
       <FormGroup footer="Credits are reserved once the supplier is confirmed, then couriers can see the errand.">
         <Field label="Pickup from">
-          <select
-            required
+          <OptionCombobox
+            options={supplierOptions}
             value={supplierId}
-            onChange={(e) => setSupplierId(e.target.value)}
-            className={`w-full ${inputClass}`}
-          >
-            <option value="">Choose a supplier…</option>
-            {suppliers.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.displayName}
-                {s.building ? ` · ${s.building.shortName}` : ""}
-              </option>
-            ))}
-          </select>
+            onValueChange={setSupplierId}
+            placeholder="Choose a supplier…"
+          />
           {supplier && (
             <span className="mt-1.5 block text-xs text-muted">Floor {supplier.floor}</span>
           )}
         </Field>
   
         <Field label="Deliver to">
-          <select
-            required
+          <OptionCombobox
+            options={buildingOptions}
             value={deliveryBuildingId}
-            onChange={(e) => setDeliveryBuildingId(e.target.value)}
-            className={`w-full ${inputClass}`}
-          >
-            <option value="">Choose a building…</option>
-            {buildings.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.shortName} — {b.canonicalName}
-              </option>
-            ))}
-          </select>
+            onValueChange={setDeliveryBuildingId}
+            placeholder="Choose a building…"
+          />
         </Field>
 
         <Field label="Room or level">
