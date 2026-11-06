@@ -22,6 +22,9 @@ services:
   notification-service:
     networks: [internal, ops]
     ports: ['127.0.0.1:${NOTIFICATION_SERVICE_HOST_PORT:-3007}:3000']
+  rag-service:
+    networks: [internal, ops]
+    ports: ['127.0.0.1:${RAG_SERVICE_HOST_PORT:-3008}:3000']
   comms-service:
     networks: [internal, ops]
     ports:
@@ -45,6 +48,9 @@ services:
   comms-db:
     networks: [internal, ops]
     ports: ['127.0.0.1:${COMMS_SERVICE_DB_HOST_PORT:-5437}:5432']
+  rag-db:
+    networks: [internal, ops]
+    ports: ['127.0.0.1:${RAG_DB_HOST_PORT:-5442}:5432']
   redis:
     networks: [internal, ops]
     ports: ['127.0.0.1:${REDIS_HOST_PORT:-6379}:6379']

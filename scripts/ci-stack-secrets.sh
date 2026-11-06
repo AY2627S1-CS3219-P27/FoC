@@ -20,6 +20,9 @@ put supplier-service/secrets/supplier_db_password.secret "$(gen)"
 put comms-service/secrets/comms_db_password.secret "$(gen)"
 put email-service/secrets/smtp_password.secret "$(gen)"
 put notification-service/secrets/notification_db_password.secret "$(gen)"
+put rag-service/secrets/rag_db_password.secret "$(gen)"
+# A stub: the service starts with it, and no CI job makes a paid model call.
+put rag-service/secrets/openrouter_api_key.secret "$(gen)"
 
 # RS256 keypair. Every service reads the public key from user-service/secrets/.
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out user-service/secrets/jwt_private_key.secret 2>/dev/null

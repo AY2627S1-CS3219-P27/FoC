@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the service images tagged with each app's package.json version.
 #
-#   ./scripts/build-images.sh                build all seven service images
+#   ./scripts/build-images.sh                build every service image
 #   ./scripts/build-images.sh --print-tags   print <SVC>_IMAGE_TAG=<version> lines
 #   ./scripts/build-images.sh <compose...>   export the tags and run
 #                                            `docker compose <compose...>`
@@ -11,7 +11,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-services=(user-service credit-service order-service comms-service supplier-service email-service notification-service frontend)
+services=(user-service credit-service order-service comms-service supplier-service email-service notification-service rag-service frontend)
 
 # Map a service dir to its compose tag variable. Supplier uses the shorter
 # SUPPLIER_* prefix convention in its compose file.
