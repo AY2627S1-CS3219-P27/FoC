@@ -524,6 +524,85 @@ describe('SettlementOperationProcessor', () => {
     expect(await dataSource.getRepository(OutboxEvent).count()).toBe(0);
   });
 
+  it('lets a new worker recover an expired settlement claim', async () => {
+    const event = command();
+    await createAccount(event.payload.requesterUserId, 50, 50);
+    await createAccount(event.payload.courierUserId, 10, 0);
+    await createReservation(event);
+    const accepted = await ingress.accept(event);
+    if (accepted.status !== 'accepted') {
+      throw new Error('expected fresh settlement ingress');
+    }
+    const staleWorker = randomUUID();
+    const recoveryWorker = randomUUID();
+    await operationStore.claim(staleWorker, 10, 30_000);
+    await dataSource.query(
+      `UPDATE credit_operations
+       SET claimed_until = clock_timestamp() - INTERVAL '1 second'
+       WHERE id = $1`,
+      [accepted.operationId],
+    );
+    await operationStore.claim(recoveryWorker, 10, 30_000);
+
+    await expect(
+      processor.processClaimed(accepted.operationId, staleWorker),
+    ).resolves.toEqual({
+      status: 'claim-lost',
+      operationId: accepted.operationId,
+    });
+    await expect(
+      processor.processClaimed(accepted.operationId, recoveryWorker),
+    ).resolves.toMatchObject({ status: 'succeeded' });
+    expect(
+      await dataSource.getRepository(CreditTransaction).count({
+        where: [
+          { type: 'RELEASE', errandId: event.payload.errandId },
+          { type: 'TRANSFER', errandId: event.payload.errandId },
+        ],
+      }),
+    ).toBe(2);
+  });
+
+  it('does not move funds again for duplicate or same-attempt terminal replay', async () => {
+    const event = command();
+    await createAccount(event.payload.requesterUserId, 50, 50);
+    await createAccount(event.payload.courierUserId, 10, 0);
+    await createReservation(event);
+    const { operationId, workerId } = await acceptAndClaim(event);
+    await expect(
+      processor.processClaimed(operationId, workerId),
+    ).resolves.toMatchObject({ status: 'succeeded' });
+    const accountsAfterSettlement = await dataSource
+      .getRepository(CreditAccount)
+      .find({ order: { userId: 'ASC' } });
+    const transactionCount = await dataSource
+      .getRepository(CreditTransaction)
+      .count();
+
+    await expect(ingress.accept(event)).resolves.toMatchObject({
+      status: 'duplicate-event',
+      operationId,
+    });
+    expect(await dataSource.getRepository(OutboxEvent).count()).toBe(1);
+
+    await expect(
+      ingress.accept(command({ ...event.payload })),
+    ).resolves.toMatchObject({
+      status: 'semantic-replay-completed',
+      operationId,
+    });
+
+    expect(
+      await dataSource.getRepository(CreditAccount).find({
+        order: { userId: 'ASC' },
+      }),
+    ).toEqual(accountsAfterSettlement);
+    expect(await dataSource.getRepository(CreditTransaction).count()).toBe(
+      transactionCount,
+    );
+    expect(await dataSource.getRepository(OutboxEvent).count()).toBe(2);
+  });
+
   it('serializes settlement against the normal completion transfer without double movement', async () => {
     const event = command();
     await createAccount(event.payload.requesterUserId, 50, 50);

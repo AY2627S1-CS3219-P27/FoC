@@ -55,19 +55,33 @@ describe('CreditSettlementMessageHandler', () => {
 
   it('acknowledges only after durable ingress completes', async () => {
     const incoming = event();
-    const accept = vi.fn().mockResolvedValue({
-      status: 'accepted',
-      eventId: incoming.eventId,
-      operationId: randomUUID(),
+    let commitIngress: () => void = () => undefined;
+    const committed = new Promise<void>((resolve) => {
+      commitIngress = resolve;
+    });
+    const accept = vi.fn().mockImplementation(async () => {
+      await committed;
+      return {
+        status: 'accepted',
+        eventId: incoming.eventId,
+        operationId: randomUUID(),
+      };
     });
     const handler = new CreditSettlementMessageHandler(contracts, {
       accept,
     } as unknown as SettlementService);
 
-    await expect(handler.handle(message(incoming))).resolves.toEqual({
+    let handlerCompleted = false;
+    const handling = handler.handle(message(incoming)).finally(() => {
+      handlerCompleted = true;
+    });
+    await vi.waitFor(() => expect(accept).toHaveBeenCalledWith(incoming));
+    expect(handlerCompleted).toBe(false);
+
+    commitIngress();
+    await expect(handling).resolves.toEqual({
       outcome: 'ack',
     });
-    expect(accept).toHaveBeenCalledWith(incoming);
   });
 
   it.each([
