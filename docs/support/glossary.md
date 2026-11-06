@@ -41,7 +41,7 @@ A category is a label that describes what a supplier offers, such as Food, Coffe
 
 ## What is a dispute?
 
-A dispute is an errand in the Incomplete status, where the delivery is contested or the credit transfer failed. The credits stay held until an admin settles it by deciding the courier's share of the reward.
+A dispute is an errand in the Incomplete status, where the delivery is contested or the payment could not be completed. The credits stay held until an admin settles it by deciding the courier's share of the reward.
 
 ## What is a settlement?
 
@@ -69,7 +69,7 @@ An errand is one request for an item to be collected and delivered, from creatio
 
 ## What is an open time on an errand?
 
-The open time is how long an errand waits for a courier, from 15 minutes to 168 hours. When it ends without a courier, the errand is cancelled with the reason `ERRAND_EXPIRED`.
+The open time is how long an errand waits for a courier, from 15 minutes to 168 hours. When it ends without a courier, the errand is cancelled.
 
 ## What is a push notification?
 
