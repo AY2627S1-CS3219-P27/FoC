@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { api, errorText } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { FormError, surfaceInputClass } from "@/components/ui/field";
+import { FormError, inputClass } from "@/components/ui/field";
 import { Section } from "@/components/ui/layout";
 import { Sheet } from "@/components/ui/sheet";
 import {
@@ -22,7 +22,7 @@ const POLL_MS = 3000;
 
 const DESTRUCTIVE: ActionName[] = ["cancel", "incomplete", "withdraw"];
 
-// Irreversible, so they ask first. Withdraw already needs a typed reason.
+// Irreversible, or needing a value, so they open a dialog first.
 const CONFIRM: Partial<Record<ActionName, { title: string; description: string }>> = {
   cancel: {
     title: "Cancel this errand?",
@@ -31,6 +31,14 @@ const CONFIRM: Partial<Record<ActionName, { title: string; description: string }
   incomplete: {
     title: "Report this delivery as incomplete?",
     description: "The errand closes as incomplete. This cannot be undone.",
+  },
+  withdraw: {
+    title: "Withdraw from this errand?",
+    description: "It goes back to other couriers. Tell the requester why.",
+  },
+  adjust: {
+    title: "Change the reward",
+    description: "Your reserved credits are updated to the new amount.",
   },
 };
 
@@ -188,42 +196,6 @@ export function ErrandDetail({
             <DetailRow label="Created">{formatTime(errand.createdAt)}</DetailRow>
           </Section>
 
-          {errand.requesterId && (
-            <Section title="People">
-              <DetailRow label="Requester">
-                <span className="font-mono text-[13px] break-all">{errand.requesterId}</span>
-              </DetailRow>
-              <DetailRow label="Courier">
-                <span className="font-mono text-[13px] break-all">{errand.courierId ?? "—"}</span>
-              </DetailRow>
-            </Section>
-          )}
-
-          {(actions.includes("withdraw") || actions.includes("adjust")) && (
-            <div className="grid gap-2">
-              {actions.includes("withdraw") && (
-                <input
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  placeholder="Why are you withdrawing? (required)"
-                  aria-label="Withdraw reason"
-                  className={`w-full ${surfaceInputClass}`}
-                />
-              )}
-              {actions.includes("adjust") && (
-                <input
-                  type="number"
-                  min={1}
-                  value={newAmount || ""}
-                  onChange={(e) => setNewAmount(Number(e.target.value))}
-                  placeholder="New reward in credits"
-                  aria-label="New reward amount"
-                  className={`w-full ${surfaceInputClass}`}
-                />
-              )}
-            </div>
-          )}
-
           {actions.length === 0 ? (
             <p className="text-center text-[13px] text-muted">Nothing for you to do at this stage.</p>
           ) : (
@@ -236,6 +208,8 @@ export function ErrandDetail({
                   disabled={pending}
                   onClick={() => {
                     if (CONFIRM[a]) {
+                      setReason("");
+                      setNewAmount(errand.rewardCredits);
                       setConfirming(a);
                       setConfirmOpen(true);
                     } else run(a);
@@ -257,12 +231,42 @@ export function ErrandDetail({
         title={(confirming && CONFIRM[confirming]?.title) ?? ""}
         description={(confirming && CONFIRM[confirming]?.description) ?? ""}
         confirmLabel={confirming ? ACTION_LABELS[confirming] : ""}
-        intent="danger"
+        intent={confirming && DESTRUCTIVE.includes(confirming) ? "danger" : "primary"}
+        confirmDisabled={
+          (confirming === "withdraw" && reason.trim() === "") ||
+          (confirming === "adjust" && !(Number.isInteger(newAmount) && newAmount >= 1))
+        }
         onConfirm={() => {
           setConfirmOpen(false);
           if (confirming) run(confirming);
         }}
-      />
+      >
+        {confirming === "withdraw" && (
+          <input
+            autoFocus
+            maxLength={500}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Reason (required)"
+            aria-label="Withdraw reason"
+            className={`w-full ${inputClass}`}
+          />
+        )}
+        {confirming === "adjust" && (
+          <input
+            autoFocus
+            type="number"
+            inputMode="numeric"
+            min={1}
+            step={1}
+            value={newAmount || ""}
+            onChange={(e) => setNewAmount(Number(e.target.value))}
+            placeholder="New reward in credits"
+            aria-label="New reward amount"
+            className={`w-full ${inputClass}`}
+          />
+        )}
+      </ConfirmDialog>
     </Sheet>
   );
 }

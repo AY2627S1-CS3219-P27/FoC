@@ -162,10 +162,10 @@ function CreditRow({ label, value, accent = false }: { label: string; value: num
     <li>
       <div className="flex items-center justify-between gap-4 border-border py-3 pr-4">
         <span className="text-[15px]">{label}</span>
-        <NumberFlow
-          value={value}
-          className={`tabular min-w-0 truncate text-[17px] font-semibold ${accent ? "text-nus-orange" : ""}`}
-        />
+        {/* Truncating <number-flow> itself shows only "…" in Firefox, so the wrapper wraps instead. */}
+        <span className={`tabular min-w-0 text-right text-[17px] font-semibold [overflow-wrap:anywhere] ${accent ? "text-nus-orange" : ""}`}>
+          <NumberFlow value={value} />
+        </span>
       </div>
     </li>
   );

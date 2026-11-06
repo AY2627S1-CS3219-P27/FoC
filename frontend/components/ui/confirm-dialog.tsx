@@ -13,7 +13,9 @@ export function ConfirmDialog({
   confirmLabel,
   intent = "primary",
   pending = false,
+  confirmDisabled = false,
   onConfirm,
+  children,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -22,7 +24,10 @@ export function ConfirmDialog({
   confirmLabel: string;
   intent?: ButtonVariants["intent"];
   pending?: boolean;
+  confirmDisabled?: boolean;
   onConfirm: () => void;
+  // Optional field shown under the description, e.g. a reason or an amount.
+  children?: React.ReactNode;
 }) {
   const destructive = intent === "danger" || intent === "danger-outline";
   return (
@@ -34,6 +39,7 @@ export function ConfirmDialog({
             <div className="px-5 pt-5 pb-4">
               <AlertDialog.Title className="text-[17px] font-semibold">{title}</AlertDialog.Title>
               <AlertDialog.Description className="mt-1 text-[13px] text-foreground/80">{description}</AlertDialog.Description>
+              {children && <div className="mt-3 text-left">{children}</div>}
             </div>
             <div className="grid grid-cols-2 border-t border-border">
               <AlertDialog.Close
@@ -44,7 +50,7 @@ export function ConfirmDialog({
               </AlertDialog.Close>
               <button
                 type="button"
-                disabled={pending}
+                disabled={pending || confirmDisabled}
                 onClick={onConfirm}
                 className={clsx(
                   "row-press h-11 truncate px-2 text-[17px] disabled:opacity-40",
