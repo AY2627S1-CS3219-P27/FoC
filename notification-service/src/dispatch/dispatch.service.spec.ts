@@ -54,14 +54,22 @@ function delivery(overrides: Partial<Delivery> = {}): Delivery {
 describe('DispatchService', () => {
   const insertValues = vi.fn();
   const insertExecute = vi.fn();
-  const deliveryFind = vi.fn();
+  const deliveryGetMany = vi.fn();
   const deliveryUpdate = vi.fn();
   const findActiveWebPush = vi.fn();
   const deactivateWebPush = vi.fn();
   const send = vi.fn();
 
+  // Chained select methods of the claim query, ending in getMany.
+  const claimBuilder = {
+    innerJoinAndSelect: vi.fn().mockReturnThis(),
+    where: vi.fn().mockReturnThis(),
+    andWhere: vi.fn().mockReturnThis(),
+    orderBy: vi.fn().mockReturnThis(),
+    setLock: vi.fn().mockReturnThis(),
+    getMany: deliveryGetMany,
+  };
   const deliveryRepository = {
-    find: deliveryFind,
     update: deliveryUpdate,
     createQueryBuilder: () => ({
       insert: () => ({
@@ -72,9 +80,16 @@ describe('DispatchService', () => {
           },
         }),
       }),
+      ...claimBuilder,
     }),
   };
+  const manager = {
+    getRepository: () => deliveryRepository,
+  };
   const dataSource = {
+    transaction: vi.fn(
+      async (run: (m: typeof manager) => Promise<unknown>) => run(manager),
+    ),
     getRepository: () => deliveryRepository,
   };
 
@@ -158,7 +173,7 @@ describe('DispatchService', () => {
 
   describe('deliverPending', () => {
     it('sends the persisted message and marks the delivery sent', async () => {
-      deliveryFind.mockResolvedValue([delivery()]);
+      deliveryGetMany.mockResolvedValue([delivery()]);
       send.mockResolvedValue('sent');
 
       await service.deliverPending(event.eventId);
@@ -174,7 +189,7 @@ describe('DispatchService', () => {
     });
 
     it('deactivates an expired subscription through its service', async () => {
-      deliveryFind.mockResolvedValue([delivery()]);
+      deliveryGetMany.mockResolvedValue([delivery()]);
       send.mockResolvedValue('expired');
 
       await service.deliverPending(event.eventId);
@@ -182,6 +197,7 @@ describe('DispatchService', () => {
       expect(deactivateWebPush).toHaveBeenCalledWith(
         event.payload.requesterUserId,
         endpoint,
+        manager,
       );
       expect(deliveryUpdate).toHaveBeenCalledWith(
         delivery().id,
@@ -192,7 +208,7 @@ describe('DispatchService', () => {
     });
 
     it('abandons a delivery whose subscription is no longer active', async () => {
-      deliveryFind.mockResolvedValue([
+      deliveryGetMany.mockResolvedValue([
         delivery({
           subscription: {
             id: '66666666-6666-4666-8666-666666666666',
@@ -214,7 +230,7 @@ describe('DispatchService', () => {
     });
 
     it('records a transient failure and rethrows for transport retry', async () => {
-      deliveryFind.mockResolvedValue([delivery()]);
+      deliveryGetMany.mockResolvedValue([delivery()]);
       send.mockRejectedValue(new Error('push unavailable'));
 
       await expect(service.deliverPending(event.eventId)).rejects.toThrow(
@@ -223,6 +239,43 @@ describe('DispatchService', () => {
 
       expect(deliveryUpdate).toHaveBeenCalledWith(
         delivery().id,
+        expect.objectContaining({
+          attempts: 2,
+          lastError: 'push unavailable',
+        }),
+      );
+    });
+
+    it('claims the pending rows with a pessimistic write lock', async () => {
+      deliveryGetMany.mockResolvedValue([]);
+
+      await service.deliverPending(event.eventId);
+
+      expect(claimBuilder.setLock).toHaveBeenCalledWith('pessimistic_write');
+      expect(claimBuilder.innerJoinAndSelect).toHaveBeenCalledWith(
+        'delivery.subscription',
+        'subscription',
+      );
+    });
+
+    it('keeps earlier sent marks when a later delivery fails transiently', async () => {
+      const first = delivery({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
+      const second = delivery({ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' });
+      deliveryGetMany.mockResolvedValue([first, second]);
+      send
+        .mockResolvedValueOnce('sent')
+        .mockRejectedValueOnce(new Error('push unavailable'));
+
+      await expect(service.deliverPending(event.eventId)).rejects.toThrow(
+        'push unavailable',
+      );
+
+      expect(deliveryUpdate).toHaveBeenCalledWith(
+        first.id,
+        expect.objectContaining({ status: NotificationDeliveryStatus.Sent }),
+      );
+      expect(deliveryUpdate).toHaveBeenCalledWith(
+        second.id,
         expect.objectContaining({
           attempts: 2,
           lastError: 'push unavailable',

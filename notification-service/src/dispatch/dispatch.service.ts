@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import type { AnyDomainEvent } from '@foc/contracts';
-import { DataSource } from 'typeorm';
+import { DataSource, type EntityManager } from 'typeorm';
 import {
   NotificationDelivery,
   NotificationDeliveryStatus,
@@ -78,57 +78,96 @@ export class DispatchService {
   /**
    * Attempts a delivery on all pending notifications related to
    * the eventId.
+   *
+   * The pass claims its rows inside one transaction whose `FOR UPDATE` locks
+   * both the pending rows and their subscription rows. A concurrent handler
+   * for the same event (a duplicate publication, or a retry still in flight)
+   * blocks, then re-reads once the winner commits: rows marked sent or
+   * abandoned meanwhile no longer match the pending filter, so Web Push -
+   * which cannot deduplicate - never receives one delivery twice. Holding the
+   * subscription locks through the send also keeps an endpoint transfer
+   * (`reconcileWebPush`, `updateWebPush`) from changing ownership between the
+   * active check and the push, so a notification is never delivered to a
+   * browser that has changed accounts.
+   *
+   * A transient failure records the attempt and lets the transaction commit -
+   * marks made earlier in the pass must survive, since a rollback would turn
+   * them back into pending rows and the retry would push them twice - and
+   * only then rethrows, so the transport retries the whole event.
    */
   async deliverPending(eventId: string): Promise<void> {
-    const deliveries = await this.dataSource
-      .getRepository(NotificationDelivery)
-      .find({
-        where: { eventId, status: NotificationDeliveryStatus.Pending },
-        relations: { subscription: true },
-        order: { createdAt: 'ASC' },
-      });
+    let failure: { error: unknown } | undefined;
 
-    for (const delivery of deliveries) {
-      if (delivery.subscription.status !== SubscriptionStatus.Active) {
-        await this.abandon(delivery, 'subscription is inactive');
-        continue;
-      }
+    await this.dataSource.transaction(async (manager) => {
+      const deliveries = await manager
+        .getRepository(NotificationDelivery)
+        .createQueryBuilder('delivery')
+        .innerJoinAndSelect('delivery.subscription', 'subscription')
+        .where('delivery.eventId = :eventId', { eventId })
+        .andWhere('delivery.status = :status', {
+          status: NotificationDeliveryStatus.Pending,
+        })
+        // Subscription ids give concurrent dispatchers a single global lock
+        // order, so two passes can never claim the same rows in opposite
+        // orders.
+        .orderBy('subscription.id', 'ASC')
+        .setLock('pessimistic_write')
+        .getMany();
 
-      try {
-        const outcome = await this.webPush.send(
-          delivery.subscription,
-          delivery.message,
-        );
-        if (outcome === 'expired') {
-          // Expired (410/404) endpoints should no longer be used - deactivate
-          // them.
-          await this.subscriptions.deactivateWebPush(
-            delivery.subscription.userId,
-            delivery.subscription.endpoint,
-          );
-          await this.abandon(delivery, 'push service reported 404/410');
+      for (const delivery of deliveries) {
+        if (delivery.subscription.status !== SubscriptionStatus.Active) {
+          await this.abandon(manager, delivery, 'subscription is inactive');
           continue;
         }
 
-        await this.markSent(delivery);
-      } catch (error) {
-        // Transient: keep the row pending and let the transport retry the
-        // whole event. Already-sent deliveries are skipped on the next pass.
-        await this.recordFailure(delivery, error);
-        throw error;
+        try {
+          const outcome = await this.webPush.send(
+            delivery.subscription,
+            delivery.message,
+          );
+          if (outcome === 'expired') {
+            // Expired (410/404) endpoints should no longer be used - deactivate
+            // them. Runs on the transaction's manager: the row is locked by
+            // this transaction, so a standalone update would wait on itself.
+            await this.subscriptions.deactivateWebPush(
+              delivery.subscription.userId,
+              delivery.subscription.endpoint,
+              manager,
+            );
+            await this.abandon(
+              manager,
+              delivery,
+              'push service reported 404/410',
+            );
+            continue;
+          }
+
+          await this.markSent(manager, delivery);
+        } catch (error) {
+          // Transient: keep the row pending and let the transport retry the
+          // whole event. Already-sent deliveries are skipped on the next pass.
+          await this.recordFailure(manager, delivery, error);
+          failure = { error };
+          return;
+        }
       }
+    });
+
+    if (failure !== undefined) {
+      throw failure.error;
     }
   }
 
-  private async markSent(delivery: NotificationDelivery): Promise<void> {
-    await this.dataSource
-      .getRepository(NotificationDelivery)
-      .update(delivery.id, {
-        status: NotificationDeliveryStatus.Sent,
-        attempts: delivery.attempts + 1,
-        lastError: null,
-        sentAt: new Date(),
-      });
+  private async markSent(
+    manager: EntityManager,
+    delivery: NotificationDelivery,
+  ): Promise<void> {
+    await manager.getRepository(NotificationDelivery).update(delivery.id, {
+      status: NotificationDeliveryStatus.Sent,
+      attempts: delivery.attempts + 1,
+      lastError: null,
+      sentAt: new Date(),
+    });
   }
 
   /**
@@ -136,33 +175,31 @@ export class DispatchService {
    * to the same (stale) endpoint.
    */
   private async abandon(
+    manager: EntityManager,
     delivery: NotificationDelivery,
     reason: string,
   ): Promise<void> {
-    await this.dataSource
-      .getRepository(NotificationDelivery)
-      .update(delivery.id, {
-        status: NotificationDeliveryStatus.Abandoned,
-        attempts: delivery.attempts + 1,
-        lastError: reason,
-      });
+    await manager.getRepository(NotificationDelivery).update(delivery.id, {
+      status: NotificationDeliveryStatus.Abandoned,
+      attempts: delivery.attempts + 1,
+      lastError: reason,
+    });
     this.logger.warn(
       `Abandoned delivery ${delivery.id} for event ${delivery.eventId}: ${reason}`,
     );
   }
 
   private async recordFailure(
+    manager: EntityManager,
     delivery: NotificationDelivery,
     error: unknown,
   ): Promise<void> {
-    await this.dataSource
-      .getRepository(NotificationDelivery)
-      .update(delivery.id, {
-        attempts: delivery.attempts + 1,
-        lastError:
-          error instanceof Error
-            ? error.message.slice(0, 1_000)
-            : 'push delivery failed',
-      });
+    await manager.getRepository(NotificationDelivery).update(delivery.id, {
+      attempts: delivery.attempts + 1,
+      lastError:
+        error instanceof Error
+          ? error.message.slice(0, 1_000)
+          : 'push delivery failed',
+    });
   }
 }
