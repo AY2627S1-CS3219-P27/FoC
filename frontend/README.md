@@ -37,6 +37,26 @@ For the root Compose stack, the public browser origin is
 `http://comms-service:3000`, and both frontend and Communication Service must
 use the same `SOCKET_PATH` value.
 
+## Authenticated home shell
+
+All `/home` routes share one persistent layout. Its client boundary loads the
+current user once, owns the session-expiry redirect, and provides the profile
+and socket path to live-chat and archive descendants. The server layout reads
+`SOCKET_PATH` during dynamic request rendering and passes it as serialized
+configuration, so the browser receives no token and no additional
+`NEXT_PUBLIC_*` environment variable is required.
+
+The shared responsive navigation exposes Home, Chats, and Archives. The
+existing errands, suppliers, account, user, and supplier-request tabs remain
+secondary navigation within `/home`; administrator-only tabs retain their
+existing authorization-driven visibility.
+
+Communication Service HTTP and Socket.IO payloads must pass the runtime parsers
+under `lib/chat/` before entering frontend state. Unknown fields, invalid IDs or
+timestamps, inconsistent grace state, malformed pagination, non-ascending
+history, and invalid acknowledgement/event shapes are rejected as contract
+failures rather than accepted through unchecked casts.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
