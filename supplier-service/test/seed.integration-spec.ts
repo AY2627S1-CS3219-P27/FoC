@@ -12,6 +12,7 @@ import {
   BuildingNameKey,
   Category,
   Supplier,
+  SupplierOpeningInterval,
 } from '../src/database/entities/index.js';
 import { SupplierSeedService } from '../src/seed/supplier-seed.service.js';
 import { SuppliersService } from '../src/suppliers/suppliers.service.js';
@@ -72,7 +73,7 @@ describe('seed import (real PostgreSQL)', () => {
 
   beforeEach(async () => {
     await dataSource.query(`
-      TRUNCATE supplier_requests, supplier_categories, suppliers, categories,
+      TRUNCATE supplier_requests, supplier_categories, supplier_opening_intervals, suppliers, categories,
                building_name_keys, buildings
     `);
     warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
@@ -107,6 +108,31 @@ describe('seed import (real PostgreSQL)', () => {
       'Shopping',
     ]);
     expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('records what it imports in the audit log, as the system (F14.4)', async () => {
+    const [{ last }] = await dataSource.query<{ last: string }[]>(
+      `SELECT coalesce(max(id), 0)::text AS last FROM audit_entries`,
+    );
+
+    await seed.importSeed(SEED_FILE);
+
+    const added = await dataSource.query<
+      { action: string; actor_id: string | null; n: number }[]
+    >(
+      `SELECT action, actor_id, count(*)::int AS n
+       FROM audit_entries WHERE id > $1 GROUP BY action, actor_id`,
+      [last],
+    );
+    // 14 buildings, 4 categories and 21 suppliers, none by a user.
+    expect(Object.fromEntries(added.map((row) => [row.action, row.n]))).toEqual(
+      {
+        'building.created': 14,
+        'category.created': 4,
+        'supplier.created': 21,
+      },
+    );
+    expect(added.every((row) => row.actor_id === null)).toBe(true);
   });
 
   it('is safe to run again: nothing duplicated, nothing failed (F12.1)', async () => {
@@ -183,6 +209,48 @@ describe('seed import (real PostgreSQL)', () => {
     expect((await stored('Nami')).photoUrl).toBeNull();
   });
 
+  it("imports each row's times as opening hours on all seven days (F12.2.3)", async () => {
+    await seed.importSeed(SEED_FILE);
+    const intervalsOf = async (name: string) =>
+      (
+        await dataSource.getRepository(SupplierOpeningInterval).find({
+          where: { supplierId: (await stored(name)).id },
+          order: { day: 'ASC' },
+        })
+      ).map(({ day, opensAt, closesAt }) => ({ day, opensAt, closesAt }));
+
+    // 0000hrs to 2359hrs: open around the clock, no intervals (F2.2).
+    expect((await stored('Printer')).open24Hours).toBe(true);
+    await expect(intervalsOf('Printer')).resolves.toEqual([]);
+
+    // 0900hrs to 2130hrs: the same interval every day.
+    expect((await stored('Cool Spot')).open24Hours).toBe(false);
+    await expect(intervalsOf('Cool Spot')).resolves.toEqual(
+      [0, 1, 2, 3, 4, 5, 6].map((day) => ({
+        day,
+        opensAt: 540,
+        closesAt: 1290,
+      })),
+    );
+
+    // 1100hrs to 0200hrs: overnight, kept as given (F2.3).
+    await expect(intervalsOf('Supersnacks')).resolves.toEqual(
+      [0, 1, 2, 3, 4, 5, 6].map((day) => ({
+        day,
+        opensAt: 660,
+        closesAt: 120,
+      })),
+    );
+
+    // Every one of the 21 suppliers has hours.
+    const withHours = await dataSource.query<{ n: string }[]>(`
+      SELECT count(*) AS n FROM suppliers s
+      WHERE s.open_24_hours
+         OR EXISTS (SELECT 1 FROM supplier_opening_intervals i WHERE i.supplier_id = s.id)
+    `);
+    expect(Number(withHours[0]!.n)).toBe(21);
+  });
+
   it('strips a name suffix only when it names the row’s own building (F12.2.6)', async () => {
     const csv = [
       'Name,Type,Building,Floor,Location Description,Latitude,Longitude,StartingTime,ClosingTime,ImageURL',
@@ -250,12 +318,14 @@ describe('seed import (real PostgreSQL)', () => {
       'Lost,Food,Nowhere Hall,1,Somewhere,1.2944,103.7726,0900hrs,1800hrs,',
       'Bad Floor,Food,COM3,0,By the stairs,1.2944,103.9,0900hrs,1800hrs,',
       'Also Good,Shopping,Com 2,2,Opp LT16,1.2940,103.7738,0900hrs,1800hrs,',
+      'Bad Time,Food,COM3,2,By the lift,1.2944,103.7726,noon,1800hrs,',
+      'No Hours,Food,COM3,3,By the lift,1.2944,103.7726,,,',
     ].join('\r\n');
 
     await expect(seed.importSeed(Buffer.from(csv))).resolves.toEqual({
-      created: 2,
+      created: 3,
       alreadyPresent: 0,
-      rejected: 2,
+      rejected: 3,
     });
 
     const messages = warn.mock.calls.map((call: unknown[]) => String(call[0]));
@@ -264,6 +334,15 @@ describe('seed import (real PostgreSQL)', () => {
       expect.stringMatching(
         /^seed row 4 \(Bad Floor\) rejected: .*floor: .*coordinates\.longitude: /,
       ),
+      'seed row 6 (Bad Time) rejected: StartingTime: "noon" is not a time like 0900hrs',
     ]);
+    // A row without any times is imported, with no fixed hours (F1.2.8).
+    const noHours = await stored('No Hours');
+    expect(noHours.open24Hours).toBe(false);
+    await expect(
+      dataSource
+        .getRepository(SupplierOpeningInterval)
+        .countBy({ supplierId: noHours.id }),
+    ).resolves.toBe(0);
   });
 });

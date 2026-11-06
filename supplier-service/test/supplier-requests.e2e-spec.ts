@@ -18,6 +18,7 @@ function fakes() {
   return {
     submitCreation: vi.fn(async () => view('Pending')),
     submitUpdate: vi.fn(async () => view('Pending')),
+    submitStatusChange: vi.fn(async () => view('Pending')),
     listPending: vi.fn(async (query: { offset: number; limit: number }) => ({
       items: [],
       total: 0,
@@ -110,6 +111,111 @@ describe('supplier request endpoints (e2e)', () => {
       supplierId,
       3,
       { floor: '2' },
+      TEST_USER_ID,
+    );
+  });
+
+  it('lets a basic user file a status change, as themselves (F9.3, F13.1)', async () => {
+    const supplierId = randomUUID();
+    const response = await request(app.getHttpServer())
+      .post('/supplier-requests/status-changes')
+      .set('Cookie', cookie)
+      .send({
+        supplierId: supplierId.toUpperCase(),
+        status: 'Inactive',
+        reason: 'Closed',
+      })
+      .expect(201);
+
+    // The submitter comes from the token, and the id is lower-cased.
+    expect(stub.submitStatusChange).toHaveBeenCalledWith(
+      supplierId,
+      'Inactive',
+      'Closed',
+      TEST_USER_ID,
+    );
+    expect(response.body).toMatchObject({ state: 'Pending' });
+  });
+
+  it('refuses a status change that tries to name its own submitter (F13.1)', async () => {
+    await request(app.getHttpServer())
+      .post('/supplier-requests/status-changes')
+      .set('Cookie', cookie)
+      .send({
+        supplierId: randomUUID(),
+        status: 'Inactive',
+        submittedBy: 'someone-else',
+      })
+      .expect(400);
+
+    expect(stub.submitStatusChange).not.toHaveBeenCalled();
+  });
+
+  it('rejects a status change with an unknown status, without calling the service (F9.3)', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/supplier-requests/status-changes')
+      .set('Cookie', cookie)
+      .send({ supplierId: randomUUID(), status: 'Closed' })
+      .expect(400);
+
+    expect(response.body.code).toBe('VALIDATION_FAILED');
+    expect(stub.submitStatusChange).not.toHaveBeenCalled();
+  });
+
+  it('passes opening hours in a creation request to the service, unvalidated (F1.2.8)', async () => {
+    const body = {
+      name: 'Night Owl Cafe',
+      openingHours: { days: { mon: [{ opens: '09:00', closes: '18:00' }] } },
+    };
+    await request(app.getHttpServer())
+      .post('/supplier-requests/creations')
+      .set('Cookie', cookie)
+      .send(body)
+      .expect(201);
+
+    expect(stub.submitCreation).toHaveBeenCalledWith(body, TEST_USER_ID);
+  });
+
+  it('passes a brand in creation and edit requests, including null to remove it (F1.2.10)', async () => {
+    const brandId = randomUUID();
+    await request(app.getHttpServer())
+      .post('/supplier-requests/creations')
+      .set('Cookie', cookie)
+      .send({ name: 'Cheers Outlet', brandId })
+      .expect(201);
+    expect(stub.submitCreation).toHaveBeenLastCalledWith(
+      { name: 'Cheers Outlet', brandId },
+      TEST_USER_ID,
+    );
+
+    const supplierId = randomUUID();
+    await request(app.getHttpServer())
+      .post('/supplier-requests/updates')
+      .set('Cookie', cookie)
+      .set('If-Match', '"1"')
+      .send({ supplierId, changes: { brandId: null } })
+      .expect(201);
+    expect(stub.submitUpdate).toHaveBeenLastCalledWith(
+      supplierId,
+      1,
+      { brandId: null },
+      TEST_USER_ID,
+    );
+  });
+
+  it('passes opening hours in an edit request, including null to remove them', async () => {
+    const supplierId = randomUUID();
+    await request(app.getHttpServer())
+      .post('/supplier-requests/updates')
+      .set('Cookie', cookie)
+      .set('If-Match', '"1"')
+      .send({ supplierId, changes: { openingHours: null } })
+      .expect(201);
+
+    expect(stub.submitUpdate).toHaveBeenCalledWith(
+      supplierId,
+      1,
+      { openingHours: null },
       TEST_USER_ID,
     );
   });

@@ -6,11 +6,13 @@ import {
 } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
+import { BrandsService } from '../src/brands/brands.service.js';
 import { BuildingsService } from '../src/buildings/buildings.service.js';
 import { CategoriesService } from '../src/categories/categories.service.js';
 import type { EnvironmentVariables } from '../src/config/environment.schema.js';
 import { createDatabaseOptions } from '../src/database/database-options.js';
 import {
+  Brand,
   Building,
   BuildingNameKey,
   Category,
@@ -18,7 +20,9 @@ import {
   RequestType,
   Supplier,
   SupplierKind,
+  SupplierOpeningInterval,
   SupplierRequest,
+  SupplierStatus,
 } from '../src/database/entities/index.js';
 import { ListMyRequestsQueryDto } from '../src/requests/dto/list-my-requests-query.dto.js';
 import { ListRequestsQueryDto } from '../src/requests/dto/list-requests-query.dto.js';
@@ -70,6 +74,7 @@ describe('supplier requests (real PostgreSQL)', () => {
   let requests: SupplierRequestsService;
   let buildings: BuildingsService;
   let categories: CategoriesService;
+  let brands: BrandsService;
   let com2: Building;
   let food: Category;
 
@@ -97,6 +102,7 @@ describe('supplier requests (real PostgreSQL)', () => {
       dataSource.getRepository(BuildingNameKey),
     );
     categories = new CategoriesService(dataSource.getRepository(Category));
+    brands = new BrandsService(dataSource.getRepository(Brand));
   });
 
   afterAll(async () => {
@@ -105,7 +111,7 @@ describe('supplier requests (real PostgreSQL)', () => {
 
   beforeEach(async () => {
     await dataSource.query(`
-      TRUNCATE supplier_requests, supplier_categories, suppliers, categories,
+      TRUNCATE supplier_requests, supplier_categories, supplier_opening_intervals, suppliers, brands, categories,
                building_name_keys, buildings
     `);
     com2 = await buildings.create({
@@ -585,6 +591,466 @@ describe('supplier requests (real PostgreSQL)', () => {
         state: RequestState.Pending,
       });
       await expect(queries.get(id)).resolves.toMatchObject({ version: 1 });
+    });
+  });
+
+  describe('filing a status change (F9.3, F9.3.1, F9.3.2)', () => {
+    it('files it Pending, recording the supplier version, the status and the reason', async () => {
+      const { id } = await suppliers.create(coolSpot());
+
+      const filed = await requests.submitStatusChange(
+        id,
+        SupplierStatus.Inactive,
+        'Closed for renovation',
+        BASIC_USER,
+      );
+
+      expect(filed).toMatchObject({
+        type: RequestType.StatusChange,
+        state: RequestState.Pending,
+        supplierId: id,
+        supplierVersion: 1,
+        submittedBy: BASIC_USER,
+        values: { status: 'Inactive', reason: 'Closed for renovation' },
+      });
+      // The live supplier is unchanged until an admin approves.
+      await expect(queries.get(id)).resolves.toMatchObject({
+        status: 'Active',
+        version: 1,
+      });
+    });
+
+    it('accepts a request without a reason', async () => {
+      const { id } = await suppliers.create(coolSpot());
+
+      const filed = await requests.submitStatusChange(
+        id,
+        SupplierStatus.Inactive,
+        undefined,
+        BASIC_USER,
+      );
+
+      expect(filed.values).toEqual({ status: 'Inactive' });
+    });
+
+    it('refuses a supplier that does not exist (F9.3.1)', async () => {
+      const { status, body } = await failure(
+        requests.submitStatusChange(
+          '11111111-1111-4111-8111-111111111111',
+          SupplierStatus.Inactive,
+          undefined,
+          BASIC_USER,
+        ),
+      );
+
+      expect(status).toBe(404);
+      expect(body.code).toBe('SUPPLIER_NOT_FOUND');
+    });
+
+    it("refuses the supplier's current status (F9.3.1)", async () => {
+      const { id } = await suppliers.create(coolSpot());
+
+      const { status, body } = await failure(
+        requests.submitStatusChange(
+          id,
+          SupplierStatus.Active,
+          undefined,
+          BASIC_USER,
+        ),
+      );
+
+      expect(status).toBe(409);
+      expect(body.code).toBe('INVALID_STATUS_TRANSITION');
+      await expect(pending()).resolves.toMatchObject({ total: 0 });
+    });
+
+    it('refuses a second Pending status change for the supplier, from anyone (F9.3.2)', async () => {
+      const { id } = await suppliers.create(coolSpot());
+      await requests.submitStatusChange(
+        id,
+        SupplierStatus.Inactive,
+        undefined,
+        BASIC_USER,
+      );
+
+      const { status, body } = await failure(
+        requests.submitStatusChange(
+          id,
+          SupplierStatus.Inactive,
+          'Same again',
+          OTHER_USER,
+        ),
+      );
+
+      expect(status).toBe(409);
+      expect(body.code).toBe('DUPLICATE_REQUEST');
+    });
+
+    it('still allows a Pending edit and a Pending status change for one supplier', async () => {
+      const { id } = await suppliers.create(coolSpot());
+      await requests.submitUpdate(id, 1, { floor: '2' }, BASIC_USER);
+
+      await expect(
+        requests.submitStatusChange(
+          id,
+          SupplierStatus.Inactive,
+          undefined,
+          BASIC_USER,
+        ),
+      ).resolves.toMatchObject({ state: RequestState.Pending });
+    });
+
+    it('lets only one of two simultaneous requests through (F9.3.2)', async () => {
+      const { id } = await suppliers.create(coolSpot());
+
+      const results = await Promise.allSettled([
+        requests.submitStatusChange(
+          id,
+          SupplierStatus.Inactive,
+          undefined,
+          BASIC_USER,
+        ),
+        requests.submitStatusChange(
+          id,
+          SupplierStatus.Inactive,
+          undefined,
+          OTHER_USER,
+        ),
+      ]);
+
+      expect(results.map((r) => r.status).sort()).toEqual([
+        'fulfilled',
+        'rejected',
+      ]);
+      await expect(pending()).resolves.toMatchObject({ total: 1 });
+    });
+  });
+
+  describe('approving a status change (F9.4, F9.6)', () => {
+    it('sets the status and bumps the version, in the same step as the approval', async () => {
+      const { id } = await suppliers.create(coolSpot());
+      const filed = await requests.submitStatusChange(
+        id,
+        SupplierStatus.Inactive,
+        undefined,
+        BASIC_USER,
+      );
+
+      const approved = await requests.approve(filed.id, ADMIN);
+
+      expect(approved).toMatchObject({
+        state: RequestState.Approved,
+        resolvedBy: ADMIN,
+      });
+      await expect(queries.get(id)).resolves.toMatchObject({
+        status: 'Inactive',
+        version: 2,
+      });
+    });
+
+    it('is not blocked by an edit made since filing: only the status must differ', async () => {
+      const { id } = await suppliers.create(coolSpot());
+      const filed = await requests.submitStatusChange(
+        id,
+        SupplierStatus.Inactive,
+        undefined,
+        BASIC_USER,
+      );
+      await suppliers.update(id, 1, { locationDescription: 'Near the lift' });
+
+      await requests.approve(filed.id, ADMIN);
+
+      await expect(queries.get(id)).resolves.toMatchObject({
+        status: 'Inactive',
+        locationDescription: 'Near the lift',
+        version: 3,
+      });
+    });
+
+    it('refuses the approval if the supplier already has the status, leaving it Pending', async () => {
+      const { id } = await suppliers.create(coolSpot());
+      const filed = await requests.submitStatusChange(
+        id,
+        SupplierStatus.Inactive,
+        undefined,
+        BASIC_USER,
+      );
+      await suppliers.changeStatus(id, 1, SupplierStatus.Inactive);
+
+      const { status, body } = await failure(requests.approve(filed.id, ADMIN));
+
+      expect(status).toBe(409);
+      expect(body.code).toBe('INVALID_STATUS_TRANSITION');
+      await expect(stored(filed.id)).resolves.toMatchObject({
+        state: RequestState.Pending,
+      });
+      await expect(queries.get(id)).resolves.toMatchObject({ version: 2 });
+    });
+
+    it('can be denied with a reason, leaving the supplier unchanged', async () => {
+      const { id } = await suppliers.create(coolSpot());
+      const filed = await requests.submitStatusChange(
+        id,
+        SupplierStatus.Inactive,
+        undefined,
+        BASIC_USER,
+      );
+
+      await requests.deny(filed.id, ADMIN, 'Still open');
+
+      await expect(queries.get(id)).resolves.toMatchObject({
+        status: 'Active',
+        version: 1,
+      });
+    });
+  });
+
+  describe('brand through requests (F1.2.10, F3)', () => {
+    const brandOf = async (id: string) =>
+      (await dataSource.getRepository(Supplier).findOneByOrFail({ id }))
+        .brandId;
+
+    it('records the proposed brand with a creation request, and sets it on approval', async () => {
+      const cheers = await brands.create('Cheers');
+      const filed = await requests.submitCreation(
+        { ...coolSpot(), brandId: cheers.id },
+        BASIC_USER,
+      );
+
+      expect(filed.values.brandId).toBe(cheers.id);
+      const approved = await requests.approve(filed.id, ADMIN);
+
+      await expect(brandOf(approved.createdSupplierId!)).resolves.toBe(
+        cheers.id,
+      );
+    });
+
+    it('accepts a creation request without a brand', async () => {
+      const filed = await requests.submitCreation(coolSpot(), BASIC_USER);
+      const approved = await requests.approve(filed.id, ADMIN);
+
+      expect(filed.values).not.toHaveProperty('brandId');
+      await expect(brandOf(approved.createdSupplierId!)).resolves.toBeNull();
+    });
+
+    it('refuses an unknown or retired brand in a request, saving nothing', async () => {
+      const gone = await brands.create('Gone');
+      await brands.retire(gone.id);
+
+      for (const brandId of ['11111111-1111-4111-8111-111111111111', gone.id]) {
+        const { status, body } = await failure(
+          requests.submitCreation({ ...coolSpot(), brandId }, BASIC_USER),
+        );
+        expect(status).toBe(400);
+        expect(
+          (body.violations as { field: string }[]).map((v) => v.field),
+        ).toEqual(['brandId']);
+      }
+      await expect(
+        dataSource.getRepository(SupplierRequest).count(),
+      ).resolves.toBe(0);
+    });
+
+    it('refuses the approval if the brand was retired meanwhile, leaving it Pending', async () => {
+      const cheers = await brands.create('Cheers');
+      const filed = await requests.submitCreation(
+        { ...coolSpot(), brandId: cheers.id },
+        BASIC_USER,
+      );
+      await brands.retire(cheers.id);
+
+      const { status, body } = await failure(requests.approve(filed.id, ADMIN));
+
+      expect(status).toBe(409);
+      expect(body.code).toBe('REQUEST_NOT_APPLICABLE');
+      await expect(stored(filed.id)).resolves.toMatchObject({
+        state: RequestState.Pending,
+      });
+      await expect(listedSuppliers()).resolves.toBe(0);
+    });
+
+    it('sets and removes the brand with edit requests', async () => {
+      const cheers = await brands.create('Cheers');
+      const { id } = await suppliers.create(coolSpot());
+
+      const set = await requests.submitUpdate(
+        id,
+        1,
+        { brandId: cheers.id },
+        BASIC_USER,
+      );
+      // The live supplier keeps its brand until approval (F8.2).
+      await expect(brandOf(id)).resolves.toBeNull();
+      await requests.approve(set.id, ADMIN);
+      await expect(brandOf(id)).resolves.toBe(cheers.id);
+
+      const remove = await requests.submitUpdate(
+        id,
+        2,
+        { brandId: null },
+        BASIC_USER,
+      );
+      expect(remove.values).toEqual({ brandId: null });
+      await requests.approve(remove.id, ADMIN);
+      await expect(brandOf(id)).resolves.toBeNull();
+    });
+  });
+
+  describe('opening hours through requests (F1.2.8, F2)', () => {
+    const lunchTime = {
+      days: {
+        wed: [
+          { opens: '13:00', closes: '18:00' },
+          { opens: '09:00', closes: '12:00' },
+        ],
+      },
+    };
+    const intervalsOf = (id: string) =>
+      dataSource
+        .getRepository(SupplierOpeningInterval)
+        .find({
+          where: { supplierId: id },
+          order: { day: 'ASC', opensAt: 'ASC' },
+        })
+        .then((rows) =>
+          rows.map(({ day, opensAt, closesAt }) => ({
+            day,
+            opensAt,
+            closesAt,
+          })),
+        );
+
+    it('stores the proposed hours, in canonical form, with a creation request', async () => {
+      const filed = await requests.submitCreation(
+        { ...coolSpot(), openingHours: lunchTime },
+        BASIC_USER,
+      );
+
+      expect(filed.values.openingHours).toEqual({
+        days: {
+          wed: [
+            { opens: '09:00', closes: '12:00' },
+            { opens: '13:00', closes: '18:00' },
+          ],
+        },
+      });
+      // Not a supplier yet, so no intervals either.
+      await expect(
+        dataSource.getRepository(SupplierOpeningInterval).count(),
+      ).resolves.toBe(0);
+    });
+
+    it('refuses bad hours in a creation request with their paths, saving nothing', async () => {
+      const { status, body } = await failure(
+        requests.submitCreation(
+          {
+            ...coolSpot(),
+            openingHours: {
+              days: { mon: [{ opens: '09:00', closes: '25:00' }] },
+            },
+          },
+          BASIC_USER,
+        ),
+      );
+
+      expect(status).toBe(400);
+      expect(body.violations).toEqual([
+        {
+          field: 'openingHours.days.mon[0].closes',
+          reason: expect.any(String),
+        },
+      ]);
+      await expect(
+        dataSource.getRepository(SupplierRequest).count(),
+      ).resolves.toBe(0);
+    });
+
+    it('writes the intervals when an admin approves the creation', async () => {
+      const filed = await requests.submitCreation(
+        { ...coolSpot(), openingHours: lunchTime },
+        BASIC_USER,
+      );
+
+      const approved = await requests.approve(filed.id, ADMIN);
+
+      await expect(intervalsOf(approved.createdSupplierId!)).resolves.toEqual([
+        { day: 2, opensAt: 540, closesAt: 720 },
+        { day: 2, opensAt: 780, closesAt: 1080 },
+      ]);
+    });
+
+    it('approves open around the clock as a flag', async () => {
+      const filed = await requests.submitCreation(
+        { ...coolSpot(), openingHours: { open24Hours: true } },
+        BASIC_USER,
+      );
+
+      const approved = await requests.approve(filed.id, ADMIN);
+
+      const supplier = await dataSource
+        .getRepository(Supplier)
+        .findOneByOrFail({ id: approved.createdSupplierId! });
+      expect(supplier.open24Hours).toBe(true);
+      await expect(intervalsOf(supplier.id)).resolves.toEqual([]);
+    });
+
+    it('replaces the schedule when an admin approves an edit request', async () => {
+      const { id } = await suppliers.create({
+        ...coolSpot(),
+        openingHours: { days: { mon: [{ opens: '08:00', closes: '17:00' }] } },
+      });
+      const filed = await requests.submitUpdate(
+        id,
+        1,
+        { openingHours: lunchTime },
+        BASIC_USER,
+      );
+      // The live supplier keeps its hours until approval (F8.2).
+      await expect(intervalsOf(id)).resolves.toEqual([
+        { day: 0, opensAt: 480, closesAt: 1020 },
+      ]);
+
+      await requests.approve(filed.id, ADMIN);
+
+      await expect(intervalsOf(id)).resolves.toEqual([
+        { day: 2, opensAt: 540, closesAt: 720 },
+        { day: 2, opensAt: 780, closesAt: 1080 },
+      ]);
+      await expect(queries.get(id)).resolves.toMatchObject({ version: 2 });
+    });
+
+    it('removes the hours when an approved edit request says null', async () => {
+      const { id } = await suppliers.create({
+        ...coolSpot(),
+        openingHours: lunchTime,
+      });
+      const filed = await requests.submitUpdate(
+        id,
+        1,
+        { openingHours: null },
+        BASIC_USER,
+      );
+
+      expect(filed.values).toEqual({ openingHours: null });
+      await requests.approve(filed.id, ADMIN);
+
+      await expect(intervalsOf(id)).resolves.toEqual([]);
+    });
+
+    it('refuses bad hours in an edit request, saving nothing', async () => {
+      const { id } = await suppliers.create(coolSpot());
+
+      const { status } = await failure(
+        requests.submitUpdate(
+          id,
+          1,
+          { openingHours: { days: {} } },
+          BASIC_USER,
+        ),
+      );
+
+      expect(status).toBe(400);
+      await expect(pending()).resolves.toMatchObject({ total: 0 });
     });
   });
 
