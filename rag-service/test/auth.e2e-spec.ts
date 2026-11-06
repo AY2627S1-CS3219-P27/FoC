@@ -54,7 +54,9 @@ describe('route audit (e2e)', () => {
   // open. Every question costs money, so this must fail loudly if that happens.
   it('leaves no route open without a token except /health', async () => {
     const routes = registeredRoutes(app);
-    expect(routes.map(({ path }) => path)).toContain('/health');
+    expect(routes.map(({ path }) => path)).toEqual(
+      expect.arrayContaining(['/health', '/assistant/questions']),
+    );
 
     for (const { method, path } of routes) {
       if (path === '/health') {

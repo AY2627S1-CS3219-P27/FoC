@@ -28,6 +28,8 @@ export interface EnvironmentVariables {
   OPENROUTER_CHAT_MODEL: string;
   OPENROUTER_EMBEDDING_MODEL: string;
   SUPPORT_DOCS_PATH: string;
+  INDEX_ON_STARTUP: boolean;
+  RELEVANCE_CUTOFF: number;
 }
 
 /**
@@ -75,6 +77,13 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
     .default('openai/text-embedding-3-small'),
   // docs/support/, mounted read-only (see compose.yml).
   SUPPORT_DOCS_PATH: Joi.string().min(1).default('/support-docs'),
+  // Bring the index up to date on startup when the documents have changed.
+  // Checking costs nothing; re-indexing makes one small model call.
+  INDEX_ON_STARTUP: Joi.boolean().default(true),
+  // How similar a section must be to a question to count as relevant: 1 means
+  // the same meaning. Below it, the bot says it cannot find the answer without
+  // calling the chat model. Set from the evaluation results.
+  RELEVANCE_CUTOFF: Joi.number().min(-1).max(1).default(0.3),
 })
   .unknown(true)
   .prefs({ abortEarly: false, convert: true });

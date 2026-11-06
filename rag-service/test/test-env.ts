@@ -41,6 +41,8 @@ export function seedTestEnvironment(): TestEnvironment {
   process.env.DB_MIGRATIONS_RUN = 'false';
   process.env.JWT_PUBLIC_KEY_FILE = publicKeyFile;
   process.env.OPENROUTER_API_KEY_FILE = openRouterKeyFile;
+  // The database is stubbed in e2e specs, so there is nothing to index into.
+  process.env.INDEX_ON_STARTUP = 'false';
 
   return { privateKey };
 }
