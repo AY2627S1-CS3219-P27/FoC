@@ -90,13 +90,16 @@ export class DispatchService {
    * active check and the push, so a notification is never delivered to a
    * browser that has changed accounts.
    *
-   * A transient failure records the attempt and lets the transaction commit -
-   * marks made earlier in the pass must survive, since a rollback would turn
-   * them back into pending rows and the retry would push them twice - and
-   * only then rethrows, so the transport retries the whole event.
+   * A transient failure records the attempt on its row and does not stop the
+   * loop - the event's remaining deliveries are still sent, so one failing
+   * endpoint cannot starve the others. The transaction then commits - marks
+   * and failure records must survive, since a rollback would turn sent rows
+   * back into pending ones and the retry would push them twice - and the
+   * collected failures are rethrown afterwards, so the transport retries the
+   * whole event.
    */
   async deliverPending(eventId: string): Promise<void> {
-    let failure: { error: unknown } | undefined;
+    const failures: unknown[] = [];
 
     await this.dataSource.transaction(async (manager) => {
       const deliveries = await manager
@@ -145,16 +148,22 @@ export class DispatchService {
           await this.markSent(manager, delivery);
         } catch (error) {
           // Transient: keep the row pending and let the transport retry the
-          // whole event. Already-sent deliveries are skipped on the next pass.
+          // whole event. The remaining deliveries are still attempted now;
+          // already-sent ones are skipped on the next pass.
           await this.recordFailure(manager, delivery, error);
-          failure = { error };
-          return;
+          failures.push(error);
         }
       }
     });
 
-    if (failure !== undefined) {
-      throw failure.error;
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(
+        failures,
+        `Failed to deliver ${failures.length} notifications for event ${eventId}`,
+      );
     }
   }
 

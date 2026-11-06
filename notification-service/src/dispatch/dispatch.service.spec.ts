@@ -258,27 +258,67 @@ describe('DispatchService', () => {
       );
     });
 
-    it('keeps earlier sent marks when a later delivery fails transiently', async () => {
+    it('keeps delivering after a transient failure and rethrows it', async () => {
       const first = delivery({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
       const second = delivery({ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' });
       deliveryGetMany.mockResolvedValue([first, second]);
       send
-        .mockResolvedValueOnce('sent')
-        .mockRejectedValueOnce(new Error('push unavailable'));
+        .mockRejectedValueOnce(new Error('push unavailable'))
+        .mockResolvedValueOnce('sent');
 
       await expect(service.deliverPending(event.eventId)).rejects.toThrow(
         'push unavailable',
       );
 
+      expect(send).toHaveBeenCalledTimes(2);
       expect(deliveryUpdate).toHaveBeenCalledWith(
         first.id,
+        expect.objectContaining({
+          attempts: 2,
+          lastError: 'push unavailable',
+        }),
+      );
+      expect(deliveryUpdate).toHaveBeenCalledWith(
+        second.id,
         expect.objectContaining({ status: NotificationDeliveryStatus.Sent }),
+      );
+    });
+
+    it('aggregates transient failures across the pass after committing them', async () => {
+      const first = delivery({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
+      const second = delivery({ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' });
+      deliveryGetMany.mockResolvedValue([first, second]);
+      send
+        .mockRejectedValueOnce(new Error('first endpoint down'))
+        .mockRejectedValueOnce(new Error('second endpoint down'));
+
+      const caught: unknown = await service
+        .deliverPending(event.eventId)
+        .then(
+          () => {
+            throw new Error('expected deliverPending to reject');
+          },
+          (error: unknown) => error,
+        );
+
+      expect(caught).toBeInstanceOf(AggregateError);
+      const aggregate = caught as AggregateError;
+      expect(aggregate.message).toContain('2 notifications');
+      expect(aggregate.errors.map((error) => (error as Error).message)).toEqual(
+        ['first endpoint down', 'second endpoint down'],
+      );
+      expect(deliveryUpdate).toHaveBeenCalledWith(
+        first.id,
+        expect.objectContaining({
+          attempts: 2,
+          lastError: 'first endpoint down',
+        }),
       );
       expect(deliveryUpdate).toHaveBeenCalledWith(
         second.id,
         expect.objectContaining({
           attempts: 2,
-          lastError: 'push unavailable',
+          lastError: 'second endpoint down',
         }),
       );
     });
