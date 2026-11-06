@@ -14,6 +14,7 @@ scrape_configs:
           - credit-service:3000
           - notification-service:3000
           - comms-service:3000
+          - rag-service:3000
 
   # The broker ships the Prometheus plugin enabled (port 15692).
   - job_name: foc-rabbitmq
