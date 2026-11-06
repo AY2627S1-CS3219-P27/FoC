@@ -6,12 +6,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DataSource, type EntityManager } from 'typeorm';
+import { recordAudit } from '../audit/record-audit.js';
+import { type AuditSnapshot, requestSnapshot } from '../audit/snapshots.js';
 import { ErrorCode } from '../common/errors/error-response.js';
 import { nameKey } from '../common/normalise/normalise.js';
 import {
   RequestState,
   RequestType,
   SupplierRequest,
+  type SupplierStatus,
 } from '../database/entities/index.js';
 import { isUniqueViolation } from '../database/postgres-errors.js';
 import type { Page } from '../suppliers/supplier-view.js';
@@ -82,7 +85,9 @@ export class SupplierRequestsService {
           denialReason: null,
           createdSupplierId: null,
         });
-        return toRequestView(await manager.save(request));
+        return toRequestView(
+          await saveWithAudit(manager, request, 'request.submitted', null),
+        );
       }),
     );
   }
@@ -128,7 +133,52 @@ export class SupplierRequestsService {
           denialReason: null,
           createdSupplierId: null,
         });
-        return toRequestView(await manager.save(request));
+        return toRequestView(
+          await saveWithAudit(manager, request, 'request.submitted', null),
+        );
+      }),
+    );
+  }
+
+  /**
+   * Files a request to activate or deactivate a supplier (F9.3). It is
+   * refused if the supplier does not exist, or already has the requested
+   * status (F9.3.1), or already has a Pending status-change request (F9.3.2,
+   * enforced by the unique index). The live supplier is unchanged until an
+   * admin approves.
+   */
+  async submitStatusChange(
+    supplierId: string,
+    status: SupplierStatus,
+    reason: string | undefined,
+    userId: string,
+  ): Promise<RequestView> {
+    return withPendingDuplicateMapped(() =>
+      this.dataSource.transaction(async (manager) => {
+        const supplier = await this.suppliers.checkStatusChange(
+          supplierId,
+          status,
+          manager,
+        );
+        const request = manager.create(SupplierRequest, {
+          id: randomUUID(),
+          type: RequestType.StatusChange,
+          state: RequestState.Pending,
+          supplierId,
+          supplierVersion: supplier.version,
+          payload: { status, ...(reason !== undefined && { reason }) },
+          nameKey: null,
+          buildingId: null,
+          floor: null,
+          submittedBy: userId,
+          resolvedBy: null,
+          resolvedAt: null,
+          denialReason: null,
+          createdSupplierId: null,
+        });
+        return toRequestView(
+          await saveWithAudit(manager, request, 'request.submitted', null),
+        );
       }),
     );
   }
@@ -206,10 +256,13 @@ export class SupplierRequestsService {
         RequestState.Withdrawn,
         userId,
       );
+      const before = requestSnapshot(request);
       request.state = RequestState.Withdrawn;
       request.resolvedBy = userId;
       request.resolvedAt = new Date();
-      return toRequestView(await manager.save(request));
+      return toRequestView(
+        await saveWithAudit(manager, request, 'request.withdrawn', before),
+      );
     });
   }
 
@@ -225,6 +278,7 @@ export class SupplierRequestsService {
   async approve(id: string, adminId: string): Promise<RequestView> {
     return this.dataSource.transaction(async (manager) => {
       const request = await lockPending(manager, id, RequestState.Approved);
+      const before = requestSnapshot(request);
 
       switch (request.type) {
         case RequestType.Create: {
@@ -246,18 +300,27 @@ export class SupplierRequestsService {
             ),
           );
           break;
-        default:
-          // StatusChange requests cannot be filed yet.
-          throw new ConflictException({
-            code: ErrorCode.Conflict,
-            message: `${request.type} requests cannot be approved yet.`,
-          });
+        case RequestType.StatusChange:
+          // Only the status must differ (F9.4): a supplier edited since the
+          // request was filed does not block it.
+          await whenApplicable(() =>
+            this.suppliers.setStatus(
+              request.supplierId!,
+              request.payload.status as SupplierStatus,
+              manager,
+            ),
+          );
+          break;
       }
 
       request.state = RequestState.Approved;
       request.resolvedBy = adminId;
       request.resolvedAt = new Date();
-      return toRequestView(await manager.save(request));
+      // The supplier's own entry was written by the create or edit above, in
+      // this same transaction.
+      return toRequestView(
+        await saveWithAudit(manager, request, 'request.approved', before),
+      );
     });
   }
 
@@ -269,13 +332,37 @@ export class SupplierRequestsService {
   ): Promise<RequestView> {
     return this.dataSource.transaction(async (manager) => {
       const request = await lockPending(manager, id, RequestState.Denied);
+      const before = requestSnapshot(request);
       request.state = RequestState.Denied;
       request.resolvedBy = adminId;
       request.resolvedAt = new Date();
       request.denialReason = reason;
-      return toRequestView(await manager.save(request));
+      return toRequestView(
+        await saveWithAudit(manager, request, 'request.denied', before),
+      );
     });
   }
+}
+
+/**
+ * Saves a request and records the change in the audit log, in the same
+ * transaction (F14.4): the entry exists if and only if the change committed.
+ */
+async function saveWithAudit(
+  manager: EntityManager,
+  request: SupplierRequest,
+  action: string,
+  before: AuditSnapshot | null,
+): Promise<SupplierRequest> {
+  const saved = await manager.save(request);
+  await recordAudit(manager, {
+    action,
+    targetType: 'request',
+    targetId: saved.id,
+    before,
+    after: requestSnapshot(saved),
+  });
+  return saved;
 }
 
 const NOT_APPLICABLE_HINT =

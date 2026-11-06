@@ -59,6 +59,7 @@ Rows remain soft-deleted, so each account's registration history is preserved.
 - A client that never presents its subscription again (for example an inactive
   browser profile) keeps ownership until another account claims it; there is no
   server-initiated takeover.
-- With `synchronize` enabled, a development database that already contains
-  duplicate active rows for one endpoint must be cleaned (or its volume
-  recreated) before the unique index can be created.
+- The index ships as the `SingleActiveEndpoint1794086400000` migration. Because
+  migrations run on startup, a development database that already contains
+  duplicate active rows for one endpoint must have them cleaned before the
+  service starts, or the migration fails rather than guessing an owner.

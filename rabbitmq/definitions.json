@@ -395,6 +395,16 @@
       "name": "password_reset_emails.dlq",
       "type": "classic",
       "vhost": "/foc"
+    },
+    {
+      "arguments": {
+        "x-queue-type": "classic"
+      },
+      "auto_delete": false,
+      "durable": true,
+      "name": "notification-service.inbox",
+      "type": "classic",
+      "vhost": "/foc"
     }
   ],
   "bindings": [
@@ -732,6 +742,14 @@
       "destination_type": "exchange",
       "routing_key": "order.courier-cancelled.v1",
       "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "notification-service.inbox",
+      "destination_type": "queue",
+      "routing_key": "#",
+      "source": "foc.pubsub",
       "vhost": "/foc"
     }
   ]

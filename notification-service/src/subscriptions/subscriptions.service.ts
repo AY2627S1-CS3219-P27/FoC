@@ -4,7 +4,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { type DeepPartial, QueryFailedError, Repository } from 'typeorm';
+import {
+  type DeepPartial,
+  type EntityManager,
+  In,
+  QueryFailedError,
+  Repository,
+} from 'typeorm';
 import {
   Subscription,
   SubscriptionChannel,
@@ -64,6 +70,28 @@ export class SubscriptionsService {
     @InjectRepository(Subscription)
     private readonly subscriptions: Repository<Subscription>,
   ) {}
+
+  /**
+   * Active Web Push destinations for the given users, in one query.
+   *
+   * Dispatch fan-out reads subscriptions through this method rather than
+   * reaching into the table: the subscriptions module stays the only owner of
+   * its schema and status rules.
+   */
+  async findActiveWebPush(userIds: readonly string[]): Promise<Subscription[]> {
+    const uniqueUserIds = [...new Set(userIds)];
+    if (uniqueUserIds.length === 0) {
+      return [];
+    }
+
+    return this.subscriptions.find({
+      where: {
+        userId: In(uniqueUserIds),
+        channel: SubscriptionChannel.WebPush,
+        status: SubscriptionStatus.Active,
+      },
+    });
+  }
 
   /**
    * Inserts a new subscription for `(userId, endpoint)`.
@@ -212,9 +240,20 @@ export class SubscriptionsService {
    *
    * Idempotent by design: an unknown endpoint, someone else's endpoint and an
    * already-inactive row all succeed without changing anything.
+   *
+   * `manager` lets a caller join the deactivation into its own transaction.
+   * Dispatch holds the subscription row's lock for the duration of a push, so
+   * deactivating an expired endpoint mid-dispatch must run on that transaction
+   * - a standalone update would wait on the dispatch's own lock.
    */
-  async deactivateWebPush(userId: string, endpoint: string): Promise<void> {
-    await this.subscriptions.update(
+  async deactivateWebPush(
+    userId: string,
+    endpoint: string,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repository =
+      manager?.withRepository(this.subscriptions) ?? this.subscriptions;
+    await repository.update(
       {
         userId,
         endpoint,

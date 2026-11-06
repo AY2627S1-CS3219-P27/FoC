@@ -19,6 +19,7 @@ import {
   BuildingNameKey,
   Category,
   SupplierKind,
+  Venue,
 } from '../src/database/entities/index.js';
 import type { AmqpConnect } from '../src/messaging/amqp-connection.provider.js';
 import { RabbitMqConsumerTransport } from '../src/messaging/rabbitmq-consumer.transport.js';
@@ -26,6 +27,7 @@ import { SupplierQueriesService } from '../src/suppliers/supplier-queries.servic
 import { SuppliersService } from '../src/suppliers/suppliers.service.js';
 import { SupplierValidationMessageHandler } from '../src/validation/supplier-validation-message.handler.js';
 import { SupplierValidationService } from '../src/validation/supplier-validation.service.js';
+import { VenuesService } from '../src/venues/venues.service.js';
 
 const EXCHANGE = 'foc.events';
 const QUESTION_KEY = 'order.supplier-validation-requested.v1';
@@ -83,12 +85,18 @@ const question = (
   supplierId: string,
   deliveryBuildingId: string,
   eventId = randomUUID(),
+  deliveryVenueId?: string,
 ) => ({
   eventId,
   eventType: 'SupplierValidationRequested',
   timestamp: new Date().toISOString(),
   publisher: 'order-service',
-  payload: { errandId: randomUUID(), supplierId, deliveryBuildingId },
+  payload: {
+    errandId: randomUUID(),
+    supplierId,
+    deliveryBuildingId,
+    ...(deliveryVenueId && { deliveryVenueId }),
+  },
 });
 
 describe('supplier validation through a real broker (F15.7)', () => {
@@ -101,6 +109,7 @@ describe('supplier validation through a real broker (F15.7)', () => {
   let relay: OutboxRelay;
   let supplierId: string;
   let buildingId: string;
+  let venues: VenuesService;
 
   beforeAll(async () => {
     dataSource = new DataSource(
@@ -130,6 +139,7 @@ describe('supplier validation through a real broker (F15.7)', () => {
       longitude: 103.7742,
     });
     buildingId = building.id;
+    venues = new VenuesService(dataSource.getRepository(Venue));
     const food = await new CategoriesService(
       dataSource.getRepository(Category),
     ).create('Food');
@@ -164,6 +174,7 @@ describe('supplier validation through a real broker (F15.7)', () => {
         dataSource,
         new SupplierQueriesService(dataSource, config),
         buildings,
+        venues,
         contracts,
         config,
       ),
@@ -230,6 +241,31 @@ describe('supplier validation through a real broker (F15.7)', () => {
       },
     });
     expect(await nextMessage(channel, REPLIES, 1_500)).toBe(false);
+  });
+
+  it('answers FOUND with the venue snapshot, and VENUE_NOT_FOUND for an unknown venue', async () => {
+    const venue = await venues.create({
+      buildingId,
+      code: 'LT19',
+      name: null,
+      floor: '1',
+      latitude: 1.2941,
+      longitude: 103.7743,
+    });
+    ask(question(supplierId, buildingId, randomUUID(), venue.id));
+    ask(question(supplierId, buildingId, randomUUID(), randomUUID()));
+
+    const outcomes = new Map<string, Record<string, unknown>>();
+    for (let i = 0; i < 2; i++) {
+      const reply = await nextMessage(channel, REPLIES);
+      expect(reply).not.toBe(false);
+      const { payload } = JSON.parse((reply as GetMessage).content.toString());
+      outcomes.set(payload.outcome, payload);
+    }
+    expect(outcomes.get('FOUND')).toMatchObject({
+      deliveryVenue: { id: venue.id, code: 'LT19', name: null, floor: '1' },
+    });
+    expect(outcomes.get('VENUE_NOT_FOUND')).not.toHaveProperty('supplier');
   });
 
   it('answers BUILDING_NOT_FOUND for an unknown delivery building', async () => {

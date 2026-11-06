@@ -6,6 +6,8 @@ import { pinoHttpOptions } from '@foc/observability';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_PIPE } from '@nestjs/core';
 import { readJwtPublicKey } from './auth/jwt-public-key.js';
+import { AuditModule } from './audit/audit.module.js';
+import { BrandsModule } from './brands/brands.module.js';
 import { BuildingsModule } from './buildings/buildings.module.js';
 import { CategoriesModule } from './categories/categories.module.js';
 import { AllExceptionsFilter } from './common/errors/all-exceptions.filter.js';
@@ -15,6 +17,7 @@ import {
   environmentSchema,
 } from './config/environment.schema.js';
 import { DatabaseModule } from './database/database.module.js';
+import { IdempotencyModule } from './idempotency/idempotency.module.js';
 import { HealthController } from './health/health.controller.js';
 import { MessagingModule } from './messaging/messaging.module.js';
 import { RABBITMQ_CONNECTION_URL } from './messaging/rabbitmq-connection-url.provider.js';
@@ -43,6 +46,9 @@ import { ValidationModule } from './validation/validation.module.js';
       }),
     }),
     DatabaseModule,
+    AuditModule,
+    IdempotencyModule,
+    BrandsModule,
     BuildingsModule,
     CategoriesModule,
     SuppliersModule,
