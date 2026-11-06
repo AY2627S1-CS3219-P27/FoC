@@ -171,7 +171,6 @@ export function PushNotificationsCard() {
           `/api/notifications/subscriptions/web?endpoint=${encodeURIComponent(
             subscription.endpoint,
           )}`,
-          { quiet: true },
         );
 
         if (!result.ok) {

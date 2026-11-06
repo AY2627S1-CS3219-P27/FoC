@@ -1,7 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { api } from "@/lib/api";
+import { toast } from "sonner";
+import { api, errorText } from "@/lib/api";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { FormError } from "@/components/ui/field";
+import { List, ListRow } from "@/components/ui/layout";
 
 export interface AdminUserFlags {
   uuid: string;
@@ -9,6 +13,17 @@ export interface AdminUserFlags {
   isArchived?: boolean;
 }
 
+type Change = { isAdmin?: boolean; isArchived?: boolean };
+
+interface Pending {
+  change: Change;
+  title: string;
+  description: string;
+  confirmLabel: string;
+  danger: boolean;
+}
+
+// Admin rights and archiving as rows in the user's sheet. Granting or removing rights and archiving ask first; restoring doesn't.
 export function UserAdminActions<U extends AdminUserFlags>({
   user,
   isSelf,
@@ -18,59 +33,97 @@ export function UserAdminActions<U extends AdminUserFlags>({
   isSelf: boolean;
   onUpdated: (user: U) => void;
 }) {
+  const [confirming, setConfirming] = useState<Pending | null>(null);
+  // Kept after closing so the dialog does not go blank while it animates out.
+  const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
-  async function update(change: { isAdmin?: boolean; isArchived?: boolean }, confirmText: string) {
-    if (!window.confirm(confirmText)) return;
+  function ask(p: Pending) {
+    setConfirming(p);
+    setOpen(true);
+  }
+
+  async function update(change: Change) {
     setPending(true);
     setError("");
     const res = await api<Partial<U>>("PATCH", `/api/users/${user.uuid}`, { body: change });
     setPending(false);
-    if (res.ok && res.data) onUpdated({ ...user, ...res.data });
-    else setError(`${res.status} ${res.message ?? res.code ?? "Update failed."}`);
+    setOpen(false);
+    if (res.ok && res.data) {
+      onUpdated({ ...user, ...res.data });
+      toast.success("User updated");
+    } else setError(errorText(res, "Could not update this user."));
   }
 
-  const button =
-    "btn-press text-xs rounded-lg border px-2 py-1 font-medium transition-colors disabled:opacity-50";
-
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <button
-        disabled={pending}
-        onClick={() =>
-          update(
-            { isAdmin: !user.isAdmin },
-            user.isAdmin
-              ? `Remove admin rights${isSelf ? " from yourself" : ""}?`
-              : "Make this user an admin?",
-          )
-        }
-        className={`${button} border-nus-blue/40 text-nus-blue hover:bg-nus-blue/10`}
-      >
-        {user.isAdmin ? "Remove admin" : "Make admin"}
-      </button>
-      <button
-        disabled={pending}
-        onClick={() =>
-          update(
-            { isArchived: !user.isArchived },
-            user.isArchived ? "Restore this account?" : "Archive this account?",
-          )
-        }
-        className={`${button} ${
-          user.isArchived
-            ? "border-success/40 text-success hover:bg-success/10"
-            : "border-danger/40 text-danger hover:bg-danger/10"
-        }`}
-      >
-        {user.isArchived ? "Unarchive" : "Archive"}
-      </button>
+    <div>
+      <List>
+        <ListRow
+          title={user.isAdmin ? "Remove admin rights" : "Make admin"}
+          tone={user.isAdmin ? "danger" : "tint"}
+          chevron={false}
+          onClick={
+            pending
+              ? undefined
+              : () =>
+                  ask(
+                    user.isAdmin
+                      ? {
+                          change: { isAdmin: false },
+                          title: `Remove admin rights${isSelf ? " from yourself" : ""}?`,
+                          description: isSelf
+                            ? "You will lose access to the admin sections once your session refreshes."
+                            : "They will lose access to the admin sections.",
+                          confirmLabel: "Remove",
+                          danger: true,
+                        }
+                      : {
+                          change: { isAdmin: true },
+                          title: "Make this user an admin?",
+                          description: "They will be able to manage users, suppliers and requests.",
+                          confirmLabel: "Make admin",
+                          danger: false,
+                        },
+                  )
+          }
+        />
+        <ListRow
+          title={user.isArchived ? "Restore account" : "Archive account"}
+          tone={user.isArchived ? "tint" : "danger"}
+          chevron={false}
+          onClick={
+            pending
+              ? undefined
+              : () =>
+                  // Restoring is safe and easy to undo, so only archiving asks first.
+                  user.isArchived
+                    ? void update({ isArchived: false })
+                    : ask({
+                        change: { isArchived: true },
+                        title: "Archive this account?",
+                        description: "They are signed out and cannot sign in until an admin restores the account.",
+                        confirmLabel: "Archive",
+                        danger: true,
+                      })
+          }
+        />
+      </List>
       {error && (
-        <span role="alert" className="text-xs text-danger w-full">
-          {error}
-        </span>
+        <div className="mt-2 px-4">
+          <FormError>{error}</FormError>
+        </div>
       )}
+      <ConfirmDialog
+        open={open}
+        onOpenChange={(next) => !pending && setOpen(next)}
+        title={confirming?.title ?? ""}
+        description={confirming?.description ?? ""}
+        confirmLabel={confirming?.confirmLabel ?? ""}
+        intent={confirming?.danger ? "danger" : "primary"}
+        pending={pending}
+        onConfirm={() => confirming && void update(confirming.change)}
+      />
     </div>
   );
 }
