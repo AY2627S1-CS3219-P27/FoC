@@ -30,6 +30,7 @@ services:
       OPENROUTER_CHAT_MODEL: ${RAG_OPENROUTER_CHAT_MODEL:-anthropic/claude-haiku-5.5}
       OPENROUTER_EMBEDDING_MODEL: ${RAG_OPENROUTER_EMBEDDING_MODEL:-openai/text-embedding-3-small}
       SUPPORT_DOCS_PATH: /support-docs
+      INDEX_ON_STARTUP: ${RAG_INDEX_ON_STARTUP:-true}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4318}
       OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:-http://loki:3100/otlp/v1/logs}
     volumes:
@@ -48,7 +49,7 @@ services:
         ]
       interval: 10s
       timeout: 3s
-      start_period: 120s
+      start_period: 180s
       retries: 3
     develop:
       watch:

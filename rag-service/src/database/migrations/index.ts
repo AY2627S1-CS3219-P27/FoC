@@ -1,3 +1,7 @@
 import { EnablePgvector1793923200000 } from './1793923200000-enable-pgvector.js';
+import { CreateChunks1794009600000 } from './1794009600000-create-chunks.js';
 
-export const databaseMigrations: Function[] = [EnablePgvector1793923200000];
+export const databaseMigrations: Function[] = [
+  EnablePgvector1793923200000,
+  CreateChunks1794009600000,
+];

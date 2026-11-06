@@ -1,3 +1,5 @@
-// The tables arrive with the code that uses them: chunks with indexing and
-// chat_log with request logging.
-export const databaseEntities: Function[] = [];
+import { Chunk } from './chunk.entity.js';
+
+export { Chunk, EMBEDDING_DIMENSIONS } from './chunk.entity.js';
+
+export const databaseEntities: Function[] = [Chunk];
