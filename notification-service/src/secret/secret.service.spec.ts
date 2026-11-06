@@ -10,6 +10,7 @@ vi.mock('node:fs', async (importOriginal) => ({
 
 const DB_PASSWORD_VAR = 'DB_PASSWORD_FILE';
 const RABBITMQ_PASSWORD_VAR = 'RABBITMQ_PASSWORD_FILE';
+const JWT_PUBLIC_KEY_VAR = 'JWT_PUBLIC_KEY_FILE';
 
 describe('SecretService', () => {
   let service: SecretService;
@@ -18,10 +19,15 @@ describe('SecretService', () => {
     process.env[DB_PASSWORD_VAR] = '/run/secrets/notification_db_password';
     process.env[RABBITMQ_PASSWORD_VAR] =
       '/run/secrets/rabbitmq_notification_password';
+    process.env[JWT_PUBLIC_KEY_VAR] =
+      '/run/secrets/jwt_public_key_notification_service';
     vi.mocked(readFileSync).mockReset();
-    vi.mocked(readFileSync).mockImplementation((path: unknown) =>
-      String(path).includes('rabbitmq') ? 'rabbit-secret\n' : 'db-secret\n',
-    );
+    vi.mocked(readFileSync).mockImplementation((path: unknown) => {
+      const file = String(path);
+      if (file.includes('rabbitmq')) return 'rabbit-secret\n';
+      if (file.includes('jwt')) return 'public-key\n';
+      return 'db-secret\n';
+    });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -55,6 +61,17 @@ describe('SecretService', () => {
     delete process.env[RABBITMQ_PASSWORD_VAR];
     expect(() => service.getRabbitMqPassword()).toThrow(
       'RABBITMQ_PASSWORD_FILE is not set',
+    );
+  });
+
+  it('reads the token verification key from its own file', () => {
+    expect(service.getJwtPublicKey()).toBe('public-key');
+  });
+
+  it('rejects an empty token verification key', () => {
+    vi.mocked(readFileSync).mockReturnValue('\n');
+    expect(() => service.getJwtPublicKey()).toThrow(
+      'JWT public key file is empty',
     );
   });
 });

@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 export class SecretService {
   private dbPassword: string;
   private rabbitMqPassword: string;
+  private jwtPublicKey: string;
 
   constructor(private configService: ConfigService) {}
 
@@ -25,6 +26,22 @@ export class SecretService {
       this.rabbitMqPassword = this.readSecretFile('RABBITMQ_PASSWORD_FILE');
     }
     return this.rabbitMqPassword;
+  }
+
+  /**
+   * The user-service RS256 public key used to verify access tokens. An empty
+   * key must fail here: it would not fail at boot, every request would just
+   * be a 401.
+   */
+  getJwtPublicKey(): string {
+    if (this.jwtPublicKey === undefined) {
+      const publicKey = this.readSecretFile('JWT_PUBLIC_KEY_FILE');
+      if (publicKey.length === 0) {
+        throw new Error('JWT public key file is empty');
+      }
+      this.jwtPublicKey = publicKey;
+    }
+    return this.jwtPublicKey;
   }
 
   private readSecretFile(envVar: string): string {
