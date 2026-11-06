@@ -13,7 +13,12 @@ export const supplierSnapshot = {
   coordinates: { latitude: 1.294, longitude: 103.7738 },
 };
 
-export const deliveryBuilding = { id: randomUUID(), shortName: 'COM2', canonicalName: 'Computing 2' };
+export const deliveryBuilding = {
+  id: randomUUID(),
+  shortName: 'COM2',
+  canonicalName: 'Computing 2',
+  coordinates: { latitude: 1.2939, longitude: 103.7742 },
+};
 
 export const supplierValidated = () => ({
   set: {

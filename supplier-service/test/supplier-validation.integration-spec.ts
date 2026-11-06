@@ -209,6 +209,7 @@ describe('supplier validation over the outbox (real PostgreSQL, F15.7)', () => {
           id: com2.id,
           shortName: 'COM2',
           canonicalName: 'Computing 2',
+          coordinates: { latitude: 1.2939, longitude: 103.7742 },
         },
       },
     });
