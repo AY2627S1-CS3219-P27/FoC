@@ -116,6 +116,11 @@ const archiveDuration = createLabeledHistogram(
   ['outcome'],
   [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
 );
+const archiveShutdownCounter = createLabeledCounter(
+  'comms_archive_shutdown_total',
+  'Archive worker shutdown outcomes.',
+  ['outcome'],
+);
 
 export const commsMetrics = {
   lifecycleDelivery(stream: string, outcome: LifecycleDeliveryOutcome): void {
@@ -190,6 +195,10 @@ export const commsMetrics = {
   ): void {
     archiveOperationCounter.inc({ outcome });
     archiveDuration.observe({ outcome }, seconds);
+  },
+
+  archiveShutdown(outcome: 'idle' | 'drained' | 'timed_out'): void {
+    archiveShutdownCounter.inc({ outcome });
   },
 };
 

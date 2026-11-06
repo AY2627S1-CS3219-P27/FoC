@@ -18,7 +18,9 @@ export class ArchiveWorker
 {
   private readonly logger = new Logger(ArchiveWorker.name);
   private readonly pollIntervalMs: number;
+  private readonly shutdownDrainTimeoutMs: number;
   private stopping = false;
+  private shutdownTimedOut = false;
   private timer?: ReturnType<typeof setTimeout>;
   private inFlight?: Promise<void>;
 
@@ -31,6 +33,10 @@ export class ArchiveWorker
     this.pollIntervalMs = config.get('ARCHIVE_POLL_INTERVAL_MS', {
       infer: true,
     });
+    this.shutdownDrainTimeoutMs = config.get(
+      'ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS',
+      { infer: true },
+    );
   }
 
   onApplicationBootstrap(): void {
@@ -40,7 +46,40 @@ export class ArchiveWorker
   async beforeApplicationShutdown(): Promise<void> {
     this.stopping = true;
     if (this.timer !== undefined) clearTimeout(this.timer);
-    await this.inFlight;
+    const inFlight = this.inFlight;
+    if (inFlight === undefined) {
+      commsMetrics.archiveShutdown('idle');
+      return;
+    }
+
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const completion = inFlight.then(
+      () => 'drained' as const,
+      (error: unknown) => {
+        this.logFailure('archive:shutdown-drain', error);
+        return 'drained' as const;
+      },
+    );
+    const deadline = new Promise<'timed_out'>((resolve) => {
+      timeout = setTimeout(
+        () => resolve('timed_out'),
+        this.shutdownDrainTimeoutMs,
+      );
+    });
+    const outcome = await Promise.race([completion, deadline]);
+    if (outcome === 'drained') {
+      if (timeout !== undefined) clearTimeout(timeout);
+      commsMetrics.archiveShutdown('drained');
+      return;
+    }
+
+    this.shutdownTimedOut = true;
+    commsMetrics.archiveShutdown('timed_out');
+    this.logger.warn({
+      operation: 'archive:shutdown-drain',
+      outcome: 'timed_out',
+      errorClass: 'TimeoutError',
+    });
   }
 
   async runOnce(): Promise<void> {
@@ -65,8 +104,17 @@ export class ArchiveWorker
       return;
     }
 
+    if (this.stopping) {
+      commsMetrics.archiveClaimsInFlight(0);
+      return;
+    }
+
     let remainingClaims = claims.length;
     for (const claim of claims) {
+      if (this.stopping) {
+        commsMetrics.archiveClaimsInFlight(0);
+        return;
+      }
       const started = process.hrtime.bigint();
       try {
         const result = await this.archives.archive(claim);
@@ -75,7 +123,9 @@ export class ArchiveWorker
           continue;
         }
         commsMetrics.observeArchive('archived', elapsedSeconds(started));
-        this.realtime.publishArchived(result.notification);
+        if (!this.shutdownTimedOut) {
+          this.realtime.publishArchived(result.notification);
+        }
       } catch (error) {
         commsMetrics.observeArchive('failed', elapsedSeconds(started));
         this.logFailure('archive:commit', error);

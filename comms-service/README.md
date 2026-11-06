@@ -84,7 +84,10 @@ RabbitMQ, observability, and logging settings remain in `env/shared.env`.
 Service-specific database, queue-name, socket, archive-worker, and host-port
 settings live in `env/comms-service.env`. Archive polling defaults to five
 seconds with batches of 25 and 60-second claim leases. The claim TTL must be
-greater than the poll interval.
+greater than the poll interval. Shutdown stops new archive work and drains the
+current operation for at most `ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS`, which
+defaults to 10 seconds and must remain shorter than the claim TTL. Claims left
+behind after that deadline are recovered through normal lease expiry.
 
 Apply the schema explicitly before starting the application. From the
 repository root:
@@ -338,6 +341,10 @@ archives. Do not reopen archived chats or restore deleted live messages. Revert
 a migration only after confirming the schema contains no required retained
 evidence and receiving explicit approval. Broker definitions removal is
 non-destructive and is not a reason to delete queues during ordinary rollback.
+The deployment stop-grace period must exceed the configured archive drain
+timeout so the shutdown hook can finish before forced termination. The bundled
+Compose service uses 75 seconds, exceeding the maximum accepted 60-second
+archive drain deadline.
 
 ## Verification
 
@@ -379,8 +386,9 @@ and remain immutable at the database boundary.
 actual deadline changes, normalized HTTP latency, handshake results, active
 sockets, join/send/read outcomes and latency, archive claim results and
 latency, in-flight claims, archive results and latency, lifecycle notification
-outcomes, and adapter errors. Labels are limited to bounded operation, outcome,
-reason, role, stream, normalized route, status class, and fixed source;
+outcomes, archive-worker shutdown outcomes, and adapter errors. Labels are
+limited to bounded operation, outcome, reason, role, stream, normalized route,
+status class, and fixed source;
 participant, errand, chat, message, archive, event, claim, cursor, and token
 values are never labels.
 

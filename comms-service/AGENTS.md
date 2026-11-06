@@ -32,6 +32,8 @@ in readiness and shutdown. Every replica runs a bounded leased archive worker;
 PostgreSQL locking and expiring claim tokens coordinate concurrent replicas.
 The worker inserts a versioned immutable snapshot, deletes live messages, marks
 the retained chat archived, and emits `chat:archived` only after commit.
+Shutdown stops after the current archive operation and uses the configured
+bounded drain deadline; abandoned claims recover only through lease expiry.
 
 The backend realtime boundary includes committed message/read events and the
 best-effort `chat:closing` and `chat:archived` notifications. Do not add browser

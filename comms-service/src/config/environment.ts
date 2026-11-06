@@ -40,6 +40,7 @@ export interface EnvironmentVariables {
   ARCHIVE_POLL_INTERVAL_MS: number;
   ARCHIVE_BATCH_SIZE: number;
   ARCHIVE_CLAIM_TTL_MS: number;
+  ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS: number;
 }
 
 const origins = Joi.any()
@@ -147,10 +148,21 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
     .min(5_000)
     .max(600_000)
     .default(60_000),
+  ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS: Joi.number()
+    .integer()
+    .min(1_000)
+    .max(60_000)
+    .default(10_000),
 })
   .custom((environment: EnvironmentVariables, helpers) => {
     if (
       environment.ARCHIVE_CLAIM_TTL_MS <= environment.ARCHIVE_POLL_INTERVAL_MS
+    ) {
+      return helpers.error('any.invalid');
+    }
+    if (
+      environment.ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS >=
+      environment.ARCHIVE_CLAIM_TTL_MS
     ) {
       return helpers.error('any.invalid');
     }

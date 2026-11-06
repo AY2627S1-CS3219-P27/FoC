@@ -71,6 +71,7 @@ describe('Communication Service metrics', () => {
     commsMetrics.observeArchiveClaim('successful', 0.01);
     commsMetrics.archiveClaimsInFlight(2);
     commsMetrics.observeArchive('archived', 0.05);
+    commsMetrics.archiveShutdown('timed_out');
     commsMetrics.archiveClaimsInFlight(0);
     commsMetrics.socketDisconnected();
 
@@ -106,6 +107,9 @@ describe('Communication Service metrics', () => {
       'foc_comms_archive_claim_duration_seconds_count{outcome="successful"}',
     );
     expect(metrics).toContain('foc_comms_archive_claims_in_flight 0');
+    expect(metrics).toContain(
+      'foc_comms_archive_shutdown_total{outcome="timed_out"}',
+    );
     expect(metrics).not.toMatch(
       /chat_id|user_id|message_id|archive_id|event_id|claim_token/,
     );

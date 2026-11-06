@@ -7,6 +7,7 @@ services:
     image: ${FOC_IMAGE_PREFIX:-foc}/comms-service:${COMMS_SERVICE_IMAGE_TAG:-dev}
     command: npm run start:dev
     restart: unless-stopped
+    stop_grace_period: 75s
     depends_on:
       comms-db:
         condition: service_healthy
@@ -43,6 +44,7 @@ services:
       ARCHIVE_POLL_INTERVAL_MS: ${ARCHIVE_POLL_INTERVAL_MS:-5000}
       ARCHIVE_BATCH_SIZE: ${ARCHIVE_BATCH_SIZE:-25}
       ARCHIVE_CLAIM_TTL_MS: ${ARCHIVE_CLAIM_TTL_MS:-60000}
+      ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS: ${ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS:-10000}
     secrets:
       - comms_db_password
       - rabbitmq_password_comms_service

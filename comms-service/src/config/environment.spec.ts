@@ -38,6 +38,7 @@ describe('environmentSchema', () => {
     expect(environment.ARCHIVE_POLL_INTERVAL_MS).toBe(5_000);
     expect(environment.ARCHIVE_BATCH_SIZE).toBe(25);
     expect(environment.ARCHIVE_CLAIM_TTL_MS).toBe(60_000);
+    expect(environment.ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS).toBe(10_000);
     expect(environment.RABBITMQ_PUBSUB_EXCHANGE).toBe('foc.pubsub');
     expect(environment.RABBITMQ_EVENTS_QUEUE).toBe('comms-service.events');
     expect(environment.RABBITMQ_RETRY_EXCHANGE).toBe('foc.comms.retry');
@@ -82,6 +83,8 @@ describe('environmentSchema', () => {
     ['ARCHIVE_BATCH_SIZE', 101],
     ['ARCHIVE_CLAIM_TTL_MS', 4_999],
     ['ARCHIVE_CLAIM_TTL_MS', 600_001],
+    ['ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS', 999],
+    ['ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS', 60_001],
   ])('rejects invalid %s', (name, value) => {
     expect(() => validate({ [name]: value })).toThrow();
   });
@@ -97,8 +100,24 @@ describe('environmentSchema', () => {
       validate({
         ARCHIVE_POLL_INTERVAL_MS: 5_000,
         ARCHIVE_CLAIM_TTL_MS: 5_001,
+        ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS: 1_000,
       }).ARCHIVE_CLAIM_TTL_MS,
     ).toBe(5_001);
+  });
+
+  it('requires the archive shutdown drain timeout to be shorter than the claim TTL', () => {
+    expect(() =>
+      validate({
+        ARCHIVE_CLAIM_TTL_MS: 10_000,
+        ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS: 10_000,
+      }),
+    ).toThrow();
+    expect(
+      validate({
+        ARCHIVE_CLAIM_TTL_MS: 10_001,
+        ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS: 10_000,
+      }).ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS,
+    ).toBe(10_000);
   });
 
   it('requires all dependency connection settings', () => {

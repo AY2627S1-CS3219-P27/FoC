@@ -1,5 +1,7 @@
 import type { ConfigService } from '@nestjs/config';
+import { Logger } from '@nestjs/common';
 import type { EnvironmentVariables } from '../config/environment.js';
+import { commsMetrics } from '../observability/comms-metrics.js';
 import type { ChatRealtimePublisher } from '../socket/chat-realtime.publisher.js';
 import type { ArchiveClaimService } from './archive-claim.service.js';
 import type { ArchiveService } from './archive.service.js';
@@ -27,7 +29,9 @@ function harness() {
   const publishArchived = vi.fn();
   const worker = new ArchiveWorker(
     {
-      get: vi.fn().mockReturnValue(5_000),
+      get: vi.fn((name: keyof EnvironmentVariables) =>
+        name === 'ARCHIVE_POLL_INTERVAL_MS' ? 5_000 : 10_000,
+      ),
     } as unknown as ConfigService<EnvironmentVariables, true>,
     { claimDueBatch } as unknown as ArchiveClaimService,
     { archive } as unknown as ArchiveService,
@@ -71,6 +75,7 @@ describe('ArchiveWorker', () => {
 
   it('stops scheduling and drains bounded in-flight work during shutdown', async () => {
     vi.useFakeTimers();
+    const metric = vi.spyOn(commsMetrics, 'archiveShutdown');
     const { archive, claimDueBatch, worker } = harness();
     let resolveArchive!: (value: { status: 'stale' }) => void;
     archive.mockReturnValueOnce(
@@ -92,6 +97,128 @@ describe('ArchiveWorker', () => {
     resolveArchive({ status: 'stale' });
     await shutdown;
     await vi.advanceTimersByTimeAsync(10_000);
+    expect(claimDueBatch).toHaveBeenCalledOnce();
+    expect(metric).toHaveBeenCalledWith('drained');
+  });
+
+  it('cancels a pending poll and reports an idle shutdown', async () => {
+    vi.useFakeTimers();
+    const metric = vi.spyOn(commsMetrics, 'archiveShutdown');
+    const { claimDueBatch, worker } = harness();
+
+    worker.onApplicationBootstrap();
+    await worker.beforeApplicationShutdown();
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    expect(claimDueBatch).not.toHaveBeenCalled();
+    expect(metric).toHaveBeenCalledWith('idle');
+  });
+
+  it('does not process claims returned after shutdown begins', async () => {
+    vi.useFakeTimers();
+    const { archive, claimDueBatch, worker } = harness();
+    let resolveClaims!: (value: (typeof claim)[]) => void;
+    claimDueBatch.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveClaims = resolve;
+      }),
+    );
+
+    worker.onApplicationBootstrap();
+    await vi.advanceTimersByTimeAsync(0);
+    const shutdown = worker.beforeApplicationShutdown();
+    resolveClaims([claim]);
+    await shutdown;
+
+    expect(archive).not.toHaveBeenCalled();
+  });
+
+  it('finishes only the current claim when shutdown interrupts a batch', async () => {
+    vi.useFakeTimers();
+    const { archive, claimDueBatch, worker } = harness();
+    claimDueBatch.mockResolvedValue([
+      claim,
+      { ...claim, chatId: notification.archiveId },
+    ]);
+    let resolveArchive!: (value: { status: 'stale' }) => void;
+    archive.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveArchive = resolve;
+      }),
+    );
+
+    worker.onApplicationBootstrap();
+    await vi.advanceTimersByTimeAsync(0);
+    const shutdown = worker.beforeApplicationShutdown();
+    resolveArchive({ status: 'stale' });
+    await shutdown;
+
+    expect(archive).toHaveBeenCalledOnce();
+  });
+
+  it('returns at the drain deadline and suppresses late notification and rescheduling', async () => {
+    vi.useFakeTimers();
+    const metric = vi.spyOn(commsMetrics, 'archiveShutdown');
+    const warn = vi
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => {});
+    const { archive, claimDueBatch, publishArchived, worker } = harness();
+    let resolveArchive!: (value: {
+      status: 'archived';
+      notification: typeof notification;
+    }) => void;
+    archive.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveArchive = resolve;
+      }),
+    );
+
+    worker.onApplicationBootstrap();
+    await vi.advanceTimersByTimeAsync(0);
+    const shutdown = worker.beforeApplicationShutdown();
+    let finished = false;
+    void shutdown.then(() => {
+      finished = true;
+    });
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(finished).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await shutdown;
+
+    expect(metric).toHaveBeenCalledWith('timed_out');
+    expect(warn).toHaveBeenCalledWith({
+      operation: 'archive:shutdown-drain',
+      outcome: 'timed_out',
+      errorClass: 'TimeoutError',
+    });
+    expect(JSON.stringify(warn.mock.calls)).not.toMatch(
+      /11111111|22222222|33333333/,
+    );
+    resolveArchive({ status: 'archived', notification });
+    await vi.runAllTimersAsync();
+    expect(publishArchived).not.toHaveBeenCalled();
+    expect(claimDueBatch).toHaveBeenCalledOnce();
+  });
+
+  it('contains a late rejection after the shutdown deadline', async () => {
+    vi.useFakeTimers();
+    const { archive, claimDueBatch, publishArchived, worker } = harness();
+    let rejectArchive!: (error: Error) => void;
+    archive.mockReturnValueOnce(
+      new Promise((_resolve, reject) => {
+        rejectArchive = reject;
+      }),
+    );
+
+    worker.onApplicationBootstrap();
+    await vi.advanceTimersByTimeAsync(0);
+    const shutdown = worker.beforeApplicationShutdown();
+    await vi.advanceTimersByTimeAsync(10_000);
+    await shutdown;
+    rejectArchive(new Error('late archive failure'));
+    await vi.runAllTimersAsync();
+
+    expect(publishArchived).not.toHaveBeenCalled();
     expect(claimDueBatch).toHaveBeenCalledOnce();
   });
 });
