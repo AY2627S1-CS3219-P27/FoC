@@ -27,6 +27,10 @@ export const ErrorCode = {
   RequestNotApplicable: 'REQUEST_NOT_APPLICABLE',
   /** An identical request is already Pending (F7.2). */
   DuplicateRequest: 'DUPLICATE_REQUEST',
+  /** The Idempotency-Key was already used for a different request (F14.2.2). */
+  IdempotencyKeyReused: 'IDEMPOTENCY_KEY_REUSED',
+  /** A request with this Idempotency-Key is still running. */
+  IdempotencyInProgress: 'IDEMPOTENCY_IN_PROGRESS',
   PayloadTooLarge: 'PAYLOAD_TOO_LARGE',
   PreconditionRequired: 'PRECONDITION_REQUIRED',
   DependencyUnavailable: 'DEPENDENCY_UNAVAILABLE',

@@ -61,7 +61,7 @@ const nextConfig: NextConfig = {
       },
       {
         source: "/api/notifications/:path*",
-        destination: `${notificationService}/notifications/:path*`,
+        destination: `${notificationService}/v1/:path*`,
       },
       {
         source: `${socketPath}/:path*`,

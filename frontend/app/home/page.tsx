@@ -12,6 +12,8 @@ import { UserAdminActions } from "./_admin/user-admin-actions";
 import { CategoriesPanel } from "./_admin/categories-panel";
 import { CreateUserForm } from "./_admin/create-user-form";
 import { ArchiveAccount } from "./_account/archive-account";
+import { PushNotificationsCard } from "./_notifications/push-settings";
+import { PushRegistrationSync } from "./_notifications/push-registration";
 import { MyRequests } from "./_suppliers/my-requests";
 import { SupplierForm } from "./_suppliers/supplier-form";
 import { Avatar } from "./_shell/avatar";
@@ -278,6 +280,159 @@ export default function HomePage() {
     );
   }
 
+  if (userLoading) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <div className="text-muted fade-in">Loading...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col min-h-full">
+      {user && <PushRegistrationSync />}
+      {/* Translucent navigation bar (§12: glass material) */}
+      <header className="glass-heavy text-white sticky top-0 z-40">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-6">
+            <Link href="/home" className="text-xl font-bold tracking-tight">
+              FoC
+            </Link>
+            <nav className="hidden sm:flex gap-1">
+              <button
+                onClick={() => setTab("errands")}
+                className={`btn-press px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  tab === "errands"
+                    ? "bg-white/20 text-white"
+                    : "text-white/70 hover:text-white hover:bg-white/10"
+                }`}
+              >
+                Errands
+              </button>
+              <button
+                onClick={() => setTab("suppliers")}
+                className={`btn-press px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  tab === "suppliers"
+                    ? "bg-white/20 text-white"
+                    : "text-white/70 hover:text-white hover:bg-white/10"
+                }`}
+              >
+                Suppliers
+              </button>
+              <button
+                onClick={() => setTab("profile")}
+                className={`btn-press px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  tab === "profile"
+                    ? "bg-white/20 text-white"
+                    : "text-white/70 hover:text-white hover:bg-white/10"
+                }`}
+              >
+                My Account
+              </button>
+              {user?.isAdmin && (
+                <button
+                  onClick={() => setTab("users")}
+                  className={`btn-press px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                    tab === "users"
+                      ? "bg-white/20 text-white"
+                      : "text-white/70 hover:text-white hover:bg-white/10"
+                  }`}
+                >
+                  Users
+                </button>
+              )}
+              {user?.isAdmin && (
+                <button
+                  onClick={() => setTab("requests")}
+                  className={`btn-press px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                    tab === "requests"
+                      ? "bg-white/20 text-white"
+                      : "text-white/70 hover:text-white hover:bg-white/10"
+                  }`}
+                >
+                  Requests
+                </button>
+              )}
+            </nav>
+          </div>
+          <div className="flex items-center gap-3">
+            {user && <Avatar url={user.profilePictureUrl} size={28} ring />}
+            <span className="text-sm text-white/80 hidden sm:inline">
+              {user?.displayName}
+            </span>
+            {user?.isAdmin && (
+              <span className="text-xs bg-nus-orange px-2 py-0.5 rounded-full font-medium">
+                Admin
+              </span>
+            )}
+            <Link
+              href="/login"
+              className="text-sm text-white/70 hover:text-white transition-colors"
+            >
+              Sign out
+            </Link>
+          </div>
+        </div>
+        {/* Mobile tabs */}
+        <div className="sm:hidden flex border-t border-white/10">
+          <button
+            onClick={() => setTab("errands")}
+            className={`btn-press flex-1 py-2.5 text-sm font-medium transition-colors ${tab === "errands" ? "bg-white/15 text-white" : "text-white/60"}`}
+          >
+            Errands
+          </button>
+          <button
+            onClick={() => setTab("suppliers")}
+            className={`btn-press flex-1 py-2.5 text-sm font-medium transition-colors ${tab === "suppliers" ? "bg-white/15 text-white" : "text-white/60"}`}
+          >
+            Suppliers
+          </button>
+          <button
+            onClick={() => setTab("profile")}
+            className={`btn-press flex-1 py-2.5 text-sm font-medium transition-colors ${tab === "profile" ? "bg-white/15 text-white" : "text-white/60"}`}
+          >
+            My Account
+          </button>
+          {user?.isAdmin && (
+            <button
+              onClick={() => setTab("users")}
+              className={`btn-press flex-1 py-2.5 text-sm font-medium transition-colors ${tab === "users" ? "bg-white/15 text-white" : "text-white/60"}`}
+            >
+              Users
+            </button>
+          )}
+          {user?.isAdmin && (
+            <button
+              onClick={() => setTab("requests")}
+              className={`btn-press flex-1 py-2.5 text-sm font-medium transition-colors ${tab === "requests" ? "bg-white/15 text-white" : "text-white/60"}`}
+            >
+              Requests
+            </button>
+          )}
+        </div>
+      </header>
+
+      <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6">
+        <div key={tab} className="fade-in">
+          {tab === "errands" && user && user.roles.length > 0 && (
+            <ErrandsTab me={user.uuid} roles={user.roles} buildings={buildings} />
+          )}
+          {tab === "errands" && user && user.roles.length === 0 && (
+            <div className="max-w-xl rounded-2xl border border-border bg-surface p-6 shadow-sm">
+              <h2 className="text-xl font-bold mb-1">Errands</h2>
+              <p className="text-sm text-muted mb-4">
+                {user.isAdmin
+                  ? "Admin accounts have no requester or courier role. Use the Users tab to view any user's errands."
+                  : "Pick a role (requester or courier) on My Account, then sign in again to request or deliver errands."}
+              </p>
+              <button
+                onClick={() => setTab(user.isAdmin ? "users" : "profile")}
+                className="btn-press rounded-xl bg-nus-orange px-4 py-2 text-sm font-semibold text-white hover:bg-nus-orange-hover transition-colors"
+              >
+                {user.isAdmin ? "Go to Users" : "Go to My Account"}
+              </button>
+            </div>
+          )}
   return (
     <>
       <nav
@@ -1113,6 +1268,8 @@ function ProfileTab({
           <p className="text-sm text-nus-orange mt-2 fade-in">{roleMsg}</p>
         )}
       </div>
+
+      <PushNotificationsCard />
 
       {/* Password reset */}
       <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">

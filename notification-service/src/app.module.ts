@@ -1,12 +1,15 @@
 import { Module } from '@nestjs/common';
 import { LoggerModule } from 'nestjs-pino';
 import { pinoHttpOptions } from '@foc/observability';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { FocAuthModule } from '@foc/auth';
+import { ConfigModule } from '@nestjs/config';
 import { environmentSchema } from './config/environment.schema.js';
+import { DatabaseModule } from './database/database.module.js';
+import { MessagingModule } from './messaging/messaging.module.js';
 import { SecretModule } from './secret/secret.module.js';
 import { SecretService } from './secret/secret.service.js';
 import { HealthController } from './health/health.controller.js';
+import { SubscriptionsModule } from './subscriptions/subscriptions.module.js';
 
 @Module({
   imports: [
@@ -17,22 +20,16 @@ import { HealthController } from './health/health.controller.js';
     }),
     LoggerModule.forRoot({ pinoHttp: pinoHttpOptions('notification-service') }),
     SecretModule,
-    TypeOrmModule.forRootAsync({
-      inject: [ConfigService, SecretService],
-      useFactory: (
-        configService: ConfigService,
-        secretService: SecretService,
-      ) => ({
-        type: 'postgres',
-        host: configService.get<string>('DB_HOST'),
-        port: configService.get<number>('DB_PORT'),
-        username: configService.get<string>('DB_USERNAME'),
-        password: secretService.getDbPassword(),
-        database: configService.get<string>('DB_DATABASE'),
-        entities: [],
-        synchronize: configService.get<boolean>('DB_SYNCHRONIZE'),
+    FocAuthModule.registerAsync({
+      imports: [SecretModule],
+      inject: [SecretService],
+      useFactory: (secretService: SecretService) => ({
+        publicKey: secretService.getJwtPublicKey(),
       }),
     }),
+    DatabaseModule,
+    MessagingModule,
+    SubscriptionsModule,
   ],
   controllers: [HealthController],
 })
