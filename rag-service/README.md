@@ -59,6 +59,8 @@ How a question is answered:
 
 The rules are in `src/assistant/prompt-builder.ts`. The bot has no tools and no access to user data, and it can't change anything, so the worst a prompt injection can do is produce an odd answer. Only the rules, sections and question reach the model, never the user's id, email or token.
 
+Request logs have the `Authorization`, `Cookie` and `Set-Cookie` headers removed (`src/common/logging/logger-options.ts`), because they hold login tokens. Question text isn't logged.
+
 Set a spending limit on any real key: there's no per-user rate limit yet.
 
 ## Updating the help documents
