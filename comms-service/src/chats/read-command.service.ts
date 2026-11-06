@@ -11,6 +11,7 @@ interface LockedChatRow {
   requester_user_id: string;
   courier_user_id: string;
   state: 'ACTIVE' | 'GRACE' | 'ARCHIVED';
+  writable: boolean;
   latest_sequence: string;
 }
 
@@ -26,22 +27,37 @@ export class ReadCommandService {
   async markRead(command: MessagesReadCommand): Promise<MessagesReadResult> {
     return this.dataSource.transaction('READ COMMITTED', async (manager) => {
       const chats = await manager.query<LockedChatRow[]>(
-        `SELECT c.requester_user_id,
-                c.courier_user_id,
-                (c.next_sequence - 1)::text AS latest_sequence,
-                c.state
-           FROM chats c
-          WHERE c.id = $1::uuid
-            AND (
-              c.requester_user_id = $2::uuid
-              OR c.courier_user_id = $2::uuid
-            )
-          FOR UPDATE`,
+        `WITH locked AS MATERIALIZED (
+           SELECT c.requester_user_id,
+                  c.courier_user_id,
+                  c.next_sequence,
+                  c.state,
+                  c.closes_at
+             FROM chats c
+            WHERE c.id = $1::uuid
+              AND (
+                c.requester_user_id = $2::uuid
+                OR c.courier_user_id = $2::uuid
+              )
+            FOR UPDATE
+         )
+         SELECT requester_user_id,
+                courier_user_id,
+                (next_sequence - 1)::text AS latest_sequence,
+                state,
+                (
+                  state = 'ACTIVE'
+                  OR (
+                    state = 'GRACE'
+                    AND clock_timestamp() < closes_at
+                  )
+                ) AS writable
+           FROM locked`,
         [command.chatId, command.readerUserId],
       );
       const chat = chats[0];
       if (!chat) throw new ChatCommandError('NOT_FOUND');
-      if (chat.state === 'ARCHIVED') {
+      if (!chat.writable) {
         throw new ChatCommandError('CHAT_ARCHIVED');
       }
 

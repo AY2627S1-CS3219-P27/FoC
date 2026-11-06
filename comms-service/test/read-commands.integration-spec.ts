@@ -6,6 +6,7 @@ import { ChatQueryService } from '../src/chats/chat-query.service.js';
 import { MessageCommandService } from '../src/chats/message-command.service.js';
 import { ReadCommandService } from '../src/chats/read-command.service.js';
 import { createDatabaseOptions } from '../src/database/database-options.js';
+import { LifecycleFactQueryService } from '../src/lifecycle/lifecycle-fact-query.service.js';
 import { LifecycleIngestionService } from '../src/lifecycle/lifecycle-ingestion.service.js';
 
 describe('transactional read commands', () => {
@@ -73,7 +74,10 @@ describe('transactional read commands', () => {
     await dataSource.initialize();
     await dataSource.dropDatabase();
     await dataSource.runMigrations({ transaction: 'all' });
-    lifecycle = new LifecycleIngestionService(dataSource);
+    lifecycle = new LifecycleIngestionService(
+      dataSource,
+      new LifecycleFactQueryService(dataSource),
+    );
     messages = new MessageCommandService(dataSource);
     reads = new ReadCommandService(dataSource);
     queries = new ChatQueryService(dataSource, new ChatCursorCodec());
@@ -218,6 +222,19 @@ describe('transactional read commands', () => {
         WHERE id = $1`,
       [chatId],
     );
+    await expect(
+      reads.markRead({
+        chatId,
+        readerUserId: requesterId,
+        throughSequence: 1,
+      }),
+    ).rejects.toMatchObject({ code: 'CHAT_ARCHIVED' });
+    const [expiredMessage] = await dataSource.query<{ read_at: Date | null }[]>(
+      'SELECT read_at FROM messages WHERE chat_id = $1',
+      [chatId],
+    );
+    expect(expiredMessage!.read_at).toBeNull();
+
     await dataSource.query(
       `INSERT INTO chat_archives
        (id, chat_id, errand_id, requester_user_id, courier_user_id, snapshot)

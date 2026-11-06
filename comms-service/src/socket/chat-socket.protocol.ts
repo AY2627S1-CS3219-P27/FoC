@@ -3,6 +3,7 @@ import type {
   MessagesReadData,
   MessagesReadReceipt,
 } from '../chats/read-command.types.js';
+import type { ChatCloseReason } from '../database/entities/chat.entity.js';
 
 export const CHAT_NAMESPACE = '/chat';
 export const CHAT_SOCKET_MAX_HTTP_BUFFER_BYTES = 32 * 1024;
@@ -50,6 +51,25 @@ export interface ChatJoinData {
   closeReason:
     'ERRAND_DELIVERED' | 'COURIER_CANCELLED' | 'ERRAND_CANCELLED' | null;
   latestSequence: number;
+}
+
+export interface ChatClosingEvent {
+  chatId: string;
+  closesAt: string;
+  closeReason: ChatCloseReason;
+}
+
+export interface ChatArchivedEvent {
+  chatId: string;
+  archiveId: string;
+  archivedAt: string;
+}
+
+export interface ChatServerEvents {
+  'message:new': (message: CommittedMessageDto) => void;
+  'messages:read-receipt': (receipt: MessagesReadReceipt) => void;
+  'chat:closing': (event: ChatClosingEvent) => void;
+  'chat:archived': (event: ChatArchivedEvent) => void;
 }
 
 export type MessageSendData = CommittedMessageDto;
