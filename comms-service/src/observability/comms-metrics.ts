@@ -165,6 +165,12 @@ export const commsMetrics = {
 
 function normalizedChatRoute(path: string): string | undefined {
   if (path === '/v1/chats' || path === '/v1/chats/') return '/v1/chats';
+  if (path === '/v1/chats/archives' || path === '/v1/chats/archives/') {
+    return '/v1/chats/archives';
+  }
+  if (/^\/v1\/chats\/archives\/[^/]+\/?$/.test(path)) {
+    return '/v1/chats/archives/:archiveId';
+  }
   if (/^\/v1\/chats\/[^/]+\/messages\/?$/.test(path)) {
     return '/v1/chats/:chatId/messages';
   }

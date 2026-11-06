@@ -37,6 +37,27 @@ describe('Communication Service metrics', () => {
     expect(next).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    ['/v1/chats/archives', '/v1/chats/archives'],
+    [
+      '/v1/chats/archives/22222222-2222-4222-8222-222222222222',
+      '/v1/chats/archives/:archiveId',
+    ],
+  ])('normalizes archive route %s', async (path, route) => {
+    const response = new EventEmitter() as Response & EventEmitter;
+    response.statusCode = 200;
+    const next = vi.fn();
+
+    chatApiMetricsMiddleware({ path } as Request, response, next);
+    response.emit('finish');
+
+    const metrics = await registry.metrics();
+    expect(metrics).toContain(
+      `foc_comms_http_requests_total{route="${route}",status_class="2xx"}`,
+    );
+    expect(metrics).not.toContain('22222222-2222-4222-8222-222222222222');
+  });
+
   it('uses only bounded socket operation and adapter labels', async () => {
     commsMetrics.socketHandshake('accepted');
     commsMetrics.socketConnected();
