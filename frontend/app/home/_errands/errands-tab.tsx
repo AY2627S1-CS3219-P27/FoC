@@ -6,6 +6,7 @@ import { CreateErrandForm } from "./create-errand-form";
 import { ErrandDetail } from "./errand-detail";
 import {
   ERRAND_STATUSES,
+  formatDelivery,
   type BuildingOption,
   type Errand,
   type Page,
@@ -248,7 +249,7 @@ export function ErrandsTab({
                   <StatusBadge status={e.status} />
                 </div>
                 <p className="text-sm text-muted mb-1">
-                  {e.pickupLocation ?? "—"} → {e.deliveryLocation}
+                  {e.pickupLocation ?? "—"} → {formatDelivery(e)}
                 </p>
                 <p className="text-sm line-clamp-2 mb-2">{e.collectionItems}</p>
                 <div className="flex items-center justify-between text-sm">
