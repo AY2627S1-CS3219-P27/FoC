@@ -13,6 +13,7 @@ import { ReleaseOperationProcessor } from './release-operation.processor.js';
 import { TransferOperationProcessor } from './transfer-operation.processor.js';
 import { TransferService } from './transfer.service.js';
 import { SettlementService } from './settlement.service.js';
+import { SettlementOperationProcessor } from './settlement-operation.processor.js';
 
 @Module({
   imports: [ContractsModule, DatabaseModule, MessagingModule],
@@ -22,6 +23,7 @@ import { SettlementService } from './settlement.service.js';
     TransferService,
     TransferOperationProcessor,
     SettlementService,
+    SettlementOperationProcessor,
     CreditSettlementMessageHandler,
     CreditSettlementConsumerLifecycle,
     ErrandCancelledMessageHandler,
@@ -35,6 +37,7 @@ import { SettlementService } from './settlement.service.js';
     TransferService,
     TransferOperationProcessor,
     SettlementService,
+    SettlementOperationProcessor,
   ],
 })
 export class SettlementModule {}
