@@ -18,6 +18,62 @@
         "payload": {
           "type": "object",
           "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "required": ["courierAmount"],
+                "properties": {
+                  "courierAmount": { "const": 0 }
+                }
+              },
+              "then": {
+                "properties": {
+                  "courierCreditTransactionId": { "type": "null" }
+                }
+              },
+              "else": {
+                "properties": {
+                  "courierCreditTransactionId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "required": ["requesterAmount"],
+                "properties": {
+                  "requesterAmount": { "const": 0 }
+                }
+              },
+              "then": {
+                "properties": {
+                  "requesterCreditTransactionId": { "type": "null" }
+                }
+              },
+              "else": {
+                "properties": {
+                  "requesterCreditTransactionId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              }
+            }
+          ],
+          "anyOf": [
+            {
+              "properties": {
+                "courierAmount": { "type": "integer", "minimum": 1 }
+              }
+            },
+            {
+              "properties": {
+                "requesterAmount": { "type": "integer", "minimum": 1 }
+              }
+            }
+          ],
           "required": [
             "errandId",
             "requesterUserId",
@@ -51,12 +107,10 @@
               "maximum": 9007199254740991
             },
             "courierCreditTransactionId": {
-              "type": ["string", "null"],
-              "format": "uuid"
+              "type": ["string", "null"]
             },
             "requesterCreditTransactionId": {
-              "type": ["string", "null"],
-              "format": "uuid"
+              "type": ["string", "null"]
             }
           }
         }
