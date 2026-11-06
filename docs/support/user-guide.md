@@ -69,18 +69,17 @@ These are FoC's time limits:
 | What | Limit |
 |---|---|
 | Sign-up code and password reset link | 10 minutes |
-| Staying signed in without activity | 7 days |
-| Supplier check on a new errand | Normally seconds; cancelled after 30 minutes |
-| Holding credits for a new errand | Normally seconds; cancelled after 5 minutes |
+| Staying signed in | Up to 7 days |
+| Checks on a new errand | Normally seconds |
 | How long an errand stays open | 15 minutes to 168 hours, chosen by the requester (default 60 minutes) |
 | Delivering after pickup | 24 hours, then the errand is cancelled |
 | Confirming after delivery | 24 hours, then FoC confirms automatically |
 
 ## Why does FoC sometimes take a moment to update?
 
-FoC's parts pass messages to each other rather than all working at once, so a step can take a moment to show. For example, a new errand shows as Pending until the supplier and credit checks come back, and a Completed errand may appear just before the credits reach the courier.
+Some steps finish just after you act, so they can take a moment to show. For example, a new errand shows as Pending until its checks finish, and a Completed errand may appear just before the credits reach the courier.
 
-This design means one part being briefly unavailable does not lose your request. If the credit or supplier part is down, the messages wait and are handled when it returns, and time limits make sure nothing waits forever. Refresh the page after a moment if something looks out of date.
+A brief delay does not lose your request. Refresh the page after a moment if something looks out of date.
 
 ## What can FoC not do?
 

@@ -21,7 +21,7 @@ Buildings can be found by any of their names. For example, COM3 is also known by
 
 ## What is the difference between an Active and an Inactive supplier?
 
-An **Active** supplier is available to use. An **Inactive** supplier is closed or out of use, but it stays in FoC so that past errands remain accurate. You cannot run a new errand from an Inactive supplier: if you try, the errand is cancelled with the reason `SUPPLIER_UNAVAILABLE`, and no credits are taken.
+An **Active** supplier is available to use. An **Inactive** supplier is closed or out of use, but it stays in FoC so that past errands remain accurate. You cannot run a new errand from an Inactive supplier: if you try, the errand is cancelled and no credits are taken.
 
 ## How do I ask for a new supplier to be added?
 

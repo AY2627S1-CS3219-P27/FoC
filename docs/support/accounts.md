@@ -23,7 +23,7 @@ FoC is only for the NUS community, so an account needs an NUS email address endi
 
 ## What are the password rules for FoC?
 
-A FoC password must be 12 to 255 characters long. FoC does not require capitals, numbers or symbols, so a long phrase that you can remember is fine. Passwords are stored in a hashed form, which means nobody at FoC can read yours or tell you what it is. If you forget it, reset it from the sign-in page.
+A FoC password must be 12 to 255 characters long. FoC does not require capitals, numbers or symbols, so a long phrase that you can remember is fine. Nobody at FoC can tell you your password, so if you forget it, reset it from the sign-in page.
 
 ## What are the requester and courier roles?
 
@@ -38,15 +38,15 @@ You can hold one role, both, or neither. Pick your roles on the My Account page.
 
 FoC does not let you drop a role while you still have work in that role. The requester role stays until all the errands you created have finished. The courier role stays while you hold an errand that is Accepted or Picked Up. Finish or cancel the ongoing errand, then try again.
 
-While a role is being removed, FoC briefly blocks new activity in that role, so an errand cannot start at the same moment. The block clears on its own shortly afterwards.
+Just after you remove a role, you may briefly be unable to start anything new in that role. This clears on its own.
 
 ## How do I edit my FoC profile?
 
-Open the My Account page to change your display name and your profile picture. The display name can be 1 to 255 characters. The profile picture is a web link starting with `http` or `https`. Your email address cannot be changed there. Errands store your account's identity rather than your name, so a new display name also shows on your existing errands.
+Open the My Account page to change your display name and your profile picture. The display name can be 1 to 255 characters. The profile picture is a web link starting with `http` or `https`. Your email address cannot be changed there.
 
 ## How long do I stay signed in to FoC?
 
-FoC keeps you signed in on your device without asking for your password again. A short-lived sign-in token lasts 15 minutes and is renewed for you in the background. The longer session lasts 7 days, after which you need to sign in again. Changes to your roles are picked up when the token is renewed.
+FoC keeps you signed in on your device for up to 7 days, after which you need to sign in again.
 
 ## How do I sign out of FoC?
 
@@ -58,11 +58,11 @@ On the sign-in page, choose the forgotten password option and enter your email a
 
 ## Why is my FoC account locked?
 
-An account locks after 10 failed sign-in attempts in a row, to protect it from someone guessing the password. While it is locked you cannot sign in, even with the right password. To unlock it, reset your password from the sign-in page. A successful reset unlocks the account and clears the failed attempts. A successful sign-in also resets the count of failed attempts.
+An account locks after 10 failed sign-in attempts in a row, to protect it from someone guessing the password. While it is locked you cannot sign in, even with the right password. To unlock it, reset your password from the sign-in page. A successful sign-in also resets the count of failed attempts.
 
 ## How do I close my FoC account?
 
-You can archive your own account from the My Account page. Archiving ends your use of the account, and FoC keeps its past records so that other people's errand history stays accurate. FoC refuses to archive an account that still has ongoing errands, so finish those first. Only an admin can change an account's archived state afterwards.
+You can archive your own account from the My Account page. Archiving ends your use of the account, and FoC keeps its past records so that other people's errand history stays accurate. FoC refuses to archive an account that still has ongoing errands, so finish those first. If you need the account back afterwards, contact an admin.
 
 ## What can an FoC admin do?
 

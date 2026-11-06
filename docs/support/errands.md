@@ -22,7 +22,7 @@ You need the requester role and enough available credits. Fill in:
 - the credits you offer, which must be a whole number of at least 1; 10 to 20 credits is typical
 - how long the errand stays open, from 15 minutes to 168 hours (7 days); the default is 60 minutes
 
-The errand first shows as Pending while FoC checks the supplier and holds your credits. It then becomes Open, and couriers can see it. Pressing create twice by accident does not create two errands, because the app marks a retried request as the same one.
+The errand first shows as Pending while FoC checks the supplier and holds your credits. It then becomes Open, and couriers can see it. Pressing create twice by accident does not create two errands.
 
 ## What do the errand statuses mean?
 
@@ -40,22 +40,22 @@ An errand can show these statuses:
 
 ## What happens if a supplier changes after I create an errand?
 
-An errand keeps the pickup details that were checked when it was validated, so the courier goes where the errand says. If the supplier is later renamed or moved, your errand does not change. If the supplier later becomes Inactive, your existing errand carries on, and only new errands are stopped. The Active check happens once, when the errand is created.
+An errand keeps the pickup details from when it was created, so the courier goes where the errand says. If the supplier is later renamed or moved, your errand does not change. If the supplier later becomes Inactive, your errand carries on, and only new errands are stopped.
 
 ## Why is my errand stuck in Pending?
 
-A new errand stays Pending while FoC does two checks: that the supplier exists and is Active, then that your credits can be held. This normally finishes within seconds. If the supplier check gets no answer for 30 minutes, the errand is cancelled with the reason `SUPPLIER_VALIDATION_TIMEOUT`. If holding the credits gets no answer for 5 minutes, it is cancelled with the reason `CREDIT_TIMEOUT`. No credits are lost in either case. You can then create the errand again.
+A new errand stays Pending while FoC checks that the supplier is available and holds your credits. This normally finishes within seconds, so please wait a little. An errand does not stay Pending forever: if these checks take too long, it is cancelled and no credits are lost. You can then create the errand again.
 
-## Why was my errand cancelled?
+## Why was my errand cancelled, and what does the reason on it mean?
 
-The cancellation reason tells you what happened:
+A cancelled errand shows a reason, which tells you what happened:
 
-- `SUPPLIER_UNAVAILABLE`: the supplier does not exist or is Inactive. Pick another supplier.
+- `SUPPLIER_UNAVAILABLE`: the supplier no longer exists or is Inactive. Pick another supplier.
 - `BUILDING_UNAVAILABLE`: the delivery building is not available. Pick another building.
-- `SUPPLIER_VALIDATION_TIMEOUT`: the supplier check got no answer in time. Try again.
+- `SUPPLIER_VALIDATION_TIMEOUT`: checking the supplier took too long. Try again.
 - `INSUFFICIENT_CREDITS`: you did not have enough available credits for the reward.
-- `MISSING_BALANCE`: FoC could not find a credit account for you. Contact an admin.
-- `CREDIT_TIMEOUT`: holding your credits got no answer in time. Try again.
+- `MISSING_BALANCE`: FoC could not find your credits. Contact an admin.
+- `CREDIT_TIMEOUT`: holding your credits took too long. Try again.
 - `ERRAND_EXPIRED`: no courier accepted the errand before its open time ended.
 - `PICKUP_TIME_EXCEEDED`: the errand was not delivered within 24 hours of being picked up.
 - `REQUESTER_CANCELLED`: the requester cancelled it.
@@ -64,7 +64,7 @@ Any credits held for a cancelled errand go back to the requester.
 
 ## How long does an errand stay open, and what happens when it expires?
 
-The requester chooses how long an errand stays Open, from 15 minutes to 168 hours, with a default of 60 minutes. The time starts when the errand becomes Open, so time spent in Pending does not count. If no courier accepts it in time, the errand is cancelled with the reason `ERRAND_EXPIRED`, and the held credits go back to the requester. FoC has no separate "expired" status.
+The requester chooses how long an errand stays Open, from 15 minutes to 168 hours, with a default of 60 minutes. The time starts when the errand becomes Open, so time spent in Pending does not count. If no courier accepts it in time, the errand is cancelled and the held credits go back to the requester. An expired errand shows as Cancelled.
 
 ## Can I cancel my errand as a requester?
 
@@ -72,7 +72,7 @@ A requester can only cancel while the errand is Open, before a courier accepts i
 
 ## Can I change the reward on my errand?
 
-Yes, while the errand is Open and no courier has accepted it. The new reward must be a whole number of at least 1 credit. FoC then moves the difference between your available and reserved credits. You can change it several times, and the errand shows as Open throughout. If you do not have enough available credits for a higher reward, the change is refused and the reward stays as it was.
+Yes, while the errand is Open and no courier has accepted it. The new reward must be a whole number of at least 1 credit. FoC then moves the difference between your available and reserved credits. You can change it several times. If you do not have enough available credits for a higher reward, the change is refused and the reward stays as it was.
 
 ## How do I accept an errand as a courier?
 
@@ -90,7 +90,7 @@ Yes, before picking the item up. The courier withdraws and must give a reason. T
 
 ## What happens if a courier does not deliver after picking up?
 
-A courier has 24 hours from pickup to mark the errand as delivered. If they do not, the errand is cancelled automatically with the reason `PICKUP_TIME_EXCEEDED`, and the held credits go back to the requester.
+A courier has 24 hours from pickup to mark the errand as delivered. If they do not, the errand is cancelled automatically, and the held credits go back to the requester.
 
 ## What do I do when my errand is delivered?
 
@@ -104,7 +104,7 @@ An admin then decides how much of the reward the courier receives, from nothing 
 
 ## What happens if I press a button twice or my connection drops?
 
-FoC is built so that repeating an action is safe. If you press confirm twice, or the app retries because your connection dropped, the second attempt gets the first result and nothing happens twice, so a courier is never paid twice. If an action no longer applies because the errand has moved on, FoC refuses it and shows that the status has changed. Refresh the errand to see where it is now.
+Repeating an action is safe. If you press confirm twice, or try again after your connection drops, nothing happens twice, so a courier is never paid twice. If an action no longer applies because the errand has moved on, FoC tells you it could not be done. Refresh the errand to see where it is now.
 
 ## How do I see my past errands?
 

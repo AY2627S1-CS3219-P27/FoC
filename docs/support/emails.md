@@ -18,7 +18,7 @@ Both come from Friend on Campus and last 10 minutes. FoC does not currently emai
 
 ## Why did my FoC email not arrive?
 
-Email can take a moment, because FoC queues it and sends it separately from your request. If it has not arrived after a minute or two:
+Email can take a moment to arrive. If it has not arrived after a minute or two:
 
 1. Check your junk or spam folder.
 2. Check that you typed your NUS address correctly.
@@ -32,4 +32,4 @@ If you did not ask for a code or reset link, someone may have typed your address
 
 ## Why did I get the same FoC email twice?
 
-FoC's systems are built never to lose a message, which means an email is occasionally sent again after a temporary failure. It is harmless. If you asked for a new code yourself, use the newest one, because a new code replaces the old one.
+An email can occasionally arrive twice. It is harmless. If you asked for a new code yourself, use the newest one, because a new code replaces the old one.

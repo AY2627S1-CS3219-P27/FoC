@@ -11,17 +11,17 @@ last_reviewed: 2026-11-06
 
 Cause: FoC is still checking the supplier or holding your credits, which usually takes seconds. One of those steps may be delayed.
 
-What to do: wait. FoC never leaves an errand Pending for good. If the supplier check gets no answer for 30 minutes, or holding your credits gets no answer for 5 minutes, the errand is cancelled and no credits are lost. You can then create it again. If this keeps happening, contact an admin.
+What to do: wait a little. An errand does not stay Pending forever: if the checks take too long, it is cancelled and no credits are lost. You can then create it again. If this keeps happening, contact an admin.
 
 ## My errand was cancelled straight after I created it. What happened?
 
-Cause: one of the checks on a new errand failed. The usual reasons are that the supplier is Inactive or no longer exists (`SUPPLIER_UNAVAILABLE`), the delivery building is unavailable (`BUILDING_UNAVAILABLE`), or you did not have enough available credits (`INSUFFICIENT_CREDITS`).
+Cause: one of the checks on a new errand failed. The usual reasons are that the supplier is Inactive or no longer exists, the delivery building is unavailable, or you did not have enough available credits.
 
 What to do: read the cancellation reason on the errand. Choose another supplier or building, or lower the reward, and create the errand again. No credits are taken from a cancelled errand.
 
 ## Nobody has accepted my errand. What can I do?
 
-Cause: no courier has chosen it yet. If that continues until its open time ends, the errand is cancelled with the reason `ERRAND_EXPIRED`, and your credits return.
+Cause: no courier has chosen it yet. If that continues until its open time ends, the errand is cancelled and your credits return.
 
 What to do: while the errand is Open you can raise the reward to make it more attractive. You can also set a longer open time on your next errand, up to 168 hours.
 
@@ -63,9 +63,9 @@ What to do: check your role on the My Account page, then read the message shown 
 
 ## My new account shows no credits. What should I do?
 
-Cause: your 100 starting credits are set up just after your account, so they can take a moment to appear.
+Cause: your 100 starting credits can take a moment to appear after you register.
 
-What to do: wait a moment and refresh the page. FoC keeps the registration message until credits are set up, so a delay does not lose them. If you still have no credits after that, contact an admin.
+What to do: wait a moment and refresh the page. A delay does not lose them. If you still have no credits after that, contact an admin.
 
 ## My sign-up code or reset link does not work. What should I do?
 

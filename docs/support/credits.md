@@ -13,7 +13,7 @@ Credits are FoC's own points, used to reward students for doing errands. Request
 
 ## How many credits do I start with?
 
-Every new account receives 100 credits, once, when it is registered. At a typical reward of 10 to 20 credits, that covers several errands. The allocation is recorded permanently, and FoC checks that record, so an account can never receive it twice. It can take a moment to appear after you register, because the account's credits are set up just after the account itself.
+Every new account receives 100 credits, once, when it is registered. At a typical reward of 10 to 20 credits, that covers several errands. They can take a moment to appear after you register.
 
 ## What is the difference between available and reserved credits?
 
@@ -22,7 +22,7 @@ Your account has two balances:
 - **Available credits** are free to spend. A new errand's reward must fit within them.
 - **Reserved credits** are held for errands you have created. They are still yours, but you cannot spend them on anything else until the errand ends.
 
-When you create an errand, the reward moves from available to reserved. When the errand is completed, the reserved credits go to the courier. When it is cancelled, they return to your available balance. Each errand has exactly one reservation, which ends in one of two ways: transferred to the courier or released back to you, never both.
+When you create an errand, the reward moves from available to reserved. When the errand is completed, the reserved credits go to the courier. When it is cancelled, they return to your available balance. The held credits always end up in one place: with the courier or back with you, never both.
 
 ## Why do my credits look lower than expected?
 
@@ -30,7 +30,7 @@ The most common reason is that credits are held for an errand. Your available ba
 
 ## When does a courier receive the credits?
 
-A courier receives the reward after the requester confirms the delivery, or automatically 24 hours after the errand is marked Delivered if the requester does nothing. The errand may show Completed a moment before the credits appear, because the transfer is confirmed separately. If the transfer is refused, the errand becomes Incomplete and an admin settles it.
+A courier receives the reward after the requester confirms the delivery, or automatically 24 hours after the errand is marked Delivered if the requester does nothing. The errand may show Completed a moment before the credits appear. If the payment cannot be completed, the errand becomes Incomplete and an admin settles it.
 
 ## When do I get my reserved credits back?
 
@@ -38,7 +38,7 @@ Reserved credits go back to your available balance when your errand is cancelled
 
 ## Why was my errand refused for not having enough credits?
 
-The reward must fit within your available credits when FoC tries to hold it. Credits already reserved for your other errands do not count. If you do not have enough, the errand is cancelled with the reason `INSUFFICIENT_CREDITS`, and none of your balance changes. Lower the reward, wait for another errand to finish, or earn more by delivering errands as a courier.
+The reward must fit within your available credits when FoC tries to hold it. Credits already reserved for your other errands do not count. If you do not have enough, the errand is cancelled and your balance does not change. Lower the reward, wait for another errand to finish, or earn more by delivering errands as a courier.
 
 ## How are credits shared in a dispute?
 
@@ -46,7 +46,7 @@ When a delivery is disputed, the reward stays reserved until an admin decides. T
 
 ## Can I lose credits if something goes wrong in FoC?
 
-FoC is designed so that credits are not lost or paid twice. Every movement is saved as one all-or-nothing step, along with a permanent record of the movement. If something fails midway, the unfinished change is thrown away and the step is tried again later. If a message arrives twice, FoC recognises it and does not repeat the movement. An errand that fails its credit check changes no balance at all. If you think a balance is wrong, contact an admin.
+FoC is designed so that credits are not lost or paid twice. If something goes wrong partway, your balance is left as it was, and FoC finishes the step later. A brief delay can mean credits take a moment to update, so refresh after a moment. If you think a balance is wrong, contact an admin.
 
 ## Can I get more credits or cash them out?
 
@@ -54,7 +54,7 @@ You can only earn more credits by delivering errands as a courier. You also rece
 
 ## How do I see my credit balance?
 
-Open your account in the FoC app to see your available and reserved credits. Before you create an errand, the app can check whether your available credits cover the reward. That check is only advice for the moment it is made: the real decision happens when FoC holds the credits for the errand.
+Open your account in the FoC app to see your available and reserved credits. Before you create an errand, the app may tell you whether your available credits cover the reward. Your credits can change before you submit, so the final check happens when FoC holds the credits for the errand.
 
 ## Can I see my credit balance in this chat?
 
