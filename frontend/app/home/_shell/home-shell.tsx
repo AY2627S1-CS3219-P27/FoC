@@ -14,6 +14,7 @@ import {
   type SetStateAction,
 } from "react";
 import { authFetch, setSessionExpiredHandler } from "@/lib/api";
+import { PushRegistrationSync } from "../_notifications/push-registration";
 import { Avatar } from "./avatar";
 import { parseCurrentUser, type UserProfile } from "./current-user";
 
@@ -134,6 +135,7 @@ export function HomeShell({ children, socketPath }: { children: ReactNode; socke
 
   return (
     <HomeContext.Provider value={context}>
+      <PushRegistrationSync />
       <div className="flex min-h-full flex-1 flex-col">
         <header className="glass-heavy sticky top-0 z-40 text-white">
           <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3">
