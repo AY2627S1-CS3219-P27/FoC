@@ -17,11 +17,11 @@ The help bot cannot look at your account. It cannot tell you your balance, find 
 
 ## Are my questions to the help bot private?
 
-FoC logs each question with your user id, along with how it was answered, so the team can find gaps in the help documents. Logs are kept for 30 days. Your question is also sent to an outside AI provider to write the answer, so do not include passwords or other sensitive details. Your email address and sign-in token are not logged.
+FoC keeps each question, linked to your account, for 30 days, so the team can find gaps in the help documents. Your question is also sent to an outside AI provider to write the answer, so do not include passwords or other sensitive details.
 
 ## Why did the help bot say it could not find an answer?
 
-The bot only answers when it finds a closely matching section in the help documents, rather than guessing. Try rephrasing your question with more detail, such as naming the errand status you can see. If it still cannot help, your question may not be covered yet, and an admin can help you. The team reviews unanswered questions to improve the documents.
+The bot only answers when the help documents cover your question, rather than guessing. Try rephrasing your question with more detail, such as naming the errand status you can see. If it still cannot help, your question may not be covered yet, and an admin can help you. The team reviews unanswered questions to improve the documents.
 
 ## How many questions can I ask the help bot?
 
