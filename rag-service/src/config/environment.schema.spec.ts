@@ -26,6 +26,7 @@ describe('environmentSchema', () => {
       OPENROUTER_EMBEDDING_MODEL: 'openai/text-embedding-3-small',
       SUPPORT_DOCS_PATH: '/support-docs',
       INDEX_ON_STARTUP: true,
+      RELEVANCE_CUTOFF: 0.3,
     });
   });
 
