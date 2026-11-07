@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useChatConversation } from "@/lib/chat/use-chat-conversation";
 import { useHomeContext } from "../../_shell/home-shell";
 
 const MAX_MESSAGE_LENGTH = 4_000;
 const ARCHIVE_RECOVERY_INTERVAL_MS = 5_000;
 const LIFECYCLE_RECONCILIATION_INTERVAL_MS = 30_000;
+const BOTTOM_THRESHOLD_PX = 48;
 
 function formatTimestamp(value: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
@@ -43,16 +44,35 @@ export function ChatConversation({ chatId }: { chatId: string }) {
   const { state, send, retry, loadOlder, reconnect, recoverArchive } = useChatConversation(chatId, user.uuid, socketPath);
   const [draft, setDraft] = useState("");
   const [now, setNow] = useState(() => Date.now());
-  const endRef = useRef<HTMLDivElement | null>(null);
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const isAtBottomRef = useRef(true);
+  const forceScrollRef = useRef(false);
+  const transcriptInitializedRef = useRef(false);
   const previousLastSequence = useRef(0);
 
   useEffect(() => {
     const lastSequence = state.messages.at(-1)?.sequence ?? 0;
-    if (lastSequence > previousLastSequence.current) {
-      endRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-      previousLastSequence.current = lastSequence;
-    }
-  }, [state.messages]);
+    const appended = lastSequence > previousLastSequence.current;
+    const lastMessageIsMine = state.messages.at(-1)?.senderUserId === user.uuid;
+    const shouldScroll =
+      forceScrollRef.current ||
+      (!transcriptInitializedRef.current && lastSequence > 0) ||
+      (appended && (lastMessageIsMine || isAtBottomRef.current));
+
+    previousLastSequence.current = lastSequence;
+    forceScrollRef.current = false;
+    if (!shouldScroll) return;
+
+    const behavior = transcriptInitializedRef.current ? "smooth" : "auto";
+    transcriptInitializedRef.current = true;
+    const frame = window.requestAnimationFrame(() => {
+      const transcript = transcriptRef.current;
+      if (!transcript) return;
+      transcript.scrollTo({ top: transcript.scrollHeight, behavior });
+      isAtBottomRef.current = true;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [state.messages, state.pending, user.uuid]);
 
   const closesAt = state.join?.state === "GRACE" && state.join.closesAt ? Date.parse(state.join.closesAt) : null;
   const graceExpired = closesAt !== null && now >= closesAt;
@@ -94,15 +114,29 @@ export function ChatConversation({ chatId }: { chatId: string }) {
       state.connection !== "connected" ||
       graceExpired
     ) return;
+    forceScrollRef.current = true;
     send(draft);
     setDraft("");
+  }
+
+  function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
+  }
+
+  function trackTranscriptPosition() {
+    const transcript = transcriptRef.current;
+    if (!transcript) return;
+    const distanceFromBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight;
+    isAtBottomRef.current = distanceFromBottom <= BOTTOM_THRESHOLD_PX;
   }
 
   const composerDisabled = state.connection !== "connected" || state.archived !== null || graceExpired;
 
   return (
-    <section aria-labelledby="conversation-heading" className="fade-in mx-auto flex min-h-[calc(100vh-9rem)] max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
-      <header className="border-b border-border bg-background p-4">
+    <section aria-labelledby="conversation-heading" className="fade-in mx-auto flex h-[calc(100dvh-9rem)] min-h-0 max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-sm sm:h-[calc(100dvh-7rem)]">
+      <header className="shrink-0 border-b border-border bg-background p-4">
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
             <Link href="/home/chats" className="text-sm font-medium text-nus-blue hover:underline">← All chats</Link>
@@ -118,15 +152,15 @@ export function ChatConversation({ chatId }: { chatId: string }) {
         </div>
       </header>
 
-      {state.error && <p role="alert" className="border-b border-red-200 bg-red-50 px-4 py-3 text-sm text-danger">{state.error}</p>}
+      {state.error && <p role="alert" className="shrink-0 border-b border-red-200 bg-red-50 px-4 py-3 text-sm text-danger">{state.error}</p>}
       {state.archived && (
-        <div role="status" className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <div role="status" className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           This conversation was archived at {formatTimestamp(state.archived.archivedAt)}.{" "}
           <Link className="font-semibold underline" href={`/home/archives/${state.archived.archiveId}`}>View the read-only archive</Link>
         </div>
       )}
       {state.join?.state === "GRACE" && (
-        <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+        <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
           <p className="font-semibold">{state.join.closeReason ? closeReasonLabels[state.join.closeReason] : "This chat is closing"}.</p>
           <p className="mt-1">
             Deadline: <time dateTime={state.join.closesAt ?? undefined}>{state.join.closesAt ? formatTimestamp(state.join.closesAt) : "being confirmed"}</time>
@@ -140,7 +174,7 @@ export function ChatConversation({ chatId }: { chatId: string }) {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto bg-background px-4 py-5" aria-live="polite">
+      <div ref={transcriptRef} onScroll={trackTranscriptPosition} className="min-h-0 flex-1 overscroll-contain overflow-y-auto bg-background px-4 py-5" aria-live="polite">
         {state.hasOlder && (
           <div className="mb-5 text-center">
             <button type="button" onClick={() => void loadOlder()} disabled={state.loadingOlder} className="rounded-lg border border-border px-3 py-2 text-sm font-medium disabled:opacity-50">
@@ -179,16 +213,16 @@ export function ChatConversation({ chatId }: { chatId: string }) {
             ))}
           </ul>
         )}
-        <div ref={endRef} />
       </div>
 
-      <form onSubmit={submit} className="border-t border-border bg-background p-4">
+      <form onSubmit={submit} className="shrink-0 border-t border-border bg-background p-4">
         <label htmlFor="chat-message" className="sr-only">Message</label>
         <div className="flex items-end gap-3">
           <textarea
             id="chat-message"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={handleComposerKeyDown}
             disabled={composerDisabled}
             rows={2}
             maxLength={MAX_MESSAGE_LENGTH * 2}
