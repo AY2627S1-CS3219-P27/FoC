@@ -50,7 +50,9 @@ export function ChatConversation({ chatId }: { chatId: string }) {
   const heading = formatErrandTitle(errand, headingFallback);
   const counterpartName = useDisplayName(state.counterpartUserId);
   const counterpartRoleLabel = state.participantRole === "REQUESTER" ? "Courier" : state.participantRole === "COURIER" ? "Requester" : null;
-  const counterpartLabel = counterpartName ?? counterpartRoleLabel ?? "Participant";
+  const counterpartStatusLine = counterpartName
+    ? `${counterpartName} is your ${(counterpartRoleLabel ?? "chat partner").toLowerCase()}.`
+    : counterpartRoleLabel ?? "Participant";
   const [draft, setDraft] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const transcriptRef = useRef<HTMLDivElement | null>(null);
@@ -153,9 +155,14 @@ export function ChatConversation({ chatId }: { chatId: string }) {
               {heading}
             </h1>
             {errand ? (
-              <p title={`${counterpartLabel} · Collect: ${errand.collectionItems}`} className="truncate text-xs text-muted">
-                {counterpartLabel} · Collect: {errand.collectionItems}
-              </p>
+              <div className="mt-1 space-y-0.5">
+                <p title={counterpartStatusLine} className="truncate text-sm font-medium">
+                  {counterpartStatusLine}
+                </p>
+                <p title={`Collect: ${errand.collectionItems}`} className="truncate text-xs text-muted">
+                  Collect: {errand.collectionItems}
+                </p>
+              </div>
             ) : (
               <p className="truncate text-xs text-muted">Chat {chatId}</p>
             )}

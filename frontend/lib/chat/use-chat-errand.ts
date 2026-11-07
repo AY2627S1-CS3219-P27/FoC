@@ -6,7 +6,6 @@ import type { Errand } from "@/app/home/_errands/types";
 
 export interface ChatErrandSummary {
   pickupName: string | null;
-  pickupLocation: string | null;
   deliveryLocation: string | null;
   collectionItems: string;
 }
@@ -44,7 +43,6 @@ export function useChatErrand(errandId: string | null): ChatErrandSummary | null
         errandId,
         summary: {
           pickupName,
-          pickupLocation: errand.pickupLocation,
           deliveryLocation: errand.deliveryLocation,
           collectionItems: errand.collectionItems,
         },
@@ -62,10 +60,6 @@ export function useChatErrand(errandId: string | null): ChatErrandSummary | null
 export function formatErrandTitle(summary: ChatErrandSummary | null, fallback: string): string {
   if (summary === null) return fallback;
   const name = summary.pickupName ?? fallback;
-  if (summary.pickupLocation && summary.deliveryLocation) {
-    return `${name} @ ${summary.pickupLocation} → ${summary.deliveryLocation}`;
-  }
   if (summary.deliveryLocation) return `${name} → ${summary.deliveryLocation}`;
-  if (summary.pickupLocation) return `${name} @ ${summary.pickupLocation}`;
   return name;
 }
