@@ -67,6 +67,8 @@ describe('UsersController', () => {
     controller = module.get<UsersController>(UsersController);
   });
 
+  const ACCESS_TOKEN = 'test-access-token';
+
   const authenticatedRequest = {
     user: {
       sub: '11111111-1111-4111-8111-111111111111',
@@ -75,6 +77,9 @@ describe('UsersController', () => {
       isAdmin: false,
       roles: [] as Role[],
     },
+    // JwtAuthGuard reads the httpOnly cookie first; user-service forwards this
+    // very token to order-service.
+    cookies: { [ACCESS_TOKEN_COOKIE]: ACCESS_TOKEN },
   };
 
   describe('getMe', () => {
@@ -229,7 +234,22 @@ describe('UsersController', () => {
       expect(usersService.updateRoles).toHaveBeenCalledWith(
         '11111111-1111-4111-8111-111111111111',
         [Role.Requester, Role.Courier],
+        ACCESS_TOKEN,
       );
+    });
+
+    it('rejects when the request carries no access token', async () => {
+      // Unreachable behind JwtAuthGuard; pins the defensive branch so a
+      // tokenless request can never reach order-service unauthenticated.
+      await expect(
+        controller.updateMeRoles(
+          { user: authenticatedRequest.user } as never,
+          { roles: [Role.Requester] } as never,
+          res as never,
+        ),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(usersService.updateRoles).not.toHaveBeenCalled();
     });
 
     it('clears the access token cookie in development', async () => {

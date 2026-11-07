@@ -59,6 +59,38 @@ describe('tracing', () => {
     await telemetry.shutdown();
   });
 
+  it('global fetch propagates the active trace context to the outgoing request', async () => {
+    const traceparents: string[] = [];
+    const server = http.createServer((req, res) => {
+      traceparents.push(String(req.headers.traceparent));
+      res.writeHead(200);
+      res.end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as any).port;
+
+    vi.resetModules();
+    const mod = await import('../src/tracing.js');
+    const telemetry = mod.initTelemetry({ serviceName: 'test-fetch' });
+
+    // Global fetch runs on undici, which HttpInstrumentation cannot see; only
+    // UndiciInstrumentation injects the traceparent header for it.
+    const tracer = trace.getTracer('test');
+    let traceId = '';
+    await tracer.startActiveSpan('parent', async (span) => {
+      traceId = span.spanContext().traceId;
+      await fetch(`http://127.0.0.1:${port}/`);
+      span.end();
+    });
+
+    await telemetry.shutdown();
+    server.close();
+
+    // traceparent format: {version}-{trace-id}-{parent-id}-{flags}
+    expect(traceparents.length).toBe(1);
+    expect(traceparents[0]?.split('-')[1]).toBe(traceId);
+  });
+
   it('registerShutdown closes the app, flushes and stops the SDK, then exits 0', async () => {
     const calls: string[] = [];
     const close = vi.fn(async () => void calls.push('close'));

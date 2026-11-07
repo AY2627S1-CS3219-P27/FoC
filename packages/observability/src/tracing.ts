@@ -6,6 +6,7 @@ import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
 import { ExpressInstrumentation } from '@opentelemetry/instrumentation-express';
 import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
+import { UndiciInstrumentation } from '@opentelemetry/instrumentation-undici';
 import { PgInstrumentation } from '@opentelemetry/instrumentation-pg';
 import { AmqplibInstrumentation } from '@opentelemetry/instrumentation-amqplib';
 import { RedisInstrumentation } from '@opentelemetry/instrumentation-redis';
@@ -80,6 +81,11 @@ export function initTelemetry(options: TelemetryOptions): Telemetry {
     logRecordProcessors: logProcessors.length > 0 ? logProcessors : undefined,
     instrumentations: [
       new ExpressInstrumentation(),
+      // UndiciInstrumentation covers global fetch (undici), which bypasses the
+      // http/https core modules HttpInstrumentation patches: without it,
+      // fetch-based clients do not emit client spans and do not propagate
+      // trace context, so the downstream service starts a new trace.
+      new UndiciInstrumentation(),
       new HttpInstrumentation(),
       new PgInstrumentation(),
       new AmqplibInstrumentation(),
