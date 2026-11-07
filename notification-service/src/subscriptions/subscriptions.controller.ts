@@ -152,7 +152,7 @@ export class SubscriptionsController {
   @ApiOperation({
     summary: 'Create a Web Push subscription',
     description:
-      'Creates the subscription for a new endpoint owned by the authenticated user. An endpoint that already exists for this user is a conflict — re-present a live subscription with PATCH instead. An endpoint held by another account is taken over atomically (the previous row is deactivated): a Web Push endpoint belongs to the browser, so whoever is signed in owns its notifications. The user is always the token subject: the body cannot select one.',
+      'Creates the subscription for a new endpoint owned by the authenticated user. An endpoint that already exists for this user is a conflict — re-present a live subscription with PATCH instead. An endpoint held by another account is taken over atomically (the previous row is deactivated): a Web Push endpoint belongs to the browser, so whoever is signed in owns its notifications. The user is always the token subject: the body cannot select one. When the browser re-issued its subscription with a new endpoint (pushsubscriptionchange), include `previousEndpoint` so the service deactivates the old row and inserts the new one in one transaction.',
   })
   @ApiBody({ type: RegisterWebPushSubscriptionDto })
   @ApiCreatedResponse(successResponse('A new push endpoint was registered.'))

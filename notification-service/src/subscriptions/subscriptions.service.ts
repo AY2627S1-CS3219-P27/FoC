@@ -108,6 +108,10 @@ export class SubscriptionsService {
     userId: string,
     input: RegisterWebPushSubscriptionDto,
   ): Promise<Subscription> {
+    if (this.isRotation(input)) {
+      return this.rotateWebPush(userId, input);
+    }
+
     const created = this.subscriptions.create(
       registrationFields(userId, input),
     );
@@ -120,6 +124,71 @@ export class SubscriptionsService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Rotation: the browser re-issued its subscription and the push service
+   * handed back a new endpoint. Mark the previous `(userId, previousEndpoint)`
+   * row inactive and insert the new one in a single transaction, so no moment
+   * exists where the user has neither an active destination nor a stale one
+   * still receiving deliveries. If the new endpoint is owned by another account
+   * on a shared browser, the existing takeover logic runs inside the same
+   * transaction (NS6.2).
+   *
+   * `previousEndpoint` equal to `endpoint` is not a rotation — it is a
+   * re-registration that the client reconciles with PATCH, so it is ignored
+   * and falls through to the normal create path (which reports a 409 if the
+   * pair is already present).
+   */
+  private async rotateWebPush(
+    userId: string,
+    input: RegisterWebPushSubscriptionDto,
+  ): Promise<Subscription> {
+    return this.subscriptions.manager.transaction(async (manager) => {
+      const repository = manager.getRepository(Subscription);
+
+      // NS6.2.1 — attempt to deactivate the previous endpoint (idempotent: a
+      // missing or already-inactive row is a no-op).
+      await this.deactivatePreviousActive(
+        repository,
+        userId,
+        input.previousEndpoint!,
+      );
+
+      // NS6.2.2 — insert the new endpoint.
+      const created = repository.create(registrationFields(userId, input));
+      try {
+        return await repository.save(created);
+      } catch (error) {
+        if (isUniqueViolation(error)) {
+          return this.reconcileWebPush(userId, input);
+        }
+        throw error;
+      }
+    });
+  }
+
+  private isRotation(
+    input: RegisterWebPushSubscriptionDto,
+  ): input is RegisterWebPushSubscriptionDto & { previousEndpoint: string } {
+    return (
+      // `null` reaches here for a client that sends the field explicitly (the
+      // validator skips null under @IsOptional); treat it as absent rather than
+      // letting a null endpoint reach the where-clause.
+      input.previousEndpoint != null &&
+      input.previousEndpoint !== input.endpoint
+    );
+  }
+
+  private async deactivatePreviousActive(
+    repository: Repository<Subscription>,
+    userId: string,
+    endpoint: string,
+  ): Promise<void> {
+    await repository.update(
+      { userId, endpoint, status: SubscriptionStatus.Active },
+      { status: SubscriptionStatus.Inactive, deactivatedAt: new Date() },
+    );
   }
 
   /**

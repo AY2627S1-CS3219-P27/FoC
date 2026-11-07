@@ -61,6 +61,18 @@ export class RegisterWebPushSubscriptionDto {
   @MaxLength(2048)
   endpoint: string;
 
+  @ApiPropertyOptional({
+    description:
+      'The previous endpoint this browser held, when the push service rotated the subscription (pushsubscriptionchange). Presenting it lets the service deactivate the old row and insert the new one atomically, in one transaction.',
+    example: EXAMPLE_ENDPOINT,
+    nullable: true,
+    maxLength: 2048,
+  })
+  @IsOptional()
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @MaxLength(2048)
+  previousEndpoint?: string;
+
   @ApiProperty({ type: WebPushKeysDto })
   @ValidateNested()
   @Type(() => WebPushKeysDto)

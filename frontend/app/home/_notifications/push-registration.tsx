@@ -34,13 +34,45 @@ export function PushRegistrationSync() {
 
         await syncSubscriptionToServer(subscription);
       } catch {
-        // The profile card reports the failure and offers a retry.
+        // The profile card reports the failure and offers a retry, if the user
+        // visits it.
       }
+    }
+
+    function onSubscriptionRotated(event: MessageEvent) {
+      const data = event.data as {
+        type?: string;
+        subscription?: PushSubscription;
+        previousEndpoint?: string;
+      };
+      if (
+        data?.type !== "subscription-rotated" ||
+        !data.subscription ||
+        cancelled
+      ) {
+        return;
+      }
+
+      // The browser changed its subscription out from under us (the push
+      // service rotated the endpoint). Rotate the stored row so the old
+      // endpoint stops receiving deliveries.
+      void syncSubscriptionToServer(
+        data.subscription,
+        data.previousEndpoint,
+      );
+    }
+
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.addEventListener("message", onSubscriptionRotated);
     }
 
     void claim();
     return () => {
       cancelled = true;
+      navigator.serviceWorker.removeEventListener(
+        "message",
+        onSubscriptionRotated,
+      );
     };
   }, []);
 

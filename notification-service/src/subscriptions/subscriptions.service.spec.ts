@@ -20,6 +20,17 @@ const input: RegisterWebPushSubscriptionDto = {
   expirationTime: null,
 };
 
+function newInput(
+  overrides: Partial<RegisterWebPushSubscriptionDto> = {},
+): RegisterWebPushSubscriptionDto {
+  return {
+    endpoint,
+    keys: { p256dh: 'p256dh-value', auth: 'auth-value' },
+    expirationTime: null,
+    ...overrides,
+  };
+}
+
 function duplicateKey(): QueryFailedError {
   return new QueryFailedError(
     'INSERT INTO subscriptions',
@@ -164,6 +175,113 @@ describe('SubscriptionsService', () => {
       await expect(
         serviceWith(repository).createWebPush(userId, input),
       ).rejects.toThrow('connection lost');
+    });
+
+    it('deactivates the previous endpoint and inserts the new one in one transaction', async () => {
+      const repository = repositoryMock();
+      const newEndpoint = 'https://push.example.com/next';
+      const previousEndpoint = 'https://push.example.com/prev';
+
+      const subscription = await serviceWith(repository).createWebPush(
+        userId,
+        newInput({ endpoint: newEndpoint, previousEndpoint }),
+      );
+
+      expect(repository.update).toHaveBeenCalledWith(
+        { userId, endpoint: previousEndpoint, status: SubscriptionStatus.Active },
+        {
+          status: SubscriptionStatus.Inactive,
+          deactivatedAt: expect.any(Date),
+        },
+      );
+      expect(repository.create).toHaveBeenLastCalledWith({
+        userId,
+        channel: SubscriptionChannel.WebPush,
+        endpoint: newEndpoint,
+        credentials: { p256dh: 'p256dh-value', auth: 'auth-value' },
+        expirationTime: null,
+        status: SubscriptionStatus.Active,
+        deactivatedAt: null,
+      });
+      expect(subscription.status).toBe(SubscriptionStatus.Active);
+      expect(subscription.endpoint).toBe(newEndpoint);
+    });
+
+    it('treats a previous endpoint equal to the new one as a re-registration', async () => {
+      const repository = repositoryMock();
+
+      const subscription = await serviceWith(repository).createWebPush(
+        userId,
+        newInput({ previousEndpoint: input.endpoint }),
+      );
+
+      expect(repository.update).not.toHaveBeenCalled();
+      expect(repository.findOne).not.toHaveBeenCalled();
+      expect(subscription.status).toBe(SubscriptionStatus.Active);
+    });
+
+    it('treats an explicit null previous endpoint as absent', async () => {
+      const repository = repositoryMock();
+
+      const subscription = await serviceWith(repository).createWebPush(userId, {
+        endpoint,
+        keys: { p256dh: 'p256dh-value', auth: 'auth-value' },
+        expirationTime: null,
+        previousEndpoint: null,
+      } as unknown as RegisterWebPushSubscriptionDto);
+
+      // No rotation: the normal insert path runs and never builds a where
+      // clause with a null endpoint (which TypeORM rejects).
+      expect(repository.update).not.toHaveBeenCalled();
+      expect(repository.findOne).not.toHaveBeenCalled();
+      expect(subscription.status).toBe(SubscriptionStatus.Active);
+    });
+
+    it('takes over a new endpoint from another account while rotating the previous one', async () => {
+      const repository = repositoryMock();
+      const newEndpoint = 'https://push.example.com/next';
+      const previousEndpoint = 'https://push.example.com/prev';
+      repository.save.mockRejectedValueOnce(duplicateKey());
+      repository.findOne.mockResolvedValueOnce(null);
+
+      const subscription = await serviceWith(repository).createWebPush(
+        userId,
+        newInput({ endpoint: newEndpoint, previousEndpoint }),
+      );
+
+      // The previous endpoint is deactivated before the takeover runs.
+      expect(repository.update).toHaveBeenNthCalledWith(
+        1,
+        { userId, endpoint: previousEndpoint, status: SubscriptionStatus.Active },
+        {
+          status: SubscriptionStatus.Inactive,
+          deactivatedAt: expect.any(Date),
+        },
+      );
+      // Then another account's active row for the new endpoint is deactivated.
+      expect(repository.update).toHaveBeenNthCalledWith(
+        2,
+        { endpoint: newEndpoint, status: SubscriptionStatus.Active },
+        {
+          status: SubscriptionStatus.Inactive,
+          deactivatedAt: expect.any(Date),
+        },
+      );
+      expect(subscription.status).toBe(SubscriptionStatus.Active);
+      expect(subscription.endpoint).toBe(newEndpoint);
+    });
+
+    it('maps a rotation takeover race to a conflict instead of a 500', async () => {
+      const repository = repositoryMock();
+      const previousEndpoint = 'https://push.example.com/prev';
+      repository.save
+        .mockRejectedValueOnce(duplicateKey())
+        .mockRejectedValueOnce(duplicateKey());
+      repository.findOne.mockResolvedValueOnce(null);
+
+      await expect(
+        serviceWith(repository).createWebPush(userId, newInput({ previousEndpoint })),
+      ).rejects.toBeInstanceOf(ConflictException);
     });
   });
 

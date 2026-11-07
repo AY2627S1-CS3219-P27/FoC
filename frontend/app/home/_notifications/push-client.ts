@@ -26,20 +26,33 @@ export function registerPushServiceWorker() {
  *
  * A changed endpoint is a *new* subscription by design (the endpoint is the
  * push service's identity for the destination), so POST creates the row. A
- * 409 means this user already registered the endpoint — for example after a
- * soft delete, or when the browser re-issued the same endpoint with fresh
- * keys — so the row is reconciled with PATCH instead.
+ * previous endpoint is handed along with it so the service can rotate
+ * ownership — deactivate the old row and insert the new one in one transaction
+ * — instead of leaving both active. A 409 means this user already registered
+ * the endpoint — for example after a soft delete, or when the browser re-issued
+ * the same endpoint with fresh keys — so the row is reconciled with PATCH
+ * instead.
  *
  * A different signed-in account on the same browser is handled server-side:
  * the POST takes the endpoint over and deactivates the previous owner's row.
  */
 export async function syncSubscriptionToServer(
   subscription: PushSubscription,
+  previousEndpoint?: string,
 ): Promise<SyncResult> {
   const payload = subscription.toJSON();
+  const body: Record<string, unknown> = { ...payload };
+  // Only rotation carries the old endpoint; a re-registration is a 409, not a
+  // rotation, and the client reconciles it with PATCH.
+  if (
+    previousEndpoint !== undefined &&
+    previousEndpoint !== payload.endpoint
+  ) {
+    body.previousEndpoint = previousEndpoint;
+  }
 
   let result = await api("POST", "/api/notifications/subscriptions/web", {
-    body: payload,
+    body,
     quiet: true,
   });
 
