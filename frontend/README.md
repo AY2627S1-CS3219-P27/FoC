@@ -69,6 +69,42 @@ sequence. Pending sends stay outside the committed transcript and retain their
 `clientMessageId` when explicitly retried. Read commands run only after render;
 receipt labels are shown only on the authenticated caller's sent messages.
 
+## Verification
+
+Run the deterministic frontend suites without a backend stack:
+
+```bash
+npm test
+npm run test:unit
+npm run test:component
+```
+
+Vitest uses jsdom, React Testing Library, user-event, and strict HTTP/Socket.IO
+test doubles. The tests cover runtime contract rejection, message ordering and
+deduplication, retry identity, read and lifecycle transitions, transcript
+scrolling and keyboard behavior, archive pagination, and inert archive content.
+`npm run verify` runs lint, all Vitest suites, and the production build.
+
+The Playwright suite is intentionally opt-in because it drives the real root
+stack through the public frontend origin. Install Chromium once with
+`npm run test:e2e:install`, start the version under test, and provide two
+separate authenticated Playwright storage-state files plus a participant-owned
+chat:
+
+```powershell
+$env:PLAYWRIGHT_BASE_URL = "http://localhost:3001"
+$env:PLAYWRIGHT_REQUESTER_STORAGE_STATE = "C:\temp\requester.json"
+$env:PLAYWRIGHT_COURIER_STORAGE_STATE = "C:\temp\courier.json"
+$env:PLAYWRIGHT_CHAT_ID = "00000000-0000-4000-8000-000000000000"
+$env:PLAYWRIGHT_ARCHIVE_ID = "00000000-0000-4000-8000-000000000000" # optional
+npm run test:e2e
+```
+
+Keep storage-state files outside the repository or under ignored `e2e/.auth`;
+they contain session credentials and must never be logged or committed. Without
+the required live-stack inputs, Playwright reports the real-ingress tests as
+skipped rather than silently substituting mocked backend behavior.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
