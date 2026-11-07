@@ -13,19 +13,12 @@ import { CategoriesPanel } from "./_admin/categories-panel";
 import { CreateUserForm } from "./_admin/create-user-form";
 import { ArchiveAccount } from "./_account/archive-account";
 import { PushNotificationsCard } from "./_notifications/push-settings";
-import { PushRegistrationSync } from "./_notifications/push-registration";
 import { MyRequests } from "./_suppliers/my-requests";
 import { SupplierForm } from "./_suppliers/supplier-form";
-import { authFetch, refreshSession, setSessionExpiredHandler } from "@/lib/api";
-
-interface UserProfile {
-  uuid: string;
-  email: string;
-  displayName: string;
-  profilePictureUrl: string | null;
-  roles: string[];
-  isAdmin: boolean;
-}
+import { Avatar } from "./_shell/avatar";
+import { parseCurrentUser, type UserProfile } from "./_shell/current-user";
+import { useHomeContext } from "./_shell/home-shell";
+import { authFetch, refreshSession } from "@/lib/api";
 
 interface CreditBalance {
   userId: string;
@@ -72,13 +65,27 @@ interface UserListItem {
 }
 
 type Tab = "errands" | "suppliers" | "profile" | "users" | "requests";
+const homeTabs: ReadonlyArray<{
+  id: Tab;
+  label: string;
+  adminOnly?: boolean;
+}> = [
+  { id: "errands", label: "Errands" },
+  { id: "suppliers", label: "Suppliers" },
+  { id: "profile", label: "My Account" },
+  { id: "users", label: "Users", adminOnly: true },
+  { id: "requests", label: "Requests", adminOnly: true },
+];
 
 export default function HomePage() {
   const router = useRouter();
-  const [user, setUser] = useState<UserProfile | null>(null);
-  const [userLoading, setUserLoading] = useState(true);
-  const [tab, setTab] = useState<Tab>("errands");
-  const [creditBalance, setCreditBalance] = useState<CreditBalance | null>(null);
+  const { user, setUser } = useHomeContext();
+  const [tab, setTab] = useState<Tab>(() =>
+    user.isAdmin && user.roles.length === 0 ? "users" : "errands",
+  );
+  const [creditBalance, setCreditBalance] = useState<CreditBalance | null>(
+    null,
+  );
   const [creditBalanceStatus, setCreditBalanceStatus] =
     useState<CreditBalanceStatus>("loading");
 
@@ -95,14 +102,14 @@ export default function HomePage() {
   const [newDisplayName, setNewDisplayName] = useState("");
   const [newProfilePictureUrl, setNewProfilePictureUrl] = useState("");
   const [profileMsg, setProfileMsg] = useState("");
-  const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
+  const [selectedRoles, setSelectedRoles] = useState<string[]>(user.roles);
   const [roleMsg, setRoleMsg] = useState("");
 
   // Admin users list state
   const [allUsers, setAllUsers] = useState<UserListItem[]>([]);
   const [usersTotal, setUsersTotal] = useState(0);
   const [usersLoading, setUsersLoading] = useState(false);
-  const isAdmin = user?.isAdmin ?? false;
+  const isAdmin = user.isAdmin;
 
   const loadCreditBalance = useCallback(async () => {
     setCreditBalanceStatus("loading");
@@ -134,23 +141,10 @@ export default function HomePage() {
     }
   }, [router]);
 
-  useEffect(() => setSessionExpiredHandler(() => router.push("/login")), [router]);
-
   useEffect(() => {
-    authFetch("/api/users/me")
-      .then((res) => {
-        if (!res.ok) throw new Error("Not authenticated");
-        return res.json();
-      })
-      .then((data: UserProfile) => {
-        setUser(data);
-        setSelectedRoles(data.roles);
-        if (data.isAdmin && data.roles.length === 0) setTab("users");
-        void loadCreditBalance();
-      })
-      .catch(() => router.push("/login"))
-      .finally(() => setUserLoading(false));
-  }, [loadCreditBalance, router]);
+    const timer = setTimeout(() => void loadCreditBalance(), 0);
+    return () => clearTimeout(timer);
+  }, [loadCreditBalance]);
 
   const loadSuppliers = useCallback(async () => {
     setSuppliersLoading(true);
@@ -209,10 +203,10 @@ export default function HomePage() {
     });
     if (res.ok) {
       const updated = await res.json();
-      setUser((prev) => (prev ? { ...prev, ...updated } : prev));
+      setUser((prev) => ({ ...prev, ...updated }));
       setEditingProfile(false);
       setProfileMsg(
-        updated.displayName !== user?.displayName
+        updated.displayName !== user.displayName
           ? "Profile updated. You may need to log in again."
           : "Profile updated.",
       );
@@ -239,12 +233,16 @@ export default function HomePage() {
     });
     if (res.ok) {
       // A refreshed token carries the new roles, so no re-login is needed.
-      const me = (await refreshSession()) ? await authFetch("/api/users/me") : null;
+      const me = (await refreshSession())
+        ? await authFetch("/api/users/me")
+        : null;
       if (me?.ok) {
-        setUser((await me.json()) as UserProfile);
+        setUser(parseCurrentUser(await me.json()));
         setRoleMsg("Roles updated.");
       } else {
-        setRoleMsg("Roles updated. Please log in again to refresh your session.");
+        setRoleMsg(
+          "Roles updated. Please log in again to refresh your session.",
+        );
       }
     } else {
       setRoleMsg("Failed to update roles.");
@@ -267,244 +265,136 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    if ((tab === "users" || tab === "requests") && user?.isAdmin) {
+    if ((tab === "users" || tab === "requests") && user.isAdmin) {
       const timer = setTimeout(() => {
         void loadAllUsers();
       }, 0);
       return () => clearTimeout(timer);
     }
-  }, [tab, user?.isAdmin, loadAllUsers]);
+  }, [tab, user.isAdmin, loadAllUsers]);
 
   function toggleRole(role: string) {
     setSelectedRoles((prev) =>
-      prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]
-    );
-  }
-
-  if (userLoading) {
-    return (
-      <div className="flex flex-1 items-center justify-center">
-        <div className="text-muted fade-in">Loading...</div>
-      </div>
+      prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role],
     );
   }
 
   return (
-    <div className="flex flex-col min-h-full">
-      {user && <PushRegistrationSync />}
-      {/* Translucent navigation bar (§12: glass material) */}
-      <header className="glass-heavy text-white sticky top-0 z-40">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-6">
-            <Link href="/home" className="text-xl font-bold tracking-tight">
-              FoC
-            </Link>
-            <nav className="hidden sm:flex gap-1">
-              <button
-                onClick={() => setTab("errands")}
-                className={`btn-press px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  tab === "errands"
-                    ? "bg-white/20 text-white"
-                    : "text-white/70 hover:text-white hover:bg-white/10"
-                }`}
-              >
-                Errands
-              </button>
-              <button
-                onClick={() => setTab("suppliers")}
-                className={`btn-press px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  tab === "suppliers"
-                    ? "bg-white/20 text-white"
-                    : "text-white/70 hover:text-white hover:bg-white/10"
-                }`}
-              >
-                Suppliers
-              </button>
-              <button
-                onClick={() => setTab("profile")}
-                className={`btn-press px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  tab === "profile"
-                    ? "bg-white/20 text-white"
-                    : "text-white/70 hover:text-white hover:bg-white/10"
-                }`}
-              >
-                My Account
-              </button>
-              {user?.isAdmin && (
-                <button
-                  onClick={() => setTab("users")}
-                  className={`btn-press px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    tab === "users"
-                      ? "bg-white/20 text-white"
-                      : "text-white/70 hover:text-white hover:bg-white/10"
-                  }`}
-                >
-                  Users
-                </button>
-              )}
-              {user?.isAdmin && (
-                <button
-                  onClick={() => setTab("requests")}
-                  className={`btn-press px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    tab === "requests"
-                      ? "bg-white/20 text-white"
-                      : "text-white/70 hover:text-white hover:bg-white/10"
-                  }`}
-                >
-                  Requests
-                </button>
-              )}
-            </nav>
-          </div>
-          <div className="flex items-center gap-3">
-            {user && <Avatar url={user.profilePictureUrl} size={28} ring />}
-            <span className="text-sm text-white/80 hidden sm:inline">
-              {user?.displayName}
-            </span>
-            {user?.isAdmin && (
-              <span className="text-xs bg-nus-orange px-2 py-0.5 rounded-full font-medium">
-                Admin
-              </span>
-            )}
-            <Link
-              href="/login"
-              className="text-sm text-white/70 hover:text-white transition-colors"
-            >
-              Sign out
-            </Link>
-          </div>
-        </div>
-        {/* Mobile tabs */}
-        <div className="sm:hidden flex border-t border-white/10">
-          <button
-            onClick={() => setTab("errands")}
-            className={`btn-press flex-1 py-2.5 text-sm font-medium transition-colors ${tab === "errands" ? "bg-white/15 text-white" : "text-white/60"}`}
-          >
-            Errands
-          </button>
-          <button
-            onClick={() => setTab("suppliers")}
-            className={`btn-press flex-1 py-2.5 text-sm font-medium transition-colors ${tab === "suppliers" ? "bg-white/15 text-white" : "text-white/60"}`}
-          >
-            Suppliers
-          </button>
-          <button
-            onClick={() => setTab("profile")}
-            className={`btn-press flex-1 py-2.5 text-sm font-medium transition-colors ${tab === "profile" ? "bg-white/15 text-white" : "text-white/60"}`}
-          >
-            My Account
-          </button>
-          {user?.isAdmin && (
+    <>
+      <nav
+        aria-label="Home sections"
+        className="mb-6 flex gap-1 overflow-x-auto rounded-xl border border-border bg-surface p-1"
+      >
+        {homeTabs
+          .filter((item) => !item.adminOnly || user.isAdmin)
+          .map((item) => (
             <button
-              onClick={() => setTab("users")}
-              className={`btn-press flex-1 py-2.5 text-sm font-medium transition-colors ${tab === "users" ? "bg-white/15 text-white" : "text-white/60"}`}
+              key={item.id}
+              type="button"
+              onClick={() => setTab(item.id)}
+              aria-current={tab === item.id ? "page" : undefined}
+              className={`btn-press whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                tab === item.id
+                  ? "bg-nus-blue text-white"
+                  : "text-muted hover:bg-background hover:text-foreground"
+              }`}
             >
-              Users
+              {item.label}
             </button>
-          )}
-          {user?.isAdmin && (
+          ))}
+      </nav>
+      <div key={tab} className="fade-in">
+        {tab === "errands" && user.roles.length > 0 && (
+          <ErrandsTab me={user.uuid} roles={user.roles} buildings={buildings} />
+        )}
+        {tab === "errands" && user.roles.length === 0 && (
+          <div className="max-w-xl rounded-2xl border border-border bg-surface p-6 shadow-sm">
+            <h2 className="text-xl font-bold mb-1">Errands</h2>
+            <p className="text-sm text-muted mb-4">
+              {user.isAdmin
+                ? "Admin accounts have no requester or courier role. Use the Users tab to view any user's errands."
+                : "Pick a role (requester or courier) on My Account, then sign in again to request or deliver errands."}
+            </p>
             <button
-              onClick={() => setTab("requests")}
-              className={`btn-press flex-1 py-2.5 text-sm font-medium transition-colors ${tab === "requests" ? "bg-white/15 text-white" : "text-white/60"}`}
+              onClick={() => setTab(user.isAdmin ? "users" : "profile")}
+              className="btn-press rounded-xl bg-nus-orange px-4 py-2 text-sm font-semibold text-white hover:bg-nus-orange-hover transition-colors"
             >
-              Requests
+              {user.isAdmin ? "Go to Users" : "Go to My Account"}
             </button>
-          )}
-        </div>
-      </header>
+          </div>
+        )}
 
-      <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6">
-        <div key={tab} className="fade-in">
-          {tab === "errands" && user && user.roles.length > 0 && (
-            <ErrandsTab me={user.uuid} roles={user.roles} buildings={buildings} />
-          )}
-          {tab === "errands" && user && user.roles.length === 0 && (
-            <div className="max-w-xl rounded-2xl border border-border bg-surface p-6 shadow-sm">
-              <h2 className="text-xl font-bold mb-1">Errands</h2>
-              <p className="text-sm text-muted mb-4">
-                {user.isAdmin
-                  ? "Admin accounts have no requester or courier role. Use the Users tab to view any user's errands."
-                  : "Pick a role (requester or courier) on My Account, then sign in again to request or deliver errands."}
-              </p>
-              <button
-                onClick={() => setTab(user.isAdmin ? "users" : "profile")}
-                className="btn-press rounded-xl bg-nus-orange px-4 py-2 text-sm font-semibold text-white hover:bg-nus-orange-hover transition-colors"
-              >
-                {user.isAdmin ? "Go to Users" : "Go to My Account"}
-              </button>
-            </div>
-          )}
+        {tab === "suppliers" && (
+          <SuppliersTab
+            suppliers={suppliers}
+            buildings={buildings}
+            categories={categories}
+            loading={suppliersLoading}
+            searchName={searchName}
+            setSearchName={setSearchName}
+            filterBuilding={filterBuilding}
+            setFilterBuilding={setFilterBuilding}
+            filterKind={filterKind}
+            setFilterKind={setFilterKind}
+            selectedSupplier={selectedSupplier}
+            setSelectedSupplier={setSelectedSupplier}
+            isAdmin={isAdmin}
+            onSuppliersChanged={loadSuppliers}
+            onCategoriesChanged={loadCategories}
+          />
+        )}
 
-          {tab === "suppliers" && (
-            <SuppliersTab
-              suppliers={suppliers}
-              buildings={buildings}
-              categories={categories}
-              loading={suppliersLoading}
-              searchName={searchName}
-              setSearchName={setSearchName}
-              filterBuilding={filterBuilding}
-              setFilterBuilding={setFilterBuilding}
-              filterKind={filterKind}
-              setFilterKind={setFilterKind}
-              selectedSupplier={selectedSupplier}
-              setSelectedSupplier={setSelectedSupplier}
-              isAdmin={isAdmin}
-              onSuppliersChanged={loadSuppliers}
-              onCategoriesChanged={loadCategories}
-            />
-          )}
+        {tab === "users" && user.isAdmin && (
+          <UsersTab
+            users={allUsers}
+            total={usersTotal}
+            loading={usersLoading}
+            currentUserId={user.uuid}
+            onUserUpdated={(updated) =>
+              setAllUsers((prev) =>
+                prev.map((u) => (u.uuid === updated.uuid ? updated : u)),
+              )
+            }
+            onUserCreated={(created) => {
+              setAllUsers((prev) => [created, ...prev]);
+              setUsersTotal((t) => t + 1);
+            }}
+          />
+        )}
 
-          {tab === "users" && user?.isAdmin && (
-            <UsersTab
-              users={allUsers}
-              total={usersTotal}
-              loading={usersLoading}
-              currentUserId={user.uuid}
-              onUserUpdated={(updated) =>
-                setAllUsers((prev) => prev.map((u) => (u.uuid === updated.uuid ? updated : u)))
-              }
-              onUserCreated={(created) => {
-                setAllUsers((prev) => [created, ...prev]);
-                setUsersTotal((t) => t + 1);
-              }}
-            />
-          )}
+        {tab === "requests" && user.isAdmin && (
+          <SupplierRequestsTab
+            suppliers={suppliers}
+            buildings={buildings}
+            categories={categories}
+            users={allUsers}
+            onResolved={loadSuppliers}
+          />
+        )}
 
-          {tab === "requests" && user?.isAdmin && (
-            <SupplierRequestsTab
-              suppliers={suppliers}
-              buildings={buildings}
-              categories={categories}
-              users={allUsers}
-              onResolved={loadSuppliers}
-            />
-          )}
-
-          {tab === "profile" && user && (
-            <ProfileTab
-              user={user}
-              editingProfile={editingProfile}
-              setEditingProfile={setEditingProfile}
-              newDisplayName={newDisplayName}
-              setNewDisplayName={setNewDisplayName}
-              newProfilePictureUrl={newProfilePictureUrl}
-              setNewProfilePictureUrl={setNewProfilePictureUrl}
-              profileMsg={profileMsg}
-              handleProfileUpdate={handleProfileUpdate}
-              selectedRoles={selectedRoles}
-              toggleRole={toggleRole}
-              handleRoleUpdate={handleRoleUpdate}
-              roleMsg={roleMsg}
-              creditBalance={creditBalance}
-              creditBalanceStatus={creditBalanceStatus}
-              loadCreditBalance={loadCreditBalance}
-            />
-          )}
-        </div>
-      </main>
+        {tab === "profile" && (
+          <ProfileTab
+            user={user}
+            editingProfile={editingProfile}
+            setEditingProfile={setEditingProfile}
+            newDisplayName={newDisplayName}
+            setNewDisplayName={setNewDisplayName}
+            newProfilePictureUrl={newProfilePictureUrl}
+            setNewProfilePictureUrl={setNewProfilePictureUrl}
+            profileMsg={profileMsg}
+            handleProfileUpdate={handleProfileUpdate}
+            selectedRoles={selectedRoles}
+            toggleRole={toggleRole}
+            handleRoleUpdate={handleRoleUpdate}
+            roleMsg={roleMsg}
+            creditBalance={creditBalance}
+            creditBalanceStatus={creditBalanceStatus}
+            loadCreditBalance={loadCreditBalance}
+          />
+        )}
+      </div>
       <ApiLogPanel />
-    </div>
+    </>
   );
 }
 
@@ -536,7 +426,9 @@ function SupplierDrawer({
   useEffect(() => {
     authFetch(`/api/suppliers/${supplier.id}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { locationDescription?: string } | null) => setLocation(d?.locationDescription ?? null))
+      .then((d: { locationDescription?: string } | null) =>
+        setLocation(d?.locationDescription ?? null),
+      )
       .catch(() => setLocation(null));
   }, [supplier.id, saved]);
 
@@ -573,8 +465,16 @@ function SupplierDrawer({
               onClick={handleClose}
               className="btn-press flex items-center justify-center w-8 h-8 rounded-full bg-surface text-muted hover:text-foreground transition-colors"
             >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <path d="M4 4l8 8M12 4l-8 8"/>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              >
+                <path d="M4 4l8 8M12 4l-8 8" />
               </svg>
             </button>
           </div>
@@ -753,12 +653,19 @@ function SuppliersTab({
           />
         </div>
       )}
-      {panel === "categories" && <CategoriesPanel categories={categories} onAdded={onCategoriesChanged} />}
+      {panel === "categories" && (
+        <CategoriesPanel
+          categories={categories}
+          onAdded={onCategoriesChanged}
+        />
+      )}
       {panel === "mine" && (
         <div className="mb-6 max-w-2xl">
           <MyRequests
             reloadKey={requestsVersion}
-            supplierName={(id) => suppliers.find((s) => s.id === id)?.displayName}
+            supplierName={(id) =>
+              suppliers.find((s) => s.id === id)?.displayName
+            }
           />
         </div>
       )}
@@ -815,7 +722,7 @@ function SuppliersTab({
               key={supplier.id}
               onClick={() =>
                 setSelectedSupplier(
-                  selectedSupplier === supplier.id ? null : supplier.id
+                  selectedSupplier === supplier.id ? null : supplier.id,
                 )
               }
               className={`card-press text-left rounded-2xl border p-4 hover:shadow-md ${
@@ -845,9 +752,7 @@ function SuppliersTab({
                   {supplier.status}
                 </span>
               )}
-              <p className="text-sm text-muted mb-2">
-                Floor {supplier.floor}
-              </p>
+              <p className="text-sm text-muted mb-2">Floor {supplier.floor}</p>
               <div className="flex flex-wrap gap-1">
                 {supplier.categories.map((cat) => (
                   <span
@@ -883,13 +788,7 @@ function SuppliersTab({
   );
 }
 
-function InfoRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: React.ReactNode;
-}) {
+function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
       <span className="text-sm text-muted block">{label}</span>
@@ -947,7 +846,9 @@ function UsersTab({
         <CreateUserForm<UserListItem>
           onCreated={(created) => {
             setCreating(false);
-            setNotice(`Created ${created.email}. They set a password with "Forgot password".`);
+            setNotice(
+              `Created ${created.email}. They set a password with "Forgot password".`,
+            );
             onUserCreated(created);
           }}
           onCancel={() => setCreating(false)}
@@ -1011,11 +912,17 @@ function UsersTab({
                     </td>
                     <td className="px-4 py-3">
                       {u.isLocked ? (
-                        <span className="text-xs text-danger font-medium">Locked</span>
+                        <span className="text-xs text-danger font-medium">
+                          Locked
+                        </span>
                       ) : u.isArchived ? (
-                        <span className="text-xs text-muted font-medium">Archived</span>
+                        <span className="text-xs text-muted font-medium">
+                          Archived
+                        </span>
                       ) : (
-                        <span className="text-xs text-success font-medium">Active</span>
+                        <span className="text-xs text-success font-medium">
+                          Active
+                        </span>
                       )}
                     </td>
                     <td className="px-4 py-3">
@@ -1044,59 +951,6 @@ function UsersTab({
         <AdminUserErrands user={errandsOf} onClose={() => setErrandsOf(null)} />
       )}
     </div>
-  );
-}
-
-function Avatar({
-  url,
-  size = 64,
-  ring = false,
-}: {
-  url: string | null;
-  size?: number;
-  ring?: boolean;
-}) {
-  const [broken, setBroken] = useState(false);
-  const showImage = !!url && !broken;
-
-  let picture: React.ReactNode;
-  if (showImage) {
-    picture = (
-      // eslint-disable-next-line @next/next/no-img-element -- remote URLs; next/image would need remotePatterns config
-      <img
-        src={url ?? ""}
-        alt="Profile picture"
-        width={size}
-        height={size}
-        className="h-full w-full object-cover"
-        onError={() => setBroken(true)}
-      />
-    );
-  } else {
-    picture = (
-      <svg
-        width={size * 0.52}
-        height={size * 0.52}
-        viewBox="0 0 24 24"
-        fill="currentColor"
-        aria-hidden="true"
-      >
-        <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
-      </svg>
-    );
-  }
-
-  return (
-    <span
-      className="inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface text-muted"
-      style={{
-        width: size,
-        height: size,
-        boxShadow: ring ? "0 0 0 2px rgba(255,255,255,0.35)" : undefined,
-      }}
-    >
-      {picture}
-    </span>
   );
 }
 
@@ -1156,7 +1010,10 @@ function ProfileTab({
           <InfoRow label="User ID" value={user.uuid} />
 
           {editingProfile ? (
-            <form onSubmit={handleProfileUpdate} className="space-y-3 pt-2 fade-in">
+            <form
+              onSubmit={handleProfileUpdate}
+              className="space-y-3 pt-2 fade-in"
+            >
               <div>
                 <label className="block text-sm font-medium mb-1.5">
                   Display name
@@ -1242,9 +1099,7 @@ function ProfileTab({
             >
               <div className="font-semibold capitalize">{role}</div>
               <div className="text-xs mt-1 opacity-70">
-                {role === "requester"
-                  ? "Request errands"
-                  : "Fulfill errands"}
+                {role === "requester" ? "Request errands" : "Fulfill errands"}
               </div>
             </button>
           ))}
@@ -1255,7 +1110,9 @@ function ProfileTab({
         >
           Update roles
         </button>
-        {roleMsg && <p className="text-sm text-nus-orange mt-2 fade-in">{roleMsg}</p>}
+        {roleMsg && (
+          <p className="text-sm text-nus-orange mt-2 fade-in">{roleMsg}</p>
+        )}
       </div>
 
       <PushNotificationsCard />
@@ -1352,7 +1209,10 @@ function BalanceFailure({
   onRetry: () => Promise<void>;
 }) {
   return (
-    <div role="alert" className="flex flex-wrap items-center justify-between gap-3">
+    <div
+      role="alert"
+      className="flex flex-wrap items-center justify-between gap-3"
+    >
       <p className="text-sm text-muted">{message}</p>
       <button
         type="button"

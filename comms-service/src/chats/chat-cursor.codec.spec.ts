@@ -28,6 +28,9 @@ describe('ChatCursorCodec', () => {
       codec.decodeArchive(codec.encodeArchive(updatedAt, archiveId)),
     ).toEqual({ archivedAt: updatedAt, archiveId });
     expect(codec.decodeMessages(codec.encodeMessages(42))).toBe(42);
+    expect(
+      codec.decodeMessages(codec.encodeMessages(42, 'backward'), 'backward'),
+    ).toBe(42);
   });
 
   it.each([
@@ -55,6 +58,23 @@ describe('ChatCursorCodec', () => {
         codec.encodeArchive('2026-11-04T01:02:03.456789Z', archiveId),
       ),
     ).toThrow(BadRequestException);
+  });
+
+  it('rejects a message cursor created for the other direction', () => {
+    expect(() =>
+      codec.decodeMessages(codec.encodeMessages(42, 'forward'), 'backward'),
+    ).toThrow(BadRequestException);
+    expect(() =>
+      codec.decodeMessages(codec.encodeMessages(42, 'backward'), 'forward'),
+    ).toThrow(BadRequestException);
+  });
+
+  it('accepts legacy message cursors only for forward paging', () => {
+    const legacy = cursor([1, 'messages', '42']);
+    expect(codec.decodeMessages(legacy, 'forward')).toBe(42);
+    expect(() => codec.decodeMessages(legacy, 'backward')).toThrow(
+      BadRequestException,
+    );
   });
 
   it.each([
