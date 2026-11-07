@@ -69,6 +69,14 @@ sequence. Pending sends stay outside the committed transcript and retain their
 `clientMessageId` when explicitly retried. Read commands run only after render;
 receipt labels are shown only on the authenticated caller's sent messages.
 
+`/home/archives` lists the caller's own archived chats newest first
+(`archivedAt DESC, archiveId DESC`), appending server-provided cursor pages
+without client-side reordering. `/home/archives/[archiveId]` renders one
+immutable snapshot's role-labelled messages in order through plain React text
+interpolation; it exposes no composer, socket, or mutation control, and an
+absent or unauthorized archive renders the same not-found presentation as any
+other archive ID.
+
 ## Verification
 
 Run the deterministic frontend suites without a backend stack:
@@ -104,10 +112,6 @@ Keep storage-state files outside the repository or under ignored `e2e/.auth`;
 they contain session credentials and must never be logged or committed. Without
 the required live-stack inputs, Playwright reports the real-ingress tests as
 skipped rather than silently substituting mocked backend behavior.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
 ## Learn More
 
