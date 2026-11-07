@@ -119,6 +119,13 @@ describe('credit settlement event contracts', () => {
       for (const field of ['courierAmount', 'requesterAmount']) {
         const event = make();
         (event.payload as Record<string, unknown>)[field] = 0;
+        if (key === SUCCEEDED) {
+          const transactionField =
+            field === 'courierAmount'
+              ? 'courierCreditTransactionId'
+              : 'requesterCreditTransactionId';
+          (event.payload as Record<string, unknown>)[transactionField] = null;
+        }
         expect(validator.validate(key, event)).toMatchObject({ valid: true });
       }
     }
@@ -153,6 +160,7 @@ describe('credit settlement event contracts', () => {
   });
 
   it.each([
+    'ALREADY_TRANSFERRED',
     'RESERVATION_NOT_FOUND',
     'RESERVATION_RELEASED',
     'RESERVATION_USER_MISMATCH',
@@ -162,6 +170,52 @@ describe('credit settlement event contracts', () => {
     const event = rejected();
     event.payload.rejectionReason = rejectionReason;
     expect(validator.validate(REJECTED, event)).toMatchObject({ valid: true });
+  });
+
+  it('requires a null transaction id for a zero settlement leg', () => {
+    for (const [amountField, transactionField] of [
+      ['courierAmount', 'courierCreditTransactionId'],
+      ['requesterAmount', 'requesterCreditTransactionId'],
+    ] as const) {
+      const event = succeeded();
+      event.payload[amountField] = 0;
+      expect(validator.validate(SUCCEEDED, event)).toMatchObject({
+        valid: false,
+        code: 'INVALID_PAYLOAD',
+      });
+
+      event.payload[transactionField] = null;
+      expect(validator.validate(SUCCEEDED, event)).toMatchObject({
+        valid: true,
+      });
+    }
+  });
+
+  it('requires a UUID transaction id for a positive settlement leg', () => {
+    for (const transactionField of [
+      'courierCreditTransactionId',
+      'requesterCreditTransactionId',
+    ] as const) {
+      const event = succeeded();
+      event.payload[transactionField] = null;
+      expect(validator.validate(SUCCEEDED, event)).toMatchObject({
+        valid: false,
+        code: 'INVALID_PAYLOAD',
+      });
+    }
+  });
+
+  it('rejects a success outcome with no effective settlement leg', () => {
+    const event = succeeded();
+    event.payload.courierAmount = 0;
+    event.payload.requesterAmount = 0;
+    event.payload.courierCreditTransactionId = null;
+    event.payload.requesterCreditTransactionId = null;
+
+    expect(validator.validate(SUCCEEDED, event)).toMatchObject({
+      valid: false,
+      code: 'INVALID_PAYLOAD',
+    });
   });
 
   it('rejects an unknown rejection reason', () => {
