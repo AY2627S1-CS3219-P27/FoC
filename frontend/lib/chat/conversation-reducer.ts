@@ -22,6 +22,7 @@ export interface ConversationState {
   archived: ChatArchivedEvent | null;
   archiveRecovery: ArchiveRecoveryState;
   participantRole: ParticipantRole | null;
+  errandId: string | null;
   error: string | null;
   conflict: boolean;
 }
@@ -37,6 +38,7 @@ export const initialConversationState: ConversationState = {
   archived: null,
   archiveRecovery: "idle",
   participantRole: null,
+  errandId: null,
   error: null,
   conflict: false,
 };
@@ -56,6 +58,7 @@ export type ConversationAction =
   | { type: "closing"; closing: ChatClosingEvent }
   | { type: "archive-recovery"; recovery: ArchiveRecoveryState }
   | { type: "participant-role"; role: ParticipantRole }
+  | { type: "errand-id"; errandId: string }
   | { type: "archived"; archived: ChatArchivedEvent }
   | { type: "error"; message: string };
 
@@ -172,6 +175,8 @@ export function conversationReducer(state: ConversationState, action: Conversati
       return { ...state, archiveRecovery: action.recovery };
     case "participant-role":
       return { ...state, participantRole: action.role };
+    case "errand-id":
+      return { ...state, errandId: action.errandId };
     case "archived":
       return { ...state, archived: action.archived, archiveRecovery: "idle", connection: "offline", error: null };
     case "error":

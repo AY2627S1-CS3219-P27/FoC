@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useChatConversation } from "@/lib/chat/use-chat-conversation";
+import { formatErrandTitle, useChatErrand } from "@/lib/chat/use-chat-errand";
 import { useHomeContext } from "../../_shell/home-shell";
 
 const MAX_MESSAGE_LENGTH = 4_000;
@@ -42,6 +43,10 @@ const connectionLabels = {
 export function ChatConversation({ chatId }: { chatId: string }) {
   const { user, socketPath } = useHomeContext();
   const { state, send, retry, loadOlder, reconnect, recoverArchive } = useChatConversation(chatId, user.uuid, socketPath);
+  const errand = useChatErrand(state.errandId);
+  const roleLabel = state.participantRole === "REQUESTER" ? "Requester" : state.participantRole === "COURIER" ? "Courier" : null;
+  const headingFallback = roleLabel ? `Errand chat · ${roleLabel}` : "Errand chat";
+  const heading = formatErrandTitle(errand, headingFallback);
   const [draft, setDraft] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const transcriptRef = useRef<HTMLDivElement | null>(null);
@@ -140,10 +145,16 @@ export function ChatConversation({ chatId }: { chatId: string }) {
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
             <Link href="/home/chats" className="text-sm font-medium text-nus-blue hover:underline">← All chats</Link>
-            <h1 id="conversation-heading" className="mt-1 truncate text-xl font-bold">
-              Errand chat{state.participantRole ? ` · ${state.participantRole === "REQUESTER" ? "Requester" : "Courier"}` : ""}
+            <h1 id="conversation-heading" title={heading} className="mt-1 truncate text-xl font-bold">
+              {heading}
             </h1>
-            <p className="truncate text-xs text-muted">Chat {chatId}</p>
+            {errand ? (
+              <p title={`${roleLabel ?? "Participant"} · Collect: ${errand.collectionItems}`} className="truncate text-xs text-muted">
+                {roleLabel ?? "Participant"} · Collect: {errand.collectionItems}
+              </p>
+            ) : (
+              <p className="truncate text-xs text-muted">Chat {chatId}</p>
+            )}
           </div>
           <div className="text-right">
             <p role="status" className={`text-sm font-medium ${state.connection === "connected" ? "text-success" : "text-muted"}`}>{connectionLabels[state.connection]}</p>

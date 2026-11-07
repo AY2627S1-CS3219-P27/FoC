@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { getChats } from "@/lib/chat/api";
 import type { ChatView } from "@/lib/chat/contracts";
+import { formatErrandTitle, useChatErrand } from "@/lib/chat/use-chat-errand";
 import { useHomeContext } from "../_shell/home-shell";
 
 const PAGE_SIZE = 20;
@@ -20,6 +21,31 @@ function counterpartFor(chat: ChatView, callerId: string): string {
   const role = chat.requesterUserId === callerId ? "Courier" : "Requester";
   const id = chat.requesterUserId === callerId ? chat.courierUserId : chat.requesterUserId;
   return `${role} · ${id.slice(0, 8)}`;
+}
+
+function ChatListRow({ chat, callerId }: { chat: ChatView; callerId: string }) {
+  const errand = useChatErrand(chat.errandId);
+  const title = formatErrandTitle(errand, `Errand ${chat.errandId.slice(0, 8)}`);
+  return (
+    <li>
+      <Link href={`/home/chats/${chat.chatId}`} className="card-press block rounded-2xl border border-border bg-surface p-4 shadow-sm transition-colors hover:border-nus-orange">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h2 className="truncate font-semibold">{counterpartFor(chat, callerId)}</h2>
+              {chat.unread && <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-nus-orange" aria-label="Unread messages" />}
+            </div>
+            <p title={title} className="mt-1 truncate text-xs text-muted">You are the {roleFor(chat, callerId).toLowerCase()} · {title}</p>
+            <p className={`mt-3 truncate text-sm ${chat.unread ? "font-semibold" : "text-muted"}`}>{chat.lastMessage?.content ?? "No messages yet"}</p>
+          </div>
+          <div className="shrink-0 text-right">
+            <time dateTime={chat.updatedAt} className="text-xs text-muted">{formatTime(chat.updatedAt)}</time>
+            {chat.state === "GRACE" && <p className="mt-2 rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">Closing soon</p>}
+          </div>
+        </div>
+      </Link>
+    </li>
+  );
 }
 
 export default function ChatsPage() {
@@ -106,24 +132,7 @@ export default function ChatsPage() {
       {chats.length > 0 && (
         <ul className="mt-6 space-y-3" aria-label="Active chats">
           {chats.map((chat) => (
-            <li key={chat.chatId}>
-              <Link href={`/home/chats/${chat.chatId}`} className="card-press block rounded-2xl border border-border bg-surface p-4 shadow-sm transition-colors hover:border-nus-orange">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h2 className="truncate font-semibold">{counterpartFor(chat, user.uuid)}</h2>
-                      {chat.unread && <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-nus-orange" aria-label="Unread messages" />}
-                    </div>
-                    <p className="mt-1 text-xs text-muted">You are the {roleFor(chat, user.uuid).toLowerCase()} · Errand {chat.errandId.slice(0, 8)}</p>
-                    <p className={`mt-3 truncate text-sm ${chat.unread ? "font-semibold" : "text-muted"}`}>{chat.lastMessage?.content ?? "No messages yet"}</p>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <time dateTime={chat.updatedAt} className="text-xs text-muted">{formatTime(chat.updatedAt)}</time>
-                    {chat.state === "GRACE" && <p className="mt-2 rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">Closing soon</p>}
-                  </div>
-                </div>
-              </Link>
-            </li>
+            <ChatListRow key={chat.chatId} chat={chat} callerId={user.uuid} />
           ))}
         </ul>
       )}

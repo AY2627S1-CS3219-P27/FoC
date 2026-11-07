@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { getArchives } from "@/lib/chat/api";
 import type { ArchiveListItem } from "@/lib/chat/contracts";
+import { formatErrandTitle, useChatErrand } from "@/lib/chat/use-chat-errand";
 import { useHomeContext } from "../_shell/home-shell";
 
 const PAGE_SIZE = 20;
@@ -14,6 +15,29 @@ function formatTimestamp(value: string): string {
 
 function callerRole(archive: ArchiveListItem, callerId: string): "Requester" | "Courier" {
   return archive.requesterUserId === callerId ? "Requester" : "Courier";
+}
+
+function ArchiveListRow({ archive, callerId }: { archive: ArchiveListItem; callerId: string }) {
+  const errand = useChatErrand(archive.errandId);
+  const title = formatErrandTitle(errand, `Errand ${archive.errandId.slice(0, 8)}`);
+  const role = callerRole(archive, callerId);
+  const counterpartId = role === "Requester" ? archive.courierUserId : archive.requesterUserId;
+  return (
+    <li>
+      <Link href={`/home/archives/${archive.archiveId}`} className="card-press block rounded-2xl border border-border bg-surface p-4 shadow-sm transition-colors hover:border-nus-orange">
+        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+          <div className="min-w-0">
+            <h2 title={title} className="truncate font-semibold">{title}</h2>
+            <p className="mt-1 truncate text-sm text-muted">You were the {role.toLowerCase()} · {role === "Requester" ? "Courier" : "Requester"} {counterpartId.slice(0, 8)}</p>
+          </div>
+          <div className="shrink-0 sm:text-right">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted">Archived</p>
+            <time dateTime={archive.archivedAt} className="text-sm">{formatTimestamp(archive.archivedAt)}</time>
+          </div>
+        </div>
+      </Link>
+    </li>
+  );
 }
 
 export function ArchiveList() {
@@ -85,26 +109,9 @@ export function ArchiveList() {
 
       {archives.length > 0 && (
         <ol className="mt-6 space-y-3" aria-label="Archived chats, newest first">
-          {archives.map((archive) => {
-            const role = callerRole(archive, user.uuid);
-            const counterpartId = role === "Requester" ? archive.courierUserId : archive.requesterUserId;
-            return (
-              <li key={archive.archiveId}>
-                <Link href={`/home/archives/${archive.archiveId}`} className="card-press block rounded-2xl border border-border bg-surface p-4 shadow-sm transition-colors hover:border-nus-orange">
-                  <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
-                    <div className="min-w-0">
-                      <h2 className="font-semibold">Errand {archive.errandId.slice(0, 8)}</h2>
-                      <p className="mt-1 truncate text-sm text-muted">You were the {role.toLowerCase()} · {role === "Requester" ? "Courier" : "Requester"} {counterpartId.slice(0, 8)}</p>
-                    </div>
-                    <div className="shrink-0 sm:text-right">
-                      <p className="text-xs font-medium uppercase tracking-wide text-muted">Archived</p>
-                      <time dateTime={archive.archivedAt} className="text-sm">{formatTimestamp(archive.archivedAt)}</time>
-                    </div>
-                  </div>
-                </Link>
-              </li>
-            );
-          })}
+          {archives.map((archive) => (
+            <ArchiveListRow key={archive.archiveId} archive={archive} callerId={user.uuid} />
+          ))}
         </ol>
       )}
 
