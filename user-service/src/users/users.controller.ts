@@ -3,6 +3,7 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  NotFoundException,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -29,7 +30,7 @@ import {
   toUserInfoView,
   UserInfoView,
 } from './user-info.view.js';
-import { UsersService } from './users.service.js';
+import { PublicUserInfo, UsersService } from './users.service.js';
 import { AdminBlockGuard } from '../authorization/admin-block-guard/admin-block.guard.js';
 
 @Controller('users')
@@ -100,6 +101,35 @@ export class UsersController {
     if (user === null) {
       throw new UnauthorizedException();
     }
+    return user;
+  }
+
+  /**
+   * A single user's profile by UUID. Declared after the `me` routes so
+   * Nest resolves `GET /users/me` before the `:uuid` parameter route.
+   *
+   * Non-admin callers only see active accounts: locked and archived ones
+   * resolve to 404, matching the login rule. Admins and users reading
+   * themselves may see any account state, as with `/users/me`. Account
+   * management flags stay on the list and admin-update endpoints.
+   */
+  @Get(':uuid')
+  async getUser(
+    @Req() request: AuthenticatedRequest,
+    @Param('uuid', new ParseUUIDPipe()) uuid: string,
+  ): Promise<PublicUserInfo> {
+    const isSelf = request.user.sub === uuid;
+
+    // Non-admin users can only get active user info
+    const user =
+      request.user.isAdmin || isSelf
+        ? await this.usersService.getUserByUuid(uuid)
+        : await this.usersService.getActiveUserByUuid(uuid);
+
+    if (user === null) {
+      throw new NotFoundException();
+    }
+
     return user;
   }
 
