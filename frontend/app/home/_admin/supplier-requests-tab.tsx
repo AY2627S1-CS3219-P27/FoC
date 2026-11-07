@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { toast } from "sonner";
+import { api, errorText } from "@/lib/api";
+import { formatTime } from "../_errands/ui";
+import { Button } from "@/components/ui/button";
+import { FilterSelect, FormError, textareaClass } from "@/components/ui/field";
+import { EmptyState, PageHeader, Pill, SkeletonList } from "@/components/ui/layout";
 
 type RequestType = "Create" | "Update" | "StatusChange";
 
@@ -33,6 +38,19 @@ export interface RequestSupplier {
   categories: { id: string; name: string }[];
 }
 
+// Readable names for the request fields, which arrive as API keys.
+const FIELD_LABELS: Record<string, string> = {
+  name: "Name",
+  kind: "Type",
+  categoryIds: "Categories",
+  buildingId: "Building",
+  floor: "Floor",
+  locationDescription: "Location",
+  coordinates: "Coordinates",
+  photoUrl: "Photo URL",
+  status: "Status",
+};
+
 const TYPE_LABELS: Record<RequestType, string> = {
   Create: "New supplier",
   Update: "Edit supplier",
@@ -62,7 +80,6 @@ export function SupplierRequestsTab({
     const res = await api<{ items: SupplierRequest[]; total: number }>(
       "GET",
       `/api/supplier-requests?limit=50${type ? `&type=${type}` : ""}`,
-      { quiet: true },
     );
     setLoading(false);
     if (res.ok && res.data) {
@@ -70,7 +87,7 @@ export function SupplierRequestsTab({
       setTotal(res.data.total);
       setError("");
     } else {
-      setError(`${res.status} ${res.message ?? res.code ?? "Could not load requests."}`);
+      setError(errorText(res, "Could not load requests."));
     }
   }, [type]);
 
@@ -84,26 +101,25 @@ export function SupplierRequestsTab({
     category: (id: unknown) => categories.find((c) => c.id === id)?.name ?? String(id),
     user: (id: string) => {
       const u = users.find((x) => x.uuid === id);
-      return u ? `${u.displayName} (${u.email})` : id.slice(0, 8);
+      return u ? `${u.displayName} (${u.email})` : "Unknown user";
     },
   };
 
   return (
     <div>
-      <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
-        <div>
-          <h2 className="text-2xl font-bold mb-1">Supplier requests</h2>
-          <p className="text-muted text-sm">
-            {total} pending request{total !== 1 ? "s" : ""} from students.
-          </p>
-        </div>
-        <select
+      <PageHeader
+        title="Requests"
+        subtitle={`${total} pending supplier request${total !== 1 ? "s" : ""} from students`}
+      />
+
+      <div className="mb-4 flex">
+        <FilterSelect
+          label="Request type"
           value={type}
           onChange={(e) => {
             setLoading(true);
             setType(e.target.value as "" | RequestType);
           }}
-          className="rounded-xl border border-border bg-surface px-3.5 py-2.5 text-sm"
         >
           <option value="">All types</option>
           {(Object.keys(TYPE_LABELS) as RequestType[]).map((t) => (
@@ -111,19 +127,17 @@ export function SupplierRequestsTab({
               {TYPE_LABELS[t]}
             </option>
           ))}
-        </select>
+        </FilterSelect>
       </div>
 
       {loading ? (
-        <p className="text-center py-12 text-muted">Loading requests…</p>
+        <SkeletonList count={3} />
       ) : error ? (
-        <p role="alert" className="text-center py-12 text-danger text-sm">
-          {error}
-        </p>
+        <EmptyState tone="error" title="Couldn't load requests" body={error} />
       ) : items.length === 0 ? (
-        <p className="text-center py-12 text-muted">No pending requests.</p>
+        <EmptyState title="All caught up" body="There are no pending supplier requests." />
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="stagger grid gap-5">
           {items.map((r) => (
             <RequestCard
               key={r.id}
@@ -166,13 +180,14 @@ function RequestCard({
   // The list view leaves out fields such as locationDescription, so read the full supplier for the comparison.
   useEffect(() => {
     if (!request.supplierId) return;
-    api<Record<string, unknown>>("GET", `/api/suppliers/${request.supplierId}`, { quiet: true }).then(
+    api<Record<string, unknown>>("GET", `/api/suppliers/${request.supplierId}`).then(
       (res) => setDetail(res.data),
     );
   }, [request.supplierId]);
 
   function show(key: string, value: unknown): string {
-    if (value === null || value === undefined || value === "") return "—";
+    const empty = value === null || value === undefined || value === "";
+    if (empty || (Array.isArray(value) && value.length === 0)) return "—";
     if (key === "buildingId") return label.building(value);
     if (key === "categoryIds" && Array.isArray(value)) return value.map(label.category).join(", ");
     if (key === "coordinates" && typeof value === "object") {
@@ -197,101 +212,88 @@ function RequestCard({
       body: action === "deny" ? { reason: reason.trim() } : undefined,
     });
     setPending(false);
-    if (res.ok) onDone();
-    else setError(`${res.status} ${res.message ?? res.code ?? `Could not ${action}.`}`);
+    if (res.ok) {
+      toast.success(action === "approve" ? "Request approved" : "Request denied");
+      onDone();
+    } else setError(errorText(res, `Could not ${action} the request.`));
   }
 
   const showCurrent = request.type !== "Create" && !!(detail ?? supplier);
 
   return (
-    <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
-      <div className="flex items-start justify-between gap-3 mb-1">
-        <h3 className="font-semibold">
-          {request.type === "Create"
-            ? show("name", request.values.name)
-            : String(detail?.displayName ?? supplier?.displayName ?? `Supplier ${request.supplierId?.slice(0, 8)}`)}
-        </h3>
-        <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-nus-blue/10 text-nus-blue whitespace-nowrap">
-          {TYPE_LABELS[request.type]}
-        </span>
-      </div>
-      <p className="text-xs text-muted mb-4">
-        By {label.user(request.submittedBy)} · {new Date(request.submittedAt).toLocaleString()}
-        {request.supplierVersion !== null && ` · against version ${request.supplierVersion}`}
-      </p>
+    <article className="min-w-0 overflow-hidden rounded-2xl bg-surface">
+      <header className="px-4 pt-4 pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <h3 className="min-w-0 text-[17px] font-semibold break-words">
+            {request.type === "Create"
+              ? show("name", request.values.name)
+              : String(detail?.displayName ?? supplier?.displayName ?? "Unknown supplier")}
+          </h3>
+          <Pill tone="blue" className="shrink-0 whitespace-nowrap">
+            {TYPE_LABELS[request.type]}
+          </Pill>
+        </div>
+        <p className="mt-0.5 text-[13px] break-words text-muted">
+          {label.user(request.submittedBy)} · {formatTime(request.submittedAt)}
+          {request.supplierVersion !== null && ` · version ${request.supplierVersion}`}
+        </p>
+      </header>
 
-      <table className="w-full text-sm mb-4">
-        <thead>
-          <tr className="text-left text-muted">
-            <th className="py-1 pr-3 font-medium">Field</th>
-            {showCurrent && <th className="py-1 pr-3 font-medium">Current</th>}
-            <th className="py-1 font-medium">{request.type === "Create" ? "Value" : "Requested"}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {Object.entries(request.values).map(([key, value]) => (
-            <tr key={key} className="border-t border-border align-top">
-              <td className="py-1.5 pr-3 text-muted">{key}</td>
-              {showCurrent && <td className="py-1.5 pr-3">{show(key, current(key))}</td>}
-              <td className="py-1.5 font-medium break-words">{show(key, value)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {/* Each field shows what it would become, with the current value underneath for edits. */}
+      <dl className="pl-4 [&>div+div]:border-t">
+        {Object.entries(request.values).map(([key, value]) => (
+          <div key={key} className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-3 border-border py-2.5 pr-4">
+            <dt className="text-[13px] text-muted">{FIELD_LABELS[key] ?? key}</dt>
+            <dd className="min-w-0 text-[15px] break-words">
+              {show(key, value)}
+              {showCurrent && (
+                <span className="mt-0.5 block text-[13px] text-muted">Now: {show(key, current(key))}</span>
+              )}
+            </dd>
+          </div>
+        ))}
+      </dl>
 
-      {denying && (
-        <textarea
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          maxLength={500}
-          rows={2}
-          placeholder="Reason for denying (required)"
-          className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm mb-3"
-        />
-      )}
-
-      <div className="flex flex-wrap gap-2">
-        {!denying ? (
-          <>
-            <button
-              disabled={pending}
-              onClick={() => resolve("approve")}
-              className="btn-press rounded-xl bg-success px-3.5 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
-            >
-              Approve
-            </button>
-            <button
-              disabled={pending}
-              onClick={() => setDenying(true)}
-              className="btn-press rounded-xl border border-danger px-3.5 py-2 text-sm font-semibold text-danger hover:bg-danger/10 disabled:opacity-50"
-            >
-              Deny…
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              disabled={pending || !reason.trim()}
-              onClick={() => resolve("deny")}
-              className="btn-press rounded-xl bg-danger px-3.5 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
-            >
-              Deny request
-            </button>
-            <button
-              disabled={pending}
-              onClick={() => setDenying(false)}
-              className="btn-press rounded-xl border border-border px-3.5 py-2 text-sm text-muted hover:text-foreground"
-            >
-              Back
-            </button>
-          </>
+      <div className="border-t border-border p-4">
+        {denying && (
+          <textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            maxLength={500}
+            rows={2}
+            autoFocus
+            placeholder="Reason for denying (required)"
+            aria-label="Reason for denying"
+            className={`mb-3 w-full ${textareaClass}`}
+          />
+        )}
+        <div className="grid grid-cols-2 gap-2">
+          {!denying ? (
+            <>
+              <Button intent="danger-outline" disabled={pending} onClick={() => setDenying(true)}>
+                Deny…
+              </Button>
+              <Button intent="success" disabled={pending} onClick={() => resolve("approve")}>
+                Approve
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button intent="outline" disabled={pending} onClick={() => setDenying(false)}>
+                Back
+              </Button>
+              <Button intent="danger" disabled={pending || !reason.trim()} onClick={() => resolve("deny")}>
+                Deny request
+              </Button>
+            </>
+          )}
+        </div>
+        {error && (
+          <div className="mt-2">
+            <FormError>{error}</FormError>
+          </div>
         )}
       </div>
-      {error && (
-        <p role="alert" className="text-sm text-danger mt-2">
-          {error}
-        </p>
-      )}
-    </div>
+    </article>
   );
 }
