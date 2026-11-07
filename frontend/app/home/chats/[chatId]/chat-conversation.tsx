@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useChatConversation } from "@/lib/chat/use-chat-conversation";
 import { formatErrandTitle, useChatErrand } from "@/lib/chat/use-chat-errand";
+import { useDisplayName } from "@/lib/users/names";
 import { useHomeContext } from "../../_shell/home-shell";
 
 const MAX_MESSAGE_LENGTH = 4_000;
@@ -47,6 +48,9 @@ export function ChatConversation({ chatId }: { chatId: string }) {
   const roleLabel = state.participantRole === "REQUESTER" ? "Requester" : state.participantRole === "COURIER" ? "Courier" : null;
   const headingFallback = roleLabel ? `Errand chat · ${roleLabel}` : "Errand chat";
   const heading = formatErrandTitle(errand, headingFallback);
+  const counterpartName = useDisplayName(state.counterpartUserId);
+  const counterpartRoleLabel = state.participantRole === "REQUESTER" ? "Courier" : state.participantRole === "COURIER" ? "Requester" : null;
+  const counterpartLabel = counterpartName ?? counterpartRoleLabel ?? "Participant";
   const [draft, setDraft] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const transcriptRef = useRef<HTMLDivElement | null>(null);
@@ -149,8 +153,8 @@ export function ChatConversation({ chatId }: { chatId: string }) {
               {heading}
             </h1>
             {errand ? (
-              <p title={`${roleLabel ?? "Participant"} · Collect: ${errand.collectionItems}`} className="truncate text-xs text-muted">
-                {roleLabel ?? "Participant"} · Collect: {errand.collectionItems}
+              <p title={`${counterpartLabel} · Collect: ${errand.collectionItems}`} className="truncate text-xs text-muted">
+                {counterpartLabel} · Collect: {errand.collectionItems}
               </p>
             ) : (
               <p className="truncate text-xs text-muted">Chat {chatId}</p>

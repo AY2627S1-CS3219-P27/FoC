@@ -319,6 +319,10 @@ export function useChatConversation(chatId: string, callerUserId: string, socket
             : null;
         if (role !== null) dispatch({ type: "participant-role", role });
         dispatch({ type: "errand-id", errandId: liveChat.errandId });
+        dispatch({
+          type: "counterpart-user-id",
+          userId: liveChat.requesterUserId === callerUserId ? liveChat.courierUserId : liveChat.requesterUserId,
+        });
         if (liveChat.state === "GRACE" && liveChat.closesAt !== null && liveChat.closeReason !== null) {
           dispatch({
             type: "closing",
@@ -347,6 +351,10 @@ export function useChatConversation(chatId: string, callerUserId: string, socket
           : null;
       if (role !== null) dispatch({ type: "participant-role", role });
       dispatch({ type: "errand-id", errandId: archive.errandId });
+      dispatch({
+        type: "counterpart-user-id",
+        userId: archive.requesterUserId === callerUserId ? archive.courierUserId : archive.requesterUserId,
+      });
       dispatch({
         type: "archived",
         archived: { chatId, archiveId: archive.archiveId, archivedAt: archive.archivedAt },

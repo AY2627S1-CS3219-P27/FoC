@@ -55,6 +55,7 @@ function state(overrides: Partial<ConversationState> = {}): ConversationState {
     archiveRecovery: "idle",
     participantRole: null,
     errandId: null,
+    counterpartUserId: null,
     error: null,
     conflict: false,
     ...overrides,

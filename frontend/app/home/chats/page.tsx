@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getChats } from "@/lib/chat/api";
 import type { ChatView } from "@/lib/chat/contracts";
 import { formatErrandTitle, useChatErrand } from "@/lib/chat/use-chat-errand";
+import { useDisplayName } from "@/lib/users/names";
 import { useHomeContext } from "../_shell/home-shell";
 
 const PAGE_SIZE = 20;
@@ -17,22 +18,25 @@ function roleFor(chat: ChatView, callerId: string): string {
   return chat.requesterUserId === callerId ? "Requester" : "Courier";
 }
 
-function counterpartFor(chat: ChatView, callerId: string): string {
+function counterpartFor(chat: ChatView, callerId: string): { role: "Requester" | "Courier"; userId: string } {
   const role = chat.requesterUserId === callerId ? "Courier" : "Requester";
-  const id = chat.requesterUserId === callerId ? chat.courierUserId : chat.requesterUserId;
-  return `${role} · ${id.slice(0, 8)}`;
+  const userId = chat.requesterUserId === callerId ? chat.courierUserId : chat.requesterUserId;
+  return { role, userId };
 }
 
 function ChatListRow({ chat, callerId }: { chat: ChatView; callerId: string }) {
   const errand = useChatErrand(chat.errandId);
   const title = formatErrandTitle(errand, `Errand ${chat.errandId.slice(0, 8)}`);
+  const counterpart = counterpartFor(chat, callerId);
+  const counterpartName = useDisplayName(counterpart.userId);
+  const heading = counterpartName ?? counterpart.role;
   return (
     <li>
       <Link href={`/home/chats/${chat.chatId}`} className="card-press block rounded-2xl border border-border bg-surface p-4 shadow-sm transition-colors hover:border-nus-orange">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h2 className="truncate font-semibold">{counterpartFor(chat, callerId)}</h2>
+              <h2 className="truncate font-semibold">{heading}</h2>
               {chat.unread && <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-nus-orange" aria-label="Unread messages" />}
             </div>
             <p title={title} className="mt-1 truncate text-xs text-muted">You are the {roleFor(chat, callerId).toLowerCase()} · {title}</p>

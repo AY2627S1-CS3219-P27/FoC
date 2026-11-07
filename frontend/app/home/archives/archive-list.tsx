@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getArchives } from "@/lib/chat/api";
 import type { ArchiveListItem } from "@/lib/chat/contracts";
 import { formatErrandTitle, useChatErrand } from "@/lib/chat/use-chat-errand";
+import { useDisplayName } from "@/lib/users/names";
 import { useHomeContext } from "../_shell/home-shell";
 
 const PAGE_SIZE = 20;
@@ -21,14 +22,17 @@ function ArchiveListRow({ archive, callerId }: { archive: ArchiveListItem; calle
   const errand = useChatErrand(archive.errandId);
   const title = formatErrandTitle(errand, `Errand ${archive.errandId.slice(0, 8)}`);
   const role = callerRole(archive, callerId);
+  const counterpartRole = role === "Requester" ? "Courier" : "Requester";
   const counterpartId = role === "Requester" ? archive.courierUserId : archive.requesterUserId;
+  const counterpartName = useDisplayName(counterpartId);
+  const counterpartLabel = counterpartName ?? counterpartRole;
   return (
     <li>
       <Link href={`/home/archives/${archive.archiveId}`} className="card-press block rounded-2xl border border-border bg-surface p-4 shadow-sm transition-colors hover:border-nus-orange">
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
           <div className="min-w-0">
             <h2 title={title} className="truncate font-semibold">{title}</h2>
-            <p className="mt-1 truncate text-sm text-muted">You were the {role.toLowerCase()} · {role === "Requester" ? "Courier" : "Requester"} {counterpartId.slice(0, 8)}</p>
+            <p className="mt-1 truncate text-sm text-muted">You were the {role.toLowerCase()} · {counterpartLabel}</p>
           </div>
           <div className="shrink-0 sm:text-right">
             <p className="text-xs font-medium uppercase tracking-wide text-muted">Archived</p>

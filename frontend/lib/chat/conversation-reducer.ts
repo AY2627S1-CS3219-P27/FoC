@@ -23,6 +23,7 @@ export interface ConversationState {
   archiveRecovery: ArchiveRecoveryState;
   participantRole: ParticipantRole | null;
   errandId: string | null;
+  counterpartUserId: string | null;
   error: string | null;
   conflict: boolean;
 }
@@ -39,6 +40,7 @@ export const initialConversationState: ConversationState = {
   archiveRecovery: "idle",
   participantRole: null,
   errandId: null,
+  counterpartUserId: null,
   error: null,
   conflict: false,
 };
@@ -59,6 +61,7 @@ export type ConversationAction =
   | { type: "archive-recovery"; recovery: ArchiveRecoveryState }
   | { type: "participant-role"; role: ParticipantRole }
   | { type: "errand-id"; errandId: string }
+  | { type: "counterpart-user-id"; userId: string }
   | { type: "archived"; archived: ChatArchivedEvent }
   | { type: "error"; message: string };
 
@@ -177,6 +180,8 @@ export function conversationReducer(state: ConversationState, action: Conversati
       return { ...state, participantRole: action.role };
     case "errand-id":
       return { ...state, errandId: action.errandId };
+    case "counterpart-user-id":
+      return { ...state, counterpartUserId: action.userId };
     case "archived":
       return { ...state, archived: action.archived, archiveRecovery: "idle", connection: "offline", error: null };
     case "error":

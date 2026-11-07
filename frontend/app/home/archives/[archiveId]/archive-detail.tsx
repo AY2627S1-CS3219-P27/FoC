@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ChatApiError, getArchive } from "@/lib/chat/api";
 import type { ArchiveDetail } from "@/lib/chat/contracts";
+import { useDisplayName } from "@/lib/users/names";
 import { useHomeContext } from "../../_shell/home-shell";
 
 function formatTimestamp(value: string): string {
@@ -16,6 +17,8 @@ export function ArchiveDetailView({ archiveId }: { archiveId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const counterpartUserId = archive !== null ? (archive.requesterUserId === user.uuid ? archive.courierUserId : archive.requesterUserId) : null;
+  const counterpartName = useDisplayName(counterpartUserId);
 
   useEffect(() => {
     let active = true;
@@ -64,7 +67,7 @@ export function ArchiveDetailView({ archiveId }: { archiveId: string }) {
         <div className="mt-2 flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
           <div>
             <h1 id="archive-heading" className="text-xl font-bold">Archived errand chat</h1>
-            <p className="mt-1 text-sm text-muted">Errand {archive.errandId} · You were the {callerRole.toLowerCase()}.</p>
+            <p className="mt-1 text-sm text-muted">Errand {archive.errandId} · You were the {callerRole.toLowerCase()}{counterpartName ? ` with ${counterpartName}` : ""}.</p>
           </div>
           <div className="shrink-0 sm:text-right">
             <p className="text-xs font-medium uppercase tracking-wide text-muted">Archived</p>
@@ -84,7 +87,7 @@ export function ArchiveDetailView({ archiveId }: { archiveId: string }) {
               return (
                 <li key={`${message.timestamp}-${index}`} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                   <article className={`max-w-[85%] rounded-2xl px-4 py-3 sm:max-w-[70%] ${mine ? "bg-nus-blue text-white" : "border border-border bg-surface"}`}>
-                    <p className={`mb-1 text-xs font-semibold uppercase tracking-wide ${mine ? "text-white/70" : "text-muted"}`}>{mine ? `You · ${message.role.toLowerCase()}` : message.role.toLowerCase()}</p>
+                    <p className={`mb-1 text-xs font-semibold uppercase tracking-wide ${mine ? "text-white/70" : "text-muted"}`}>{mine ? `You · ${message.role.toLowerCase()}` : (counterpartName ?? message.role.toLowerCase())}</p>
                     <p className="whitespace-pre-wrap break-words text-sm">{message.content}</p>
                     <time dateTime={message.timestamp} className={`mt-1 block text-xs ${mine ? "text-white/70" : "text-muted"}`}>{formatTimestamp(message.timestamp)}</time>
                   </article>
