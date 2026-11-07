@@ -6,10 +6,28 @@ import { useChatConversation } from "@/lib/chat/use-chat-conversation";
 import { useHomeContext } from "../../_shell/home-shell";
 
 const MAX_MESSAGE_LENGTH = 4_000;
+const ARCHIVE_RECOVERY_INTERVAL_MS = 5_000;
+const LIFECYCLE_RECONCILIATION_INTERVAL_MS = 30_000;
 
 function formatTimestamp(value: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
+
+function formatCountdown(milliseconds: number): string {
+  const seconds = Math.max(0, Math.ceil(milliseconds / 1_000));
+  const hours = Math.floor(seconds / 3_600);
+  const minutes = Math.floor((seconds % 3_600) / 60);
+  const remainder = seconds % 60;
+  return hours > 0
+    ? `${hours}h ${String(minutes).padStart(2, "0")}m ${String(remainder).padStart(2, "0")}s`
+    : `${minutes}m ${String(remainder).padStart(2, "0")}s`;
+}
+
+const closeReasonLabels = {
+  ERRAND_DELIVERED: "The errand was delivered",
+  COURIER_CANCELLED: "The courier cancelled",
+  ERRAND_CANCELLED: "The errand was cancelled",
+} as const;
 
 const connectionLabels = {
   loading: "Loading conversation…",
@@ -22,8 +40,9 @@ const connectionLabels = {
 
 export function ChatConversation({ chatId }: { chatId: string }) {
   const { user, socketPath } = useHomeContext();
-  const { state, send, retry, loadOlder, reconnect } = useChatConversation(chatId, user.uuid, socketPath);
+  const { state, send, retry, loadOlder, reconnect, recoverArchive } = useChatConversation(chatId, user.uuid, socketPath);
   const [draft, setDraft] = useState("");
+  const [now, setNow] = useState(() => Date.now());
   const endRef = useRef<HTMLDivElement | null>(null);
   const previousLastSequence = useRef(0);
 
@@ -35,14 +54,51 @@ export function ChatConversation({ chatId }: { chatId: string }) {
     }
   }, [state.messages]);
 
+  const closesAt = state.join?.state === "GRACE" && state.join.closesAt ? Date.parse(state.join.closesAt) : null;
+  const graceExpired = closesAt !== null && now >= closesAt;
+
+  useEffect(() => {
+    if (closesAt === null || state.archived !== null) return;
+    const countdown = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(countdown);
+  }, [closesAt, state.archived]);
+
+  useEffect(() => {
+    if (!graceExpired || state.archived !== null) return;
+    void recoverArchive();
+    const recovery = window.setInterval(() => void recoverArchive(), ARCHIVE_RECOVERY_INTERVAL_MS);
+    return () => window.clearInterval(recovery);
+  }, [graceExpired, recoverArchive, state.archived]);
+
+  useEffect(() => {
+    if (state.archived !== null) return;
+    const reconcile = () => {
+      if (document.visibilityState === "visible") void recoverArchive();
+    };
+    reconcile();
+    const lifecycle = window.setInterval(reconcile, LIFECYCLE_RECONCILIATION_INTERVAL_MS);
+    window.addEventListener("focus", reconcile);
+    document.addEventListener("visibilitychange", reconcile);
+    return () => {
+      window.clearInterval(lifecycle);
+      window.removeEventListener("focus", reconcile);
+      document.removeEventListener("visibilitychange", reconcile);
+    };
+  }, [recoverArchive, state.archived]);
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (draft.trim().length === 0 || [...draft].length > MAX_MESSAGE_LENGTH || state.connection !== "connected") return;
+    if (
+      draft.trim().length === 0 ||
+      [...draft].length > MAX_MESSAGE_LENGTH ||
+      state.connection !== "connected" ||
+      graceExpired
+    ) return;
     send(draft);
     setDraft("");
   }
 
-  const composerDisabled = state.connection !== "connected" || state.archived !== null;
+  const composerDisabled = state.connection !== "connected" || state.archived !== null || graceExpired;
 
   return (
     <section aria-labelledby="conversation-heading" className="fade-in mx-auto flex min-h-[calc(100vh-9rem)] max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
@@ -65,13 +121,23 @@ export function ChatConversation({ chatId }: { chatId: string }) {
       {state.error && <p role="alert" className="border-b border-red-200 bg-red-50 px-4 py-3 text-sm text-danger">{state.error}</p>}
       {state.archived && (
         <div role="status" className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          This conversation has been archived. <Link className="font-semibold underline" href="/home/archives">View archives</Link>
+          This conversation was archived at {formatTimestamp(state.archived.archivedAt)}.{" "}
+          <Link className="font-semibold underline" href={`/home/archives/${state.archived.archiveId}`}>View the read-only archive</Link>
         </div>
       )}
       {state.join?.state === "GRACE" && (
-        <p className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          This chat is in its closing period. The exact deadline is {state.join.closesAt ? formatTimestamp(state.join.closesAt) : "being confirmed"}.
-        </p>
+        <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          <p className="font-semibold">{state.join.closeReason ? closeReasonLabels[state.join.closeReason] : "This chat is closing"}.</p>
+          <p className="mt-1">
+            Deadline: <time dateTime={state.join.closesAt ?? undefined}>{state.join.closesAt ? formatTimestamp(state.join.closesAt) : "being confirmed"}</time>
+            {closesAt !== null && !graceExpired && <> · <span role="timer">{formatCountdown(closesAt - now)} remaining</span></>}
+          </p>
+          {graceExpired && !state.archived && (
+            <p role="status" className="mt-1 font-medium">
+              The closing period has ended. {state.archiveRecovery === "checking" ? "Checking for the archive…" : "Waiting for the read-only archive…"}
+            </p>
+          )}
+        </div>
       )}
 
       <div className="flex-1 overflow-y-auto bg-background px-4 py-5" aria-live="polite">
@@ -126,7 +192,7 @@ export function ChatConversation({ chatId }: { chatId: string }) {
             disabled={composerDisabled}
             rows={2}
             maxLength={MAX_MESSAGE_LENGTH * 2}
-            placeholder={composerDisabled ? "Connect to send messages" : "Write a message"}
+            placeholder={graceExpired ? "Closing period ended—waiting for archive" : composerDisabled ? "Connect to send messages" : "Write a message"}
             className="min-h-12 flex-1 resize-none rounded-xl border border-border bg-surface px-3 py-2 text-sm disabled:opacity-60"
           />
           <button type="submit" disabled={composerDisabled || draft.trim().length === 0 || [...draft].length > MAX_MESSAGE_LENGTH} className="btn-press rounded-xl bg-nus-orange px-5 py-3 text-sm font-semibold text-white disabled:opacity-50">Send</button>

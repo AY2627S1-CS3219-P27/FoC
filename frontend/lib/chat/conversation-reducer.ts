@@ -1,7 +1,8 @@
-import type { ChatArchivedEvent, ChatJoinData, MessageView } from "./contracts";
+import type { ChatArchivedEvent, ChatClosingEvent, ChatJoinData, MessageView } from "./contracts";
 
 export type ConnectionState = "loading" | "connecting" | "synchronizing" | "connected" | "reconnecting" | "offline";
 export type PendingSendState = "sending" | "retrying" | "failed";
+export type ArchiveRecoveryState = "idle" | "checking" | "waiting";
 
 export interface PendingSend {
   clientMessageId: string;
@@ -18,6 +19,7 @@ export interface ConversationState {
   connection: ConnectionState;
   join: ChatJoinData | null;
   archived: ChatArchivedEvent | null;
+  archiveRecovery: ArchiveRecoveryState;
   error: string | null;
   conflict: boolean;
 }
@@ -31,6 +33,7 @@ export const initialConversationState: ConversationState = {
   connection: "loading",
   join: null,
   archived: null,
+  archiveRecovery: "idle",
   error: null,
   conflict: false,
 };
@@ -47,6 +50,8 @@ export type ConversationAction =
   | { type: "pending-remove"; clientMessageId: string }
   | { type: "read-through"; throughSequence: number; callerUserId: string }
   | { type: "receipt"; throughSequence: number; callerUserId: string }
+  | { type: "closing"; closing: ChatClosingEvent }
+  | { type: "archive-recovery"; recovery: ArchiveRecoveryState }
   | { type: "archived"; archived: ChatArchivedEvent }
   | { type: "error"; message: string };
 
@@ -151,8 +156,18 @@ export function conversationReducer(state: ConversationState, action: Conversati
             : message
         ),
       };
+    case "closing": {
+      if (state.join === null) return state;
+      if (state.join.closesAt !== null && action.closing.closesAt > state.join.closesAt) return state;
+      return {
+        ...state,
+        join: { ...state.join, state: "GRACE", ...action.closing },
+      };
+    }
+    case "archive-recovery":
+      return { ...state, archiveRecovery: action.recovery };
     case "archived":
-      return { ...state, archived: action.archived, connection: "offline" };
+      return { ...state, archived: action.archived, archiveRecovery: "idle", connection: "offline", error: null };
     case "error":
       return { ...state, error: action.message, loadingOlder: false };
   }

@@ -78,3 +78,35 @@ export function getArchives(options: PageOptions = {}): Promise<ArchiveListRespo
 export function getArchive(archiveId: string): Promise<ArchiveDetail> {
   return request(`/api/chats/archives/${encodeURIComponent(archiveId)}`, parseArchiveDetail);
 }
+
+export async function findArchiveByChatId(chatId: string) {
+  let cursor: string | undefined;
+  const visited = new Set<string>();
+
+  do {
+    const page = await getArchives({ cursor, limit: 50 });
+    const archive = page.items.find((item) => item.chatId === chatId);
+    if (archive) return archive;
+    if (!page.hasMore || page.nextCursor === null || visited.has(page.nextCursor)) return null;
+    visited.add(page.nextCursor);
+    cursor = page.nextCursor;
+  } while (cursor !== undefined);
+
+  return null;
+}
+
+export async function findLiveChatById(chatId: string) {
+  let cursor: string | undefined;
+  const visited = new Set<string>();
+
+  do {
+    const page = await getChats({ cursor, limit: 50 });
+    const chat = page.items.find((item) => item.chatId === chatId);
+    if (chat) return chat;
+    if (!page.hasMore || page.nextCursor === null || visited.has(page.nextCursor)) return null;
+    visited.add(page.nextCursor);
+    cursor = page.nextCursor;
+  } while (cursor !== undefined);
+
+  return null;
+}

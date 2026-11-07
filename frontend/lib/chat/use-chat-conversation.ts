@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import { io, type Socket } from "socket.io-client";
-import { getMessageHistory } from "./api";
+import { findArchiveByChatId, findLiveChatById, getMessageHistory } from "./api";
 import {
   parseChatArchivedEvent,
   parseChatClosingEvent,
@@ -11,7 +11,6 @@ import {
   parseMessageView,
   parseMessagesReadData,
   parseMessagesReadReceipt,
-  type ChatJoinData,
   type ChatSocketAcknowledgement,
   type MessageView,
 } from "./contracts";
@@ -75,6 +74,7 @@ export function useChatConversation(chatId: string, callerUserId: string, socket
   const syncingRef = useRef(false);
   const bufferedRef = useRef<MessageView[]>([]);
   const lastReadRef = useRef(0);
+  const recoveringArchiveRef = useRef(false);
 
   useEffect(() => {
     stateRef.current = state;
@@ -178,17 +178,7 @@ export function useChatConversation(chatId: string, callerUserId: string, socket
     socket.on("chat:closing", (value) => {
       try {
         const closing = parseChatClosingEvent(value);
-        const current = stateRef.current.join;
-        if (closing.chatId === chatId && current && (!current.closesAt || closing.closesAt <= current.closesAt)) {
-          const join: ChatJoinData = { ...current, state: "GRACE", ...closing };
-          dispatch({
-            type: "synchronized",
-            messages: [],
-            olderCursor: stateRef.current.olderCursor,
-            hasOlder: stateRef.current.hasOlder,
-            join,
-          });
-        }
+        if (closing.chatId === chatId) dispatch({ type: "closing", closing });
       } catch {
         // A malformed advisory event is ignored; HTTP/socket recovery remains authoritative.
       }
@@ -201,7 +191,7 @@ export function useChatConversation(chatId: string, callerUserId: string, socket
           socket.disconnect();
         }
       } catch {
-        // Archive fallback belongs to the archive presentation package.
+        // A malformed advisory event is ignored; HTTP recovery remains authoritative.
       }
     });
 
@@ -313,5 +303,49 @@ export function useChatConversation(chatId: string, callerUserId: string, socket
     }
   }, [chatId, synchronize]);
 
-  return { state, send, retry, loadOlder, reconnect };
+  const recoverArchive = useCallback(async () => {
+    if (recoveringArchiveRef.current || stateRef.current.archived !== null) return;
+    const generation = generationRef.current;
+    recoveringArchiveRef.current = true;
+    dispatch({ type: "archive-recovery", recovery: "checking" });
+    try {
+      const liveChat = await findLiveChatById(chatId);
+      if (generation !== generationRef.current) return;
+      if (liveChat !== null) {
+        if (liveChat.state === "GRACE" && liveChat.closesAt !== null && liveChat.closeReason !== null) {
+          dispatch({
+            type: "closing",
+            closing: { chatId, closesAt: liveChat.closesAt, closeReason: liveChat.closeReason },
+          });
+          dispatch({
+            type: "archive-recovery",
+            recovery: Date.now() >= Date.parse(liveChat.closesAt) ? "waiting" : "idle",
+          });
+        } else {
+          dispatch({ type: "archive-recovery", recovery: "idle" });
+        }
+        return;
+      }
+
+      const archive = await findArchiveByChatId(chatId);
+      if (generation !== generationRef.current) return;
+      if (archive === null) {
+        dispatch({ type: "archive-recovery", recovery: "waiting" });
+        return;
+      }
+      dispatch({
+        type: "archived",
+        archived: { chatId, archiveId: archive.archiveId, archivedAt: archive.archivedAt },
+      });
+      socketRef.current?.disconnect();
+    } catch {
+      if (generation === generationRef.current) {
+        dispatch({ type: "archive-recovery", recovery: "waiting" });
+      }
+    } finally {
+      recoveringArchiveRef.current = false;
+    }
+  }, [chatId]);
+
+  return { state, send, retry, loadOlder, reconnect, recoverArchive };
 }
