@@ -53,6 +53,7 @@ function state(overrides: Partial<ConversationState> = {}): ConversationState {
     join: { chatId, state: "ACTIVE", closesAt: null, closeReason: null, latestSequence: 0 },
     archived: null,
     archiveRecovery: "idle",
+    participantRole: null,
     error: null,
     conflict: false,
     ...overrides,
@@ -76,6 +77,7 @@ describe("ChatConversation", () => {
   it("keeps lifecycle status outside the fixed transcript and supports natural keyboard sending", async () => {
     const user = userEvent.setup();
     provide(state({
+      participantRole: "REQUESTER",
       join: {
         chatId,
         state: "GRACE",
@@ -91,6 +93,7 @@ describe("ChatConversation", () => {
     expect(panel).toHaveClass("h-[calc(100dvh-9rem)]", "overflow-hidden");
     expect(transcript).toHaveClass("overflow-y-auto", "min-h-0");
     expect(screen.getByText(/The errand was delivered/)).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Errand chat · Requester" })).toBeVisible();
     expect(transcript).not.toContainElement(screen.getByText(/The errand was delivered/));
 
     const composer = screen.getByRole("textbox", { name: "Message" });

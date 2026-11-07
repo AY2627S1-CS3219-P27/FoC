@@ -140,7 +140,9 @@ export function ChatConversation({ chatId }: { chatId: string }) {
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
             <Link href="/home/chats" className="text-sm font-medium text-nus-blue hover:underline">← All chats</Link>
-            <h1 id="conversation-heading" className="mt-1 truncate text-xl font-bold">Errand chat</h1>
+            <h1 id="conversation-heading" className="mt-1 truncate text-xl font-bold">
+              Errand chat{state.participantRole ? ` · ${state.participantRole === "REQUESTER" ? "Requester" : "Courier"}` : ""}
+            </h1>
             <p className="truncate text-xs text-muted">Chat {chatId}</p>
           </div>
           <div className="text-right">

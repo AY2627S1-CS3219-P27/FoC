@@ -312,6 +312,12 @@ export function useChatConversation(chatId: string, callerUserId: string, socket
       const liveChat = await findLiveChatById(chatId);
       if (generation !== generationRef.current) return;
       if (liveChat !== null) {
+        const role = liveChat.requesterUserId === callerUserId
+          ? "REQUESTER"
+          : liveChat.courierUserId === callerUserId
+            ? "COURIER"
+            : null;
+        if (role !== null) dispatch({ type: "participant-role", role });
         if (liveChat.state === "GRACE" && liveChat.closesAt !== null && liveChat.closeReason !== null) {
           dispatch({
             type: "closing",
@@ -333,6 +339,12 @@ export function useChatConversation(chatId: string, callerUserId: string, socket
         dispatch({ type: "archive-recovery", recovery: "waiting" });
         return;
       }
+      const role = archive.requesterUserId === callerUserId
+        ? "REQUESTER"
+        : archive.courierUserId === callerUserId
+          ? "COURIER"
+          : null;
+      if (role !== null) dispatch({ type: "participant-role", role });
       dispatch({
         type: "archived",
         archived: { chatId, archiveId: archive.archiveId, archivedAt: archive.archivedAt },
@@ -345,7 +357,7 @@ export function useChatConversation(chatId: string, callerUserId: string, socket
     } finally {
       recoveringArchiveRef.current = false;
     }
-  }, [chatId]);
+  }, [callerUserId, chatId]);
 
   return { state, send, retry, loadOlder, reconnect, recoverArchive };
 }

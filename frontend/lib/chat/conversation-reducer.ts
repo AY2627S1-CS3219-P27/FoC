@@ -3,6 +3,7 @@ import type { ChatArchivedEvent, ChatClosingEvent, ChatJoinData, MessageView } f
 export type ConnectionState = "loading" | "connecting" | "synchronizing" | "connected" | "reconnecting" | "offline";
 export type PendingSendState = "sending" | "retrying" | "failed";
 export type ArchiveRecoveryState = "idle" | "checking" | "waiting";
+export type ParticipantRole = "REQUESTER" | "COURIER";
 
 export interface PendingSend {
   clientMessageId: string;
@@ -20,6 +21,7 @@ export interface ConversationState {
   join: ChatJoinData | null;
   archived: ChatArchivedEvent | null;
   archiveRecovery: ArchiveRecoveryState;
+  participantRole: ParticipantRole | null;
   error: string | null;
   conflict: boolean;
 }
@@ -34,6 +36,7 @@ export const initialConversationState: ConversationState = {
   join: null,
   archived: null,
   archiveRecovery: "idle",
+  participantRole: null,
   error: null,
   conflict: false,
 };
@@ -52,6 +55,7 @@ export type ConversationAction =
   | { type: "receipt"; throughSequence: number; callerUserId: string }
   | { type: "closing"; closing: ChatClosingEvent }
   | { type: "archive-recovery"; recovery: ArchiveRecoveryState }
+  | { type: "participant-role"; role: ParticipantRole }
   | { type: "archived"; archived: ChatArchivedEvent }
   | { type: "error"; message: string };
 
@@ -166,6 +170,8 @@ export function conversationReducer(state: ConversationState, action: Conversati
     }
     case "archive-recovery":
       return { ...state, archiveRecovery: action.recovery };
+    case "participant-role":
+      return { ...state, participantRole: action.role };
     case "archived":
       return { ...state, archived: action.archived, archiveRecovery: "idle", connection: "offline", error: null };
     case "error":
