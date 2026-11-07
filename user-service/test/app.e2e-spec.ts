@@ -6,6 +6,7 @@ import { JwtService } from '@nestjs/jwt';
 import { generateKeyPairSync } from 'node:crypto';
 import request from 'supertest';
 import cookieParser from 'cookie-parser';
+import type { Mock } from 'vitest';
 import { ACCESS_TOKEN_COOKIE, ACCESS_TOKEN_ISSUER, Role } from '@foc/contracts';
 import { OutboxRelay } from '@foc/outbox';
 import { REDIS } from '../src/redis/redis.provider.js';
@@ -88,6 +89,14 @@ describe('user-service (e2e)', () => {
           uuid,
           email: 'eve@example.com',
           displayName: 'Eve',
+          profilePictureUrl: null,
+          roles: [Role.Requester],
+          isAdmin: false,
+        })),
+        getActiveUserByUuid: vi.fn(async (uuid: string) => ({
+          uuid,
+          email: 'mallory@example.com',
+          displayName: 'Mallory',
           profilePictureUrl: null,
           roles: [Role.Requester],
           isAdmin: false,
@@ -354,6 +363,104 @@ describe('user-service (e2e)', () => {
           `Bearer ${await signAccessToken({ isAdmin: true })}`,
         )
         .send({ isAdmin: true })
+        .expect(400);
+    });
+  });
+
+  describe('user by uuid endpoint', () => {
+    const TARGET_UUID = '33333333-3333-4333-8333-333333333333';
+
+    const mallory = {
+      uuid: TARGET_UUID,
+      email: 'mallory@example.com',
+      displayName: 'Mallory',
+      profilePictureUrl: null,
+      roles: [Role.Requester],
+      isAdmin: false,
+    };
+
+    function mockActiveUser(user: Record<string, unknown> | null) {
+      const usersService = app.get(UsersService) as UsersService & {
+        getActiveUserByUuid: Mock;
+      };
+      usersService.getActiveUserByUuid.mockResolvedValueOnce(user as never);
+    }
+
+    function mockAnyUser(user: Record<string, unknown> | null) {
+      const usersService = app.get(UsersService) as UsersService & {
+        getUserByUuid: Mock;
+      };
+      usersService.getUserByUuid.mockResolvedValueOnce(user as never);
+    }
+
+    it('rejects an unauthenticated lookup with 401', async () => {
+      await request(app.getHttpServer())
+        .get(`/users/${TARGET_UUID}`)
+        .expect(401);
+    });
+
+    it('returns the public info of an active account for a non-admin caller (F10.1)', async () => {
+      mockActiveUser(mallory);
+
+      const response = await request(app.getHttpServer())
+        .get(`/users/${TARGET_UUID}`)
+        .set('Authorization', `Bearer ${await signAccessToken()}`)
+        .expect(200);
+
+      expect(response.body).toEqual(mallory);
+    });
+
+    it('resolves an unknown uuid with 404', async () => {
+      mockActiveUser(null);
+
+      await request(app.getHttpServer())
+        .get(`/users/${TARGET_UUID}`)
+        .set('Authorization', `Bearer ${await signAccessToken()}`)
+        .expect(404);
+    });
+
+    it('hides locked and archived accounts from a non-admin with 404', async () => {
+      // The active-only lookup never surfaces locked or archived accounts.
+      mockActiveUser(null);
+
+      await request(app.getHttpServer())
+        .get(`/users/${TARGET_UUID}`)
+        .set('Authorization', `Bearer ${await signAccessToken()}`)
+        .expect(404);
+    });
+
+    it('returns any account state to an admin caller', async () => {
+      mockAnyUser(mallory);
+
+      const response = await request(app.getHttpServer())
+        .get(`/users/${TARGET_UUID}`)
+        .set(
+          'Authorization',
+          `Bearer ${await signAccessToken({ isAdmin: true })}`,
+        )
+        .expect(200);
+
+      expect(response.body).toEqual(mallory);
+    });
+
+    it('lets users read their own account even when inactive', async () => {
+      mockAnyUser({ ...mallory, uuid: '11111111-1111-4111-8111-111111111111' });
+
+      const response = await request(app.getHttpServer())
+        .get('/users/11111111-1111-4111-8111-111111111111')
+        .set('Authorization', `Bearer ${await signAccessToken()}`)
+        .expect(200);
+
+      expect(response.body).toMatchObject({
+        uuid: '11111111-1111-4111-8111-111111111111',
+        displayName: 'Mallory',
+      });
+    });
+
+    it('rejects a malformed uuid with 400', async () => {
+      await request(app.getHttpServer())
+        .get('/users/not-a-uuid')
+        .set('Authorization', `Bearer ${await signAccessToken()}`)
         .expect(400);
     });
   });
