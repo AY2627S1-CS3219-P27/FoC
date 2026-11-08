@@ -23,7 +23,7 @@ export function useChatErrand(errandId: string | null): ChatErrandSummary | null
     let active = true;
 
     void (async () => {
-      const res = await api<Errand>("GET", `/api/errands/${errandId}`, { quiet: true });
+      const res = await api<Errand>("GET", `/api/errands/${errandId}`);
       if (!active || !res.ok || !res.data) return;
       const errand = res.data;
 
@@ -32,7 +32,6 @@ export function useChatErrand(errandId: string | null): ChatErrandSummary | null
         const supplier = await api<{ name: string }>(
           "GET",
           `/api/suppliers/${errand.supplierId}`,
-          { quiet: true },
         );
         if (!active) return;
         if (supplier.ok && supplier.data) pickupName = supplier.data.name;

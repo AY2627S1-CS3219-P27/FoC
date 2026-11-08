@@ -18,7 +18,7 @@ export async function getDisplayName(uuid: string): Promise<string | null> {
   if (pending) return pending;
 
   const request = (async () => {
-    const res = await api<PublicUserInfo>("GET", `/api/users/${uuid}`, { quiet: true });
+    const res = await api<PublicUserInfo>("GET", `/api/users/${uuid}`);
     if (!res.ok || !res.data || typeof res.data.displayName !== "string" || res.data.displayName.length === 0) {
       return null;
     }

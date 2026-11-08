@@ -1,53 +1,12 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
-
 export interface ApiResult<T = unknown> {
   ok: boolean;
   status: number;
   data: T | null;
   code: string | null;
   message: string | null;
-  replayed: boolean;
   etag: string | null;
-}
-
-export interface ApiLogEntry {
-  id: number;
-  at: Date;
-  method: string;
-  path: string;
-  status: number;
-  code: string | null;
-  message: string | null;
-  replayed: boolean;
-  idempotencyKey: string | null;
-}
-
-const MAX_LOG = 50;
-let log: ApiLogEntry[] = [];
-let nextId = 1;
-const listeners = new Set<() => void>();
-
-function record(entry: Omit<ApiLogEntry, "id" | "at">) {
-  log = [{ ...entry, id: nextId++, at: new Date() }, ...log].slice(0, MAX_LOG);
-  listeners.forEach((l) => l());
-}
-
-export function clearApiLog() {
-  log = [];
-  listeners.forEach((l) => l());
-}
-
-export function useApiLog(): ApiLogEntry[] {
-  return useSyncExternalStore(
-    (l) => {
-      listeners.add(l);
-      return () => listeners.delete(l);
-    },
-    () => log,
-    () => log,
-  );
 }
 
 // Nest errors are { code, message } from order-service, or { message: string | string[] } from pipes and guards.
@@ -95,6 +54,12 @@ export function refreshSession(): Promise<boolean> {
 
 // fetch that renews an expired access token once and retries; a failed renewal ends the session.
 export async function authFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  // Dev-only and opt-in (NEXT_PUBLIC_FOC_FIXTURES=1): /home?data=worst etc. answers from fixtures instead of the services.
+  if (process.env.NODE_ENV === "development" && process.env.NEXT_PUBLIC_FOC_FIXTURES === "1") {
+    const { isDataset } = await import("./dev-datasets");
+    const dataset = new URLSearchParams(window.location.search).get("data");
+    if (isDataset(dataset)) return (await import("./dev-fixtures")).fixtureResponse(dataset, input, init);
+  }
   const send = () => fetch(input, { credentials: "same-origin", ...init });
   const res = await send();
   if (res.status !== 401) return res;
@@ -106,7 +71,7 @@ export async function authFetch(input: string, init: RequestInit = {}): Promise<
 export async function api<T = unknown>(
   method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
   path: string,
-  options: { body?: unknown; idempotencyKey?: string; ifMatch?: string; quiet?: boolean } = {},
+  options: { body?: unknown; idempotencyKey?: string; ifMatch?: string } = {},
 ): Promise<ApiResult<T>> {
   const headers: Record<string, string> = {};
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
@@ -115,7 +80,6 @@ export async function api<T = unknown>(
 
   let status = 0;
   let body: unknown = null;
-  let replayed = false;
   let etag: string | null = null;
   try {
     const res = await authFetch(path, {
@@ -124,7 +88,6 @@ export async function api<T = unknown>(
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
     });
     status = res.status;
-    replayed = res.headers.get("Idempotent-Replayed") === "true";
     etag = res.headers.get("ETag");
     body = await res.json().catch(() => null);
   } catch {
@@ -133,16 +96,15 @@ export async function api<T = unknown>(
 
   const ok = status >= 200 && status < 300;
   const { code, message } = ok ? { code: null, message: null } : readError(body);
-  if (!options.quiet) {
-    record({
-      method,
-      path,
-      status,
-      code,
-      message,
-      replayed,
-      idempotencyKey: options.idempotencyKey ?? null,
-    });
-  }
-  return { ok, status, data: ok ? (body as T) : null, code, message, replayed, etag };
+  return { ok, status, data: ok ? (body as T) : null, code, message, etag };
+}
+
+// A plain sentence for a failed call: no status codes. Validation and conflict messages are written for people, so they pass through.
+export function errorText(res: ApiResult, fallback: string): string {
+  if (res.status === 0) return "Can't reach FoC right now. Check your connection and try again.";
+  if (res.status === 401 || res.status === 403) return "You don't have permission to do that.";
+  if (res.status === 429) return "Too many attempts. Wait a moment and try again.";
+  if (res.status >= 500) return "Something went wrong on our side. Try again in a moment.";
+  if ((res.status === 400 || res.status === 409 || res.status === 422) && res.message) return res.message;
+  return fallback;
 }
