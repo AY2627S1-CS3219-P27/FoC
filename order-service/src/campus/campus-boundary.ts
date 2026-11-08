@@ -6,11 +6,13 @@ const onSegment = (px: number, py: number, [ax, ay]: number[], [bx, by]: number[
   px >= Math.min(ax, bx) && px <= Math.max(ax, bx) &&
   py >= Math.min(ay, by) && py <= Math.max(ay, by);
 
-// Ray casting. Boundary points count as inside (checked first, since the ray cast is unreliable on edges).
-function inRing(x: number, y: number, ring: Ring): 'edge' | boolean {
+export type CampusContains = (latitude: number, longitude: number) => boolean;
+
+// Ray casting. Boundary points count as outside (checked first, since the ray cast is unreliable on edges).
+function inRing(x: number, y: number, ring: Ring): boolean {
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    if (onSegment(x, y, ring[j], ring[i])) return 'edge';
+    if (onSegment(x, y, ring[j], ring[i])) return false;
     const [xi, yi] = ring[i];
     const [xj, yj] = ring[j];
     if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
@@ -18,15 +20,11 @@ function inRing(x: number, y: number, ring: Ring): 'edge' | boolean {
   return inside;
 }
 
-const inPolygon = (x: number, y: number, [outer, ...holes]: Polygon) => {
-  const o = inRing(x, y, outer);
-  if (!o) return false;
-  if (o === 'edge') return true;
-  return holes.every((h) => inRing(x, y, h) === false);
-};
+const inPolygon = (x: number, y: number, [outer, ...holes]: Polygon) =>
+  inRing(x, y, outer) && !holes.some((h) => inRing(x, y, h));
 
 // Takes parsed GeoJSON (FeatureCollection of Polygon/MultiPolygon) and returns (latitude, longitude) => inside campus.
-export function parseCampusBoundary(geojson: any): (latitude: number, longitude: number) => boolean {
+export function parseCampusBoundary(geojson: any): CampusContains {
   const polygons: Polygon[] = [];
   for (const f of geojson?.features ?? []) {
     const g = f?.geometry;

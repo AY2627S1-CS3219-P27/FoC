@@ -1,10 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { parseCampusBoundary } from './campus-boundary.js';
+import { type CampusContains, parseCampusBoundary } from './campus-boundary.js';
 
 export const CAMPUS_CONTAINS = Symbol('CAMPUS_CONTAINS');
-export type CampusContains = (latitude: number, longitude: number) => boolean;
 
 // Loaded once at boot from CAMPUS_BOUNDARY_PATH; a missing or bad file stops the service.
 @Module({

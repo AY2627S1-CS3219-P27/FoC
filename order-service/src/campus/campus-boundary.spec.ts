@@ -17,10 +17,10 @@ describe('parseCampusBoundary', () => {
     expect(inside(-1, 5)).toBe(false);
   });
 
-  it('treats the edge and a vertex as inside', () => {
-    expect(inside(0, 5)).toBe(true);
-    expect(inside(5, 10)).toBe(true);
-    expect(inside(10, 10)).toBe(true);
+  it('treats the edge and a vertex as outside', () => {
+    expect(inside(0, 5)).toBe(false);
+    expect(inside(5, 10)).toBe(false);
+    expect(inside(10, 10)).toBe(false);
   });
 
   it('keeps lat and lng the right way round', () => {
