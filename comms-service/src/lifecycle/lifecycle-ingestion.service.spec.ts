@@ -6,6 +6,7 @@ import {
   InboxEvent,
 } from '../database/entities/index.js';
 import { hashCanonicalJson } from './canonical-json.js';
+import { LifecycleFactQueryService } from './lifecycle-fact-query.service.js';
 import { LifecycleIngestionService } from './lifecycle-ingestion.service.js';
 
 const ids = {
@@ -65,6 +66,10 @@ function harness() {
   const lifecycle = repository<ChatLifecycleEvent>();
   const chats = repository<Chat>();
   const query = vi.fn().mockResolvedValue([]);
+  const findApplicableTerminalFacts = vi.fn().mockResolvedValue([]);
+  const facts = {
+    findApplicableTerminalFacts,
+  } as unknown as LifecycleFactQueryService;
   const manager = {
     query,
     getRepository: vi.fn((entity: unknown) => {
@@ -79,8 +84,17 @@ function harness() {
       work(manager),
   );
   const dataSource = { transaction } as unknown as DataSource;
-  const service = new LifecycleIngestionService(dataSource);
-  return { chats, inbox, lifecycle, manager, query, service, transaction };
+  const service = new LifecycleIngestionService(dataSource, facts);
+  return {
+    chats,
+    findApplicableTerminalFacts,
+    inbox,
+    lifecycle,
+    manager,
+    query,
+    service,
+    transaction,
+  };
 }
 
 describe('LifecycleIngestionService', () => {
@@ -99,6 +113,10 @@ describe('LifecycleIngestionService', () => {
     expect(query).toHaveBeenCalledWith(
       'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
       [event.eventId],
+    );
+    expect(query).toHaveBeenCalledWith(
+      'SELECT pg_advisory_xact_lock(hashtextextended($1, 1))',
+      [ids.errandId],
     );
     expect(inbox.rows).toEqual([
       expect.objectContaining({
@@ -168,13 +186,85 @@ describe('LifecycleIngestionService', () => {
 
     await expect(
       service.process(event, 'order.errand-delivered.v1'),
-    ).resolves.toEqual({ status: 'recorded', eventId: event.eventId });
+    ).resolves.toEqual({
+      status: 'recorded',
+      eventId: event.eventId,
+      deadlineTransitions: [],
+    });
     expect(chats.rows).toHaveLength(0);
     expect(lifecycle.rows).toEqual([
       expect.objectContaining({
         kind: 'ERRAND_DELIVERED',
         derivedCloseAt: new Date('2026-11-04T03:00:00.000Z'),
       }),
+    ]);
+  });
+
+  it('creates an acceptance directly in grace from the earliest retained terminal fact', async () => {
+    const { chats, findApplicableTerminalFacts, service } = harness();
+    findApplicableTerminalFacts.mockResolvedValue([
+      {
+        kind: 'COURIER_CANCELLED',
+        derivedCloseAt: new Date('2026-11-04T00:30:00.000Z'),
+      } as ChatLifecycleEvent,
+    ]);
+
+    const result = await service.process(
+      accepted(),
+      'order.errand-accepted.v1',
+    );
+
+    expect(result).toMatchObject({
+      status: 'recorded',
+      deadlineTransitions: [],
+    });
+    expect(chats.rows).toEqual([
+      expect.objectContaining({
+        state: 'GRACE',
+        closesAt: new Date('2026-11-04T00:30:00.000Z'),
+        closeReason: 'COURIER_CANCELLED',
+      }),
+    ]);
+  });
+
+  it('returns committed terminal deadline transitions', async () => {
+    const { query, service } = harness();
+    query.mockImplementation(async (sql: string) =>
+      sql.includes('WITH matching AS')
+        ? [
+            {
+              chat_id: '702b39c7-063d-4137-928a-3a473a14f757',
+              requester_user_id: ids.requesterUserId,
+              courier_user_id: ids.courierUserId,
+              closes_at: new Date('2026-11-04T03:00:00.000Z'),
+              close_reason: 'ERRAND_DELIVERED',
+            },
+          ]
+        : [],
+    );
+
+    await expect(
+      service.process(delivered(), 'order.errand-delivered.v1'),
+    ).resolves.toEqual({
+      status: 'recorded',
+      eventId: ids.eventId,
+      deadlineTransitions: [
+        {
+          chatId: '702b39c7-063d-4137-928a-3a473a14f757',
+          requesterUserId: ids.requesterUserId,
+          courierUserId: ids.courierUserId,
+          closesAt: new Date('2026-11-04T03:00:00.000Z'),
+          closeReason: 'ERRAND_DELIVERED',
+        },
+      ],
+    });
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('FOR UPDATE'), [
+      ids.errandId,
+      new Date('2026-11-04T00:00:00.000Z'),
+      'ERRAND_DELIVERED',
+      ids.requesterUserId,
+      ids.courierUserId,
+      new Date('2026-11-04T03:00:00.000Z'),
     ]);
   });
 

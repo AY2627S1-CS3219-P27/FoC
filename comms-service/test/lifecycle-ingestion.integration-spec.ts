@@ -64,12 +64,13 @@ describe('inbox-backed lifecycle ingestion', () => {
     await dataSource.initialize();
     await dataSource.dropDatabase();
     await dataSource.runMigrations({ transaction: 'all' });
-    ingestion = new LifecycleIngestionService(dataSource);
     facts = new LifecycleFactQueryService(dataSource);
+    ingestion = new LifecycleIngestionService(dataSource, facts);
   });
 
   afterAll(async () => {
     if (dataSource?.isInitialized) {
+      await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.destroy();
     }
@@ -151,6 +152,192 @@ describe('inbox-backed lifecycle ingestion', () => {
     });
     expect(applicable.map(({ sourceEventId }) => sourceEventId)).toEqual([
       terminal.eventId,
+    ]);
+    const [chat] = await dataSource.query<
+      Array<{
+        state: string;
+        closes_at: Date;
+        close_reason: string;
+      }>
+    >('SELECT state, closes_at, close_reason FROM chats');
+    expect(chat).toMatchObject({
+      state: 'GRACE',
+      closes_at: new Date('2026-11-04T04:00:00.000Z'),
+      close_reason: 'ERRAND_DELIVERED',
+    });
+  });
+
+  it('serializes concurrent acceptance and terminal facts for the same errand', async () => {
+    const acceptance = accepted();
+    const terminal = delivered();
+
+    await Promise.all([
+      ingestion.process(acceptance, 'order.errand-accepted.v1'),
+      ingestion.process(terminal, 'order.errand-delivered.v1'),
+    ]);
+
+    const [chat] = await dataSource.query<
+      Array<{ state: string; closes_at: Date; close_reason: string }>
+    >('SELECT state, closes_at, close_reason FROM chats');
+    expect(chat).toEqual({
+      state: 'GRACE',
+      closes_at: new Date('2026-11-04T04:00:00.000Z'),
+      close_reason: 'ERRAND_DELIVERED',
+    });
+  });
+
+  it('applies a terminal deadline to an existing exact-participant chat', async () => {
+    await ingestion.process(accepted(), 'order.errand-accepted.v1');
+
+    const outcome = await ingestion.process(
+      delivered(),
+      'order.errand-delivered.v1',
+    );
+
+    expect(outcome).toMatchObject({
+      status: 'recorded',
+      deadlineTransitions: [
+        {
+          requesterUserId,
+          courierUserId,
+          closesAt: new Date('2026-11-04T04:00:00.000Z'),
+          closeReason: 'ERRAND_DELIVERED',
+        },
+      ],
+    });
+    const [chat] = await dataSource.query<
+      Array<{ state: string; closes_at: Date; close_reason: string }>
+    >('SELECT state, closes_at, close_reason FROM chats');
+    expect(chat).toEqual({
+      state: 'GRACE',
+      closes_at: new Date('2026-11-04T04:00:00.000Z'),
+      close_reason: 'ERRAND_DELIVERED',
+    });
+  });
+
+  it('shortens an existing deadline but never extends or reorders it', async () => {
+    await ingestion.process(accepted(), 'order.errand-accepted.v1');
+    await ingestion.process(
+      delivered(randomUUID(), '2026-11-04T01:00:00.000Z'),
+      'order.errand-delivered.v1',
+    );
+    const cancellation: ErrandCancelledEvent = {
+      eventId: randomUUID(),
+      eventType: 'ErrandCancelled',
+      timestamp: '2026-11-04T02:00:00.000Z',
+      publisher: 'order-service',
+      payload: { errandId },
+    };
+    const shortened = await ingestion.process(
+      cancellation,
+      'order.errand-cancelled.v1',
+    );
+    expect(shortened).toMatchObject({
+      deadlineTransitions: [
+        {
+          closesAt: new Date('2026-11-04T02:30:00.000Z'),
+          closeReason: 'ERRAND_CANCELLED',
+        },
+      ],
+    });
+
+    const later = await ingestion.process(
+      delivered(randomUUID(), '2026-11-04T03:00:00.000Z'),
+      'order.errand-delivered.v1',
+    );
+    expect(later).toMatchObject({ deadlineTransitions: [] });
+    const [chat] = await dataSource.query<
+      Array<{ closes_at: Date; close_reason: string }>
+    >('SELECT closes_at, close_reason FROM chats');
+    expect(chat).toEqual({
+      closes_at: new Date('2026-11-04T02:30:00.000Z'),
+      close_reason: 'ERRAND_CANCELLED',
+    });
+  });
+
+  it('converges concurrent terminal facts on the earliest deadline', async () => {
+    await ingestion.process(accepted(), 'order.errand-accepted.v1');
+    const cancellation: ErrandCancelledEvent = {
+      eventId: randomUUID(),
+      eventType: 'ErrandCancelled',
+      timestamp: '2026-11-04T02:00:00.000Z',
+      publisher: 'order-service',
+      payload: { errandId },
+    };
+
+    await Promise.all([
+      ingestion.process(
+        delivered(randomUUID(), '2026-11-04T01:00:00.000Z'),
+        'order.errand-delivered.v1',
+      ),
+      ingestion.process(cancellation, 'order.errand-cancelled.v1'),
+    ]);
+
+    const [chat] = await dataSource.query<
+      Array<{ closes_at: Date; close_reason: string }>
+    >('SELECT closes_at, close_reason FROM chats');
+    expect(chat).toEqual({
+      closes_at: new Date('2026-11-04T02:30:00.000Z'),
+      close_reason: 'ERRAND_CANCELLED',
+    });
+  });
+
+  it('does not apply exact-participant terminal facts to a reaccepted courier', async () => {
+    const otherCourierUserId = randomUUID();
+    await ingestion.process(accepted(), 'order.errand-accepted.v1');
+    const reaccepted = accepted(randomUUID(), '2026-11-04T00:30:00.000Z');
+    reaccepted.payload.courierUserId = otherCourierUserId;
+    await ingestion.process(reaccepted, 'order.errand-accepted.v1');
+
+    await ingestion.process(delivered(), 'order.errand-delivered.v1');
+
+    const rows = await dataSource.query<
+      Array<{ courier_user_id: string; state: string }>
+    >('SELECT courier_user_id, state FROM chats ORDER BY accepted_at');
+    expect(rows).toEqual([
+      { courier_user_id: courierUserId, state: 'GRACE' },
+      { courier_user_id: otherCourierUserId, state: 'ACTIVE' },
+    ]);
+  });
+
+  it('applies errand cancellation to every eligible non-archived chat', async () => {
+    const otherCourierUserId = randomUUID();
+    await ingestion.process(accepted(), 'order.errand-accepted.v1');
+    const reaccepted = accepted(randomUUID(), '2026-11-04T00:05:00.000Z');
+    reaccepted.payload.courierUserId = otherCourierUserId;
+    await ingestion.process(reaccepted, 'order.errand-accepted.v1');
+    const cancellation: ErrandCancelledEvent = {
+      eventId: randomUUID(),
+      eventType: 'ErrandCancelled',
+      timestamp: '2026-11-04T00:10:00.000Z',
+      publisher: 'order-service',
+      payload: { errandId },
+    };
+
+    const outcome = await ingestion.process(
+      cancellation,
+      'order.errand-cancelled.v1',
+    );
+
+    expect(outcome).toMatchObject({
+      status: 'recorded',
+      deadlineTransitions: [
+        { closeReason: 'ERRAND_CANCELLED' },
+        { closeReason: 'ERRAND_CANCELLED' },
+      ],
+    });
+    const rows = await dataSource.query<
+      Array<{ state: string; closes_at: Date }>
+    >('SELECT state, closes_at FROM chats ORDER BY id');
+    expect(rows).toEqual([
+      {
+        state: 'GRACE',
+        closes_at: new Date('2026-11-04T00:40:00.000Z'),
+      },
+      {
+        state: 'GRACE',
+        closes_at: new Date('2026-11-04T00:40:00.000Z'),
+      },
     ]);
   });
 

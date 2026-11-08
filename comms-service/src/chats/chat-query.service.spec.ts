@@ -143,4 +143,137 @@ describe('ChatQueryService', () => {
       }),
     );
   });
+
+  it('lists participant archives with a route-scoped stable cursor', async () => {
+    const archiveId = '33333333-3333-4333-8333-333333333333';
+    query.mockResolvedValue([
+      {
+        archive_id: archiveId,
+        chat_id: chatId,
+        errand_id: '44444444-4444-4444-8444-444444444444',
+        requester_user_id: callerId,
+        courier_user_id: '55555555-5555-4555-8555-555555555555',
+        archived_at: new Date('2026-11-06T02:00:00.000Z'),
+        cursor_archived_at: '2026-11-06T02:00:00.000600Z',
+      },
+      {
+        archive_id: '66666666-6666-4666-8666-666666666666',
+        chat_id: '77777777-7777-4777-8777-777777777777',
+        errand_id: '88888888-8888-4888-8888-888888888888',
+        requester_user_id: callerId,
+        courier_user_id: '99999999-9999-4999-8999-999999999999',
+        archived_at: new Date('2026-11-06T01:00:00.000Z'),
+        cursor_archived_at: '2026-11-06T01:00:00.000400Z',
+      },
+    ]);
+
+    const result = await service.listArchives(callerId, undefined, 1);
+
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'ORDER BY archive.archived_at DESC, archive.id DESC',
+      ),
+      [callerId, null, null, 2],
+    );
+    expect(result).toMatchObject({
+      items: [{ archiveId, chatId }],
+      hasMore: true,
+    });
+    expect(cursors.decodeArchive(result.nextCursor!)).toEqual({
+      archivedAt: '2026-11-06T02:00:00.000600Z',
+      archiveId,
+    });
+
+    query.mockResolvedValueOnce([]);
+    await service.listArchives(callerId, result.nextCursor!, 1);
+    expect(query).toHaveBeenLastCalledWith(expect.any(String), [
+      callerId,
+      '2026-11-06T02:00:00.000600Z',
+      archiveId,
+      2,
+    ]);
+  });
+
+  it('maps a validated immutable archive snapshot', async () => {
+    const archiveId = '33333333-3333-4333-8333-333333333333';
+    const archivedAt = '2026-11-06T02:00:00.000Z';
+    const errandId = '44444444-4444-4444-8444-444444444444';
+    const courierId = '55555555-5555-4555-8555-555555555555';
+    query.mockResolvedValue([
+      {
+        archive_id: archiveId,
+        chat_id: chatId,
+        errand_id: errandId,
+        requester_user_id: callerId,
+        courier_user_id: courierId,
+        archived_at: new Date(archivedAt),
+        cursor_archived_at: '2026-11-06T02:00:00.000000Z',
+        schema_version: 1,
+        snapshot: {
+          schemaVersion: 1,
+          chatId,
+          errandId,
+          requesterUserId: callerId,
+          courierUserId: courierId,
+          archivedAt,
+          messages: [
+            {
+              role: 'REQUESTER',
+              content: 'Delivered safely',
+              timestamp: '2026-11-06T01:59:00.000Z',
+            },
+          ],
+        },
+      },
+    ]);
+
+    await expect(service.archiveDetail(callerId, archiveId)).resolves.toEqual({
+      archiveId,
+      chatId,
+      errandId,
+      requesterUserId: callerId,
+      courierUserId: courierId,
+      archivedAt,
+      schemaVersion: 1,
+      messages: [
+        {
+          role: 'REQUESTER',
+          content: 'Delivered safely',
+          timestamp: '2026-11-06T01:59:00.000Z',
+        },
+      ],
+    });
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining('archive.id = $1::uuid'),
+      [archiveId, callerId],
+    );
+  });
+
+  it('conceals absent and unauthorized archives and rejects corrupt snapshots', async () => {
+    const archiveId = '33333333-3333-4333-8333-333333333333';
+    query.mockResolvedValueOnce([]);
+    await expect(service.archiveDetail(callerId, archiveId)).rejects.toEqual(
+      new NotFoundException({
+        code: 'ARCHIVE_NOT_FOUND',
+        message: 'Archive not found',
+      }),
+    );
+
+    query.mockResolvedValueOnce([
+      {
+        archive_id: archiveId,
+        chat_id: chatId,
+        errand_id: '44444444-4444-4444-8444-444444444444',
+        requester_user_id: callerId,
+        courier_user_id: '55555555-5555-4555-8555-555555555555',
+        archived_at: new Date('2026-11-06T02:00:00.000Z'),
+        cursor_archived_at: '2026-11-06T02:00:00.000000Z',
+        schema_version: 1,
+        snapshot: { schemaVersion: 1 },
+      },
+    ]);
+    await expect(service.archiveDetail(callerId, archiveId)).rejects.toThrow(
+      'Stored archive snapshot failed integrity validation',
+    );
+  });
 });

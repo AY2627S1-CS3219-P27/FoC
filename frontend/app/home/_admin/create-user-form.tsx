@@ -1,9 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { api } from "@/lib/api";
+import { api, errorText } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Field, FormError, inputClass } from "@/components/ui/field";
+import { Switch } from "@/components/ui/switch";
 
-export function CreateUserForm<U>({ onCreated, onCancel }: { onCreated: (user: U) => void; onCancel: () => void }) {
+export function CreateUserForm<U>({ onCreated, onCancel }: { onCreated: (user: U) => void; onCancel?: () => void }) {
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [roles, setRoles] = useState<string[]>([]);
@@ -20,61 +23,57 @@ export function CreateUserForm<U>({ onCreated, onCancel }: { onCreated: (user: U
     });
     setPending(false);
     if (res.ok && res.data) onCreated(res.data);
-    else setError(`${res.status} ${res.message ?? res.code ?? "Could not create the user."}`);
+    else setError(errorText(res, "Could not create the user."));
   }
 
   const toggle = (r: string) => setRoles((rs) => (rs.includes(r) ? rs.filter((x) => x !== r) : [...rs, r]));
-  const input = "w-full rounded-xl border border-border bg-background px-3 py-2 text-sm";
 
   return (
-    <form onSubmit={submit} className="rounded-2xl border border-border bg-surface p-4 mb-6 space-y-3 max-w-xl">
+    <form onSubmit={submit} className="space-y-5">
       <div>
-        <h3 className="font-semibold">Create user</h3>
-        <p className="text-xs text-muted">
-          The account gets no usable password. The user sets one with &ldquo;Forgot password&rdquo; on the login page.
+        <div className="space-y-4 rounded-2xl bg-surface p-4">
+          <Field label="Email">
+            <input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={`w-full ${inputClass}`} />
+          </Field>
+          <Field label="Display name">
+            <input required maxLength={255} value={displayName} onChange={(e) => setDisplayName(e.target.value)} className={`w-full ${inputClass}`} />
+          </Field>
+        </div>
+        <p className="mt-1.5 px-4 text-[13px] text-muted">
+          The account starts without a password. They set one with &ldquo;Forgot password&rdquo; on the sign-in page.
         </p>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="block text-sm">
-          <span className="block mb-1 font-medium">Email</span>
-          <input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={input} />
-        </label>
-        <label className="block text-sm">
-          <span className="block mb-1 font-medium">Display name</span>
-          <input required maxLength={255} value={displayName} onChange={(e) => setDisplayName(e.target.value)} className={input} />
-        </label>
-      </div>
-      <div className="flex flex-wrap gap-4 text-sm">
-        {["requester", "courier"].map((r) => (
-          <label key={r} className="flex items-center gap-1.5 capitalize">
-            <input type="checkbox" checked={roles.includes(r)} onChange={() => toggle(r)} />
-            {r}
-          </label>
-        ))}
-        <label className="flex items-center gap-1.5">
-          <input type="checkbox" checked={isAdmin} onChange={(e) => setIsAdmin(e.target.checked)} />
-          Admin
-        </label>
-      </div>
-      {error && (
-        <p role="alert" className="text-sm text-danger">
-          {error}
-        </p>
-      )}
-      <div className="flex gap-2">
-        <button
-          disabled={pending}
-          className="btn-press rounded-xl bg-nus-orange px-3.5 py-2 text-sm font-semibold text-white hover:bg-nus-orange-hover disabled:opacity-50"
-        >
+
+      <section>
+        <h2 className="section-label mb-1.5 px-4">Access</h2>
+        <ul className="overflow-hidden rounded-2xl bg-surface [&>li+li>div]:border-t">
+          {(
+            [
+              ["requester", "Requester", roles.includes("requester"), () => toggle("requester")],
+              ["courier", "Courier", roles.includes("courier"), () => toggle("courier")],
+              ["admin", "Admin", isAdmin, () => setIsAdmin((a) => !a)],
+            ] as const
+          ).map(([key, label, on, flip]) => (
+            <li key={key} className="pl-4">
+              <div className="flex items-center justify-between border-border py-2 pr-4">
+                <span className="text-[15px]">{label}</span>
+                <Switch label={label} checked={on} onCheckedChange={flip} />
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {error && <FormError>{error}</FormError>}
+      <div className="grid gap-2">
+        <Button type="submit" size="lg" block disabled={pending}>
           {pending ? "Creating…" : "Create user"}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="btn-press rounded-xl border border-border px-3.5 py-2 text-sm text-muted hover:text-foreground"
-        >
-          Cancel
-        </button>
+        </Button>
+        {onCancel && (
+          <Button intent="ghost" size="lg" block onClick={onCancel}>
+            Cancel
+          </Button>
+        )}
       </div>
     </form>
   );

@@ -40,7 +40,6 @@ export async function syncSubscriptionToServer(
 
   let result = await api("POST", "/api/notifications/subscriptions/web", {
     body: payload,
-    quiet: true,
   });
 
   if (result.status === 409) {
@@ -60,7 +59,7 @@ export async function syncSubscriptionToServer(
       `/api/notifications/subscriptions/web?endpoint=${encodeURIComponent(
         subscription.endpoint,
       )}`,
-      { body: patchBody, quiet: true },
+      { body: patchBody },
     );
   }
 

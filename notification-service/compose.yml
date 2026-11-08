@@ -17,21 +17,26 @@ services:
       - DB_PORT=${NOTIFICATION_SERVICE_DB_PORT}
       - DB_USERNAME=${NOTIFICATION_SERVICE_DB_USERNAME}
       - DB_DATABASE=${NOTIFICATION_SERVICE_DB_DATABASE}
-      - DB_SYNCHRONIZE=${NOTIFICATION_SERVICE_DB_SYNCHRONIZE:-true}
+      - DB_MIGRATIONS_RUN=${NOTIFICATION_SERVICE_DB_MIGRATIONS_RUN:-true}
       - DB_PASSWORD_FILE=/run/secrets/notification_db_password
       - RABBITMQ_USER=${NOTIFICATION_SERVICE_RABBITMQ_USER}
       - RABBITMQ_HOST=${RABBITMQ_HOST}
       - RABBITMQ_PORT=${RABBITMQ_PORT}
       - RABBITMQ_VHOST=${RABBITMQ_VHOST}
       - RABBITMQ_PASSWORD_FILE=/run/secrets/rabbitmq_notification_password
+      - RABBITMQ_PREFETCH=${RABBITMQ_PREFETCH:-10}
+      - RABBITMQ_RETRY_DELAYS_MS=${RABBITMQ_RETRY_DELAYS_MS:-1000,2000,4000,8000,16000}
       - JWT_PUBLIC_KEY_FILE=/run/secrets/jwt_public_key_notification_service
       - VAPID_PUBLIC_KEY=${NOTIFICATION_SERVICE_VAPID_PUBLIC_KEY}
+      - VAPID_PRIVATE_KEY_FILE=/run/secrets/vapid_private_key
+      - VAPID_SUBJECT=${NOTIFICATION_SERVICE_VAPID_SUBJECT:-mailto:notifications@foc.local}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4318}
       - OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:-http://loki:3100/otlp/v1/logs}
     secrets:
       - notification_db_password
       - rabbitmq_notification_password
       - jwt_public_key_notification_service
+      - vapid_private_key
     healthcheck:
       test:
         [
@@ -101,3 +106,6 @@ secrets:
   # token-consuming services mount it.
   jwt_public_key_notification_service:
     file: ../user-service/secrets/jwt_public_key.secret
+  # Signs Web Push requests; must match NOTIFICATION_SERVICE_VAPID_PUBLIC_KEY.
+  vapid_private_key:
+    file: secrets/vapid_private_key.secret

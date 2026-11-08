@@ -30,6 +30,7 @@ function duplicateKey(): QueryFailedError {
 
 function repositoryMock() {
   const repository = {
+    find: vi.fn(),
     findOne: vi.fn(),
     create: vi.fn((value: Partial<Subscription>) => ({ ...value })),
     save: vi.fn(async (value: Subscription) => value),
@@ -274,6 +275,36 @@ describe('SubscriptionsService', () => {
         } as UpdateWebPushSubscriptionDto),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(repository.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('findActiveWebPush', () => {
+    it('queries active web push rows for each unique user', async () => {
+      const repository = repositoryMock();
+      repository.find.mockResolvedValue([existingRow()]);
+
+      const rows = await serviceWith(repository).findActiveWebPush([
+        userId,
+        userId,
+      ]);
+
+      expect(rows).toHaveLength(1);
+      expect(repository.find).toHaveBeenCalledWith({
+        where: {
+          userId: expect.anything(),
+          channel: SubscriptionChannel.WebPush,
+          status: SubscriptionStatus.Active,
+        },
+      });
+    });
+
+    it('skips the query when no users are given', async () => {
+      const repository = repositoryMock();
+
+      await expect(
+        serviceWith(repository).findActiveWebPush([]),
+      ).resolves.toEqual([]);
+      expect(repository.find).not.toHaveBeenCalled();
     });
   });
 

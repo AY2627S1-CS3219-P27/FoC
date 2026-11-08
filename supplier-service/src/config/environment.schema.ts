@@ -37,6 +37,7 @@ export interface EnvironmentVariables extends OutboxEnvironmentVariables {
   CAMPUS_MAX_LONGITUDE: number;
   SEED_ON_STARTUP: boolean;
   SEED_CSV_PATH: string;
+  VENUE_SEED_PATH?: string;
   JWT_PUBLIC_KEY_FILE: string;
   PLACEHOLDER_IMAGE_URL: string;
   RABBITMQ_USER: string;
@@ -123,6 +124,10 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
   SEED_CSV_PATH: Joi.string()
     .min(1)
     .default('/seed-data/supplier-seed-data.csv'),
+  // The campus buildings and delivery venues (JSON). When set, venues load on
+  // every start, whatever SEED_ON_STARTUP says; the supplier import needs it
+  // for its buildings. Unset by default: no venues, and no supplier import.
+  VENUE_SEED_PATH: Joi.string().min(1),
   // user-service's JWT public key (PEM), used to verify access tokens.
   // Required, as in user-service: without it no request can be authenticated.
   JWT_PUBLIC_KEY_FILE: Joi.string().min(1).required(),

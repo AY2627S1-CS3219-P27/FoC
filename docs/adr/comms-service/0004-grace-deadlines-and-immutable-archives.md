@@ -13,7 +13,7 @@ record of what was archived.
 
 ## Decision
 
-Package 4 derives `closesAt` from the lifecycle envelope timestamp: three hours
+Communication Service derives `closesAt` from the lifecycle envelope timestamp: three hours
 for `ErrandDelivered`, and thirty minutes for `CourierCancelled` or
 `ErrandCancelled`. A later or duplicate terminal notice never extends an
 earlier deadline. If a delayed notice is already past its derived deadline,
@@ -37,5 +37,8 @@ prohibited at the database boundary.
 - Exactly one archive exists per chat and remains readable only by its
   requester and courier.
 - Archive JSON is versioned so later readers can support schema evolution.
-- Package 1 establishes the schema only; grace workers and archive APIs remain
-  deferred to Packages 4 and 5.
+- Communication Service applies grace deadlines, enforces them across live
+  operations, runs the leased archive worker, exposes participant-only archive
+  reads, and emits best-effort lifecycle socket notifications.
+- Countdown rendering, lifecycle-event handling, archive screens, and
+  live-to-archive navigation remain frontend responsibilities.

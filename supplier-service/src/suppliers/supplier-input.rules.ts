@@ -2,6 +2,7 @@ import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import type { FieldViolation } from '../common/errors/error-response.js';
 import { toFieldViolations } from '../common/errors/validation-exception.factory.js';
+import { checkOpeningHours } from '../opening-hours/opening-hours.js';
 import { SupplierInputDto } from './dto/supplier-input.dto.js';
 
 /** The NUS campus bounding box from configuration (F1.2.7). */
@@ -76,10 +77,35 @@ async function check(
     (violation) => !partial || supplied.has(violation.field.split('.')[0]),
   );
   violations.push(...campusViolations(dto, campus, violations));
+  violations.push(...openingHoursViolations(dto, violations));
 
   return violations.length === 0
     ? { valid: true, value: dto }
     : { valid: false, violations };
+}
+
+/**
+ * Checks the opening hours (F2.1-F2.4) and replaces them with their canonical
+ * form, so what is stored and approved later is deterministic. A value that
+ * already failed its type rule is not judged again.
+ */
+function openingHoursViolations(
+  dto: SupplierInputDto,
+  existing: FieldViolation[],
+): FieldViolation[] {
+  if (
+    dto.openingHours === undefined ||
+    dto.openingHours === null ||
+    existing.some((violation) => violation.field === 'openingHours')
+  ) {
+    return [];
+  }
+  const checked = checkOpeningHours(dto.openingHours);
+  if (checked.valid) {
+    dto.openingHours = checked.value;
+    return [];
+  }
+  return checked.violations;
 }
 
 function campusViolations(
@@ -93,15 +119,26 @@ function campusViolations(
       (violation) =>
         violation.field === 'coordinates' || violation.field === field,
     );
-  const found: FieldViolation[] = [];
   if (dto.coordinates === undefined) {
-    return found;
+    return [];
   }
+  return coordinatesOutsideCampus(dto.coordinates, campus).filter(
+    (violation) => !alreadyInvalid(violation.field),
+  );
+}
 
+/**
+ * The coordinates that lie outside the campus bounding box (F1.2.7), one
+ * violation per axis. Used for suppliers and for new buildings (F4.3).
+ */
+export function coordinatesOutsideCampus(
+  coordinates: { latitude: number; longitude: number },
+  campus: CampusBox,
+): FieldViolation[] {
+  const found: FieldViolation[] = [];
   if (
-    !alreadyInvalid('coordinates.latitude') &&
-    (dto.coordinates.latitude < campus.minLatitude ||
-      dto.coordinates.latitude > campus.maxLatitude)
+    coordinates.latitude < campus.minLatitude ||
+    coordinates.latitude > campus.maxLatitude
   ) {
     found.push({
       field: 'coordinates.latitude',
@@ -109,9 +146,8 @@ function campusViolations(
     });
   }
   if (
-    !alreadyInvalid('coordinates.longitude') &&
-    (dto.coordinates.longitude < campus.minLongitude ||
-      dto.coordinates.longitude > campus.maxLongitude)
+    coordinates.longitude < campus.minLongitude ||
+    coordinates.longitude > campus.maxLongitude
   ) {
     found.push({
       field: 'coordinates.longitude',

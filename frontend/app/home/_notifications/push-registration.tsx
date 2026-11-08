@@ -13,7 +13,7 @@ import {
  * A PushSubscription belongs to the browser profile, so after an account
  * switch it still points at the previous user's row. Registering it under the
  * current token makes the notification-service move ownership (see
- * docs/adr/notification-service/001-single-owner-push-endpoints.md), which
+ * docs/adr/notification-service/0002-single-owner-push-endpoints.md), which
  * stops the previous user's notifications from appearing on this device
  * without waiting for the profile tab to be opened.
  *

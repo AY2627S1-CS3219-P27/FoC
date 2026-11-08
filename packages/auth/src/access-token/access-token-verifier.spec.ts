@@ -34,6 +34,48 @@ describe('AccessTokenVerifier', () => {
     });
   });
 
+  it('returns the same user plus the validated absolute expiry', async () => {
+    const token = await signAccessToken(keys.privateKeyPem, {
+      isAdmin: true,
+      roles: [Role.Requester, Role.Courier],
+      expiresInSeconds: 600,
+    });
+    const decoded = jwtService.decode<{ exp: number }>(token);
+
+    const verified = await verifier.verifyWithMetadata(token);
+
+    expect(verified).toEqual({
+      user: await verifier.verify(token),
+      expiresAt: new Date(decoded.exp * 1_000),
+    });
+  });
+
+  it('rejects an expired token when requesting metadata', async () => {
+    const token = await signAccessToken(keys.privateKeyPem, {
+      expiresInSeconds: -10,
+    });
+
+    await expect(verifier.verifyWithMetadata(token)).rejects.toBeInstanceOf(
+      InvalidAccessTokenError,
+    );
+  });
+
+  it('rejects a non-access-token value when requesting metadata', async () => {
+    await expect(
+      verifier.verifyWithMetadata('refresh-token-value'),
+    ).rejects.toBeInstanceOf(InvalidAccessTokenError);
+  });
+
+  it('rejects invalid access-token claims when requesting metadata', async () => {
+    const token = await signAccessToken(keys.privateKeyPem, {
+      extraClaims: { unexpectedClaim: 'not in the schema' },
+    });
+
+    await expect(verifier.verifyWithMetadata(token)).rejects.toBeInstanceOf(
+      InvalidAccessTokenError,
+    );
+  });
+
   it('rejects a token with a tampered signature', async () => {
     const token = await signAccessToken(keys.privateKeyPem);
     const tampered = `${token.slice(0, -4)}AAAA`;

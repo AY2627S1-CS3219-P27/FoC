@@ -185,7 +185,6 @@ export function CreditTransactionHistory({ userId }: { userId: string }) {
     const result = await api<CreditTransactionPage>(
       "GET",
       `/api/credits/transactions?${params}`,
-      { quiet: true },
     );
 
     if (currentRequest !== requestId.current) return;

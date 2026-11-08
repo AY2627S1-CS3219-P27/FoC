@@ -5,6 +5,7 @@ import { DataSource } from 'typeorm';
 import { ChatCursorCodec } from '../src/chats/chat-cursor.codec.js';
 import { ChatQueryService } from '../src/chats/chat-query.service.js';
 import { createDatabaseOptions } from '../src/database/database-options.js';
+import { LifecycleFactQueryService } from '../src/lifecycle/lifecycle-fact-query.service.js';
 import { LifecycleIngestionService } from '../src/lifecycle/lifecycle-ingestion.service.js';
 
 describe('participant-only chat queries', () => {
@@ -68,8 +69,28 @@ describe('participant-only chat queries', () => {
     );
   }
 
-  async function archiveChat(chatId: string): Promise<void> {
+  async function archiveChat(
+    chatId: string,
+    archivedAt = '2026-11-06T02:00:00.000Z',
+    messages: Array<{
+      role: 'REQUESTER' | 'COURIER';
+      content: string;
+      timestamp: string;
+    }> = [],
+  ): Promise<string> {
     const archiveId = randomUUID();
+    const [chat] = await dataSource.query<
+      Array<{
+        errand_id: string;
+        requester_user_id: string;
+        courier_user_id: string;
+      }>
+    >(
+      `SELECT errand_id, requester_user_id, courier_user_id
+         FROM chats WHERE id = $1`,
+      [chatId],
+    );
+    if (!chat) throw new Error('Expected chat to archive');
     await dataSource.query(
       `UPDATE chats
           SET state = 'GRACE', closes_at = now(), close_reason = 'ERRAND_DELIVERED'
@@ -78,16 +99,31 @@ describe('participant-only chat queries', () => {
     );
     await dataSource.query(
       `INSERT INTO chat_archives
-       (id, chat_id, errand_id, requester_user_id, courier_user_id, snapshot)
+       (id, chat_id, errand_id, requester_user_id, courier_user_id,
+        archived_at, schema_version, snapshot)
        SELECT $2, id, errand_id, requester_user_id, courier_user_id,
-              '{"schemaVersion":1}'::jsonb
+              $3::timestamptz, 1, $4::jsonb
          FROM chats WHERE id = $1`,
-      [chatId, archiveId],
+      [
+        chatId,
+        archiveId,
+        archivedAt,
+        JSON.stringify({
+          schemaVersion: 1,
+          chatId,
+          errandId: chat.errand_id,
+          requesterUserId: chat.requester_user_id,
+          courierUserId: chat.courier_user_id,
+          archivedAt: new Date(archivedAt).toISOString(),
+          messages,
+        }),
+      ],
     );
     await dataSource.query(
       `UPDATE chats SET state = 'ARCHIVED', archive_id = $2 WHERE id = $1`,
       [chatId, archiveId],
     );
+    return archiveId;
   }
 
   beforeAll(async () => {
@@ -111,12 +147,16 @@ describe('participant-only chat queries', () => {
     await dataSource.initialize();
     await dataSource.dropDatabase();
     await dataSource.runMigrations({ transaction: 'all' });
-    ingestion = new LifecycleIngestionService(dataSource);
+    ingestion = new LifecycleIngestionService(
+      dataSource,
+      new LifecycleFactQueryService(dataSource),
+    );
     queries = new ChatQueryService(dataSource, new ChatCursorCodec());
   });
 
   afterAll(async () => {
     if (dataSource?.isInitialized) {
+      await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.undoLastMigration({ transaction: 'all' });
       await dataSource.destroy();
     }
@@ -201,7 +241,7 @@ describe('participant-only chat queries', () => {
     } while (cursor);
 
     expect(actual).toEqual(expected.map(({ id }) => id));
-    expect(new Set(actual)).toHaveSize(expected.length);
+    expect(new Set(actual).size).toBe(expected.length);
   });
 
   it('returns ascending history pages and conceals absent and unauthorized chats', async () => {
@@ -248,6 +288,86 @@ describe('participant-only chat queries', () => {
     await archiveChat(chatId);
     await expect(
       queries.history(requesterId, chatId, undefined, 20),
+    ).rejects.toEqual(expected);
+  });
+
+  it('lists only participant archives newest-first without microsecond pagination gaps', async () => {
+    const firstChat = await createChat('2026-11-04T01:00:00.000Z');
+    const secondChat = await createChat('2026-11-04T02:00:00.000Z');
+    const thirdChat = await createChat('2026-11-04T03:00:00.000Z');
+    const outsiderChat = await createChat('2026-11-04T04:00:00.000Z', {
+      requesterId: outsiderId,
+      courierId: randomUUID(),
+    });
+    await archiveChat(firstChat, '2026-11-06T02:00:00.000600Z');
+    await archiveChat(secondChat, '2026-11-06T02:00:00.000400Z');
+    await archiveChat(thirdChat, '2026-11-06T02:00:00.000400Z');
+    await archiveChat(outsiderChat, '2026-11-06T03:00:00.000000Z');
+    const expected = await dataSource.query<Array<{ id: string }>>(
+      `SELECT id
+         FROM chat_archives
+        WHERE requester_user_id = $1 OR courier_user_id = $1
+        ORDER BY archived_at DESC, id DESC`,
+      [requesterId],
+    );
+
+    const actual: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await queries.listArchives(requesterId, cursor, 1);
+      actual.push(...page.items.map(({ archiveId }) => archiveId));
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
+
+    expect(actual).toEqual(expected.map(({ id }) => id));
+    expect(new Set(actual).size).toBe(expected.length);
+    expect(
+      (await queries.listArchives(courierId, undefined, 20)).items,
+    ).toHaveLength(3);
+    expect(
+      (await queries.listArchives(outsiderId, undefined, 20)).items,
+    ).toHaveLength(1);
+  });
+
+  it('returns validated archive detail to either participant without existence leakage', async () => {
+    const chatId = await createChat('2026-11-04T01:00:00.000Z');
+    const archiveId = await archiveChat(chatId, '2026-11-06T02:00:00.000Z', [
+      {
+        role: 'REQUESTER',
+        content: 'Please leave it at the lobby',
+        timestamp: '2026-11-04T01:01:00.000Z',
+      },
+      {
+        role: 'COURIER',
+        content: 'Done',
+        timestamp: '2026-11-04T01:02:00.000Z',
+      },
+    ]);
+
+    await expect(
+      queries.archiveDetail(requesterId, archiveId),
+    ).resolves.toMatchObject({
+      archiveId,
+      chatId,
+      schemaVersion: 1,
+      messages: [
+        { role: 'REQUESTER', content: 'Please leave it at the lobby' },
+        { role: 'COURIER', content: 'Done' },
+      ],
+    });
+    await expect(
+      queries.archiveDetail(courierId, archiveId),
+    ).resolves.toMatchObject({ archiveId });
+
+    const expected = new NotFoundException({
+      code: 'ARCHIVE_NOT_FOUND',
+      message: 'Archive not found',
+    });
+    await expect(queries.archiveDetail(outsiderId, archiveId)).rejects.toEqual(
+      expected,
+    );
+    await expect(
+      queries.archiveDetail(requesterId, randomUUID()),
     ).rejects.toEqual(expected);
   });
 });
