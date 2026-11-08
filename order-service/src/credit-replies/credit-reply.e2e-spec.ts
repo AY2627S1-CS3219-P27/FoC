@@ -271,4 +271,30 @@ describe('credit replies against the database', () => {
     expect((await row(id)).status).toBe('Resolved');
     expect(await events(id)).toHaveLength(1);
   });
+  it('a late success after a rejection, and a redelivered rejection, change nothing', async () => {
+    const id = await seed('Settling-Credit');
+    const eventId = randomUUID();
+    const rejected = {
+      errandId: id,
+      requesterUserId: requester,
+      courierUserId: courier,
+      rejectionReason: 'AMOUNT_MISMATCH',
+    };
+    await deliver('credit.settlement-rejected.v1', rejected, eventId);
+    expect(await deliver('credit.settlement-rejected.v1', rejected, eventId)).toEqual({ outcome: 'ack' });
+    expect(
+      await deliver('credit.settlement-succeeded.v1', {
+        errandId: id,
+        requesterUserId: requester,
+        courierUserId: courier,
+        courierAmount: 2,
+        requesterAmount: 3,
+        courierCreditTransactionId: randomUUID(),
+        requesterCreditTransactionId: randomUUID(),
+      }),
+    ).toEqual({ outcome: 'ack' });
+
+    expect(await row(id)).toMatchObject({ status: 'Incomplete', settlementAmount: null });
+    expect(await events(id)).toHaveLength(1);
+  });
 });

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { Logger } from '@nestjs/common';
 import { eq, sql } from 'drizzle-orm';
 import { createTestDb } from '../../test/db.js';
 import { creditReserved, supplierValidated } from '../../test/payloads.js';
@@ -238,6 +239,48 @@ describe('credit reply timeout', () => {
     const id = await inFlight('Adjusting-Credit', 3 * MIN);
     expect((await runSweeps(t.db, cfg)).resent).toBe(1);
     expect((await row(id)).status).toBe('Adjusting-Credit');
+  });
+
+  it('re-sends the latest settlement notice after a retry, not the first attempt', async () => {
+    const id = await inFlight('Settling-Credit', 3 * MIN);
+    // attempt 1 is rejected, the admin settles again: a fresh notice for attempt 2
+    await transition(t.db, {
+      errandId: id,
+      expected: 'Settling-Credit',
+      to: 'Incomplete',
+      actor: SYSTEM,
+      payload: { creditEventId: randomUUID(), reason: 'AMOUNT_MISMATCH' },
+    });
+    await transition(t.db, {
+      errandId: id,
+      expected: 'Incomplete',
+      to: 'Settling-Credit',
+      actor: admin(randomUUID()),
+      set: { settlementAmount: 3, settlementNote: 'again' },
+    });
+    await t.db.update(errands).set({ updatedAt: ago(3 * MIN) }).where(eq(errands.id, id));
+    await t.db
+      .update(outboxEvents)
+      .set({ publishedAt: ago(3 * MIN) })
+      .where(sql`envelope->'payload'->>'errandId' = ${id}`);
+
+    expect((await runSweeps(t.db, cfg)).resent).toBe(1);
+
+    const unpublished = (await outboxFor(id)).filter((r) => r.publishedAt === null);
+    expect(unpublished.map((r) => (r.envelope.payload as { attempt: number }).attempt)).toEqual([2]);
+  });
+
+  it('alerts past the cap for a settlement, and never re-sends or reverts it', async () => {
+    const id = await inFlight('Settling-Credit', 7 * MIN); // > 2 * (2 + 1) windows
+    const alert = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    try {
+      expect((await runSweeps(t.db, cfg)).resent).toBe(0);
+      expect(alert).toHaveBeenCalledWith(expect.stringContaining(`errand ${id} still Settling-Credit`));
+    } finally {
+      alert.mockRestore();
+    }
+    expect((await outboxFor(id))[0].publishedAt).not.toBeNull();
+    expect((await row(id)).status).toBe('Settling-Credit');
   });
 
   it('leaves a recent errand alone and stops re-sending past the cap', async () => {

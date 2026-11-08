@@ -112,7 +112,7 @@ export const REPLY_SPECS: ReplySpec[] = [
     to: 'Incomplete',
     payload: { creditEventId: e.eventId, reason: e.payload.rejectionReason },
   })),
-  // Dispute settlement (#662). A rejection returns to Incomplete; the admin may retry (3 per hour, enforced on resolve).
+  // Dispute settlement (#662, ADR 0013). A rejection returns to Incomplete, so the admin can settle again.
   reply('credit.settlement-succeeded.v1', (e) => ({
     errandId: e.payload.errandId,
     expected: 'Settling-Credit',
