@@ -9,6 +9,7 @@ import { DB } from '../db/db.module.js';
 import { errands } from '../db/schema.js';
 import { configureHttp } from '../http/configure-http.js';
 import type { Status } from '../lifecycle/status.js';
+import { CAMPUS_CONTAINS } from '../campus/campus.module.js';
 import { ErrandsModule } from './errands.module.js';
 
 let t: Awaited<ReturnType<typeof createTestDb>>;
@@ -22,7 +23,10 @@ beforeAll(async () => {
   class TestDbModule {}
   const module = await Test.createTestingModule({
     imports: [FocAuthModule.register({ publicKey: testKeys.publicKey }), TestDbModule, ErrandsModule],
-  }).compile();
+  })
+    .overrideProvider(CAMPUS_CONTAINS)
+    .useValue(() => true)
+    .compile();
   app = module.createNestApplication();
   configureHttp(app);
   await app.listen(0, '127.0.0.1');
