@@ -16,7 +16,8 @@ import {
   type Errand,
   type SupplierOption,
 } from "./types";
-import { formatTime, shortId, StatusBadge, timeLeft } from "./ui";
+import { ReportButton } from "../_disputes/report-form";
+import { formatCredits, formatTime, shortId, StatusBadge, timeLeft } from "./ui";
 
 const POLL_MS = 3000;
 
@@ -195,6 +196,24 @@ export function ErrandDetail({
             {errand.cancellationReason && <DetailRow label="Reason">{errand.cancellationReason}</DetailRow>}
             <DetailRow label="Created">{formatTime(errand.createdAt)}</DetailRow>
           </Section>
+
+          {errand.status === "Resolved" && errand.settlementAmount != null && (
+            <Section title="Settlement">
+              <DetailRow label="Courier received">{formatCredits(errand.settlementAmount)}</DetailRow>
+              <DetailRow label="Requester refunded">
+                {formatCredits(errand.rewardCredits - errand.settlementAmount)}
+              </DetailRow>
+              {errand.settlementNote && (
+                <DetailRow label="Admin's note">
+                  <span className="whitespace-pre-wrap">{errand.settlementNote}</span>
+                </DetailRow>
+              )}
+            </Section>
+          )}
+
+          {errand.status === "Incomplete" && (errand.requesterId === me || errand.courierId === me) && (
+            <ReportButton errandId={errandId} />
+          )}
 
           {actions.length === 0 ? (
             <p className="text-center text-[13px] text-muted">Nothing for you to do at this stage.</p>
