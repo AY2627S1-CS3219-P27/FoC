@@ -1,5 +1,7 @@
 # In-flight statuses for credit-dependent transitions; release is fire-and-forget
 
+> Dispute handling, "not built" below, is built: see [ADR 0013](./0013-dispute-resolution-settlement.md).
+
 ## Decision
 
 Decided 2026-10-08. Implemented 2026-10-08 with the recommended names
