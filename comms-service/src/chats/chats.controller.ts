@@ -26,6 +26,8 @@ import {
 import { ChatQueryService } from './chat-query.service.js';
 import {
   ApiErrorResponseDto,
+  ArchiveDetailDto,
+  ArchiveListResponseDto,
   ChatListResponseDto,
   CursorPageQueryDto,
   MessageHistoryResponseDto,
@@ -59,6 +61,37 @@ export class ChatsController {
     @Query() query: CursorPageQueryDto,
   ): Promise<ChatListResponseDto> {
     return this.chats.list(request.user.sub, query.cursor, query.limit);
+  }
+
+  @Get('archives')
+  @ApiOperation({
+    summary: 'List the authenticated participant’s archived chats',
+  })
+  @ApiOkResponse({ type: ArchiveListResponseDto })
+  listArchives(
+    @Req() request: AuthenticatedRequest,
+    @Query() query: CursorPageQueryDto,
+  ): Promise<ArchiveListResponseDto> {
+    return this.chats.listArchives(request.user.sub, query.cursor, query.limit);
+  }
+
+  @Get('archives/:archiveId')
+  @ApiOperation({
+    summary: 'Read an immutable archived chat',
+    description:
+      'Unknown and unauthorized archive IDs share the same not-found response.',
+  })
+  @ApiOkResponse({ type: ArchiveDetailDto })
+  @ApiNotFoundResponse({
+    description: 'The archive is absent or the caller is not a participant.',
+    type: ApiErrorResponseDto,
+    example: { code: 'ARCHIVE_NOT_FOUND', message: 'Archive not found' },
+  })
+  archiveDetail(
+    @Req() request: AuthenticatedRequest,
+    @Param('archiveId', new ParseUUIDPipe({ version: '4' })) archiveId: string,
+  ): Promise<ArchiveDetailDto> {
+    return this.chats.archiveDetail(request.user.sub, archiveId);
   }
 
   @Get(':chatId/messages')

@@ -24,7 +24,13 @@ export class ChatAdmissionService {
               c.next_sequence::text AS next_sequence
          FROM chats c
         WHERE c.id = $1::uuid
-          AND c.state IN ('ACTIVE', 'GRACE')
+          AND (
+            c.state = 'ACTIVE'
+            OR (
+              c.state = 'GRACE'
+              AND clock_timestamp() < c.closes_at
+            )
+          )
           AND (c.requester_user_id = $2::uuid OR c.courier_user_id = $2::uuid)`,
       [chatId, userId],
     );

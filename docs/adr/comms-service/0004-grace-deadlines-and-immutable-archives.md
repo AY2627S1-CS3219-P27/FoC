@@ -37,5 +37,8 @@ prohibited at the database boundary.
 - Exactly one archive exists per chat and remains readable only by its
   requester and courier.
 - Archive JSON is versioned so later readers can support schema evolution.
-- Grace workers, archive APIs, and archive-facing UI remain deferred until
-  their service and frontend implementations are scheduled.
+- Communication Service applies grace deadlines, enforces them across live
+  operations, runs the leased archive worker, exposes participant-only archive
+  reads, and emits best-effort lifecycle socket notifications.
+- Countdown rendering, lifecycle-event handling, archive screens, and
+  live-to-archive navigation remain frontend responsibilities.

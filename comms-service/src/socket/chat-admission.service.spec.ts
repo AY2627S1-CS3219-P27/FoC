@@ -28,10 +28,10 @@ describe('ChatAdmissionService', () => {
       closeReason: 'ERRAND_DELIVERED',
       latestSequence: 3,
     });
-    expect(query).toHaveBeenCalledWith(expect.stringContaining('c.state IN'), [
-      chatId,
-      userId,
-    ]);
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining('clock_timestamp() < c.closes_at'),
+      [chatId, userId],
+    );
   });
 
   it('conceals absent, archived, and unauthorized chats as not found', async () => {

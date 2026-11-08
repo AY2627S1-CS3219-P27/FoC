@@ -18,25 +18,33 @@ never configure or publish to either shared exchange.
 Lifecycle ingestion and authenticated reads are active: one unified
 Order-event consumer dispatches four lifecycle contracts, records
 inbox/lifecycle evidence, and creates one chat per accepted-event identity.
-Participant-only chat listing and message history are exposed at `/v1/chats`.
+Terminal facts transactionally apply monotonic delivery or cancellation grace
+deadlines, including reconciliation when terminal evidence predates acceptance.
+Participant-only live chat, message history, archive list, and immutable archive
+detail reads are exposed at `/v1/chats`.
 The authenticated `/chat` Socket.IO namespace and participant-only
 `chat:join` admission are active with WebSocket-only transport. Transactional
 `message:send` commands allocate ordered sequences, deduplicate sender retries,
 and emit only committed messages. Explicit `messages:read` commands update only
 received unread messages and emit committed receipts. Dedicated Redis publisher
 and subscriber connections fan out room events across replicas and participate
-in readiness and shutdown. Grace transitions and archive workers remain
-deferred.
+in readiness and shutdown. Every replica runs a bounded leased archive worker;
+PostgreSQL locking and expiring claim tokens coordinate concurrent replicas.
+The worker inserts a versioned immutable snapshot, deletes live messages, marks
+the retained chat archived, and emits `chat:archived` only after commit.
+Shutdown stops after the current archive operation and uses the configured
+bounded drain deadline; abandoned claims recover only through lease expiry.
 
-The current realtime boundary permits only the authenticated gateway,
-transactional message/read commands, shared-auth metadata extension, Redis
-adapter, and same-origin frontend routing needed to expose them. Do not add
-grace/archive transitions or notifications, browser socket lifecycle, refresh,
-chat screens, or visible receipt rendering.
+The backend realtime boundary includes committed message/read events and the
+best-effort `chat:closing` and `chat:archived` notifications. Do not add browser
+socket lifecycle, countdown rendering, archive screens, navigation, refresh,
+or visible receipt rendering here; those remain frontend responsibilities.
 
 Metrics use bounded operational labels only; never add participant, errand,
-chat, message, event, cursor, or token values as labels. Socket logs must remain
-sanitized and must not include content, cookies, tokens, or participant payloads.
+chat, message, archive, event, claim, cursor, or token values as labels. Grace
+and archive worker/notification logs must remain sanitized and include only
+operation, bounded outcome, and error class—never content, snapshots, cookies,
+tokens, identifiers, or participant payloads.
 DLQ inspection and redrive follow
 `../docs/runbooks/comms-service-lifecycle-operations.md`: corrected messages
 return through `foc.events` with a dedicated operator identity and normal
