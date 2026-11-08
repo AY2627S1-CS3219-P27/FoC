@@ -52,6 +52,8 @@ const seed = async (over: Partial<typeof errands.$inferInsert> = {}) => {
     status: 'Incomplete' as Status,
     supplierId: randomUUID(),
     deliveryLocation: 'COM2',
+    deliveryBuildingId: randomUUID(),
+    deliveryDetail: 'Level 3 04-02',
     rewardCredits: 5,
     collectionItems: 'bubble tea',
     ...over,

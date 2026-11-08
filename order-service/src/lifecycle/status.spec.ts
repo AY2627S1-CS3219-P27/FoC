@@ -79,6 +79,7 @@ describe('EDGES', () => {
       actorUserId: '44444444-4444-4444-8444-444444444444',
       rewardCredits: 5,
       payload: {},
+      attempt: 1,
     };
 
     expect(findEdge('Open', 'Accepted')?.notice?.(context)).toEqual({
