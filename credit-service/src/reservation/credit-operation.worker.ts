@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { EnvironmentVariables } from '../config/environment.js';
 import { ReleaseOperationProcessor } from '../settlement/release-operation.processor.js';
+import { SettlementOperationProcessor } from '../settlement/settlement-operation.processor.js';
 import { TransferOperationProcessor } from '../settlement/transfer-operation.processor.js';
 import { AdjustmentOperationProcessor } from './adjustment-operation.processor.js';
 import {
@@ -65,6 +66,7 @@ export class CreditOperationWorker {
     private readonly adjustmentProcessor: AdjustmentOperationProcessor,
     private readonly transferProcessor: TransferOperationProcessor,
     private readonly releaseProcessor: ReleaseOperationProcessor,
+    private readonly settlementProcessor: SettlementOperationProcessor,
   ) {
     this.pollIntervalMilliseconds = config.getOrThrow(
       'CREDIT_OPERATION_POLL_INTERVAL_MS',
@@ -151,6 +153,11 @@ export class CreditOperationWorker {
         );
       } else if (operation.operationType === 'RELEASE') {
         await this.releaseProcessor.processClaimed(operation.id, this.workerId);
+      } else if (operation.operationType === 'SETTLEMENT') {
+        await this.settlementProcessor.processClaimed(
+          operation.id,
+          this.workerId,
+        );
       } else {
         throw new Error('Unsupported credit operation type');
       }

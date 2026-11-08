@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { Logger } from '@nestjs/common';
 import type { EnvironmentVariables } from '../config/environment.js';
 import type { ReleaseOperationProcessor } from '../settlement/release-operation.processor.js';
+import type { SettlementOperationProcessor } from '../settlement/settlement-operation.processor.js';
 import type { TransferOperationProcessor } from '../settlement/transfer-operation.processor.js';
 import type { AdjustmentOperationProcessor } from './adjustment-operation.processor.js';
 import {
@@ -57,6 +58,7 @@ describe('CreditOperationWorker', () => {
       { processClaimed: vi.fn() } as unknown as AdjustmentOperationProcessor,
       { processClaimed: vi.fn() } as unknown as TransferOperationProcessor,
       { processClaimed: vi.fn() } as unknown as ReleaseOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as SettlementOperationProcessor,
     );
 
     await worker.runOnce();
@@ -91,6 +93,7 @@ describe('CreditOperationWorker', () => {
       processor as unknown as AdjustmentOperationProcessor,
       { processClaimed: vi.fn() } as unknown as TransferOperationProcessor,
       { processClaimed: vi.fn() } as unknown as ReleaseOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as SettlementOperationProcessor,
     );
 
     await worker.runOnce();
@@ -123,6 +126,7 @@ describe('CreditOperationWorker', () => {
       { processClaimed: vi.fn() } as unknown as AdjustmentOperationProcessor,
       { processClaimed: vi.fn() } as unknown as TransferOperationProcessor,
       { processClaimed: vi.fn() } as unknown as ReleaseOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as SettlementOperationProcessor,
     );
 
     await worker.runOnce();
@@ -152,6 +156,7 @@ describe('CreditOperationWorker', () => {
       { processClaimed: vi.fn() } as unknown as AdjustmentOperationProcessor,
       { processClaimed: vi.fn() } as unknown as TransferOperationProcessor,
       { processClaimed: vi.fn() } as unknown as ReleaseOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as SettlementOperationProcessor,
     );
 
     const first = worker.runOnce();
@@ -183,6 +188,7 @@ describe('CreditOperationWorker', () => {
       { processClaimed: vi.fn() } as unknown as AdjustmentOperationProcessor,
       transferProcessor as unknown as TransferOperationProcessor,
       { processClaimed: vi.fn() } as unknown as ReleaseOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as SettlementOperationProcessor,
     );
 
     await worker.runOnce();
@@ -217,6 +223,7 @@ describe('CreditOperationWorker', () => {
       { processClaimed: vi.fn() } as unknown as AdjustmentOperationProcessor,
       transferProcessor as unknown as TransferOperationProcessor,
       { processClaimed: vi.fn() } as unknown as ReleaseOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as SettlementOperationProcessor,
     );
 
     await worker.runOnce();
@@ -250,6 +257,7 @@ describe('CreditOperationWorker', () => {
       { processClaimed: vi.fn() } as unknown as AdjustmentOperationProcessor,
       { processClaimed: vi.fn() } as unknown as TransferOperationProcessor,
       releaseProcessor as unknown as ReleaseOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as SettlementOperationProcessor,
     );
 
     await worker.runOnce();
@@ -282,6 +290,7 @@ describe('CreditOperationWorker', () => {
       { processClaimed: vi.fn() } as unknown as AdjustmentOperationProcessor,
       { processClaimed: vi.fn() } as unknown as TransferOperationProcessor,
       releaseProcessor as unknown as ReleaseOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as SettlementOperationProcessor,
     );
 
     await worker.runOnce();
@@ -291,6 +300,38 @@ describe('CreditOperationWorker', () => {
       expect.any(String),
       'Credit operation execution failed (Error)',
       2_000,
+    );
+  });
+
+  it('dispatches claimed settlements to the settlement processor', async () => {
+    const operation = {
+      id: '96ea8eb4-6c4a-40c8-a2a5-d673fba42033',
+      operationType: 'SETTLEMENT' as const,
+      createdAt: new Date(),
+      attemptCount: 1,
+      lastError: null,
+    };
+    const settlementProcessor = {
+      processClaimed: vi.fn().mockResolvedValue({}),
+    };
+    const worker = new CreditOperationWorker(
+      configuration(),
+      {
+        claim: vi.fn().mockResolvedValue([operation]),
+        markFailed: vi.fn(),
+      } as unknown as CreditOperationStore,
+      { processClaimed: vi.fn() } as unknown as ReservationOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as AdjustmentOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as TransferOperationProcessor,
+      { processClaimed: vi.fn() } as unknown as ReleaseOperationProcessor,
+      settlementProcessor as unknown as SettlementOperationProcessor,
+    );
+
+    await worker.runOnce();
+
+    expect(settlementProcessor.processClaimed).toHaveBeenCalledWith(
+      operation.id,
+      expect.any(String),
     );
   });
 });
