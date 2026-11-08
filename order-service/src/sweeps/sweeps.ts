@@ -123,9 +123,10 @@ async function resendSupplierRequests(db: Db, cfg: SweepConfig): Promise<number>
     id: string;
     supplier_id: string;
     delivery_building_id: string;
+    delivery_venue_id: string | null;
     attempts: number;
   }>(sql`
-    SELECT e.id, e.supplier_id, e.delivery_building_id, coalesce(r.attempts, 0) AS attempts
+    SELECT e.id, e.supplier_id, e.delivery_building_id, e.delivery_venue_id, coalesce(r.attempts, 0) AS attempts
     FROM errands e LEFT JOIN supplier_validation_retries r ON r.errand_id = e.id
     WHERE e.status = 'Pending-Supplier'
       AND e.created_at > ${ago(cfg.supplierHoldMs)}
@@ -133,7 +134,7 @@ async function resendSupplierRequests(db: Db, cfg: SweepConfig): Promise<number>
     LIMIT ${BATCH}`);
 
   let resent = 0;
-  for (const { id, supplier_id, delivery_building_id, attempts } of due.rows) {
+  for (const { id, supplier_id, delivery_building_id, delivery_venue_id, attempts } of due.rows) {
     const sent = Number(attempts);
     const wait = backoffDelay(sent + 2, {
       baseMs: cfg.supplierRetryBaseMs,
@@ -148,7 +149,7 @@ async function resendSupplierRequests(db: Db, cfg: SweepConfig): Promise<number>
       // Still unpublished: the relay has not sent the last one, so a new one would only queue behind it.
       const send = !last || last.publishedAt !== null;
       if (send) {
-        await enqueueSupplierRequest(tx, id, supplier_id, delivery_building_id, sent + 1);
+        await enqueueSupplierRequest(tx, id, supplier_id, delivery_building_id, sent + 1, delivery_venue_id);
         resent++;
       }
       await tx.execute(sql`

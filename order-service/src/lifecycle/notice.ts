@@ -86,12 +86,18 @@ export const enqueueSupplierRequest = (
   supplierId: string,
   deliveryBuildingId: string,
   attempt: number,
+  deliveryVenueId?: string | null,
 ) =>
   enqueueNotice(
     db,
     {
       key: 'order.supplier-validation-requested.v1',
-      payload: { errandId, supplierId, deliveryBuildingId },
+      payload: {
+        errandId,
+        supplierId,
+        deliveryBuildingId,
+        ...(deliveryVenueId && { deliveryVenueId }),
+      },
     },
     supplierRequestId(errandId, attempt),
   );
