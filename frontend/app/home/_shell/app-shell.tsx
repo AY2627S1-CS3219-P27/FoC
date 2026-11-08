@@ -4,8 +4,8 @@ import { clsx } from "clsx";
 import { useEffect, useState } from "react";
 import { RollingCubes } from "@/components/cubes";
 import { Avatar } from "@/components/ui/avatar";
-import { BoxIcon, PeopleIcon, PersonIcon, SignOutIcon, StoreIcon, TrayIcon } from "@/components/ui/icons";
-import { TAB_TITLES, type Tab, type UserProfile } from "../_shared/types";
+import { BoxIcon, FlagIcon, PeopleIcon, PersonIcon, SignOutIcon, StoreIcon, TrayIcon } from "@/components/ui/icons";
+import { ADMIN_TABS, TAB_TITLES, type Tab, type UserProfile } from "../_shared/types";
 
 const ICONS: Record<Tab, typeof BoxIcon> = {
   errands: BoxIcon,
@@ -13,6 +13,7 @@ const ICONS: Record<Tab, typeof BoxIcon> = {
   profile: PersonIcon,
   users: PeopleIcon,
   requests: TrayIcon,
+  disputes: FlagIcon,
 };
 
 // Sidebar on wide screens, tab bar on phones; a translucent top bar shows the section name once its large title scrolls away.
@@ -42,8 +43,8 @@ export function AppShell({
     return () => window.removeEventListener("scroll", update);
   }, []);
 
-  const mainTabs = tabs.filter((t) => t !== "users" && t !== "requests");
-  const adminTabs = tabs.filter((t) => t === "users" || t === "requests");
+  const mainTabs = tabs.filter((t) => !ADMIN_TABS.includes(t));
+  const adminTabs = tabs.filter((t) => ADMIN_TABS.includes(t));
 
   return (
     <div className="min-h-dvh md:pl-[264px]">

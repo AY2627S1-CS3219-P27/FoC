@@ -5,6 +5,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ErrandsTab } from "./_errands/errands-tab";
 import { SupplierRequestsTab } from "./_admin/supplier-requests-tab";
+import { DisputesTab } from "./_disputes/disputes-tab";
 import { UsersTab } from "./_admin/users-tab";
 import { AccountTab } from "./_account/account-tab";
 import { PushRegistrationSync } from "./_notifications/push-registration";
@@ -374,6 +375,8 @@ function Home() {
             onResolved={loadSuppliers}
           />
         )}
+
+        {tab === "disputes" && user.isAdmin && <DisputesTab />}
 
         {tab === "profile" && (
           <AccountTab

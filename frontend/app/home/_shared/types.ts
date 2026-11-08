@@ -51,10 +51,10 @@ export interface UserListItem {
   isArchived?: boolean;
 }
 
-export type Tab = "errands" | "suppliers" | "profile" | "users" | "requests";
+export type Tab = "errands" | "suppliers" | "profile" | "users" | "requests" | "disputes";
 
-export const TAB_ORDER: Tab[] = ["errands", "suppliers", "profile", "users", "requests"];
-export const ADMIN_TABS: Tab[] = ["users", "requests"];
+export const TAB_ORDER: Tab[] = ["errands", "suppliers", "profile", "users", "requests", "disputes"];
+export const ADMIN_TABS: Tab[] = ["users", "requests", "disputes"];
 
 export const TAB_TITLES: Record<Tab, string> = {
   errands: "Errands",
@@ -62,6 +62,7 @@ export const TAB_TITLES: Record<Tab, string> = {
   profile: "Account",
   users: "Users",
   requests: "Requests",
+  disputes: "Disputes",
 };
 
 export const isTab = (value: string | null): value is Tab => TAB_ORDER.includes(value as Tab);
