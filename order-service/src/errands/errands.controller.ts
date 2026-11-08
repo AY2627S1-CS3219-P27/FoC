@@ -1,10 +1,12 @@
 import { type AuthenticatedRequest, JwtAuthGuard, Roles, RolesGuard } from '@foc/auth';
 import { Role } from '@foc/contracts';
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
   HttpCode,
+  Inject,
   NotFoundException,
   Param,
   ParseUUIDPipe,
@@ -15,6 +17,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { CAMPUS_CONTAINS } from '../campus/campus.module.js';
+import type { CampusContains } from '../campus/campus-boundary.js';
 import { LifecycleService } from '../lifecycle/lifecycle.service.js';
 import {
   WithdrawErrandDto,
@@ -39,6 +43,7 @@ export class ErrandsController {
   constructor(
     private readonly lifecycle: LifecycleService,
     private readonly queries: ErrandsQueryService,
+    @Inject(CAMPUS_CONTAINS) private readonly campusContains: CampusContains,
   ) {}
 
   // Reads go to the query service, never through transition().
@@ -71,6 +76,10 @@ export class ErrandsController {
     @IdempotencyKey() idempotencyKey: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ) {
+    const pin = body.deliveryPin;
+    if (pin && !this.campusContains(pin.latitude, pin.longitude)) {
+      throw new BadRequestException('The delivery pin is outside the campus.');
+    }
     const result = await this.lifecycle.create({
       ...body,
       requesterId: req.user.sub,

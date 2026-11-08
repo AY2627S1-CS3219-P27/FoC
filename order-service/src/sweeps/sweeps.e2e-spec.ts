@@ -244,12 +244,13 @@ describe('idempotency key retention', () => {
 });
 
 describe('Pending-Supplier', () => {
-  async function waiting(ageMs: number, published = true) {
+  async function waiting(ageMs: number, published = true, venueId?: string) {
     const res = await createErrand(t.db, {
       requesterId: randomUUID(),
       supplierId: randomUUID(),
       deliveryBuildingId: randomUUID(),
       deliveryDetail: 'Level 3 04-02',
+      deliveryVenueId: venueId,
       rewardCredits: 5,
       expiryDurationMinutes: 60,
       collectionItems: 'bubble tea',
@@ -275,6 +276,14 @@ describe('Pending-Supplier', () => {
       status: 'Cancelled',
       cancellationReason: 'SUPPLIER_VALIDATION_TIMEOUT',
     });
+  });
+
+  it('carries the venue id on a resent request', async () => {
+    const venueId = randomUUID();
+    const id = await waiting(2 * MIN, true, venueId);
+    await runSweeps(t.db, cfg);
+    const resent = (await outboxFor(id)).find((r) => r.eventId === supplierRequestId(id, 1))!;
+    expect(resent.envelope.payload).toMatchObject({ deliveryVenueId: venueId });
   });
 
   it('sends a new request when due and backs off the next one', async () => {
