@@ -45,13 +45,36 @@ export default function CampusMap({
   });
 
   useEffect(() => {
-    const m = L.map(el.current!, { maxBounds: boundary.bounds, maxBoundsViscosity: 1, minZoom: 15 });
+    // A margin around the campus so panning is not stopped dead at the outline.
+    const m = L.map(el.current!, {
+      maxBounds: L.latLngBounds(boundary.bounds).pad(0.5),
+      maxBoundsViscosity: 0.8,
+      minZoom: 14,
+    });
     map.current = m;
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       attribution: "&copy; OpenStreetMap contributors",
     }).addTo(m);
-    L.geoJSON(geojson as GeoJSON.GeoJsonObject, { style: { color: "#003d7c", weight: 2, fill: false } }).addTo(m);
+    const outline = L.geoJSON(geojson as GeoJSON.GeoJsonObject, {
+      style: { color: "#003d7c", weight: 2, fill: false },
+    }).addTo(m);
+    // Gray out everything outside the campus: a world-sized ring with the campus outlines cut out.
+    const outers: L.LatLng[][] = [];
+    const inners: L.LatLng[][] = [];
+    outline.eachLayer((layer) => {
+      const rings = (layer as L.Polygon).getLatLngs() as L.LatLng[][] | L.LatLng[][][];
+      // Polygon: [outer, ...holes]; MultiPolygon: one of those per polygon.
+      const polys = (Array.isArray(rings[0]?.[0]) ? rings : [rings]) as L.LatLng[][][];
+      for (const [outer, ...holes] of polys) {
+        outers.push(outer);
+        inners.push(...holes);
+      }
+    });
+    const world = [L.latLng(-85, -180), L.latLng(-85, 180), L.latLng(85, 180), L.latLng(85, -180)];
+    const gray = { stroke: false, fillColor: "#000", fillOpacity: 0.4, interactive: false };
+    L.polygon([world, ...outers], gray).addTo(m);
+    inners.forEach((hole) => L.polygon(hole, gray).addTo(m));
     if (center) m.setView([center.latitude, center.longitude], 18);
     else m.fitBounds(boundary.bounds);
 
