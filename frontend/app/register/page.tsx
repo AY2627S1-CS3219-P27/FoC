@@ -1,16 +1,22 @@
 "use client";
 
+import { clsx } from "clsx";
+import { OTPInput, type SlotProps } from "input-otp";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { AUTH_PLACE, AuthCard, AuthLinks, AuthShell, FieldGroup, authLinkClass, groupInputClass } from "@/components/auth-shell";
+import { Button } from "@/components/ui/button";
+import { FormError } from "@/components/ui/field";
+import { pulseNavigation } from "@/lib/nav-pulse";
 
 type Step = "email" | "otp" | "details";
 
-const steps: { key: Step; label: string }[] = [
-  { key: "email", label: "Email" },
-  { key: "otp", label: "Verify" },
-  { key: "details", label: "Account" },
-];
+const STEPS: Step[] = ["email", "otp", "details"];
+
+const OTP_LENGTH = 6;
+// The code is base64url, so letters (case-sensitive), digits, "-" and "_".
+const OTP_PATTERN = "^[A-Za-z0-9_-]+$";
 
 async function post(path: string, body: object) {
   return fetch(path, {
@@ -20,14 +26,37 @@ async function post(path: string, body: object) {
   });
 }
 
+function OtpSlot({ char, isActive, hasFakeCaret }: SlotProps) {
+  return (
+    <div
+      className={clsx(
+        "relative flex h-14 min-w-0 flex-1 items-center justify-center rounded-xl bg-surface font-mono text-xl font-semibold shadow-raised transition-shadow duration-150",
+        isActive && "shadow-[0_0_0_2px_var(--nus-orange)]",
+      )}
+    >
+      {char}
+      {hasFakeCaret && (
+        <span aria-hidden="true" className="absolute h-6 w-0.5 animate-pulse rounded-full bg-nus-orange motion-reduce:animate-none" />
+      )}
+    </div>
+  );
+}
+
 export default function RegisterPage() {
   const router = useRouter();
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
+  const [otp, setOtp] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
 
-  const stepIndex = steps.findIndex((s) => s.key === step);
+  const stepIndex = STEPS.indexOf(step);
+
+  function goTo(next: Step) {
+    pulseNavigation(STEPS.indexOf(next) > stepIndex ? "forward" : "back");
+    setError("");
+    setStep(next);
+  }
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -40,15 +69,12 @@ export default function RegisterPage() {
         const res = await post("/api/otp", { email: value });
         if (res.ok) {
           setEmail(value);
-          setStep("otp");
-        } else setError("Could not send OTP. Use an @u.nus.edu email.");
+          goTo("otp");
+        } else setError("Could not send a code. Use an @u.nus.edu email.");
       } else if (step === "otp") {
-        const res = await post("/api/otp/validate", {
-          email,
-          otp: form.get("otp"),
-        });
-        if (res.ok) setStep("details");
-        else setError("Invalid OTP.");
+        const res = await post("/api/otp/validate", { email, otp });
+        if (res.ok) goTo("details");
+        else setError("That code didn't work. Check it and try again.");
       } else {
         const res = await post("/api/auth/register", {
           displayName: form.get("displayName"),
@@ -69,154 +95,100 @@ export default function RegisterPage() {
     setPending(false);
   }
 
+  const copy = {
+    email: { title: "Create account", subtitle: "Start with your NUS email." },
+    otp: { title: "Verify email", subtitle: <>Enter the 6-character code sent to <span className="font-medium break-all text-foreground">{email}</span>. It&rsquo;s case-sensitive.</> },
+    details: { title: "Almost there", subtitle: "Choose how others see you, and a password." },
+  }[step];
+
   return (
-    <main className="flex flex-1 items-center justify-center p-6 bg-background">
-      <div className="w-full max-w-md fade-in">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-nus-blue mb-4 shadow-lg">
-            <span className="text-2xl font-bold text-white tracking-tight">FoC</span>
-          </div>
-          <h1 className="text-3xl font-bold text-foreground">
-            Create your account
-          </h1>
-          <p className="text-muted mt-1">Join Friend on Campus</p>
-        </div>
-
-        {/* Step indicator */}
-        <div className="flex items-center justify-center gap-2 mb-6">
-          {steps.map((s, i) => (
-            <div key={s.key} className="flex items-center gap-2">
-              <div
-                className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-semibold transition-colors ${
-                  i <= stepIndex
-                    ? "bg-nus-orange text-white"
-                    : "bg-border text-muted"
-                }`}
-              >
-                {i < stepIndex ? (
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <path d="M2.5 7l3 3 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                ) : (
-                  i + 1
-                )}
-              </div>
-              <span
-                className={`text-sm ${i <= stepIndex ? "text-foreground font-medium" : "text-muted"}`}
-              >
-                {s.label}
-              </span>
-              {i < steps.length - 1 && (
-                <div
-                  className={`w-8 h-0.5 rounded-full transition-colors ${i < stepIndex ? "bg-nus-orange" : "bg-border"}`}
-                />
-              )}
-            </div>
-          ))}
-        </div>
-
-        <form
-          key={step}
-          onSubmit={onSubmit}
-          className="flex flex-col gap-4 rounded-2xl border border-border bg-surface p-6 shadow-sm fade-in"
-        >
-          {step === "email" && (
-            <div>
-              <label className="block text-sm font-medium mb-1.5">
-                NUS Email
-              </label>
-              <input
-                name="email"
-                type="email"
-                placeholder="e0123456@u.nus.edu"
-                required
-                autoComplete="email"
-                className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm transition-shadow"
-              />
-              <p className="text-xs text-muted mt-1.5">
-                Only @u.nus.edu addresses are accepted.
-              </p>
-            </div>
-          )}
-
-          {step === "otp" && (
-            <div>
-              <p className="text-sm text-muted mb-3">
-                Enter the 6-character code sent to{" "}
-                <span className="font-medium text-foreground">{email}</span>.
-              </p>
-              <label className="block text-sm font-medium mb-1.5">
-                Verification code
-              </label>
-              <input
-                name="otp"
-                placeholder="Enter 6-character code"
-                required
-                minLength={6}
-                maxLength={6}
-                autoComplete="one-time-code"
-                className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm tracking-widest text-center font-mono transition-shadow"
-              />
-            </div>
-          )}
-
-          {step === "details" && (
-            <>
-              <div>
-                <label className="block text-sm font-medium mb-1.5">
-                  Display name
-                </label>
-                <input
-                  name="displayName"
-                  placeholder="How others will see you"
-                  required
-                  maxLength={255}
-                  className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm transition-shadow"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1.5">
-                  Password
-                </label>
-                <input
-                  name="password"
-                  type="password"
-                  placeholder="At least 12 characters"
-                  required
-                  minLength={12}
-                  maxLength={255}
-                  autoComplete="new-password"
-                  className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm transition-shadow"
-                />
-              </div>
-            </>
-          )}
-
-          {error && (
-            <p role="alert" className="text-sm text-danger fade-in">
-              {error}
-            </p>
-          )}
-
-          <button
-            disabled={pending}
-            className="btn-press w-full rounded-xl bg-nus-orange px-4 py-2.5 text-sm font-semibold text-white hover:bg-nus-orange-hover disabled:opacity-50 transition-colors"
-          >
-            {pending
-              ? "Please wait…"
-              : step === "details"
-                ? "Create account"
-                : "Continue"}
-          </button>
-
-          <Link
-            href="/login"
-            className="text-sm text-center text-nus-blue hover:underline"
-          >
-            Already have an account? Sign in
-          </Link>
-        </form>
+    <AuthShell place={AUTH_PLACE.register} title={copy.title} subtitle={copy.subtitle}>
+      <div aria-label={`Step ${stepIndex + 1} of ${STEPS.length}`} className="mb-5 flex justify-center gap-1.5">
+        {STEPS.map((s, i) => (
+          <span
+            key={s}
+            aria-hidden="true"
+            className={clsx(
+              "h-1.5 rounded-full transition-all duration-300",
+              i === stepIndex ? "w-6 bg-nus-orange" : i < stepIndex ? "w-1.5 bg-nus-orange/50" : "w-1.5 bg-muted/30",
+            )}
+          />
+        ))}
       </div>
-    </main>
+
+      <AuthCard key={step} onSubmit={onSubmit} className="push-enter">
+        {step === "email" && (
+          <FieldGroup>
+            <input
+              name="email"
+              type="email"
+              aria-label="NUS email"
+              placeholder="e0123456@u.nus.edu"
+              required
+              autoComplete="email"
+              className={groupInputClass}
+            />
+          </FieldGroup>
+        )}
+
+        {step === "otp" && (
+          <OTPInput
+            autoFocus
+            maxLength={OTP_LENGTH}
+            pattern={OTP_PATTERN}
+            value={otp}
+            onChange={setOtp}
+            autoComplete="one-time-code"
+            aria-label="Verification code"
+            containerClassName="flex items-center gap-2"
+            render={({ slots }) => slots.map((slot, i) => <OtpSlot key={i} {...slot} />)}
+          />
+        )}
+
+        {step === "details" && (
+          <FieldGroup>
+            <input
+              name="displayName"
+              aria-label="Display name"
+              placeholder="Display name"
+              required
+              maxLength={255}
+              className={groupInputClass}
+            />
+            <input
+              name="password"
+              type="password"
+              aria-label="Password"
+              placeholder="Password (at least 12 characters)"
+              required
+              minLength={12}
+              maxLength={255}
+              autoComplete="new-password"
+              className={groupInputClass}
+            />
+          </FieldGroup>
+        )}
+
+        {error && <FormError>{error}</FormError>}
+
+        <Button type="submit" size="lg" block disabled={pending || (step === "otp" && otp.length < OTP_LENGTH)}>
+          {pending ? "Please wait…" : step === "details" ? "Create account" : "Continue"}
+        </Button>
+
+        <AuthLinks>
+          {step === "email" && (
+            <Link href="/login" className={authLinkClass}>
+              Already have an account? Sign in
+            </Link>
+          )}
+          {/* Only the code step goes back (to fix the email); a used code can't be checked again. */}
+          {step === "otp" && (
+            <button type="button" onClick={() => goTo("email")} className={authLinkClass}>
+              Use a different email
+            </button>
+          )}
+        </AuthLinks>
+      </AuthCard>
+    </AuthShell>
   );
 }
