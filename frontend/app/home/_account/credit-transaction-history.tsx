@@ -92,6 +92,17 @@ function shortId(id: string): string {
   return id.slice(0, 8);
 }
 
+const TYPE_BADGE_CLASS: Record<CreditTransactionType, string> = {
+  RESERVATION: "bg-sky-500/15 text-sky-800 dark:text-sky-300",
+  RESERVATION_ADJUSTMENT: "bg-amber-500/15 text-amber-800 dark:text-amber-300",
+  TRANSFER: "bg-emerald-500/15 text-emerald-800 dark:text-emerald-300",
+  RELEASE: "bg-violet-500/15 text-violet-800 dark:text-violet-300",
+};
+
+function typeBadgeClass(type: CreditTransactionType): string {
+  return TYPE_BADGE_CLASS[type];
+}
+
 function typeLabel(type: CreditTransactionType): string {
   switch (type) {
     case "RESERVATION":
@@ -125,7 +136,7 @@ function TransactionRow({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-nus-blue/10 px-2 py-0.5 text-xs font-medium text-nus-blue dark:text-blue-300">
+            <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${typeBadgeClass(transaction.type)}`}>
               {typeLabel(transaction.type)}
             </span>
             <span className="font-semibold">{presentation.label}</span>
