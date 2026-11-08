@@ -12,7 +12,7 @@ import {
 import { createErrand } from '../lifecycle/create.js';
 import { supplierRequestId } from '../lifecycle/notice.js';
 import type { Status } from '../lifecycle/status.js';
-import { SYSTEM, transition } from '../lifecycle/transition.js';
+import { SYSTEM, admin, transition } from '../lifecycle/transition.js';
 import { withAdvisoryLock } from './sweep-lock.js';
 import { runSweeps, type SweepConfig } from './sweeps.js';
 
@@ -172,9 +172,21 @@ describe('sweeps', () => {
 });
 
 describe('credit reply timeout', () => {
-  async function inFlight(status: 'Transferring-Credit' | 'Adjusting-Credit', ageMs: number) {
+  async function inFlight(status: 'Transferring-Credit' | 'Adjusting-Credit' | 'Settling-Credit', ageMs: number) {
     const id = await seed('Delivered', { deliveredAt: ago(25 * HOUR) });
-    if (status === 'Transferring-Credit') {
+    if (status === 'Settling-Credit') {
+      await t.db
+        .update(errands)
+        .set({ status: 'Incomplete', courierId: randomUUID() })
+        .where(eq(errands.id, id));
+      await transition(t.db, {
+        errandId: id,
+        expected: 'Incomplete',
+        to: status,
+        actor: admin(randomUUID()),
+        set: { settlementAmount: 2, settlementNote: 'split it' },
+      });
+    } else if (status === 'Transferring-Credit') {
       await transition(t.db, { errandId: id, expected: 'Delivered', to: status, actor: SYSTEM });
     } else {
       await t.db.update(errands).set({ status: 'Open' }).where(eq(errands.id, id));
@@ -207,6 +219,19 @@ describe('credit reply timeout', () => {
     expect((await row(id)).status).toBe('Transferring-Credit');
     // unpublished again, so nothing more to do until the relay re-sends
     expect((await runSweeps(t.db, cfg)).resent).toBe(0);
+  });
+
+  it('re-sends a settlement notice and never reverts it', async () => {
+    const id = await inFlight('Settling-Credit', 3 * MIN);
+    const [before] = await outboxFor(id);
+    expect(before.routingKey).toBe('credit.settlement.v1');
+
+    expect((await runSweeps(t.db, cfg)).resent).toBe(1);
+
+    const [after] = await outboxFor(id);
+    expect(after.eventId).toBe(before.eventId);
+    expect(after.publishedAt).toBeNull();
+    expect((await row(id)).status).toBe('Settling-Credit');
   });
 
   it('does the same for an adjustment', async () => {
