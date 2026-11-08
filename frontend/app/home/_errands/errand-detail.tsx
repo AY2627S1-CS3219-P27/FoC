@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, errorText } from "@/lib/api";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { PinIcon } from "@/components/ui/icons";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { FormError, inputClass } from "@/components/ui/field";
 import { Section } from "@/components/ui/layout";
@@ -188,8 +189,9 @@ export function ErrandDetail({
                   href={`https://www.google.com/maps/dir/?api=1&destination=${errand.deliveryLatitude},${errand.deliveryLongitude}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="mt-0.5 block text-[13px] text-nus-blue underline"
+                  className={`${buttonVariants({ intent: "tinted", size: "md" })} mt-2 w-full`}
                 >
+                  <PinIcon size={16} />
                   Open directions
                 </a>
               )}
