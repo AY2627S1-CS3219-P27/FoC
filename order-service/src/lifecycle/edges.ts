@@ -18,6 +18,9 @@ export type Col =
   | 'pickupName'
   | 'pickupDescription'
   | 'deliveryLocation'
+  | 'deliveryVenue'
+  | 'deliveryLatitude'
+  | 'deliveryLongitude'
   | 'settlementAmount'
   | 'settlementNote';
 
@@ -128,12 +131,15 @@ export const EDGES: Partial<
         'pickupLocation',
         'pickupDescription',
         'deliveryLocation',
+        'deliveryVenue',
+        'deliveryLatitude',
+        'deliveryLongitude',
       ],
     },
     // Nothing reserved yet, so nothing to release.
     Cancelled: cancel(
       sys,
-      ['SUPPLIER_UNAVAILABLE', 'BUILDING_UNAVAILABLE', 'SUPPLIER_VALIDATION_TIMEOUT'],
+      ['SUPPLIER_UNAVAILABLE', 'BUILDING_UNAVAILABLE', 'VENUE_UNAVAILABLE', 'SUPPLIER_VALIDATION_TIMEOUT'],
       null,
     ),
   },

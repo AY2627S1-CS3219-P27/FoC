@@ -27,6 +27,9 @@ export const supplierValidated = () => ({
     pickupLocation: 'COM2',
     pickupDescription: 'Floor 1 · Next to LT19',
     deliveryLocation: 'COM2',
+    deliveryVenue: 'Around COM2',
+    deliveryLatitude: 1.2939,
+    deliveryLongitude: 103.7742,
   },
   payload: { supplierEventId: randomUUID(), supplier: supplierSnapshot },
 });
