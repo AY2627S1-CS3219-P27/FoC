@@ -1,27 +1,30 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { Avatar } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { EmptyState, List, ListRow, LoadMore, PageHeader, Pill, SkeletonList } from "@/components/ui/layout";
 import { getChats } from "@/lib/chat/api";
 import type { ChatView } from "@/lib/chat/contracts";
 import { formatErrandTitle, useChatErrand } from "@/lib/chat/use-chat-errand";
 import { useDisplayName } from "@/lib/users/names";
+import { ChatSwitch } from "../_shell/chat-switch";
 import { useHomeContext } from "../_shell/home-shell";
 
 const PAGE_SIZE = 20;
 
-function formatTime(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
-}
-
-function roleFor(chat: ChatView, callerId: string): string {
-  return chat.requesterUserId === callerId ? "Requester" : "Courier";
+// Today shows the time, this week the weekday, anything older the date: the way Messages stamps its list.
+function formatListTime(value: string): string {
+  const date = new Date(value);
+  const days = Math.floor((Date.now() - date.getTime()) / 86_400_000);
+  if (new Date().toDateString() === date.toDateString()) return new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(date);
+  if (days < 7) return new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(date);
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(date);
 }
 
 function counterpartFor(chat: ChatView, callerId: string): { role: "Requester" | "Courier"; userId: string } {
-  const role = chat.requesterUserId === callerId ? "Courier" : "Requester";
-  const userId = chat.requesterUserId === callerId ? chat.courierUserId : chat.requesterUserId;
-  return { role, userId };
+  const mine = chat.requesterUserId === callerId;
+  return { role: mine ? "Courier" : "Requester", userId: mine ? chat.courierUserId : chat.requesterUserId };
 }
 
 function ChatListRow({ chat, callerId }: { chat: ChatView; callerId: string }) {
@@ -30,25 +33,34 @@ function ChatListRow({ chat, callerId }: { chat: ChatView; callerId: string }) {
   const counterpart = counterpartFor(chat, callerId);
   const counterpartName = useDisplayName(counterpart.userId);
   const heading = counterpartName ?? counterpart.role;
+  const preview = chat.lastMessage?.content ?? "No messages yet";
+
   return (
-    <li>
-      <Link href={`/home/chats/${chat.chatId}`} className="card-press block rounded-2xl border border-border bg-surface p-4 shadow-sm transition-colors hover:border-nus-orange">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h2 className="truncate font-semibold">{heading}</h2>
-              {chat.unread && <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-nus-orange" aria-label="Unread messages" />}
-            </div>
-            <p title={title} className="mt-1 truncate text-xs text-muted">You are the {roleFor(chat, callerId).toLowerCase()} · {title}</p>
-            <p className={`mt-3 truncate text-sm ${chat.unread ? "font-semibold" : "text-muted"}`}>{chat.lastMessage?.content ?? "No messages yet"}</p>
-          </div>
-          <div className="shrink-0 text-right">
-            <time dateTime={chat.updatedAt} className="text-xs text-muted">{formatTime(chat.updatedAt)}</time>
-            {chat.state === "GRACE" && <p className="mt-2 rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">Closing soon</p>}
-          </div>
-        </div>
-      </Link>
-    </li>
+    <ListRow
+      href={`/home/chats/${chat.chatId}`}
+      chevron
+      leading={<Avatar url={null} name={heading} size={44} />}
+      title={
+        <span className="flex items-center gap-2">
+          <span className={chat.unread ? "truncate font-semibold" : "truncate"}>{heading}</span>
+          {chat.unread && <span className="size-2.5 shrink-0 rounded-full bg-nus-orange" role="img" aria-label="Unread messages" />}
+        </span>
+      }
+      subtitle={
+        <>
+          <span className={`line-clamp-1 ${chat.unread ? "font-medium text-foreground" : ""}`}>{preview}</span>
+          <span title={title} className="mt-0.5 line-clamp-1 text-xs">
+            {counterpart.role} · {title}
+          </span>
+        </>
+      }
+      detail={
+        <span className="flex flex-col items-end gap-1 text-[13px]">
+          <time dateTime={chat.updatedAt}>{formatListTime(chat.updatedAt)}</time>
+          {chat.state === "GRACE" && <Pill tone="orange">Closing soon</Pill>}
+        </span>
+      }
+    />
   );
 }
 
@@ -112,42 +124,64 @@ export default function ChatsPage() {
     }
   }
 
-  return (
-    <section aria-labelledby="chats-heading" className="fade-in mx-auto max-w-3xl">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <h1 id="chats-heading" className="text-2xl font-bold">Chats</h1>
-          <p className="mt-1 text-sm text-muted">Private conversations for accepted errands.</p>
-        </div>
-        <button type="button" onClick={() => void loadFirstPage()} disabled={loading} className="btn-press rounded-lg border border-border px-3 py-2 text-sm font-medium disabled:opacity-50">
-          Refresh
-        </button>
-      </div>
+  // A refresh keeps the rows on screen; only the very first load shows the skeleton.
+  const firstLoad = loading && chats.length === 0;
 
-      {loading && <p role="status" className="mt-8 text-sm text-muted">Loading chats…</p>}
-      {error && <div role="alert" className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-danger">{error}</div>}
+  return (
+    <section aria-labelledby="chats-heading" className="fade-in">
+      <PageHeader
+        title="Chats"
+        subtitle="Private conversations for accepted errands."
+        actions={
+          <Button intent="outline" size="sm" onClick={() => void loadFirstPage()} disabled={loading}>
+            {loading && !firstLoad ? "Refreshing…" : "Refresh"}
+          </Button>
+        }
+      />
+      <ChatSwitch current="chats" />
+
+      {firstLoad && <SkeletonList count={4} />}
+      {error && chats.length === 0 && (
+        <div className="overflow-hidden rounded-2xl bg-surface">
+          <EmptyState
+            tone="error"
+            title="Could not load chats"
+            body={error}
+            action={
+              <Button intent="tinted" size="sm" onClick={() => void loadFirstPage()}>
+                Try again
+              </Button>
+            }
+          />
+        </div>
+      )}
+      {error && chats.length > 0 && (
+        <p role="alert" className="mb-3 px-4 text-[13px] text-danger">
+          {error}
+        </p>
+      )}
       {!loading && chats.length === 0 && !error && (
-        <div className="mt-8 rounded-2xl border border-dashed border-border bg-surface p-8 text-center">
-          <h2 className="font-semibold">No active chats</h2>
-          <p className="mt-2 text-sm text-muted">A chat appears here after an errand is accepted and processed.</p>
+        <div className="overflow-hidden rounded-2xl bg-surface">
+          <EmptyState title="No active chats" body="A chat appears here after an errand is accepted and processed." />
         </div>
       )}
 
       {chats.length > 0 && (
-        <ul className="mt-6 space-y-3" aria-label="Active chats">
+        <List>
           {chats.map((chat) => (
             <ChatListRow key={chat.chatId} chat={chat} callerId={user.uuid} />
           ))}
-        </ul>
+        </List>
       )}
 
-      {hasMore && (
-        <div className="mt-6 text-center">
-          <button type="button" onClick={() => void loadMore()} disabled={loadingMore} className="btn-press rounded-lg bg-nus-blue px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
-            {loadingMore ? "Loading…" : "Load more chats"}
-          </button>
-        </div>
-      )}
+      <LoadMore
+        noun="chats"
+        shown={chats.length}
+        total={null}
+        hasMore={hasMore}
+        loading={loadingMore}
+        onLoadMore={() => void loadMore()}
+      />
     </section>
   );
 }

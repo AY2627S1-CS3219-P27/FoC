@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { ChevronLeftIcon } from "@/components/ui/icons";
+import { EmptyState, PageHeader, SkeletonList } from "@/components/ui/layout";
 import { ChatApiError, getArchive } from "@/lib/chat/api";
 import type { ArchiveDetail } from "@/lib/chat/contracts";
 import { useDisplayName } from "@/lib/users/names";
@@ -45,14 +48,28 @@ export function ArchiveDetailView({ archiveId }: { archiveId: string }) {
     setAttempt((value) => value + 1);
   }
 
-  if (loading) return <p role="status" className="fade-in text-sm text-muted">Loading archive…</p>;
+  const back = (
+    <Link href="/home/archives" className="inline-flex items-center gap-0.5 text-[15px] text-nus-orange">
+      <ChevronLeftIcon size={18} strokeWidth={2.4} />
+      Archived
+    </Link>
+  );
+
+  if (loading) return <div className="fade-in"><SkeletonList count={3} /></div>;
   if (error || archive === null) {
     return (
-      <section className="fade-in mx-auto max-w-3xl">
-        <Link href="/home/archives" className="text-sm font-medium text-nus-blue hover:underline">← All archives</Link>
-        <div role="alert" className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-danger">
-          <p>{error ?? "This archive is unavailable."}</p>
-          {error !== "This archive is unavailable." && <button type="button" onClick={retry} className="mt-2 font-semibold text-nus-blue hover:underline">Try again</button>}
+      <section className="fade-in">
+        <div className="mb-3">{back}</div>
+        <div className="overflow-hidden rounded-2xl bg-surface">
+          <EmptyState
+            tone="error"
+            title={error ?? "This archive is unavailable."}
+            action={
+              error !== "This archive is unavailable." ? (
+                <Button intent="tinted" size="sm" onClick={retry}>Try again</Button>
+              ) : undefined
+            }
+          />
         </div>
       </section>
     );
@@ -61,36 +78,32 @@ export function ArchiveDetailView({ archiveId }: { archiveId: string }) {
   const callerRole = archive.requesterUserId === user.uuid ? "REQUESTER" : "COURIER";
 
   return (
-    <section aria-labelledby="archive-heading" className="fade-in mx-auto max-w-3xl overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
-      <header className="border-b border-border bg-background p-4 sm:p-5">
-        <Link href="/home/archives" className="text-sm font-medium text-nus-blue hover:underline">← All archives</Link>
-        <div className="mt-2 flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
-          <div>
-            <h1 id="archive-heading" className="text-xl font-bold">Archived errand chat</h1>
-            <p className="mt-1 text-sm text-muted">Errand {archive.errandId} · You were the {callerRole.toLowerCase()}{counterpartName ? ` with ${counterpartName}` : ""}.</p>
-          </div>
-          <div className="shrink-0 sm:text-right">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted">Archived</p>
-            <time dateTime={archive.archivedAt} className="text-sm">{formatTimestamp(archive.archivedAt)}</time>
-          </div>
-        </div>
-        <p role="status" className="mt-4 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-muted">This is an immutable snapshot. Messages cannot be sent, edited, deleted, or restored.</p>
-      </header>
+    <section aria-labelledby="archive-heading" className="fade-in">
+      <div className="mb-3">{back}</div>
+      <PageHeader
+        title="Archived chat"
+        subtitle={`Errand ${archive.errandId.slice(0, 8)} · You were the ${callerRole.toLowerCase()}${counterpartName ? ` with ${counterpartName}` : ""}`}
+      />
+      <p id="archive-heading" className="sr-only">Archived errand chat</p>
+      <p role="status" className="mb-4 rounded-xl bg-fill px-4 py-2.5 text-[13px] text-muted">
+        Archived <time dateTime={archive.archivedAt}>{formatTimestamp(archive.archivedAt)}</time>. This is an immutable snapshot: messages cannot be sent, edited, deleted, or restored.
+      </p>
 
-      <div className="bg-background px-4 py-5 sm:px-5">
+      <div className="rounded-2xl bg-surface px-4 py-5">
         {archive.messages.length === 0 ? (
-          <p className="py-10 text-center text-sm text-muted">No messages were recorded in this conversation.</p>
+          <p className="py-10 text-center text-[15px] text-muted">No messages were recorded in this conversation.</p>
         ) : (
-          <ol className="space-y-3" aria-label="Archived messages">
+          <ol className="space-y-2" aria-label="Archived messages">
             {archive.messages.map((message, index) => {
               const mine = message.role === callerRole;
               return (
-                <li key={`${message.timestamp}-${index}`} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                  <article className={`max-w-[85%] rounded-2xl px-4 py-3 sm:max-w-[70%] ${mine ? "bg-nus-blue text-white" : "border border-border bg-surface"}`}>
-                    <p className={`mb-1 text-xs font-semibold uppercase tracking-wide ${mine ? "text-white/70" : "text-muted"}`}>{mine ? `You · ${message.role.toLowerCase()}` : (counterpartName ?? message.role.toLowerCase())}</p>
-                    <p className="whitespace-pre-wrap break-words text-sm">{message.content}</p>
-                    <time dateTime={message.timestamp} className={`mt-1 block text-xs ${mine ? "text-white/70" : "text-muted"}`}>{formatTimestamp(message.timestamp)}</time>
+                <li key={`${message.timestamp}-${index}`} className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
+                  <article className={`max-w-[85%] rounded-[20px] px-3.5 py-2 sm:max-w-[70%] ${mine ? "bg-nus-blue text-white" : "bg-fill"}`}>
+                    <p className="whitespace-pre-wrap break-words text-[15px]">{message.content}</p>
                   </article>
+                  <p className="mt-0.5 px-2 text-[11px] text-muted">
+                    {mine ? "You" : (counterpartName ?? message.role.toLowerCase())} · <time dateTime={message.timestamp}>{formatTimestamp(message.timestamp)}</time>
+                  </p>
                 </li>
               );
             })}

@@ -1,11 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { Avatar } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { EmptyState, List, ListRow, PageHeader, SkeletonList } from "@/components/ui/layout";
 import { getArchives } from "@/lib/chat/api";
 import type { ArchiveListItem } from "@/lib/chat/contracts";
 import { formatErrandTitle, useChatErrand } from "@/lib/chat/use-chat-errand";
 import { useDisplayName } from "@/lib/users/names";
+import { ChatSwitch } from "../_shell/chat-switch";
 import { useHomeContext } from "../_shell/home-shell";
 
 const PAGE_SIZE = 20;
@@ -27,20 +30,19 @@ function ArchiveListRow({ archive, callerId }: { archive: ArchiveListItem; calle
   const counterpartName = useDisplayName(counterpartId);
   const counterpartLabel = counterpartName ?? counterpartRole;
   return (
-    <li>
-      <Link href={`/home/archives/${archive.archiveId}`} className="card-press block rounded-2xl border border-border bg-surface p-4 shadow-sm transition-colors hover:border-nus-orange">
-        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
-          <div className="min-w-0">
-            <h2 title={title} className="truncate font-semibold">{title}</h2>
-            <p className="mt-1 truncate text-sm text-muted">You were the {role.toLowerCase()} · {counterpartLabel}</p>
-          </div>
-          <div className="shrink-0 sm:text-right">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted">Archived</p>
-            <time dateTime={archive.archivedAt} className="text-sm">{formatTimestamp(archive.archivedAt)}</time>
-          </div>
-        </div>
-      </Link>
-    </li>
+    <ListRow
+      href={`/home/archives/${archive.archiveId}`}
+      chevron
+      leading={<Avatar url={null} name={counterpartLabel} size={44} />}
+      title={<span title={title} className="line-clamp-1">{title}</span>}
+      subtitle={`You were the ${role.toLowerCase()} · ${counterpartLabel}`}
+      detail={
+        <span className="text-[13px]">
+          <span className="sr-only">Archived </span>
+          <time dateTime={archive.archivedAt}>{formatTimestamp(archive.archivedAt)}</time>
+        </span>
+      }
+    />
   );
 }
 
@@ -92,36 +94,52 @@ export function ArchiveList() {
     }
   }
 
-  return (
-    <section aria-labelledby="archives-heading" className="fade-in mx-auto max-w-3xl">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <h1 id="archives-heading" className="text-2xl font-bold">Archives</h1>
-          <p className="mt-1 text-sm text-muted">Completed conversations, preserved as read-only snapshots.</p>
-        </div>
-        <button type="button" onClick={() => void loadFirstPage()} disabled={loading} className="btn-press rounded-lg border border-border px-3 py-2 text-sm font-medium disabled:opacity-50">Refresh</button>
-      </div>
+  const firstLoad = loading && archives.length === 0;
 
-      {loading && <p role="status" className="mt-8 text-sm text-muted">Loading archives…</p>}
-      {error && <div role="alert" className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-danger">{error}</div>}
+  return (
+    <section aria-labelledby="archives-heading" className="fade-in">
+      <PageHeader
+        title="Archives"
+        subtitle="Completed conversations, preserved as read-only snapshots."
+        actions={
+          <Button intent="outline" size="sm" onClick={() => void loadFirstPage()} disabled={loading}>
+            {loading && !firstLoad ? "Refreshing…" : "Refresh"}
+          </Button>
+        }
+      />
+      <ChatSwitch current="archives" />
+
+      {firstLoad && <SkeletonList count={4} />}
+      {error && archives.length === 0 && (
+        <div className="overflow-hidden rounded-2xl bg-surface">
+          <EmptyState
+            tone="error"
+            title="Could not load archives"
+            body={error}
+            action={<Button intent="tinted" size="sm" onClick={() => void loadFirstPage()}>Try again</Button>}
+          />
+        </div>
+      )}
+      {error && archives.length > 0 && <p role="alert" className="mb-3 px-4 text-[13px] text-danger">{error}</p>}
       {!loading && archives.length === 0 && !error && (
-        <div className="mt-8 rounded-2xl border border-dashed border-border bg-surface p-8 text-center">
-          <h2 className="font-semibold">No archived chats</h2>
-          <p className="mt-2 text-sm text-muted">Chats appear here after their closing period ends and the archive is created.</p>
+        <div className="overflow-hidden rounded-2xl bg-surface">
+          <EmptyState title="No archived chats" body="Chats appear here after their closing period ends and the archive is created." />
         </div>
       )}
 
       {archives.length > 0 && (
-        <ol className="mt-6 space-y-3" aria-label="Archived chats, newest first">
+        <List>
           {archives.map((archive) => (
             <ArchiveListRow key={archive.archiveId} archive={archive} callerId={user.uuid} />
           ))}
-        </ol>
+        </List>
       )}
 
       {hasMore && (
-        <div className="mt-6 text-center">
-          <button type="button" onClick={() => void loadMore()} disabled={loadingMore} className="btn-press rounded-lg bg-nus-blue px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{loadingMore ? "Loading…" : "Load more archives"}</button>
+        <div className="mt-5 flex justify-center">
+          <Button intent="outline" size="sm" onClick={() => void loadMore()} disabled={loadingMore}>
+            {loadingMore ? "Loading…" : "Load more archives"}
+          </Button>
         </div>
       )}
     </section>

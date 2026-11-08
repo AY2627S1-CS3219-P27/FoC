@@ -92,7 +92,7 @@ describe("ChatConversation", () => {
 
     const panel = container.querySelector("section");
     const transcript = container.querySelector("[aria-live='polite']");
-    expect(panel).toHaveClass("h-[calc(100dvh-9rem)]", "overflow-hidden");
+    expect(panel).toHaveClass("h-dvh", "overflow-hidden");
     expect(transcript).toHaveClass("overflow-y-auto", "min-h-0");
     expect(screen.getByText(/The errand was delivered/)).toBeVisible();
     expect(screen.getByRole("heading", { name: "Errand chat · Requester" })).toBeVisible();

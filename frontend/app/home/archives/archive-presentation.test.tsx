@@ -41,7 +41,9 @@ describe("archive presentation", () => {
     await screen.findByText(/Errand 33333333/);
     await userEvent.click(screen.getByRole("button", { name: "Load more archives" }));
     await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(2));
-    expect(screen.getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual([
+    expect(
+      screen.getAllByRole("link").map((link) => link.getAttribute("href")).filter((href) => href?.startsWith("/home/archives/")),
+    ).toEqual([
       `/home/archives/${newest.archiveId}`,
       `/home/archives/${older.archiveId}`,
     ]);

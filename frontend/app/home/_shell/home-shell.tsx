@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   createContext,
@@ -14,8 +13,11 @@ import {
   type SetStateAction,
 } from "react";
 import { authFetch, setSessionExpiredHandler } from "@/lib/api";
+import { arriveAt } from "@/lib/nav-pulse";
 import { PushRegistrationSync } from "../_notifications/push-registration";
-import { Avatar } from "./avatar";
+import { RollingCubes } from "@/components/cubes";
+import { ADMIN_TABS, TAB_ORDER, type Tab } from "../_shared/types";
+import { AppShell, type Section } from "./app-shell";
 import { parseCurrentUser, type UserProfile } from "./current-user";
 
 interface HomeContextValue {
@@ -34,55 +36,21 @@ export function useHomeContext(): HomeContextValue {
   return value;
 }
 
-const primaryLinks = [
-  { href: "/home", label: "Home", matches: (path: string) => path === "/home" },
-  {
-    href: "/home/chats",
-    label: "Chats",
-    matches: (path: string) => path.startsWith("/home/chats"),
-  },
-  {
-    href: "/home/archives",
-    label: "Archives",
-    matches: (path: string) => path.startsWith("/home/archives"),
-  },
-] as const;
-
-function PrimaryNavigation({ mobile = false }: { mobile?: boolean }) {
-  const pathname = usePathname();
-
-  return (
-    <nav
-      aria-label={mobile ? "Primary mobile navigation" : "Primary navigation"}
-      className={mobile ? "flex border-t border-white/10 sm:hidden" : "hidden gap-1 sm:flex"}
-    >
-      {primaryLinks.map((link) => {
-        const active = link.matches(pathname);
-        return (
-          <Link
-            key={link.href}
-            href={link.href}
-            aria-current={active ? "page" : undefined}
-            className={
-              mobile
-                ? `btn-press flex-1 py-2.5 text-center text-sm font-medium transition-colors ${
-                    active ? "bg-white/15 text-white" : "text-white/60"
-                  }`
-                : `btn-press rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                    active ? "bg-white/20 text-white" : "text-white/70 hover:bg-white/10 hover:text-white"
-                  }`
-            }
-          >
-            {link.label}
-          </Link>
-        );
-      })}
-    </nav>
-  );
+// Chats and archives live on their own routes but share the app's sidebar and tab bar.
+function sectionFor(pathname: string): Section {
+  return pathname.startsWith("/home/archives") ? "archives" : "chats";
 }
+
+// An open conversation owns the whole phone screen, like a pushed view.
+const isConversation = (pathname: string) => /^\/home\/chats\/[^/]+$/.test(pathname);
+
+// After the sign-in pages in the flow, so arriving from them rolls the cubes forward.
+const HOME_PLACE = 10;
 
 export function HomeShell({ children, socketPath }: { children: ReactNode; socketPath: string }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const [signingOut, setSigningOut] = useState(false);
   const [user, setUser] = useState<UserProfile | null>(null);
   const [failed, setFailed] = useState(false);
   const updateUser: Dispatch<SetStateAction<UserProfile>> = useCallback((next) => {
@@ -93,6 +61,7 @@ export function HomeShell({ children, socketPath }: { children: ReactNode; socke
   }, []);
 
   useEffect(() => setSessionExpiredHandler(() => router.replace("/login")), [router]);
+  useEffect(() => arriveAt(HOME_PLACE), []);
 
   useEffect(() => {
     let active = true;
@@ -123,43 +92,44 @@ export function HomeShell({ children, socketPath }: { children: ReactNode; socke
 
   if (context === null) {
     return (
-      <div className="flex min-h-full flex-1 items-center justify-center">
-        <p role={failed ? "alert" : "status"} className="text-muted fade-in">
-          {failed ? "Redirecting to sign in…" : "Loading your workspace…"}
-        </p>
+      <div
+        className="flex min-h-dvh flex-1 flex-col items-center justify-center gap-2"
+        role={failed ? "alert" : "status"}
+        aria-label={failed ? "Redirecting to sign in" : "Loading"}
+      >
+        <RollingCubes size={14} className="h-20 w-32" />
       </div>
     );
   }
 
   const currentUser = context.user;
+  const tabs = TAB_ORDER.filter((t) => currentUser.isAdmin || !ADMIN_TABS.includes(t));
+
+  async function signOut() {
+    setSigningOut(true);
+    // Revoke the refresh token server-side; leave even if that fails.
+    await authFetch("/api/auth/sessions/current", { method: "DELETE" }).catch(() => null);
+    router.push("/login");
+  }
+
+  function goToTab(next: Tab) {
+    router.push(`/home?tab=${next}`);
+  }
 
   return (
     <HomeContext.Provider value={context}>
       <PushRegistrationSync />
-      <div className="flex min-h-full flex-1 flex-col">
-        <header className="glass-heavy sticky top-0 z-40 text-white">
-          <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3">
-            <div className="flex items-center gap-6">
-              <Link href="/home" className="text-xl font-bold tracking-tight">
-                FoC
-              </Link>
-              <PrimaryNavigation />
-            </div>
-            <div className="flex items-center gap-3">
-              <Avatar url={currentUser.profilePictureUrl} size={28} ring />
-              <span className="hidden text-sm text-white/80 sm:inline">{currentUser.displayName}</span>
-              {currentUser.isAdmin && (
-                <span className="rounded-full bg-nus-orange px-2 py-0.5 text-xs font-medium">Admin</span>
-              )}
-              <Link href="/login" className="text-sm text-white/70 transition-colors hover:text-white">
-                Sign out
-              </Link>
-            </div>
-          </div>
-          <PrimaryNavigation mobile />
-        </header>
-        <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">{children}</main>
-      </div>
+      <AppShell
+        tabs={tabs}
+        tab={sectionFor(pathname)}
+        onTab={goToTab}
+        user={currentUser}
+        signingOut={signingOut}
+        onSignOut={() => void signOut()}
+        immersive={isConversation(pathname)}
+      >
+        {children}
+      </AppShell>
     </HomeContext.Provider>
   );
 }
