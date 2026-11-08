@@ -56,6 +56,10 @@ export default function CampusMap({
       maxZoom: 19,
       attribution: "&copy; OpenStreetMap contributors",
     }).addTo(m);
+    // The view must exist before vector layers are added (Leaflet clips them against it).
+    // No building: start centred on the campus, at a zoom that shows most of it.
+    if (center) m.setView([center.latitude, center.longitude], 18);
+    else m.setView(L.latLngBounds(boundary.bounds).getCenter(), 15);
     const outline = L.geoJSON(geojson as GeoJSON.GeoJsonObject, {
       style: { color: "#003d7c", weight: 2, fill: false },
     }).addTo(m);
@@ -75,8 +79,6 @@ export default function CampusMap({
     const gray = { stroke: false, fillColor: "#000", fillOpacity: 0.4, interactive: false };
     L.polygon([world, ...outers], gray).addTo(m);
     inners.forEach((hole) => L.polygon(hole, gray).addTo(m));
-    if (center) m.setView([center.latitude, center.longitude], 18);
-    else m.fitBounds(boundary.bounds);
 
     const place = (at: LatLng) => {
       last.current = at;
@@ -126,5 +128,5 @@ export default function CampusMap({
     marker.current = mk;
   }, [value, boundary]);
 
-  return <div ref={el} className="h-64 w-full overflow-hidden rounded-xl" role="application" aria-label="Campus map" />;
+  return <div ref={el} className="h-100 w-full overflow-hidden rounded-xl" role="application" aria-label="Campus map" />;
 }
