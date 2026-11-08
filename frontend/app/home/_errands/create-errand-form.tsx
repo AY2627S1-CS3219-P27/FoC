@@ -7,6 +7,7 @@ import { parseCampusBoundary, type CampusBoundary } from "@/lib/campus";
 import type { LatLng } from "./campus-map";
 import type { BuildingOption, SupplierOption, VenueOption } from "./types";
 import { Button } from "@/components/ui/button";
+import { PinIcon } from "@/components/ui/icons";
 import { OptionCombobox, type ComboboxOption } from "@/components/ui/combobox";
 import { textareaClass } from "@/components/ui/field";
 import { Field, inputClass } from "./ui";
@@ -98,16 +99,19 @@ export function CreateErrandForm({
   // display name so users never see a bare code or the internal id.
   const buildingOptions = useMemo<ComboboxOption<string>[]>(
     () =>
-      buildings.map((b) =>
-        b.allowsPin
-          ? { value: b.id, label: "Other (choose on map)", title: "Other (choose on map)" }
-          : {
-              value: b.id,
-              label: `${b.shortName} — ${b.canonicalName}`,
-              title: b.shortName,
-              detail: b.canonicalName,
-            },
-      ),
+      // "Choose on map" always leads the list.
+      [...buildings]
+        .sort((a, b) => Number(b.allowsPin) - Number(a.allowsPin))
+        .map((b) =>
+          b.allowsPin
+            ? { value: b.id, label: "Pick from map", title: "Pick from map", detail: "Drop a pin on the campus map" }
+            : {
+                value: b.id,
+                label: `${b.shortName} — ${b.canonicalName}`,
+                title: b.shortName,
+                detail: b.canonicalName,
+              },
+        ),
     [buildings],
   );
   const supplierOptions = useMemo<ComboboxOption<string>[]>(
@@ -255,7 +259,7 @@ export function CreateErrandForm({
   return (
     <form onSubmit={onSubmit} className="space-y-5">
       <FormGroup footer="Credits are reserved once the supplier is confirmed, then couriers can see the errand.">
-        <Field label="Pickup from">
+        <Field label="Pickup from" required>
           <OptionCombobox
             options={supplierOptions}
             value={supplierId}
@@ -267,7 +271,7 @@ export function CreateErrandForm({
           )}
         </Field>
   
-        <Field label="Deliver to">
+        <Field label="Deliver to" required>
           <OptionCombobox
             options={buildingOptions}
             value={deliveryBuildingId}
@@ -293,9 +297,10 @@ export function CreateErrandForm({
               ))}
             </select>
             {pinBuilding && (
-              <button type="button" onClick={chooseOnMap} className="mt-1.5 text-xs text-nus-blue underline">
-                Can&apos;t find it? Choose on map
-              </button>
+              <Button type="button" intent="tinted" size="md" block onClick={chooseOnMap} className="mt-2">
+                <PinIcon size={16} />
+                Can&apos;t find it? Pick from map
+              </Button>
             )}
           </Field>
         )}
@@ -328,7 +333,7 @@ export function CreateErrandForm({
                   <button
                     type="button"
                     onClick={() => setLocation({ kind: "pin", at: null })}
-                    className="text-nus-blue underline"
+                    className="font-semibold text-nus-orange underline"
                   >
                     change
                   </button>
@@ -338,7 +343,10 @@ export function CreateErrandForm({
           </div>
         )}
 
-        <Field label={location.kind === "venue" ? "Room or level (optional)" : "Room, level or note"}>
+        <Field
+          label={location.kind === "venue" ? "Room or level (optional)" : "Room, level or note"}
+          required={location.kind !== "venue"}
+        >
           <input
             required={location.kind !== "venue"}
             maxLength={200}
@@ -351,7 +359,7 @@ export function CreateErrandForm({
       </FormGroup>
 
       <FormGroup>
-        <Field label="Items to collect">
+        <Field label="Items to collect" required>
           <textarea
             required
             maxLength={1000}
@@ -378,7 +386,7 @@ export function CreateErrandForm({
 
       <FormGroup>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Credits offered">
+          <Field label="Credits offered" required>
             <input
               type="number"
               required
