@@ -9,6 +9,7 @@ import { OtpEmailListener } from './handlers/otp.ts';
 import { ResetPasswordEmailListener } from './handlers/password-reset.ts';
 import { dispatchOutcome } from './handlers/common/dispatcher.ts';
 import { redis } from './handlers/common/redis-client.ts';
+import { forgetMessageId } from './handlers/common/dedup.ts';
 
 const RABBITMQ_PASS = readFileSync(envs.RABBITMQ_PASSWORD_FILE, 'utf8').trim();
 
@@ -42,11 +43,23 @@ let recycling = false;
 
 // Hard stop if draining hangs; keep below the container's stop_grace_period.
 const SHUTDOWN_TIMEOUT_MS = 8_000;
+const RELEASE_TIMEOUT_MS = 1_000;
+// Caps unacked deliveries per channel, so shutdown drains a handful, not the whole backlog.
+const PREFETCH = 10;
 let shuttingDown = false;
 let activeChannel: Channel | undefined;
 let consumerTags: string[] = [];
-// Deliveries still being handled; shutdown waits for them before closing.
-const inFlight = new Set<Promise<void>>();
+// Deliveries still being handled, with their dedup id; shutdown waits for them before closing.
+const inFlight = new Map<Promise<void>, string | undefined>();
+
+function messageIdOf(content: Buffer): string | undefined {
+  try {
+    const id = JSON.parse(content.toString('utf8'))?.data?.messageId;
+    return typeof id === 'string' ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Establish topology and consumers on the current broker model. Called once on
@@ -54,6 +67,10 @@ const inFlight = new Set<Promise<void>>();
  * service re-establishes itself automatically when the broker recovers.
  */
 async function setupConnection(model: ChannelModel): Promise<void> {
+  // A reconnect racing shutdown must not install consumers nobody will drain.
+  if (shuttingDown) {
+    return;
+  }
   recycling = false;
   activeModel = model;
 
@@ -75,6 +92,7 @@ async function setupConnection(model: ChannelModel): Promise<void> {
   });
 
   await assertTopology(ch1);
+  await ch1.prefetch(PREFETCH);
 
   for (const { queueKey, handler } of emailListeners) {
     const { consumerTag } = await ch1.consume(queueKey, async (msg) => {
@@ -96,21 +114,38 @@ async function setupConnection(model: ChannelModel): Promise<void> {
           await handler(msg.content, attempt),
         );
       })();
-      inFlight.add(delivery);
+      inFlight.set(delivery, messageIdOf(msg.content));
       try {
         await delivery;
       } finally {
         inFlight.delete(delivery);
       }
     });
+    if (shuttingDown) {
+      await ch1.cancel(consumerTag).catch(() => undefined);
+      return;
+    }
     consumerTags.push(consumerTag);
   }
 }
 
 /**
+ * Clear the dedup marks of deliveries cut off mid-send, so their redelivered
+ * copies are sent instead of being acked as duplicates. A send that finished
+ * but was not yet acked is then sent twice, which beats a lost OTP.
+ */
+async function releaseInFlight(): Promise<void> {
+  const ids = [...inFlight.values()].filter((id) => id !== undefined);
+  await Promise.race([
+    Promise.allSettled(ids.map(forgetMessageId)),
+    new Promise((resolve) => setTimeout(resolve, RELEASE_TIMEOUT_MS).unref()),
+  ]);
+}
+
+/**
  * On SIGTERM/SIGINT: stop new deliveries, let in-flight ones finish, then close
  * the broker and Redis connections. Unacked messages are redelivered by the
- * broker, so the hard timeout cannot lose work.
+ * broker; on the hard timeout, releaseInFlight keeps them from being deduped away.
  */
 async function shutdown(signal: NodeJS.Signals): Promise<void> {
   if (shuttingDown) {
@@ -120,14 +155,16 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   logger.info(`Received ${signal}; shutting down`);
   setTimeout(() => {
     logger.error('Shutdown timed out; exiting');
-    process.exit(1);
+    void releaseInFlight().finally(() => process.exit(1));
   }, SHUTDOWN_TIMEOUT_MS).unref();
 
   const channel = activeChannel;
   if (channel) {
     await Promise.allSettled(consumerTags.map((tag) => channel.cancel(tag)));
   }
-  await Promise.allSettled([...inFlight]);
+  while (inFlight.size > 0) {
+    await Promise.allSettled([...inFlight.keys()]);
+  }
   await Promise.allSettled([connection?.close(), redis.close()]);
   logger.info('Shutdown complete');
   process.exit(0);

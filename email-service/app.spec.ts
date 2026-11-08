@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => {
   const bindQueue = vi.fn();
   const consume = vi.fn();
   const cancel = vi.fn().mockResolvedValue(undefined);
+  const prefetch = vi.fn().mockResolvedValue(undefined);
   const ack = vi.fn();
   const nack = vi.fn();
   const publish = vi.fn();
@@ -51,6 +52,7 @@ const mocks = vi.hoisted(() => {
     bindQueue,
     consume,
     cancel,
+    prefetch,
     ack,
     nack,
     publish,
@@ -70,6 +72,7 @@ const mocks = vi.hoisted(() => {
     bindQueue,
     consume,
     cancel,
+    prefetch,
     ack,
     nack,
     publish,
@@ -367,6 +370,7 @@ describe('reconnect', () => {
     expect(mocks.assertQueue.mock.calls.length).toBeGreaterThan(
       beforeAssertQueue,
     );
+    expect(mocks.prefetch).toHaveBeenLastCalledWith(10);
   });
 
   it('recycles the connection when the server cancels a consumer', async () => {
@@ -497,5 +501,15 @@ describe('graceful shutdown', () => {
     expect(mocks.connectionClose).toHaveBeenCalled();
     expect(mocks.redisClose).toHaveBeenCalled();
     exit.mockRestore();
+  });
+
+  it('installs no consumers when the broker reconnects during shutdown', async () => {
+    const beforeChannels = mocks.createChannel.mock.calls.length;
+    const beforeConsumers = mocks.consume.mock.calls.length;
+
+    await setup(mocks.connection);
+
+    expect(mocks.createChannel.mock.calls.length).toBe(beforeChannels);
+    expect(mocks.consume.mock.calls.length).toBe(beforeConsumers);
   });
 });
