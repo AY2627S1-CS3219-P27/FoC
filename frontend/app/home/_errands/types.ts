@@ -6,7 +6,8 @@ export type ErrandStatus =
   | "Delivered"
   | "Completed"
   | "Cancelled"
-  | "Incomplete";
+  | "Incomplete"
+  | "Resolved";
 
 export const ERRAND_STATUSES: ErrandStatus[] = [
   "Pending",
@@ -17,6 +18,7 @@ export const ERRAND_STATUSES: ErrandStatus[] = [
   "Completed",
   "Cancelled",
   "Incomplete",
+  "Resolved",
 ];
 
 export interface Errand {
@@ -38,6 +40,9 @@ export interface Errand {
   requesterId?: string;
   courierId?: string | null;
   cancellationReason?: string | null;
+  /** Courier's share; parties only, and only once Resolved. */
+  settlementAmount?: number | null;
+  settlementNote?: string | null;
 }
 
 /** Building snapshot plus the requester's room/level, for display. */
