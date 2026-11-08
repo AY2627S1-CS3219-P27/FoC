@@ -174,7 +174,12 @@ export function ChatConversation({ chatId }: { chatId: string }) {
 
   function resizeComposer(element: HTMLTextAreaElement) {
     element.style.height = "auto";
-    element.style.height = `${Math.min(element.scrollHeight, COMPOSER_MAX_HEIGHT_PX)}px`;
+    // scrollHeight excludes the border, but the box is border-sizing, so add it back or a 2px overflow draws a scrollbar.
+    const border = element.offsetHeight - element.clientHeight;
+    const wanted = element.scrollHeight + border;
+    element.style.height = `${Math.min(wanted, COMPOSER_MAX_HEIGHT_PX)}px`;
+    // Only scroll once the cap is reached.
+    element.style.overflowY = wanted > COMPOSER_MAX_HEIGHT_PX ? "auto" : "hidden";
   }
 
   return (
