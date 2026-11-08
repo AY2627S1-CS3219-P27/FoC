@@ -32,7 +32,8 @@ async function seed(status: Status) {
     requesterId: requester,
     status,
     supplierId: randomUUID(),
-    courierId: status === 'Transferring-Credit' ? courier : undefined,
+    courierId: status === 'Transferring-Credit' || status === 'Settling-Credit' ? courier : undefined,
+    ...(status === 'Settling-Credit' ? { settlementAmount: 2, settlementNote: 'split it' } : {}),
     deliveryLocation: 'COM2',
     deliveryBuildingId: randomUUID(),
     deliveryDetail: 'Level 3 04-02',
@@ -196,5 +197,78 @@ describe('credit replies against the database', () => {
       }),
     ).toEqual({ outcome: 'ack' });
     expect(await events(id)).toHaveLength(0);
+  });
+
+  it('a settlement success resolves; a redelivery changes nothing', async () => {
+    const id = await seed('Settling-Credit');
+    const eventId = randomUUID();
+    const payload = {
+      errandId: id,
+      requesterUserId: requester,
+      courierUserId: courier,
+      courierAmount: 2,
+      requesterAmount: 3,
+      courierCreditTransactionId: randomUUID(),
+      requesterCreditTransactionId: randomUUID(),
+    };
+    expect(await deliver('credit.settlement-succeeded.v1', payload, eventId)).toEqual({ outcome: 'ack' });
+    expect(await deliver('credit.settlement-succeeded.v1', payload, eventId)).toEqual({ outcome: 'ack' });
+
+    expect(await row(id)).toMatchObject({ status: 'Resolved', settlementAmount: 2, settlementNote: 'split it' });
+    expect(await events(id)).toMatchObject([{ type: 'CreditSettlementSucceeded' }]);
+  });
+
+  it('a full refund success (null courier transaction) resolves', async () => {
+    const id = await seed('Settling-Credit');
+    await deliver('credit.settlement-succeeded.v1', {
+      errandId: id,
+      requesterUserId: requester,
+      courierUserId: courier,
+      courierAmount: 0,
+      requesterAmount: 5,
+      courierCreditTransactionId: null,
+      requesterCreditTransactionId: randomUUID(),
+    });
+    expect((await row(id)).status).toBe('Resolved');
+  });
+
+  it('a settlement rejection returns to Incomplete, clears the settlement and keeps the reason', async () => {
+    const id = await seed('Settling-Credit');
+    await deliver('credit.settlement-rejected.v1', {
+      errandId: id,
+      requesterUserId: requester,
+      courierUserId: courier,
+      rejectionReason: 'ALREADY_TRANSFERRED',
+    });
+
+    expect(await row(id)).toMatchObject({ status: 'Incomplete', settlementAmount: null, settlementNote: null });
+    expect((await events(id))[0]).toMatchObject({
+      type: 'CreditSettlementRejected',
+      payload: { reason: 'ALREADY_TRANSFERRED' },
+    });
+    expect(await rebuildProjection(t.db, id)).toMatchObject({ status: 'Incomplete' });
+  });
+
+  it('a late settlement reply after Resolved is acked and changes nothing', async () => {
+    const id = await seed('Settling-Credit');
+    await deliver('credit.settlement-succeeded.v1', {
+      errandId: id,
+      requesterUserId: requester,
+      courierUserId: courier,
+      courierAmount: 5,
+      requesterAmount: 0,
+      courierCreditTransactionId: randomUUID(),
+      requesterCreditTransactionId: null,
+    });
+    expect(
+      await deliver('credit.settlement-rejected.v1', {
+        errandId: id,
+        requesterUserId: requester,
+        courierUserId: courier,
+        rejectionReason: 'ALREADY_TRANSFERRED',
+      }),
+    ).toEqual({ outcome: 'ack' });
+    expect((await row(id)).status).toBe('Resolved');
+    expect(await events(id)).toHaveLength(1);
   });
 });
