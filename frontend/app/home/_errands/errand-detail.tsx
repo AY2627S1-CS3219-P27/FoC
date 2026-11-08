@@ -183,7 +183,7 @@ export function ErrandDetail({
             </DetailRow>
             <DetailRow label="Deliver to">
               {formatDelivery(errand)}
-              {errand.deliveryLatitude !== null && errand.deliveryLongitude !== null && (
+              {errand.deliveryLatitude != null && errand.deliveryLongitude != null && (
                 <a
                   href={`https://www.google.com/maps/dir/?api=1&destination=${errand.deliveryLatitude},${errand.deliveryLongitude}`}
                   target="_blank"

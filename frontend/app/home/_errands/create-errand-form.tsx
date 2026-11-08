@@ -173,6 +173,7 @@ export function CreateErrandForm({
   function chooseOnMap() {
     if (!pinBuilding) return;
     setDeliveryBuildingId(pinBuilding.id);
+    setMapError("");
     setLocation({ kind: "pin", at: null });
   }
 
