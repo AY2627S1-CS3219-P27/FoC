@@ -16,6 +16,8 @@ Errand lifecycle, state model and expiry. See `AGENTS.md` and `ARCHITECTURE.md`.
 
 On a `Resolved` errand, `GET /mine` and `GET /:id` add `settlementAmount` (the courier's share) and `settlementNote` for the two parties (and admins, on the admin routes). Never on the open list, never for other users.
 
+On an `Incomplete` errand (including `Settling-Credit`), `GET /mine` and `GET /:id` add `hasReported` (the caller's own report; never the other side's) and `canReport` (false once reported or settlement was requested, even after a rejection) for the two parties, so an app can hide a report form that would 409.
+
 ## Admin routes (`/v1/admin`, JWT with `isAdmin`)
 
 | Route | Purpose |

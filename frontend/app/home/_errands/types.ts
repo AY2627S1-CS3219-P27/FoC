@@ -43,6 +43,9 @@ export interface Errand {
   /** Courier's share; parties only, and only once Resolved. */
   settlementAmount?: number | null;
   settlementNote?: string | null;
+  /** Parties on an Incomplete errand only: the caller's own report, and whether the form is still open. */
+  hasReported?: boolean;
+  canReport?: boolean;
 }
 
 /** Building snapshot plus the requester's room/level, for display. */

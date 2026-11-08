@@ -9,11 +9,10 @@ import { FormError, textareaClass } from "@/components/ui/field";
 import { MAX_REPORT_LENGTH } from "./types";
 
 // Party report on an Incomplete errand. One per party, immutable, closed once settlement starts.
-export function ReportButton({ errandId }: { errandId: string }) {
+export function ReportButton({ errandId, onFiled }: { errandId: string; onFiled: () => void }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [pending, setPending] = useState(false);
-  const [filed, setFiled] = useState(false);
   const [error, setError] = useState("");
 
   async function send() {
@@ -22,25 +21,20 @@ export function ReportButton({ errandId }: { errandId: string }) {
     setPending(false);
     setOpen(false);
     if (res.ok) {
-      setFiled(true);
       setError("");
       toast.success("Report sent", { description: "The admin will read it before settling." });
     } else {
-      // ALREADY_REPORTED: an earlier visit filed one, and the backend has no route to read it back.
-      if (res.code === "ALREADY_REPORTED") setFiled(true);
       setError(errorText(res, "Could not send your report."));
     }
+    // Refetch either way: a 409 means the errand moved on, and canReport now says so.
+    onFiled();
   }
 
   return (
     <div className="space-y-2">
-      {filed ? (
-        <p className="text-center text-[13px] text-muted">Your report is filed. An admin will settle this errand.</p>
-      ) : (
-        <Button size="lg" block intent="outline" onClick={() => setOpen(true)}>
-          Tell the admin what happened
-        </Button>
-      )}
+      <Button size="lg" block intent="outline" onClick={() => setOpen(true)}>
+        Tell the admin what happened
+      </Button>
       {error && <FormError>{error}</FormError>}
       <ConfirmDialog
         open={open}

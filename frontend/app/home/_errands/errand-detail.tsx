@@ -211,9 +211,10 @@ export function ErrandDetail({
             </Section>
           )}
 
-          {errand.status === "Incomplete" && (errand.requesterId === me || errand.courierId === me) && (
-            <ReportButton errandId={errandId} />
+          {errand.hasReported && (
+            <p className="text-center text-[13px] text-muted">Your report is filed. An admin will settle this errand.</p>
           )}
+          {errand.canReport && <ReportButton errandId={errandId} onFiled={load} />}
 
           {actions.length === 0 ? (
             <p className="text-center text-[13px] text-muted">Nothing for you to do at this stage.</p>
