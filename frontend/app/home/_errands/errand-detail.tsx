@@ -11,6 +11,7 @@ import { Sheet } from "@/components/ui/sheet";
 import {
   ACTION_LABELS,
   availableActions,
+  cancellationText,
   formatDelivery,
   type ActionName,
   type Errand,
@@ -180,7 +181,19 @@ export function ErrandDetail({
                 <span className="mt-0.5 block text-[13px] text-muted">{errand.pickupDescription}</span>
               )}
             </DetailRow>
-            <DetailRow label="Deliver to">{formatDelivery(errand)}</DetailRow>
+            <DetailRow label="Deliver to">
+              {formatDelivery(errand)}
+              {errand.deliveryLatitude !== null && errand.deliveryLongitude !== null && (
+                <a
+                  href={`https://www.google.com/maps/dir/?api=1&destination=${errand.deliveryLatitude},${errand.deliveryLongitude}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-0.5 block text-[13px] text-nus-blue underline"
+                >
+                  Open directions
+                </a>
+              )}
+            </DetailRow>
           </Section>
 
           <Section title="Request">
@@ -192,7 +205,7 @@ export function ErrandDetail({
                 <span className="whitespace-pre-wrap">{errand.description}</span>
               </DetailRow>
             )}
-            {errand.cancellationReason && <DetailRow label="Reason">{errand.cancellationReason}</DetailRow>}
+            {errand.cancellationReason && <DetailRow label="Reason">{cancellationText(errand.cancellationReason)}</DetailRow>}
             <DetailRow label="Created">{formatTime(errand.createdAt)}</DetailRow>
           </Section>
 
