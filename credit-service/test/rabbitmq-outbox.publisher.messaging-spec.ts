@@ -33,6 +33,8 @@ describe('RabbitMqOutboxPublisher messaging integration', () => {
       autoDelete: true,
     });
     await channel.bindQueue(queue, exchange, routingKey);
+    await channel.bindQueue(queue, exchange, 'credit.settlement-succeeded.v1');
+    await channel.bindQueue(queue, exchange, 'credit.settlement-rejected.v1');
     publisher = new RabbitMqOutboxPublisher(
       config,
       {
@@ -116,4 +118,64 @@ describe('RabbitMqOutboxPublisher messaging integration', () => {
       }),
     ).resolves.toBeUndefined();
   });
+
+  it.each([
+    [
+      'CreditSettlementSucceeded',
+      'credit.settlement-succeeded.v1',
+      {
+        errandId: randomUUID(),
+        requesterUserId: randomUUID(),
+        courierUserId: randomUUID(),
+        courierAmount: 30,
+        requesterAmount: 20,
+        courierCreditTransactionId: randomUUID(),
+        requesterCreditTransactionId: randomUUID(),
+      },
+    ],
+    [
+      'CreditSettlementRejected',
+      'credit.settlement-rejected.v1',
+      {
+        errandId: randomUUID(),
+        requesterUserId: randomUUID(),
+        courierUserId: randomUUID(),
+        rejectionReason: 'AMOUNT_MISMATCH',
+      },
+    ],
+  ] as const)(
+    'confirms and persistently publishes %s',
+    async (eventType, settlementRoutingKey, payload) => {
+      const eventId = randomUUID();
+      const envelope = {
+        eventId,
+        eventType,
+        timestamp: new Date().toISOString(),
+        publisher: 'credit-service',
+        payload,
+      };
+
+      await publisher.publish({
+        eventId,
+        eventType,
+        routingKey: settlementRoutingKey,
+        envelope,
+      });
+      const message = await channel.get(queue, { noAck: true });
+
+      expect(message).not.toBe(false);
+      if (message === false) {
+        throw new Error('Expected the published settlement outcome');
+      }
+      expect(JSON.parse(message.content.toString('utf8'))).toEqual(envelope);
+      expect(message.fields.routingKey).toBe(settlementRoutingKey);
+      expect(message.properties).toMatchObject({
+        deliveryMode: 2,
+        contentType: 'application/json',
+        messageId: eventId,
+        type: eventType,
+        appId: 'credit-service',
+      });
+    },
+  );
 });
