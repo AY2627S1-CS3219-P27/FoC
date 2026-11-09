@@ -13,6 +13,54 @@ const DEFAULT_ICON = '/icon.svg';
 // subscription answered 404/410). We re-subscribe here and hand the new one to
 // the app so it can rotate the stored endpoint — the service worker itself can
 // not refresh an expired access token.
+//
+// Only open page clients can receive that message, and the push service usually
+// refreshes a subscription while the browser is closed. So the old endpoint is
+// also written to IndexedDB (the origin-scoped store the app reads on load);
+// the next page load finishes the rotation.
+const ROTATION_DB = 'foc-push-rotation';
+const ROTATION_STORE = 'rotations';
+const ROTATION_KEY = 'pending';
+
+function saveRotatedEndpoint(endpoint) {
+  return new Promise((resolve) => {
+    try {
+      if (!self.indexedDB) {
+        resolve();
+        return;
+      }
+
+      const request = indexedDB.open(ROTATION_DB, 1);
+      request.onupgradeneeded = () => {
+        request.result.createObjectStore(ROTATION_STORE, { keyPath: 'id' });
+      };
+      request.onerror = () => resolve();
+      request.onsuccess = () => {
+        const db = request.result;
+        try {
+          const transaction = db.transaction(ROTATION_STORE, 'readwrite');
+          transaction
+            .objectStore(ROTATION_STORE)
+            .put({ id: ROTATION_KEY, endpoint, savedAt: Date.now() });
+          transaction.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          transaction.onerror = () => {
+            db.close();
+            resolve();
+          };
+        } catch {
+          db.close();
+          resolve();
+        }
+      };
+    } catch {
+      resolve();
+    }
+  });
+}
+
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -27,6 +75,13 @@ function urlBase64ToUint8Array(base64String) {
 self.addEventListener('pushsubscriptionchange', (event) => {
   void event.waitUntil(
     (async () => {
+      // Persist before re-subscribing: if subscribe() fails (for example the
+      // permission was revoked) or no page is open, the next load still knows
+      // which endpoint it has to rotate away from.
+      if (event.oldSubscription?.endpoint) {
+        await saveRotatedEndpoint(event.oldSubscription.endpoint);
+      }
+
       try {
         const keyResponse = await fetch(
           '/api/notifications/subscriptions/vapid-public-key',

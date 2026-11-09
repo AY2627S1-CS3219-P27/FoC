@@ -62,8 +62,12 @@ claiming one.
   to the normal create path (a `409` if the pair is already present).
 
 The frontend re-subscribes in the service worker on `pushsubscriptionchange` and
-hands the new subscription (plus the old endpoint) to the app, so a background
-rotation is rotated on the server without the user opening the app.
+hands the new subscription (plus the old endpoint) to the app. The message only
+reaches page clients that are open, so the worker also persists the old endpoint
+in IndexedDB; when the next page loads with no faster path having consumed it,
+`PushRegistrationSync` sends it alongside the current subscription and the
+rotation completes atomically then. Until either happens, the push service's
+`404`/`410` answer to a delivery deactivates the stale row.
 
 Rows remain soft-deleted, so each account's registration history is preserved.
 

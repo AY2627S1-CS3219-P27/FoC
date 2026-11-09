@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { clearRotatedEndpoint, getRotatedEndpoint } from "@/lib/push-rotation-store";
 import {
   registerPushServiceWorker,
   syncSubscriptionToServer,
@@ -32,7 +33,18 @@ export function PushRegistrationSync() {
         const subscription = await registration.pushManager.getSubscription();
         if (subscription === null || cancelled) return;
 
-        await syncSubscriptionToServer(subscription);
+        // A rotation that happened while no page was open left its old
+        // endpoint in IndexedDB; handing it along lets the service deactivate
+        // the stale row atomically instead of leaving it active until a failed
+        // delivery. Cleared only once the service has acknowledged the sync.
+        const previousEndpoint = await getRotatedEndpoint();
+        if (cancelled) return;
+
+        const sync = await syncSubscriptionToServer(
+          subscription,
+          previousEndpoint ?? undefined,
+        );
+        if (sync.ok) await clearRotatedEndpoint();
       } catch {
         // The profile card reports the failure and offers a retry, if the user
         // visits it.
@@ -59,9 +71,15 @@ export function PushRegistrationSync() {
       void syncSubscriptionToServer(
         data.subscription,
         data.previousEndpoint,
-      ).catch(() => {
-        // The card re-syncs this browser's subscription on the next load.
-      });
+      )
+        .then((sync) => {
+          // The worker also persisted this rotation for the next load; this
+          // fast path has just consumed it.
+          if (sync.ok) return clearRotatedEndpoint();
+        })
+        .catch(() => {
+          // The card re-syncs this browser's subscription on the next load.
+        });
     }
 
     if ("serviceWorker" in navigator) {
