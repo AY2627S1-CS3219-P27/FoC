@@ -42,6 +42,9 @@ const errand: Errand = {
   pickupDescription: null,
   deliveryLocation: "COM2",
   deliveryDetail: "Level 3",
+  deliveryVenue: null,
+  deliveryLatitude: null,
+  deliveryLongitude: null,
   collectionItems: "tea",
   description: null,
   rewardCredits: 5,
@@ -52,10 +55,11 @@ const suppliers: SupplierOption[] = [
   { id: "s1", displayName: "Cool Spot", building: null, floor: "1" },
   { id: "s2", displayName: "Hot Spot", building: null, floor: "2" },
 ];
+const place = { coordinates: { latitude: 1.29, longitude: 103.77 }, venueCount: 0 };
 const buildings: BuildingOption[] = [
-  { id: "b1", shortName: "COM2", canonicalName: "Computing 2" },
-  { id: "b2", shortName: "AS6", canonicalName: "Arts 6" },
-  { id: "b3", shortName: "PIN", canonicalName: "Other (map pin)", allowsPin: true },
+  { id: "b1", shortName: "COM2", canonicalName: "Computing 2", ...place },
+  { id: "b2", shortName: "AS6", canonicalName: "Arts 6", ...place },
+  { id: "b3", shortName: "PIN", canonicalName: "Other (map pin)", allowsPin: true, ...place },
 ];
 
 const ok = { ok: true, status: 200, data: { sequenceNumber: 4 }, code: null, message: null, etag: null };

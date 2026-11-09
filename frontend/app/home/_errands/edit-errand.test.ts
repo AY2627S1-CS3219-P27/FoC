@@ -9,9 +9,10 @@ import {
 } from "./edit-errand";
 import type { BuildingOption, Errand } from "./types";
 
-const com2: BuildingOption = { id: "b-com2", shortName: "COM2", canonicalName: "Computing 2" };
-const as6: BuildingOption = { id: "b-as6", shortName: "AS6", canonicalName: "Arts 6" };
-const pin: BuildingOption = { id: "b-pin", shortName: "PIN", canonicalName: "Other (map pin)", allowsPin: true };
+const place = { coordinates: { latitude: 1.29, longitude: 103.77 }, venueCount: 0 };
+const com2: BuildingOption = { id: "b-com2", shortName: "COM2", canonicalName: "Computing 2", ...place };
+const as6: BuildingOption = { id: "b-as6", shortName: "AS6", canonicalName: "Arts 6", ...place };
+const pin: BuildingOption = { id: "b-pin", shortName: "PIN", canonicalName: "Other (map pin)", allowsPin: true, ...place };
 
 const errand = (over: Partial<Errand> = {}): Errand => ({
   id: "e1",
@@ -22,6 +23,9 @@ const errand = (over: Partial<Errand> = {}): Errand => ({
   pickupDescription: null,
   deliveryLocation: "COM2",
   deliveryDetail: "Level 3",
+  deliveryVenue: null,
+  deliveryLatitude: null,
+  deliveryLongitude: null,
   collectionItems: "tea",
   description: null,
   rewardCredits: 5,
