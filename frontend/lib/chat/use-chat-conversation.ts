@@ -74,7 +74,8 @@ export function useChatConversation(chatId: string, callerUserId: string, socket
   const syncingRef = useRef(false);
   const bufferedRef = useRef<MessageView[]>([]);
   const lastReadRef = useRef(0);
-  const recoveringArchiveRef = useRef(false);
+  // Generation of the in-flight lookup. A stale generation (StrictMode remount, chat switch) must not block the live one.
+  const recoveringArchiveRef = useRef<number | null>(null);
 
   useEffect(() => {
     stateRef.current = state;
@@ -308,9 +309,9 @@ export function useChatConversation(chatId: string, callerUserId: string, socket
   }, [chatId, synchronize]);
 
   const recoverArchive = useCallback(async () => {
-    if (recoveringArchiveRef.current || stateRef.current.archived !== null) return;
     const generation = generationRef.current;
-    recoveringArchiveRef.current = true;
+    if (recoveringArchiveRef.current === generation || stateRef.current.archived !== null) return;
+    recoveringArchiveRef.current = generation;
     dispatch({ type: "archive-recovery", recovery: "checking" });
     try {
       const liveChat = await findLiveChatById(chatId);
@@ -369,7 +370,7 @@ export function useChatConversation(chatId: string, callerUserId: string, socket
         dispatch({ type: "archive-recovery", recovery: "waiting" });
       }
     } finally {
-      recoveringArchiveRef.current = false;
+      if (recoveringArchiveRef.current === generation) recoveringArchiveRef.current = null;
     }
   }, [callerUserId, chatId]);
 
