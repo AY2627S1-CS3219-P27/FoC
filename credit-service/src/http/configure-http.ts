@@ -48,11 +48,13 @@ export function configureHttp(app: INestApplication): void {
 
   const openApiConfig = new DocumentBuilder()
     .setTitle('Friend on Campus Credit Service')
-    .setDescription('Credit balance and advisory sufficiency APIs')
+    .setDescription(
+      'Credit balance, transaction history, and advisory sufficiency APIs',
+    )
     .setVersion('1.0')
     .addTag(
       'credits',
-      'Authenticated, self-only balance reads and non-reserving sufficiency advice',
+      'Authenticated, self-only balance and ledger reads with non-reserving sufficiency advice',
     )
     .addBearerAuth(
       {

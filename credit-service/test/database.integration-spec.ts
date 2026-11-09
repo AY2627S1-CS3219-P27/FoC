@@ -90,6 +90,7 @@ describe('credit persistence migration', () => {
         'CHK_credit_operations_participants',
         'CHK_credit_operations_requester',
         'CHK_credit_operations_adjustment_command',
+        'CHK_credit_operations_settlement_command',
         'CHK_credit_operations_claim',
         'CHK_credit_operations_outcome',
         'CHK_credit_reservations_reserved_amount',
@@ -105,6 +106,8 @@ describe('credit persistence migration', () => {
         'CHK_outbox_events_attempt_count',
         'FK_credit_allocations_user',
         'FK_credit_operations_completion_transaction',
+        'FK_credit_operations_requester_transaction',
+        'FK_credit_operations_courier_transaction',
         'FK_credit_operations_outcome_outbox',
         'FK_credit_reservations_requester',
         'FK_credit_reservations_latest_transaction',
@@ -125,7 +128,10 @@ describe('credit persistence migration', () => {
         'UQ_credit_allocations_user',
         'UQ_credit_operations_lifecycle_errand_type',
         'UQ_credit_operations_adjustment_event',
+        'UQ_credit_operations_settlement_attempt',
         'IDX_credit_operations_completion_transaction',
+        'IDX_credit_operations_requester_transaction',
+        'IDX_credit_operations_courier_transaction',
         'UQ_credit_operations_outcome_outbox',
         'IDX_credit_operations_pending_due',
         'IDX_credit_operations_pending_claim_expiry',
@@ -576,6 +582,157 @@ describe('credit persistence migration', () => {
         [randomUUID(), randomUUID(), 'e'.repeat(64), randomUUID()],
       ),
     ).rejects.toMatchObject({ code: '23514' });
+  });
+
+  it('enforces settlement attempts, shares, and role-specific outcomes', async () => {
+    const requesterUserId = randomUUID();
+    const courierUserId = randomUUID();
+    const errandId = randomUUID();
+    const requesterTransactionId = randomUUID();
+    const courierTransactionId = randomUUID();
+    const outboxEventId = randomUUID();
+
+    await dataSource.query(
+      `INSERT INTO credit_accounts (user_id, credit_balance, reserved_balance)
+       VALUES ($1, 100, 0), ($2, 100, 0)`,
+      [requesterUserId, courierUserId],
+    );
+    await dataSource.query(
+      `INSERT INTO credit_transactions
+       (id, type, amount, origin_balance_type, destination_balance_type,
+        origin_user_id, destination_user_id, errand_id)
+       VALUES
+         ($1, 'RELEASE', 20, 'RESERVED_BALANCE', 'CREDIT_BALANCE', $3, $3, $5),
+         ($2, 'TRANSFER', 30, 'RESERVED_BALANCE', 'CREDIT_BALANCE', $3, $4, $5)`,
+      [
+        requesterTransactionId,
+        courierTransactionId,
+        requesterUserId,
+        courierUserId,
+        errandId,
+      ],
+    );
+    await dataSource.query(
+      `INSERT INTO outbox_events
+       (event_id, event_type, routing_key, envelope, attempt_count)
+       VALUES ($1, 'CreditSettlementSucceeded', 'credit.settlement-succeeded.v1', '{}', 0)`,
+      [outboxEventId],
+    );
+
+    const pendingOperationId = randomUUID();
+    await dataSource.query(
+      `INSERT INTO credit_operations
+       (id, errand_id, operation_type, status, requester_user_id,
+        courier_user_id, amount, settlement_attempt, requester_amount,
+        courier_amount, request_payload_hash, next_attempt_at)
+       VALUES ($1, $2, 'SETTLEMENT', 'PENDING', $3, $4, 50,
+               9007199254740991, 20, 30, $5, now())`,
+      [
+        pendingOperationId,
+        errandId,
+        requesterUserId,
+        courierUserId,
+        'a'.repeat(64),
+      ],
+    );
+    await expect(
+      dataSource.getRepository(CreditOperation).findOneByOrFail({
+        id: pendingOperationId,
+      }),
+    ).resolves.toMatchObject({
+      operationType: 'SETTLEMENT',
+      settlementAttempt: Number.MAX_SAFE_INTEGER,
+      requesterAmount: 20,
+      courierAmount: 30,
+      requesterTransactionId: null,
+      courierTransactionId: null,
+    });
+
+    await expect(
+      dataSource.query(
+        `INSERT INTO credit_operations
+         (id, errand_id, operation_type, status, requester_user_id,
+          courier_user_id, amount, settlement_attempt, requester_amount,
+          courier_amount, request_payload_hash, next_attempt_at)
+         VALUES ($1, $2, 'SETTLEMENT', 'PENDING', $3, $4, 50,
+                 9007199254740991, 20, 30, $5, now())`,
+        [
+          randomUUID(),
+          errandId,
+          requesterUserId,
+          courierUserId,
+          'b'.repeat(64),
+        ],
+      ),
+    ).rejects.toMatchObject({
+      code: '23505',
+      constraint: 'UQ_credit_operations_settlement_attempt',
+    });
+
+    await expect(
+      dataSource.query(
+        `INSERT INTO credit_operations
+         (id, errand_id, operation_type, status, requester_user_id,
+          courier_user_id, amount, settlement_attempt, requester_amount,
+          courier_amount, request_payload_hash, next_attempt_at)
+         VALUES ($1, $2, 'SETTLEMENT', 'PENDING', $3, $4, 50, 1, 10, 30, $5, now())`,
+        [
+          randomUUID(),
+          randomUUID(),
+          requesterUserId,
+          courierUserId,
+          'c'.repeat(64),
+        ],
+      ),
+    ).rejects.toMatchObject({
+      code: '23514',
+      constraint: 'CHK_credit_operations_settlement_command',
+    });
+
+    await dataSource.query(
+      `INSERT INTO credit_operations
+       (id, errand_id, operation_type, status, requester_user_id,
+        courier_user_id, amount, settlement_attempt, requester_amount,
+        courier_amount, request_payload_hash, next_attempt_at,
+        requester_transaction_id, courier_transaction_id,
+        outcome_outbox_event_id)
+       VALUES ($1, $2, 'SETTLEMENT', 'SUCCEEDED', $3, $4, 50, 2, 20, 30,
+               $5, now(), $6, $7, $8)`,
+      [
+        randomUUID(),
+        errandId,
+        requesterUserId,
+        courierUserId,
+        'd'.repeat(64),
+        requesterTransactionId,
+        courierTransactionId,
+        outboxEventId,
+      ],
+    );
+
+    await expect(
+      dataSource.query(
+        `INSERT INTO credit_operations
+         (id, errand_id, operation_type, status, requester_user_id,
+          courier_user_id, amount, settlement_attempt, requester_amount,
+          courier_amount, request_payload_hash, next_attempt_at,
+          courier_transaction_id, outcome_outbox_event_id)
+         VALUES ($1, $2, 'SETTLEMENT', 'SUCCEEDED', $3, $4, 50, 3, 20, 30,
+                 $5, now(), $6, $7)`,
+        [
+          randomUUID(),
+          errandId,
+          requesterUserId,
+          courierUserId,
+          'e'.repeat(64),
+          courierTransactionId,
+          outboxEventId,
+        ],
+      ),
+    ).rejects.toMatchObject({
+      code: '23514',
+      constraint: 'CHK_credit_operations_outcome',
+    });
   });
 
   it('represents terminal release outcomes with intact settlement references', async () => {
@@ -1069,6 +1226,26 @@ describe('credit persistence migration', () => {
     );
     await dataSource.undoLastMigration({ transaction: 'all' });
 
+    const [postSettlementAmountColumn] = await dataSource.query<
+      { is_nullable: 'YES' | 'NO' }[]
+    >(`
+      SELECT is_nullable FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'credit_operations'
+        AND column_name = 'amount'
+    `);
+    expect(postSettlementAmountColumn).toEqual({ is_nullable: 'YES' });
+    const settlementColumns = await dataSource.query<
+      { column_name: string }[]
+    >(`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'credit_operations'
+        AND column_name = 'settlement_attempt'
+    `);
+    expect(settlementColumns).toEqual([]);
+
+    await dataSource.undoLastMigration({ transaction: 'all' });
     const [originalAmountColumn] = await dataSource.query<
       { is_nullable: 'YES' | 'NO' }[]
     >(`
@@ -1089,6 +1266,15 @@ describe('credit persistence migration', () => {
         AND column_name = 'amount'
     `);
     expect(settlementAmountColumn).toEqual({ is_nullable: 'YES' });
+    const [settlementAttemptColumn] = await dataSource.query<
+      { data_type: string }[]
+    >(`
+      SELECT data_type FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'credit_operations'
+        AND column_name = 'settlement_attempt'
+    `);
+    expect(settlementAttemptColumn).toEqual({ data_type: 'bigint' });
 
     for (let index = 0; index < dataSource.migrations.length; index += 1) {
       await dataSource.undoLastMigration({ transaction: 'all' });

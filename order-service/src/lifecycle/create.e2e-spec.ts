@@ -13,7 +13,8 @@ afterAll(() => t.close());
 const input = (over = {}) => ({
   requesterId: randomUUID(),
   supplierId: randomUUID(),
-  deliveryLocation: 'COM2',
+  deliveryBuildingId: randomUUID(),
+  deliveryDetail: 'Level 3 04-02',
   rewardCredits: 5,
   expiryDurationMinutes: 60,
   collectionItems: 'bubble tea',
@@ -23,6 +24,45 @@ const events = (id: string) =>
   t.db.select().from(errandEvents).where(eq(errandEvents.errandId, id));
 const outboxFor = (id: string) =>
   t.db.select().from(outboxEvents).where(sql`envelope->'payload'->>'errandId' = ${id}`);
+
+describe('createErrand venue and pin', () => {
+  const venueId = randomUUID();
+  const rowOf = async (id: string) =>
+    (await t.db.select().from(errands).where(eq(errands.id, id)))[0];
+
+  it('stores the venue id, allows an empty note, and asks supplier-service about the venue', async () => {
+    const res = await createErrand(t.db, input({ deliveryVenueId: venueId, deliveryDetail: '' }));
+    if (!res.ok) throw new Error('expected ok');
+    expect(await rowOf(res.errandId)).toMatchObject({
+      deliveryVenueId: venueId,
+      deliveryDetail: '',
+      deliveryLatitude: null,
+    });
+    expect((await outboxFor(res.errandId))[0].envelope.payload).toMatchObject({ deliveryVenueId: venueId });
+  });
+
+  it('stores a pin as delivery coordinates and sends no venue id', async () => {
+    const res = await createErrand(
+      t.db,
+      input({ deliveryPin: { latitude: 1.3, longitude: 103.77 } }),
+    );
+    if (!res.ok) throw new Error('expected ok');
+    expect(await rowOf(res.errandId)).toMatchObject({
+      deliveryVenueId: null,
+      deliveryLatitude: 1.3,
+      deliveryLongitude: 103.77,
+    });
+    expect((await outboxFor(res.errandId))[0].envelope.payload).not.toHaveProperty('deliveryVenueId');
+  });
+
+  it.each([
+    ['a venue and a pin', { deliveryVenueId: venueId, deliveryPin: { latitude: 1.3, longitude: 103.77 } }],
+    ['a blank note without a venue', { deliveryDetail: '  ' }],
+    ['no note without a venue', { deliveryDetail: undefined }],
+  ])('refuses %s', async (_, over) => {
+    expect(await createErrand(t.db, input(over))).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
+  });
+});
 
 describe('createErrand', () => {
   it('writes a Pending-Supplier errand and ErrandCreated as event 1', async () => {
@@ -38,6 +78,9 @@ describe('createErrand', () => {
       status: 'Pending-Supplier',
       lastSequenceNumber: 1,
       requesterId: i.requesterId,
+      deliveryBuildingId: i.deliveryBuildingId,
+      deliveryDetail: 'Level 3 04-02',
+      deliveryLocation: null,
     });
     expect(await events(res.errandId)).toMatchObject([
       {
@@ -49,7 +92,8 @@ describe('createErrand', () => {
         payload: {
           requesterId: i.requesterId,
           supplierId: i.supplierId,
-          deliveryLocation: 'COM2',
+          deliveryBuildingId: i.deliveryBuildingId,
+          deliveryDetail: 'Level 3 04-02',
           rewardCredits: 5,
           description: null,
           expiryDurationMinutes: 60,
@@ -123,14 +167,19 @@ describe('createErrand', () => {
       envelope: {
         eventType: 'SupplierValidationRequested',
         publisher: 'order-service',
-        payload: { errandId: first.errandId, supplierId: i.supplierId },
+        payload: {
+          errandId: first.errandId,
+          supplierId: i.supplierId,
+          deliveryBuildingId: i.deliveryBuildingId,
+        },
       },
     });
   });
 
   it.each([
     ['a different reward', { rewardCredits: 9 }],
-    ['a different delivery location', { deliveryLocation: 'UTown' }],
+    ['a different delivery building', { deliveryBuildingId: randomUUID() }],
+    ['a different delivery detail', { deliveryDetail: 'Level 4 01-01' }],
     ['an added optional field', { description: 'no onions' }],
     ['a different expiry', { expiryDurationMinutes: 120 }],
     ['different collectionItems', { collectionItems: 'coffee' }],

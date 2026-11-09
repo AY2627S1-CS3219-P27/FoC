@@ -10,6 +10,7 @@ import { REDIS } from '../redis/redis.provider.js';
 import { SecretService } from '../secret/secret.service.js';
 import { EMAIL_SERVICE } from '../broker/broker.module.js';
 import { UsersService } from '../users/users.service.js';
+import { AuthService } from '../auth/auth.service.js';
 import { hmacValue } from '../common/hash/hash.js';
 
 vi.mock('../common/hash/hash.js', () => ({
@@ -32,6 +33,7 @@ describe('PasswordResetService', () => {
     findActiveUserByEmail: ReturnType<typeof vi.fn>;
     updatePassword: ReturnType<typeof vi.fn>;
   };
+  let authService: { revokeAllRefreshTokens: ReturnType<typeof vi.fn> };
   let configService: { getOrThrow: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
@@ -60,6 +62,8 @@ describe('PasswordResetService', () => {
       updatePassword: vi.fn(async () => undefined),
     };
 
+    authService = { revokeAllRefreshTokens: vi.fn(async () => undefined) };
+
     configService = {
       getOrThrow: vi.fn((key: string) => {
         if (key === 'FRONTEND_BASE_URL') return 'http://localhost:5173';
@@ -78,6 +82,7 @@ describe('PasswordResetService', () => {
         },
         { provide: EMAIL_SERVICE, useValue: emailClient },
         { provide: UsersService, useValue: usersService },
+        { provide: AuthService, useValue: authService },
         { provide: ConfigService, useValue: configService },
       ],
     }).compile();
@@ -281,6 +286,52 @@ describe('PasswordResetService', () => {
       );
 
       expect(usersService.updatePassword).not.toHaveBeenCalled();
+    });
+
+    it('revokes every refresh token of the account once the password is stored', async () => {
+      redis.eval.mockResolvedValue(EMAIL);
+
+      await service.confirmReset('someToken123', 'NewStrongPassw0rd!');
+
+      expect(authService.revokeAllRefreshTokens).toHaveBeenCalledTimes(1);
+      expect(authService.revokeAllRefreshTokens).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111',
+      );
+      // Sessions die only after the credentials actually changed.
+      expect(
+        authService.revokeAllRefreshTokens.mock.invocationCallOrder[0],
+      ).toBeGreaterThan(usersService.updatePassword.mock.invocationCallOrder[0]);
+    });
+
+    it('revokes nothing when the record is missing', async () => {
+      redis.hGetAll.mockResolvedValue({});
+
+      await expect(
+        service.confirmReset('badToken', 'NewStrongPassw0rd!'),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(authService.revokeAllRefreshTokens).not.toHaveBeenCalled();
+    });
+
+    it('revokes nothing when the script rejects the token', async () => {
+      redis.eval.mockResolvedValue(0);
+
+      await expect(
+        service.confirmReset('badToken', 'NewStrongPassw0rd!'),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(authService.revokeAllRefreshTokens).not.toHaveBeenCalled();
+    });
+
+    it('revokes nothing when the account was archived mid-flight', async () => {
+      redis.eval.mockResolvedValue(EMAIL);
+      usersService.findActiveUserByEmail.mockResolvedValue(null);
+
+      await expect(
+        service.confirmReset('someToken', 'NewStrongPassw0rd!'),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(authService.revokeAllRefreshTokens).not.toHaveBeenCalled();
     });
 
     it('fails validation in the Lua script for every condition alike (F8.4.2)', () => {

@@ -26,7 +26,7 @@ money, and only circulate within the platform.
 
 This repository follows a **one-service-per-folder** structure: each
 microservice (`user-service/`, `supplier-service/`, `order-service/`,
-`credit-service/`) lives in its own top-level folder.
+`credit-service/`, `comms-service/`) lives in its own top-level folder.
 
 ```text
 .
@@ -34,7 +34,9 @@ microservice (`user-service/`, `supplier-service/`, `order-service/`,
 ├── supplier-service/
 ├── order-service/
 ├── credit-service/
-├── <n2h-service>/
+├── comms-service/
+├── email-service/
+├── frontend/
 └── README.md
 ```
 
@@ -49,46 +51,77 @@ microservice (`user-service/`, `supplier-service/`, `order-service/`,
 
 ## Running via Docker Compose
 
-After the service databases have been initialized, run the whole project with
-Docker Compose:
-
-```sh
-docker compose up --watch
-```
-
-The watch flag synchronizes supported source changes into the development
-containers. A fresh checkout requires the initialization steps below first.
+Everything runs from the repository root. Prerequisites: Docker with Compose.
+Node is only needed to run a service's tests or tooling outside Docker.
 
 ### First-time set-up
 
-Environment variables live in the root `env/` folder: one `shared.env` plus
-one `<service>.env` per service. Create them all with:
+1. **Env files.** One `shared.env` plus one `<service>.env` per service in
+   `env/` (see `env/README.md`):
 
-```sh
-for f in env/*.env.example; do cp "$f" "${f%.example}"; done
-```
+   ```sh
+   for f in env/*.env.example; do cp "$f" "${f%.example}"; done
+   ```
 
-`compose.yaml` loads `shared.env` and the matching service file for each
-included service; see `env/README.md`. In addition, there are some `.secret`
-files that should be created in order to set-up passwords and authentication.
-View them in the compose files.
+2. **Secrets.** Each service keeps git-ignored `*.secret` files in its own
+   `secrets/` folder (DB password, RabbitMQ password, and for `user-service`
+   the JWT keypair and server secret). Where a `*.secret.example` exists, copy
+   it and replace the value; otherwise create the file named in the service's
+   `compose.yml`. Every service reads `user-service/secrets/jwt_public_key.secret`.
+   `scripts/ci-stack-secrets.sh` shows a complete set, but it overwrites
+   `rabbitmq/definitions.json`, so only run it on a throwaway checkout.
+3. **RabbitMQ passwords.** Each service's RabbitMQ password must match its hash
+   in `rabbitmq/definitions.json`; see [RabbitMQ set-up](#rabbitmq-set-up).
+4. **Create the Credit and Communication Service database schemas.** Neither
+   service migrates on startup: Credit's consumers and outbox relay fail on
+   an empty schema, and Communication Service's TypeORM `synchronize` is
+   disabled in every environment.
 
-Credit Service and Order Service deliberately do not run migrations during
-application startup. Initialize their databases before starting the complete
-stack so their consumers and outbox relays cannot access an empty schema
+   ```sh
+   docker compose up -d --wait rabbitmq credit-db
+   docker compose build credit-service
+   docker compose run --rm credit-service npm run migration:run
 
-```sh
-docker compose up -d --wait rabbitmq credit-db order-db
-docker compose build credit-service order-service
-docker compose run --rm credit-service npm run migration:run
-docker compose run --rm --no-deps order-service npm run db:migrate
-docker compose up --watch
-```
+   docker compose up -d --wait rabbitmq comms-db
+   docker compose build comms-service
+   docker compose run --rm comms-service npm run migration:run
+   ```
 
-Run the same migration commands after pulling a new committed migration, before
-starting the updated service (Credit uses TypeORM, Order uses Drizzle). Both skip
-migrations that have already been applied. See the [Credit Service setup](credit-service/README.md#run-with-docker-compose)
-for its service-specific workflow and verification commands.
+   Order and Supplier Services apply their own migrations on startup
+   (`ORDER_SERVICE_DB_MIGRATIONS_RUN` / `SUPPLIER_DB_MIGRATIONS_RUN`, default
+   `true`). Supplier also seeds suppliers from `data/csv` on first start.
+5. **Start the stack:**
+
+   ```sh
+   docker compose up --watch
+   ```
+
+   `--watch` syncs source changes into the dev containers. The browser only
+   reaches the frontend at <http://localhost:3001>; see the next section for
+   direct service access.
+
+### Day to day
+
+| Situation | What to run |
+| --- | --- |
+| Start again after a clean shutdown | `docker compose up --watch` |
+| Edited source in a service | Nothing, if `--watch` is running. |
+| Changed `package.json` / `package-lock.json`, a Dockerfile, or `packages/*` | `docker compose up --build --watch` (or `docker compose build <service>` first) |
+| Edited `env/*.env` or a `*.secret` | `docker compose up -d --force-recreate <service>` |
+| Pulled a new **Credit** migration | `docker compose run --rm credit-service npm run migration:run`, then restart `credit-service` |
+| Pulled a new **Communication Service** migration | `docker compose run --rm comms-service npm run migration:run`, then restart `comms-service` |
+| Pulled a new **Order** migration | Restart `order-service`; it migrates on startup. To run it by hand: `docker compose run --rm --no-deps order-service npm run db:migrate` |
+| Pulled a new **Supplier** migration | Restart `supplier-service`; it migrates on startup |
+| Changed `order-service/src/db/schema.ts` | `cd order-service && npm run db:generate -- --name=<slug>` and commit the SQL and `drizzle/meta`. Existing rows need a default for any new `NOT NULL` column. |
+| Changed an entity in Credit or Supplier | `npm run migration:generate -- src/database/migrations/<name>` in that service; `synchronize` stays off |
+| Changed `rabbitmq/definitions.json` | The broker only imports it on a fresh volume: `docker compose down rabbitmq && docker volume rm <project>_rabbitmq_data`, then `up` |
+| Wipe all data and start over | `docker compose down -v`, then repeat step 4 |
+| Run the pinned, versioned images | `./scripts/build-images.sh up -d --wait` (plain `docker compose` uses the `dev` tag) |
+| Debug a service or DB directly (Swagger, psql) | `docker compose -f compose.yaml -f compose.debug.yaml up -d --wait` |
+
+Service-specific workflows and verification commands are in each service's
+README, e.g. [Credit Service](credit-service/README.md#run-with-docker-compose)
+or [Communication Service](comms-service/README.md#local-commands).
 
 ### RabbitMQ set-up
 

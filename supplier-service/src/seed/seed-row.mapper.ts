@@ -1,4 +1,11 @@
+import type { FieldViolation } from '../common/errors/error-response.js';
 import { nameKey } from '../common/normalise/normalise.js';
+import {
+  DAYS,
+  formatTime,
+  type OpeningHours,
+  parseTime,
+} from '../opening-hours/opening-hours.js';
 import { seedKind, seedNameOverride } from './reference-data.js';
 
 /** The seed file's column headers. */
@@ -10,6 +17,8 @@ export const SEED_COLUMNS = {
   locationDescription: 'Location Description',
   latitude: 'Latitude',
   longitude: 'Longitude',
+  startingTime: 'StartingTime',
+  closingTime: 'ClosingTime',
   imageUrl: 'ImageURL',
 } as const;
 
@@ -55,6 +64,74 @@ export function seedSupplierName(
   return seedNameOverride(seedName) ?? strippedName;
 }
 
+/** "0900hrs" as minutes since midnight, or null if it is not that format. */
+function seedMinutes(cell: string | undefined): number | null {
+  const match = /^(\d{2})(\d{2})hrs$/i.exec((cell ?? '').trim());
+  return match === null ? null : parseTime(`${match[1]}:${match[2]}`);
+}
+
+const isBlank = (cell: string | undefined) => (cell ?? '').trim() === '';
+
+/**
+ * The opening hours of a seed row: StartingTime and ClosingTime are the same
+ * interval on all seven days, and "0000hrs" to "2359hrs" means open 24 hours
+ * (F12.2.3, F2.2). Null when both cells are blank (no fixed hours, F1.2.8) or
+ * when they cannot be read, which seedHoursViolations reports.
+ */
+export function seedOpeningHours(
+  values: Record<string, string>,
+): OpeningHours | null {
+  const opens = seedMinutes(values[SEED_COLUMNS.startingTime]);
+  const closes = seedMinutes(values[SEED_COLUMNS.closingTime]);
+  if (opens === null || closes === null || opens === closes) {
+    return null;
+  }
+  if (opens === 0 && closes === 23 * 60 + 59) {
+    return { open24Hours: true };
+  }
+  const interval = { opens: formatTime(opens), closes: formatTime(closes) };
+  return { days: Object.fromEntries(DAYS.map((day) => [day, [interval]])) };
+}
+
+/**
+ * What is wrong with a row's times, named by their seed columns so the
+ * startup log points at the cell (F12.4): one cell without the other, a cell
+ * that is not like "0900hrs", or equal times.
+ */
+export function seedHoursViolations(
+  values: Record<string, string>,
+): FieldViolation[] {
+  const start = values[SEED_COLUMNS.startingTime];
+  const close = values[SEED_COLUMNS.closingTime];
+  if (isBlank(start) && isBlank(close)) {
+    return [];
+  }
+  const violations: FieldViolation[] = [];
+  for (const [column, cell] of [
+    [SEED_COLUMNS.startingTime, start],
+    [SEED_COLUMNS.closingTime, close],
+  ] as const) {
+    if (isBlank(cell)) {
+      violations.push({
+        field: column,
+        reason: 'both StartingTime and ClosingTime are needed',
+      });
+    } else if (seedMinutes(cell) === null) {
+      violations.push({
+        field: column,
+        reason: `"${cell}" is not a time like 0900hrs`,
+      });
+    }
+  }
+  if (violations.length === 0 && seedMinutes(start) === seedMinutes(close)) {
+    violations.push({
+      field: SEED_COLUMNS.closingTime,
+      reason: 'ClosingTime must differ from StartingTime',
+    });
+  }
+  return violations;
+}
+
 /**
  * Builds the raw supplier submission for one seed row. Values are passed
  * through as-is apart from type conversion, so the suppliers service
@@ -65,6 +142,7 @@ export function toSupplierInput(
   resolved: { name: string; buildingId: string | null; categoryIds: string[] },
 ): Record<string, unknown> {
   const imageUrl = values[SEED_COLUMNS.imageUrl] ?? '';
+  const openingHours = seedOpeningHours(values);
   return {
     name: resolved.name,
     kind: seedKind(values[SEED_COLUMNS.name] ?? ''),
@@ -78,6 +156,8 @@ export function toSupplierInput(
     },
     // Photo where present, otherwise none (F12.2.4).
     ...(imageUrl !== '' && { photoUrl: imageUrl }),
+    // Hours where readable (F12.2.3); unreadable cells are reported apart.
+    ...(openingHours !== null && { openingHours }),
   };
 }
 

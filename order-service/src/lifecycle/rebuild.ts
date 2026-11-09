@@ -20,6 +20,12 @@ const COLUMNS = [
   'requesterId',
   'supplierId',
   'supplierValidatedAt',
+  'deliveryBuildingId',
+  'deliveryDetail',
+  'deliveryVenueId',
+  'deliveryLatitude',
+  'deliveryLongitude',
+  'deliveryVenue',
   'deliveryLocation',
   'rewardCredits',
   'collectionItems',
@@ -32,6 +38,8 @@ const COLUMNS = [
   'pickedUpAt',
   'deliveredAt',
   'cancellationReason',
+  'settlementAmount',
+  'settlementNote',
 ] as const;
 
 // Stored as ISO strings in the payload, restored to Dates here.
@@ -49,6 +57,11 @@ export function foldEvents(events: RebuildEvent[]): RebuiltErrand | null {
   const state: Record<string, unknown> = {
     courierId: null,
     supplierValidatedAt: null,
+    deliveryLocation: null,
+    deliveryVenueId: null,
+    deliveryLatitude: null,
+    deliveryLongitude: null,
+    deliveryVenue: null,
     pickupLocation: null,
     pickupName: null,
     pickupDescription: null,
@@ -57,6 +70,8 @@ export function foldEvents(events: RebuildEvent[]): RebuiltErrand | null {
     pickedUpAt: null,
     deliveredAt: null,
     cancellationReason: null,
+    settlementAmount: null,
+    settlementNote: null,
   };
 
   events.forEach((e, idx) => {

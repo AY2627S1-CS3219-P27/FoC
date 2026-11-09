@@ -143,6 +143,81 @@ already created (F15.5).
 - **Both messages use the repo's standard wrapper** (`eventId`, `eventType`,
   `timestamp`, `publisher`, `payload`), and unknown fields are rejected.
 
+## Amendment (2026-11-03): the delivery building
+
+Order Service no longer takes the delivery location as free text; it sends a
+building id, and asks Supplier Service (which owns buildings) to check it in
+the same round trip (Order Service ADR 0011). The v1 messages changed in
+place, in the shared contracts:
+
+- **The question** gains a required `deliveryBuildingId` (UUID). A resend of
+  the same question carries the same id; an `eventId` reused with a different
+  building is treated as a conflict and dead-lettered, like any reused id.
+- **The answer** has three outcomes:
+  - `FOUND`: as before, plus `deliveryBuilding` (`id`, `shortName`,
+    `canonicalName`).
+  - `NOT_FOUND`: the supplier does not exist. It wins when the building is
+    unknown too, so the building is only checked for a supplier that exists.
+  - `BUILDING_NOT_FOUND`: the supplier exists but the building does not. No
+    `supplier` or `deliveryBuilding` is sent.
+- **Rollout:** `deliveryBuildingId` and the `FOUND` reply's `deliveryBuilding` are
+  temporarily optional in the contract (PR #759), so the two services can adopt
+  them independently. Without a building id, Supplier Service answers as before
+  (`FOUND`, no building check). The fields become required once both services
+  use them.
+- A **retired building** is answered like an unknown one: Order Service only
+  needs to tell the requester to pick another building.
+- As with `NOT_FOUND`, `BUILDING_NOT_FOUND` only ever means "does not exist":
+  a database failure is retried, never reported as a missing building (F15.7.5).
+
+## Amendment (2026-11-05): the delivery venue and the map pin
+
+A requester can also pick a room (venue) inside the delivery building, or drop
+a map pin instead. Supplier Service owns the venues. The v1 messages changed
+in place again, in the shared contracts; the field names are as proposed and
+are for the order-service owner to confirm.
+
+- **The question** gains an optional `deliveryVenueId` (UUID), valid only
+  together with `deliveryBuildingId`. A question without it hashes and behaves
+  exactly as before, so messages in flight at rollout are not treated as
+  conflicts. An `eventId` reused with a different venue is a conflict.
+- **The answer** gains `VENUE_NOT_FOUND` (no `supplier`, `deliveryBuilding` or
+  `deliveryVenue` attached), and `FOUND` carries an optional `deliveryVenue`
+  (`id`, `code`, `name` or null, `floor`, `coordinates`) when a venue was
+  asked for. Precedence: `NOT_FOUND`, then `BUILDING_NOT_FOUND`, then
+  `VENUE_NOT_FOUND`. An unknown, retired or other-building venue is all
+  `VENUE_NOT_FOUND`.
+- **Map pin without a contract change.** One placeholder building,
+  "Other (map pin)", identified by its short name `PIN` (`allowsPin: true` on
+  `GET /buildings`), keeps
+  `deliveryBuildingId` required. A pin errand sends that building's id and no
+  venue id and validates as `FOUND`; a venue id sent with it is
+  `VENUE_NOT_FOUND`. The reply carries no pin flag. The pin's coordinates stay
+  Order Service's concern.
+- Supplier Service refuses to retire the pin building, or to attach venues or
+  suppliers to it.
+- **Building alone, or pin, never both.** A requester who cannot find their
+  venue drops a pin instead, and the pin building replaces the building they
+  had chosen: the pin cannot be tied to a building, so no building is kept.
+  Validation still accepts a building with no venue even if that building has
+  venues; the reply carries no venue count, so that choice is the client's.
+- **Venues have no admin endpoint yet.** They come only from the seed file,
+  and `VenuesService.retire` has no HTTP caller, so a venue is retired by hand
+  today. Admin endpoints to create, update and retire venues are tracked in
+  #822 and deferred until time allows.
+
+## Amendment (2026-11-06): building coordinates in the answer
+
+Order Service now gives the courier a coordinate pair for every errand, so a
+building-only errand needs a point to navigate to. The v1 answer changed in
+place again, in the shared contracts:
+
+- `FOUND`'s `deliveryBuilding` gains a required `coordinates` (`latitude`,
+  `longitude`), the building's own point. Supplier Service and Order Service
+  change together in one PR, so it is required at once rather than made
+  temporarily optional as in PR #759.
+- A pin never reaches Supplier Service, so nothing else changes.
+
 ## Who does what
 
 | Order Service | Supplier Service |

@@ -144,4 +144,45 @@ describe('tracing', () => {
     expect(exit).toHaveBeenCalledExactlyOnceWith(1);
     expect(error).toHaveBeenCalled();
   });
+
+  it('registerShutdown exits after the timeout when the telemetry flush hangs', async () => {
+    const close = vi.fn(async () => undefined);
+    const shutdown = vi.fn(() => new Promise<void>(() => undefined));
+    const exit = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+    registerShutdown(
+      { close },
+      { flush: async () => undefined, shutdown },
+      { flushTimeoutMs: 20 },
+    );
+
+    process.emit('SIGTERM');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(exit).not.toHaveBeenCalled();
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    expect(shutdown).toHaveBeenCalledTimes(1);
+    expect(exit).toHaveBeenCalledExactlyOnceWith(0);
+  });
+
+  it('registerShutdown still flushes and exits 1 when closing the app hangs', async () => {
+    const close = vi.fn(() => new Promise<void>(() => undefined));
+    const shutdown = vi.fn(async () => undefined);
+    const exit = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    registerShutdown(
+      { close },
+      { flush: async () => undefined, shutdown },
+      { closeTimeoutMs: 20 },
+    );
+
+    process.emit('SIGTERM');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    expect(shutdown).toHaveBeenCalledTimes(1);
+    expect(exit).toHaveBeenCalledExactlyOnceWith(1);
+    expect(error).toHaveBeenCalled();
+  });
 });

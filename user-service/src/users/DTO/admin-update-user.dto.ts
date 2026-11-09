@@ -1,3 +1,4 @@
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsBoolean, ValidateIf } from 'class-validator';
 
 /**
@@ -9,6 +10,7 @@ export class AdminUpdateUserDto {
    * boolean: `"true"`/`"yes"`/`1`/`null` and other non-boolean values are
    * rejected.
    */
+  @ApiPropertyOptional({ example: false })
   @ValidateIf((_object, value) => value !== undefined)
   @IsBoolean()
   isAdmin?: boolean;
@@ -18,6 +20,7 @@ export class AdminUpdateUserDto {
    * JSON-boolean rule as `isAdmin`. `true` archives the account, `false`
    * un-archives it.
    */
+  @ApiPropertyOptional({ example: false })
   @ValidateIf((_object, value) => value !== undefined)
   @IsBoolean()
   isArchived?: boolean;

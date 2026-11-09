@@ -69,6 +69,8 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     thirdDeadLetterQueue: `credit-service.credit-reservation-adjustment.v1.dlq.test.${suffix}`,
     fourthQueue: `credit-service.order-errand-completed.v1.test.${suffix}`,
     fourthDeadLetterQueue: `credit-service.order-errand-completed.v1.dlq.test.${suffix}`,
+    settlementQueue: `credit-service.credit-settlement.v1.test.${suffix}`,
+    settlementDeadLetterQueue: `credit-service.credit-settlement.v1.dlq.test.${suffix}`,
     siblingQueue: `credit-service.user-registered-audit.v1.test.${suffix}`,
     siblingDeadLetterQueue: `credit-service.user-registered-audit.v1.dlq.test.${suffix}`,
   };
@@ -86,6 +88,9 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     handle: vi.fn().mockResolvedValue({ outcome: 'ack' }),
   };
   const fourthHandler: RabbitMqMessageHandler = {
+    handle: vi.fn().mockResolvedValue({ outcome: 'ack' }),
+  };
+  const settlementHandler: RabbitMqMessageHandler = {
     handle: vi.fn().mockResolvedValue({ outcome: 'ack' }),
   };
   const siblingHandler: RabbitMqMessageHandler = {
@@ -124,7 +129,10 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     await adminChannel.assertExchange(names.domainExchange, 'direct', {
       durable: true,
     });
-    await adminChannel.assertQueue(names.mainQueue, { durable: true });
+    await adminChannel.assertQueue(names.mainQueue, {
+      durable: true,
+      arguments: { 'x-queue-type': 'quorum' },
+    });
     await adminChannel.bindQueue(
       names.mainQueue,
       names.domainExchange,
@@ -167,6 +175,12 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
       deadLetterQueue: names.fourthDeadLetterQueue,
       handler: fourthHandler,
     });
+    await transport.subscribe({
+      queue: names.settlementQueue,
+      routingKey: 'credit.settlement.v1',
+      deadLetterQueue: names.settlementDeadLetterQueue,
+      handler: settlementHandler,
+    });
   });
 
   beforeEach(async () => {
@@ -174,6 +188,7 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     vi.mocked(secondHandler.handle).mockClear();
     vi.mocked(thirdHandler.handle).mockClear();
     vi.mocked(fourthHandler.handle).mockClear();
+    vi.mocked(settlementHandler.handle).mockClear();
     behavior = async () => ({ outcome: 'ack' });
     await adminChannel.purgeQueue(names.mainQueue);
     await adminChannel.purgeQueue(names.deadLetterQueue);
@@ -183,11 +198,16 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     await adminChannel.purgeQueue(names.thirdDeadLetterQueue);
     await adminChannel.purgeQueue(names.fourthQueue);
     await adminChannel.purgeQueue(names.fourthDeadLetterQueue);
+    await adminChannel.purgeQueue(names.settlementQueue);
+    await adminChannel.purgeQueue(names.settlementDeadLetterQueue);
     for (const index of RETRY_DELAYS.keys()) {
       await adminChannel.purgeQueue(`${names.mainQueue}.retry.${index + 1}`);
       await adminChannel.purgeQueue(`${names.secondQueue}.retry.${index + 1}`);
       await adminChannel.purgeQueue(`${names.thirdQueue}.retry.${index + 1}`);
       await adminChannel.purgeQueue(`${names.fourthQueue}.retry.${index + 1}`);
+      await adminChannel.purgeQueue(
+        `${names.settlementQueue}.retry.${index + 1}`,
+      );
     }
   });
 
@@ -203,6 +223,8 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
       await adminChannel.deleteQueue(names.thirdDeadLetterQueue);
       await adminChannel.deleteQueue(names.fourthQueue);
       await adminChannel.deleteQueue(names.fourthDeadLetterQueue);
+      await adminChannel.deleteQueue(names.settlementQueue);
+      await adminChannel.deleteQueue(names.settlementDeadLetterQueue);
       await adminChannel.deleteQueue(names.siblingQueue);
       await adminChannel.deleteQueue(names.siblingDeadLetterQueue);
       for (const index of RETRY_DELAYS.keys()) {
@@ -215,6 +237,9 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
         );
         await adminChannel.deleteQueue(
           `${names.fourthQueue}.retry.${index + 1}`,
+        );
+        await adminChannel.deleteQueue(
+          `${names.settlementQueue}.retry.${index + 1}`,
         );
         await adminChannel.deleteQueue(
           `${names.siblingQueue}.retry.${index + 1}`,
@@ -282,6 +307,15 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
   async function takeThirdDeadLetter(): Promise<GetMessage> {
     return waitFor(async () => {
       const delivery = await adminChannel.get(names.thirdDeadLetterQueue, {
+        noAck: true,
+      });
+      return delivery || undefined;
+    });
+  }
+
+  async function takeSettlementDeadLetter(): Promise<GetMessage> {
+    return waitFor(async () => {
+      const delivery = await adminChannel.get(names.settlementDeadLetterQueue, {
         noAck: true,
       });
       return delivery || undefined;
@@ -380,6 +414,63 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     expect(handler.handle).not.toHaveBeenCalled();
     expect(secondHandler.handle).not.toHaveBeenCalled();
     expect(thirdHandler.handle).not.toHaveBeenCalled();
+  });
+
+  it('returns a transient settlement failure through its own retry queue', async () => {
+    vi.mocked(settlementHandler.handle)
+      .mockRejectedValueOnce(new Error('temporary settlement ingress failure'))
+      .mockResolvedValueOnce({ outcome: 'ack' });
+    const original = Buffer.from(
+      JSON.stringify({
+        eventId: randomUUID(),
+        eventType: 'CreditSettlementRequested',
+      }),
+    );
+
+    await publish(original, 'credit.settlement.v1');
+
+    await waitFor(() =>
+      vi.mocked(settlementHandler.handle).mock.calls.length === 2
+        ? true
+        : undefined,
+    );
+    expect(settlementHandler.handle).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        routingKey: 'credit.settlement.v1',
+        retryCount: 1,
+      }),
+    );
+    expect(secondHandler.handle).not.toHaveBeenCalled();
+    expect(thirdHandler.handle).not.toHaveBeenCalled();
+    expect(fourthHandler.handle).not.toHaveBeenCalled();
+  });
+
+  it('dead-letters a permanent settlement conflict without retrying', async () => {
+    vi.mocked(settlementHandler.handle).mockResolvedValueOnce({
+      outcome: 'dead-letter',
+      category: 'INVALID_PAYLOAD',
+      reason: 'settlement attempt conflicts with established content',
+    });
+    const eventId = randomUUID();
+    const original = Buffer.from(
+      JSON.stringify({
+        eventId,
+        eventType: 'CreditSettlementRequested',
+      }),
+    );
+
+    await publish(original, 'credit.settlement.v1');
+    const deadLetter = await takeSettlementDeadLetter();
+
+    expect(deadLetter.content.equals(original)).toBe(true);
+    expect(deadLetter.properties.deliveryMode).toBe(2);
+    expect(deadLetter.properties.headers).toMatchObject({
+      'x-retry-count': 0,
+      'x-event-id': eventId,
+      'x-failure-category': 'INVALID_PAYLOAD',
+    });
+    expect(settlementHandler.handle).toHaveBeenCalledTimes(1);
   });
 
   it('does not deliver a routing key without an exact binding', async () => {
@@ -593,11 +684,15 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
     const secondQueue = await adminChannel.checkQueue(names.secondQueue);
     const thirdQueue = await adminChannel.checkQueue(names.thirdQueue);
     const fourthQueue = await adminChannel.checkQueue(names.fourthQueue);
+    const settlementQueue = await adminChannel.checkQueue(
+      names.settlementQueue,
+    );
     const siblingQueue = await adminChannel.checkQueue(names.siblingQueue);
     expect(firstQueue.consumerCount).toBe(0);
     expect(secondQueue.consumerCount).toBe(0);
     expect(thirdQueue.consumerCount).toBe(0);
     expect(fourthQueue.consumerCount).toBe(0);
+    expect(settlementQueue.consumerCount).toBe(0);
     expect(siblingQueue.consumerCount).toBe(0);
   });
 });

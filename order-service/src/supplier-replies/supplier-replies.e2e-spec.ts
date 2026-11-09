@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { AccountEventContractValidator } from '@foc/contracts';
 import { eq, sql } from 'drizzle-orm';
 import { createTestDb } from '../../test/db.js';
-import { supplierSnapshot } from '../../test/payloads.js';
+import { deliveryBuilding, supplierSnapshot } from '../../test/payloads.js';
 import { CreditReplyHandler } from '../credit-replies/credit-reply.handler.js';
 import { errandEvents, errands, outboxEvents } from '../db/schema.js';
 import { createErrand } from '../lifecycle/create.js';
@@ -27,7 +27,8 @@ async function create() {
   const res = await createErrand(t.db, {
     requesterId: randomUUID(),
     supplierId,
-    deliveryLocation: 'COM2',
+    deliveryBuildingId: randomUUID(),
+    deliveryDetail: 'Level 3 04-02',
     rewardCredits: 5,
     expiryDurationMinutes: 60,
     collectionItems: 'bubble tea',
@@ -73,7 +74,7 @@ describe('supplier validation reply against the database', () => {
   it('moves an Active supplier on to the credit reservation, once', async () => {
     const { id, supplierId } = await create();
     const eventId = randomUUID();
-    const reply = { errandId: id, supplierId, outcome: 'FOUND', supplier: supplierSnapshot };
+    const reply = { errandId: id, supplierId, outcome: 'FOUND', supplier: supplierSnapshot, deliveryBuilding };
 
     expect(await deliver(reply, eventId)).toEqual({ outcome: 'ack' });
     expect(await deliver(reply, eventId)).toEqual({ outcome: 'ack' }); // redelivery
@@ -84,6 +85,10 @@ describe('supplier validation reply against the database', () => {
       pickupName: 'Cool Spot @ COM2',
       pickupLocation: 'COM2',
       pickupDescription: 'Floor 1 · Next to LT19',
+      deliveryLocation: 'COM2',
+      deliveryVenue: 'Around COM2',
+      deliveryLatitude: 1.2939,
+      deliveryLongitude: 103.7742,
     });
     const evs = await events(id);
     expect(evs).toHaveLength(2);
@@ -111,7 +116,55 @@ describe('supplier validation reply against the database', () => {
       cancellationReason: 'SUPPLIER_UNAVAILABLE',
       supplierValidatedAt: null,
     });
+    expect(await outbox(id)).toEqual([
+      'order.supplier-validation-requested.v1',
+      'order.requester-errand-cancelled.v1',
+    ]);
+  });
+
+  it('cancels a missing delivery building with BUILDING_UNAVAILABLE and asks credit for nothing', async () => {
+    const { id, supplierId } = await create();
+    const eventId = randomUUID();
+    await deliver({ errandId: id, supplierId, outcome: 'BUILDING_NOT_FOUND' }, eventId);
+
+    expect(await row(id)).toMatchObject({
+      status: 'Cancelled',
+      cancellationReason: 'BUILDING_UNAVAILABLE',
+      supplierValidatedAt: null,
+      deliveryLocation: null,
+    });
+    expect((await events(id)).find((e) => e.sequenceNumber === 2)).toMatchObject({
+      payload: { supplierEventId: eventId, supplierOutcome: 'BUILDING_NOT_FOUND' },
+    });
+    expect(await outbox(id)).toEqual([
+      'order.supplier-validation-requested.v1',
+      'order.requester-errand-cancelled.v1',
+    ]);
+  });
+
+  it('cancels a missing venue with VENUE_UNAVAILABLE and asks credit for nothing', async () => {
+    const { id, supplierId } = await create();
+    const eventId = randomUUID();
+    await deliver({ errandId: id, supplierId, outcome: 'VENUE_NOT_FOUND' }, eventId);
+
+    expect(await row(id)).toMatchObject({ status: 'Cancelled', cancellationReason: 'VENUE_UNAVAILABLE', deliveryVenue: null });
+    expect((await events(id)).find((e) => e.sequenceNumber === 2)).toMatchObject({
+      payload: { supplierEventId: eventId, supplierOutcome: 'VENUE_NOT_FOUND' },
+    });
     expect(await outbox(id)).toEqual(['order.supplier-validation-requested.v1']);
+  });
+
+  it('keeps a pin and labels it Requester Delivery Location', async () => {
+    const supplierId = randomUUID();
+    const res = await createErrand(t.db, {
+      requesterId: randomUUID(), supplierId, deliveryBuildingId: randomUUID(), deliveryDetail: 'by the bench',
+      deliveryPin: { latitude: 1.3, longitude: 103.77 }, rewardCredits: 5, expiryDurationMinutes: 60, collectionItems: 'tea',
+    });
+    if (!res.ok) throw new Error(res.reason);
+    await deliver({ errandId: res.errandId, supplierId, outcome: 'FOUND', supplier: supplierSnapshot, deliveryBuilding });
+    expect(await row(res.errandId)).toMatchObject({
+      deliveryVenue: 'Requester Delivery Location', deliveryLatitude: 1.3, deliveryLongitude: 103.77,
+    });
   });
 
   it('acks a reply that arrives after the errand was cancelled, changing nothing', async () => {
@@ -124,7 +177,7 @@ describe('supplier validation reply against the database', () => {
       set: { cancellationReason: 'SUPPLIER_VALIDATION_TIMEOUT' },
     });
 
-    const res = await deliver({ errandId: id, supplierId, outcome: 'FOUND', supplier: supplierSnapshot });
+    const res = await deliver({ errandId: id, supplierId, outcome: 'FOUND', supplier: supplierSnapshot, deliveryBuilding });
     expect(res).toEqual({ outcome: 'ack' });
     expect(await row(id)).toMatchObject({
       status: 'Cancelled',

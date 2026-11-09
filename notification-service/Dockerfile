@@ -1,0 +1,77 @@
+# syntax=docker/dockerfile:1
+
+# Shared dependency stage using the project's Node major version
+FROM node:22-alpine AS dependencies
+
+# Set the working directory inside the container
+WORKDIR /usr/src/app
+
+# Match the npm version used to generate package-lock.json
+ARG NPM_VERSION=11.18.0
+RUN npm install --global "npm@${NPM_VERSION}"
+
+# The build context is the repository root so the local shared packages are
+# available without relying on host-generated files.
+COPY packages/contracts/package*.json /usr/src/packages/contracts/
+COPY packages/auth/package*.json /usr/src/packages/auth/
+COPY packages/observability/package*.json /usr/src/packages/observability/
+COPY notification-service/package*.json ./
+
+# Install the exact dependency versions. The postinstall hook also installs
+# the shared package's build dependencies in its own directory.
+RUN npm ci
+
+# Development image with source code and watch mode
+FROM dependencies AS development
+
+COPY packages/contracts/ /usr/src/packages/contracts/
+COPY packages/auth/ /usr/src/packages/auth/
+COPY packages/observability/ /usr/src/packages/observability/
+COPY notification-service/ .
+
+EXPOSE 3000
+
+CMD ["npm", "run", "start:dev"]
+
+# Build the application and remove development dependencies
+FROM dependencies AS build
+
+COPY packages/contracts/ /usr/src/packages/contracts/
+COPY packages/auth/ /usr/src/packages/auth/
+COPY packages/observability/ /usr/src/packages/observability/
+COPY notification-service/ .
+
+RUN npm run build
+RUN npm prune --omit=dev
+RUN npm prune --omit=dev --prefix /usr/src/packages/contracts
+# prune re-symlinks @foc/auth and @foc/observability; re-copy them so they share the app's @nestjs/core
+RUN NPM_CONFIG_OMIT=dev npm run auth:link && NPM_CONFIG_OMIT=dev npm run obs:link
+
+# Minimal production image
+FROM node:22-alpine AS production
+
+ENV NODE_ENV=production
+
+WORKDIR /usr/src/app
+
+# Copy only runtime files and assign them to the non-root user
+COPY --from=build --chown=node:node /usr/src/app/package.json ./
+COPY --from=build --chown=node:node /usr/src/app/package-lock.json ./
+COPY --from=build --chown=node:node /usr/src/app/node_modules ./node_modules
+COPY --from=build --chown=node:node /usr/src/app/dist ./dist
+COPY --from=build --chown=node:node /usr/src/packages/contracts/package*.json /usr/src/packages/contracts/
+COPY --from=build --chown=node:node /usr/src/packages/contracts/node_modules /usr/src/packages/contracts/node_modules
+COPY --from=build --chown=node:node /usr/src/packages/contracts/dist /usr/src/packages/contracts/dist
+
+# Run the application without root permissions
+USER node
+
+# Expose the application port
+EXPOSE 3000
+
+# Healthy while the app answers and can reach Postgres (src/health/)
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider "http://127.0.0.1:${PORT:-3000}/health" || exit 1
+
+# node as PID 1 receives SIGTERM directly, so shutdown hooks run
+CMD ["node", "dist/main"]

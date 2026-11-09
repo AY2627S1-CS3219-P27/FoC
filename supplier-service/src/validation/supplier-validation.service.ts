@@ -4,19 +4,31 @@ import {
   SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY,
   type SupplierValidationCompletedEvent,
   type SupplierValidationRequestedEvent,
+  type SupplierValidationOutcome,
   type SupplierValidationRequestedPayload,
   type SupplierValidationSnapshot,
 } from '@foc/contracts';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DataSource, type EntityManager } from 'typeorm';
+import { BuildingsService } from '../buildings/buildings.service.js';
 import type { EnvironmentVariables } from '../config/environment.schema.js';
-import { InboxEvent, OutboxEvent } from '../database/entities/index.js';
+import {
+  type Building,
+  InboxEvent,
+  OutboxEvent,
+  type Venue,
+} from '../database/entities/index.js';
 import { SupplierQueriesService } from '../suppliers/supplier-queries.service.js';
 import type { SupplierDetail } from '../suppliers/supplier-view.js';
+import { VenuesService } from '../venues/venues.service.js';
 
 export type SupplierValidationResult =
-  | { status: 'answered'; replyEventId: string; outcome: 'FOUND' | 'NOT_FOUND' }
+  | {
+      status: 'answered';
+      replyEventId: string;
+      outcome: SupplierValidationOutcome;
+    }
   | { status: 'duplicate-event'; replyEventId: string }
   | { status: 'event-id-conflict'; eventId: string };
 
@@ -40,6 +52,9 @@ export function hashValidationRequestPayload(
   const canonical = JSON.stringify({
     errandId: payload.errandId,
     supplierId: payload.supplierId,
+    deliveryBuildingId: payload.deliveryBuildingId,
+    // Dropped by JSON.stringify when absent, so old requests keep their hash.
+    deliveryVenueId: payload.deliveryVenueId,
   });
   return createHash('sha256').update(canonical).digest('hex');
 }
@@ -69,7 +84,10 @@ function snapshotOf(supplier: SupplierDetail): SupplierValidationSnapshot {
  * recognised and not answered again (F15.7.4).
  *
  * The reply reports facts only: FOUND with the supplier's current status,
- * version and details, or NOT_FOUND when it does not exist (F15.1, F15.2). A
+ * version and details plus the delivery building (and venue, when one was
+ * asked for), NOT_FOUND when the supplier does not exist, BUILDING_NOT_FOUND
+ * when only the building is unknown or retired, or VENUE_NOT_FOUND when only
+ * the venue is unknown, retired or in another building (F15.1, F15.2). A
  * failure to read the data store is never turned into NOT_FOUND: the error is
  * thrown, nothing is committed, and the transport retries (F15.7.5).
  */
@@ -80,6 +98,8 @@ export class SupplierValidationService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly suppliers: SupplierQueriesService,
+    private readonly buildings: BuildingsService,
+    private readonly venues: VenuesService,
     private readonly contracts: AccountEventContractValidator,
     config: ConfigService<EnvironmentVariables, true>,
   ) {
@@ -114,7 +134,21 @@ export class SupplierValidationService {
       // same transaction that records it, and each message holds only one
       // pooled connection, so a full prefetch cannot exhaust the pool.
       const supplier = await this.lookUp(event.payload.supplierId, manager);
-      const reply = this.reply(event, supplier);
+      // A missing supplier wins: the building is only checked for a supplier
+      // that exists (Order Service ADR 0011).
+      const building = supplier
+        ? await this.buildings.findInUseById(
+            event.payload.deliveryBuildingId,
+            manager,
+          )
+        : null;
+      // Likewise a missing building wins over a missing venue.
+      const { deliveryVenueId } = event.payload;
+      const venue =
+        building && deliveryVenueId !== undefined
+          ? await this.venues.findInUse(building.id, deliveryVenueId, manager)
+          : null;
+      const reply = this.reply(event, supplier, building, venue);
       if (
         !this.contracts.validate(
           SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY,
@@ -176,6 +210,8 @@ export class SupplierValidationService {
   private reply(
     request: SupplierValidationRequestedEvent,
     supplier: SupplierDetail | null,
+    building: Building | null,
+    venue: Venue | null,
   ): SupplierValidationCompletedEvent {
     const ids = {
       errandId: request.payload.errandId,
@@ -186,9 +222,58 @@ export class SupplierValidationService {
       eventType: 'SupplierValidationCompleted',
       timestamp: new Date().toISOString(),
       publisher: 'supplier-service',
-      payload: supplier
-        ? { ...ids, outcome: 'FOUND', supplier: snapshotOf(supplier) }
-        : { ...ids, outcome: 'NOT_FOUND' },
+      payload: this.outcome(
+        ids,
+        supplier,
+        building,
+        venue,
+        request.payload.deliveryVenueId !== undefined,
+      ),
+    };
+  }
+
+  /**
+   * NOT_FOUND (no supplier) wins over BUILDING_NOT_FOUND (no building), which
+   * wins over VENUE_NOT_FOUND (a venue was asked for but is not in use there).
+   */
+  private outcome(
+    ids: { errandId: string; supplierId: string },
+    supplier: SupplierDetail | null,
+    building: Building | null,
+    venue: Venue | null,
+    venueRequested: boolean,
+  ): SupplierValidationCompletedEvent['payload'] {
+    if (!supplier) {
+      return { ...ids, outcome: 'NOT_FOUND' };
+    }
+    if (!building) {
+      return { ...ids, outcome: 'BUILDING_NOT_FOUND' };
+    }
+    if (venueRequested && !venue) {
+      return { ...ids, outcome: 'VENUE_NOT_FOUND' };
+    }
+    return {
+      ...ids,
+      outcome: 'FOUND',
+      supplier: snapshotOf(supplier),
+      deliveryBuilding: {
+        id: building.id,
+        shortName: building.shortName,
+        canonicalName: building.canonicalName,
+        coordinates: {
+          latitude: building.latitude,
+          longitude: building.longitude,
+        },
+      },
+      ...(venue && {
+        deliveryVenue: {
+          id: venue.id,
+          code: venue.code,
+          name: venue.name,
+          floor: venue.floor,
+          coordinates: { latitude: venue.latitude, longitude: venue.longitude },
+        },
+      }),
     };
   }
 }

@@ -8,6 +8,10 @@ import {
 } from './events/credit-release-rejected/v1/contract.js';
 import { CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY } from './events/credit-release-success/v1/contract.js';
 import type { CreditTransferRejectionReason } from './events/credit-transfer-rejected/v1/contract.js';
+import { ORDER_COURIER_CANCELLED_V1_ROUTING_KEY } from './events/courier-cancelled/v1/contract.js';
+import { ORDER_REQUESTER_ERRAND_CANCELLED_V1_ROUTING_KEY } from './events/requester-errand-cancelled/v1/contract.js';
+import { ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY } from './events/errand-accepted/v1/contract.js';
+import { ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY } from './events/errand-delivered/v1/contract.js';
 
 const id = () => randomUUID();
 const envelope = (
@@ -72,6 +76,38 @@ const validContracts = [
       rejectionReason: 'RESERVATION_NOT_FOUND',
     }),
   ],
+  [
+    ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY,
+    envelope('ErrandAccepted', 'order-service', {
+      errandId: id(),
+      requesterUserId: id(),
+      courierUserId: id(),
+    }),
+  ],
+  [
+    ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
+    envelope('ErrandDelivered', 'order-service', {
+      errandId: id(),
+      requesterUserId: id(),
+      courierUserId: id(),
+    }),
+  ],
+  [
+    ORDER_COURIER_CANCELLED_V1_ROUTING_KEY,
+    envelope('CourierCancelled', 'order-service', {
+      errandId: id(),
+      requesterUserId: id(),
+      courierUserId: id(),
+    }),
+  ],
+  [
+    ORDER_REQUESTER_ERRAND_CANCELLED_V1_ROUTING_KEY,
+    envelope('RequesterErrandCancelled', 'order-service', {
+      errandId: id(),
+      requesterUserId: id(),
+      cancellationReason: 'CREDIT_TIMEOUT',
+    }),
+  ],
 ] as const satisfies ReadonlyArray<readonly [EventContractKey, object]>;
 
 const releaseRejectionReasons = [
@@ -93,6 +129,12 @@ const transferContracts = [
 ] as const;
 
 const releaseContracts = [validContracts[4], validContracts[5]] as const;
+
+const communicationLifecycleContracts = [
+  validContracts[6],
+  validContracts[7],
+  validContracts[8],
+] as const;
 
 describe('order errand event contracts', () => {
   const validator = new AccountEventContractValidator();
@@ -131,6 +173,20 @@ describe('order errand event contracts', () => {
       code: 'INVALID_ENVELOPE',
     });
   });
+
+  it.each(communicationLifecycleContracts)(
+    'rejects unknown envelope fields for %s',
+    (key, event) => {
+      const input = {
+        ...structuredClone(event),
+        privateValue: 'do-not-accept',
+      };
+      expect(validator.validate(key, input)).toMatchObject({
+        valid: false,
+        code: 'INVALID_ENVELOPE',
+      });
+    },
+  );
 
   it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])(
     'rejects unsafe amount %s',
@@ -226,6 +282,17 @@ describe('order errand event contracts', () => {
     },
   );
 
+  it.each(communicationLifecycleContracts)(
+    'rejects a non-canonical timestamp for %s',
+    (key, event) => {
+      const input = { ...structuredClone(event), timestamp: 'not-a-date' };
+      expect(validator.validate(key, input)).toMatchObject({
+        valid: false,
+        code: 'INVALID_ENVELOPE',
+      });
+    },
+  );
+
   it.each(transferContracts)(
     'rejects a non-UUID event ID for %s',
     (key, event) => {
@@ -238,6 +305,17 @@ describe('order errand event contracts', () => {
   );
 
   it.each(releaseContracts)(
+    'rejects a non-UUID event ID for %s',
+    (key, event) => {
+      const input = { ...structuredClone(event), eventId: 'not-a-uuid' };
+      expect(validator.validate(key, input)).toMatchObject({
+        valid: false,
+        code: 'INVALID_ENVELOPE',
+      });
+    },
+  );
+
+  it.each(communicationLifecycleContracts)(
     'rejects a non-UUID event ID for %s',
     (key, event) => {
       const input = { ...structuredClone(event), eventId: 'not-a-uuid' };
@@ -264,6 +342,15 @@ describe('order errand event contracts', () => {
     [CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY, 4, 'creditTransactionId'],
     [CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY, 5, 'errandId'],
     [CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY, 5, 'requesterUserId'],
+    [ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY, 6, 'errandId'],
+    [ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY, 6, 'requesterUserId'],
+    [ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY, 6, 'courierUserId'],
+    [ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY, 7, 'errandId'],
+    [ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY, 7, 'requesterUserId'],
+    [ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY, 7, 'courierUserId'],
+    [ORDER_COURIER_CANCELLED_V1_ROUTING_KEY, 8, 'errandId'],
+    [ORDER_COURIER_CANCELLED_V1_ROUTING_KEY, 8, 'requesterUserId'],
+    [ORDER_COURIER_CANCELLED_V1_ROUTING_KEY, 8, 'courierUserId'],
   ] as const)('rejects a non-UUID %s payload field %s', (key, index, field) => {
     const input = structuredClone(validContracts[index][1]);
     input.payload[field] = 'not-a-uuid';
@@ -280,6 +367,9 @@ describe('order errand event contracts', () => {
     ['credit.transfer-rejected.v1', 3, 'CreditTransferReject'],
     [CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY, 4, 'CreditReleasedSuccess'],
     [CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY, 5, 'CreditReleaseReject'],
+    [ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY, 6, 'ErrandAcceptance'],
+    [ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY, 7, 'ErrandDelivery'],
+    [ORDER_COURIER_CANCELLED_V1_ROUTING_KEY, 8, 'CourierCancellation'],
   ] as const)(
     'rejects a non-canonical event name on %s',
     (key, index, eventType) => {
@@ -312,6 +402,15 @@ describe('order errand event contracts', () => {
     [CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY, 5, 'errandId'],
     [CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY, 5, 'requesterUserId'],
     [CREDIT_RELEASE_REJECTED_V1_ROUTING_KEY, 5, 'rejectionReason'],
+    [ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY, 6, 'errandId'],
+    [ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY, 6, 'requesterUserId'],
+    [ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY, 6, 'courierUserId'],
+    [ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY, 7, 'errandId'],
+    [ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY, 7, 'requesterUserId'],
+    [ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY, 7, 'courierUserId'],
+    [ORDER_COURIER_CANCELLED_V1_ROUTING_KEY, 8, 'errandId'],
+    [ORDER_COURIER_CANCELLED_V1_ROUTING_KEY, 8, 'requesterUserId'],
+    [ORDER_COURIER_CANCELLED_V1_ROUTING_KEY, 8, 'courierUserId'],
   ] as const)('requires %s payload field %s', (key, index, field) => {
     const input = structuredClone(validContracts[index][1]);
     delete (input.payload as Record<string, unknown>)[field];
@@ -336,4 +435,18 @@ describe('order errand event contracts', () => {
       ),
     ).toMatchObject({ valid: false, code: 'UNSUPPORTED_EVENT_TYPE' });
   });
+
+  it.each([
+    [ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY, validContracts[7][1]],
+    [ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY, validContracts[8][1]],
+    [ORDER_COURIER_CANCELLED_V1_ROUTING_KEY, validContracts[6][1]],
+  ] as const)(
+    'rejects a communication event on the wrong route %s',
+    (key, event) => {
+      expect(validator.validate(key, structuredClone(event))).toMatchObject({
+        valid: false,
+        code: 'UNSUPPORTED_EVENT_TYPE',
+      });
+    },
+  );
 });

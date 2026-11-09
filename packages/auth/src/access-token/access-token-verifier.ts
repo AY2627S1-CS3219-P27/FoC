@@ -10,6 +10,18 @@ import type { AuthenticatedUser } from '../auth/authenticated-user.js';
 export class InvalidAccessTokenError extends Error {}
 
 /**
+ * A verified access-token identity plus connection-lifetime metadata.
+ *
+ * `expiresAt` is derived from the validated JWT `exp` NumericDate. Consumers
+ * can use it to end long-lived connections without retaining the raw token or
+ * decoded claims.
+ */
+export interface VerifiedAccessToken {
+  user: AuthenticatedUser;
+  expiresAt: Date;
+}
+
+/**
  * Verifies an access-token JWT and maps its claims onto AuthenticatedUser.
  *
  * The JwtService it relies on is configured by FocAuthModule with the
@@ -22,6 +34,14 @@ export class AccessTokenVerifier {
   constructor(private readonly jwtService: JwtService) {}
 
   async verify(token: string): Promise<AuthenticatedUser> {
+    const verified = await this.verifyWithMetadata(token);
+    return verified.user;
+  }
+
+  /**
+   * Verifies an access token and returns identity plus its absolute expiry.
+   */
+  async verifyWithMetadata(token: string): Promise<VerifiedAccessToken> {
     let decoded: unknown;
     try {
       decoded = await this.jwtService.verifyAsync(token);
@@ -38,7 +58,10 @@ export class AccessTokenVerifier {
       );
     }
 
-    return toAuthenticatedUser(result.value);
+    return {
+      user: toAuthenticatedUser(result.value),
+      expiresAt: new Date(result.value.exp * 1_000),
+    };
   }
 }
 

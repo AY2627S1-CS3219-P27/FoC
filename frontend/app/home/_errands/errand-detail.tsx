@@ -1,18 +1,58 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, type ApiResult } from "@/lib/api";
+import { toast } from "sonner";
+import { api, errorText } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { FormError, inputClass } from "@/components/ui/field";
+import { Section } from "@/components/ui/layout";
+import { Sheet } from "@/components/ui/sheet";
+import { cancellationText } from "./cancellation";
 import {
   ACTION_LABELS,
-  ALL_ACTIONS,
   availableActions,
+  formatDelivery,
   type ActionName,
   type Errand,
   type SupplierOption,
 } from "./types";
-import { formatTime, inputClass, shortId, StatusBadge, timeLeft } from "./ui";
+import { formatTime, shortId, StatusBadge, timeLeft } from "./ui";
 
 const POLL_MS = 3000;
+
+const DESTRUCTIVE: ActionName[] = ["cancel", "incomplete", "withdraw"];
+
+// Irreversible, or needing a value, so they open a dialog first.
+const CONFIRM: Partial<Record<ActionName, { title: string; description: string }>> = {
+  cancel: {
+    title: "Cancel this errand?",
+    description: "Couriers can no longer see it and your reserved credits are released. This cannot be undone.",
+  },
+  incomplete: {
+    title: "Report this delivery as incomplete?",
+    description: "The errand closes as incomplete. This cannot be undone.",
+  },
+  withdraw: {
+    title: "Withdraw from this errand?",
+    description: "It goes back to other couriers. Tell the requester why.",
+  },
+  adjust: {
+    title: "Change the reward",
+    description: "Your reserved credits are updated to the new amount.",
+  },
+};
+
+const DONE: Record<ActionName, string> = {
+  accept: "Errand accepted",
+  pickup: "Marked as picked up",
+  deliver: "Marked as delivered",
+  withdraw: "You withdrew from this errand",
+  confirm: "Delivery confirmed",
+  incomplete: "Reported as incomplete",
+  adjust: "Reward updated",
+  cancel: "Errand cancelled",
+};
 
 interface SentAction {
   action: ActionName;
@@ -20,23 +60,16 @@ interface SentAction {
   body?: unknown;
 }
 
-function describe(res: ApiResult): string {
-  if (res.ok) return `${res.status} OK${res.replayed ? " (replayed, nothing new written)" : ""}`;
-  return `${res.status} ${res.code ?? ""}${res.message ? `: ${res.message}` : ""}`;
-}
-
 export function ErrandDetail({
   errandId,
   me,
   suppliers,
-  showAllActions,
   onChanged,
   onClose,
 }: {
   errandId: string;
   me: string;
   suppliers: SupplierOption[];
-  showAllActions: boolean;
   onChanged: () => void;
   onClose: () => void;
 }) {
@@ -45,29 +78,27 @@ export function ErrandDetail({
   const [reason, setReason] = useState("");
   const [newAmount, setNewAmount] = useState(0);
   const [pending, setPending] = useState(false);
-  const [result, setResult] = useState<{ text: string; ok: boolean } | null>(null);
-  const [lastSent, setLastSent] = useState<SentAction | null>(null);
+  const [actionError, setActionError] = useState("");
+  const [confirming, setConfirming] = useState<ActionName | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const load = useCallback(
-    async (quiet: boolean) => {
-      const res = await api<Errand>("GET", `/api/errands/${errandId}`, { quiet });
-      if (res.ok && res.data) {
-        setErrand(res.data);
-        setLoadError("");
-      } else if (res.status === 404) {
-        // Taken by another courier, or expired: non-parties can no longer see it.
-        setErrand(null);
-        setLoadError("This errand is no longer available.");
-      } else {
-        setLoadError(describe(res));
-      }
-    },
-    [errandId],
-  );
+  const load = useCallback(async () => {
+    const res = await api<Errand>("GET", `/api/errands/${errandId}`);
+    if (res.ok && res.data) {
+      setErrand(res.data);
+      setLoadError("");
+    } else if (res.status === 404) {
+      // Taken by another courier, or expired: non-parties can no longer see it.
+      setErrand(null);
+      setLoadError("This errand is no longer available.");
+    } else {
+      setLoadError(errorText(res, "Could not load this errand."));
+    }
+  }, [errandId]);
 
   useEffect(() => {
-    const first = setTimeout(() => void load(false), 0);
-    const timer = setInterval(() => void load(true), POLL_MS);
+    const first = setTimeout(() => void load(), 0);
+    const timer = setInterval(() => void load(), POLL_MS);
     return () => {
       clearTimeout(first);
       clearInterval(timer);
@@ -76,14 +107,15 @@ export function ErrandDetail({
 
   async function send(sent: SentAction) {
     setPending(true);
-    setLastSent(sent);
+    setActionError("");
     const res = await api("POST", `/api/errands/${errandId}/${sent.action}`, {
       idempotencyKey: sent.key,
       body: sent.body,
     });
     setPending(false);
-    setResult({ text: `${ACTION_LABELS[sent.action]}: ${describe(res)}`, ok: res.ok });
-    await load(true);
+    if (res.ok) toast.success(DONE[sent.action]);
+    else setActionError(errorText(res, `Could not ${ACTION_LABELS[sent.action].toLowerCase()}.`));
+    await load();
     onChanged();
   }
 
@@ -94,11 +126,7 @@ export function ErrandDetail({
   }
 
   const supplier = errand ? suppliers.find((s) => s.id === errand.supplierId) : undefined;
-  const actions = errand
-    ? showAllActions
-      ? ALL_ACTIONS
-      : availableActions(errand, me)
-    : [];
+  const actions = errand ? availableActions(errand, me) : [];
   const role =
     errand?.requesterId === me
       ? "You are the requester"
@@ -106,153 +134,153 @@ export function ErrandDetail({
         ? "You are the courier"
         : "You are not a party to this errand";
 
+  const resultLine = actionError && <FormError>{actionError}</FormError>;
+
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 scrim" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-background border-l border-border overflow-y-auto p-6 fade-in">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xl font-bold">Errand {shortId(errandId)}</h3>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="btn-press flex items-center justify-center w-8 h-8 rounded-full bg-surface text-muted hover:text-foreground"
-          >
-            ✕
-          </button>
+    <Sheet
+      title={errand?.pickupName ?? supplier?.displayName ?? `Errand ${shortId(errandId)}`}
+      description={errand ? role : undefined}
+      onClose={onClose}
+    >
+      {loadError && !errand && (
+        <div className="space-y-3 py-6 text-center">
+          <p className="text-[15px] text-muted">{loadError}</p>
+          {resultLine}
         </div>
+      )}
 
-        {loadError && !errand && (
-          <div className="space-y-2">
-            <p className="text-sm text-muted">{loadError}</p>
-            {result && (
-              <p role="status" className={`text-sm ${result.ok ? "text-success" : "text-danger"}`}>
-                {result.text}
-              </p>
-            )}
+      {!errand && !loadError && (
+        <div className="space-y-3 py-2" role="status" aria-label="Loading">
+          <div className="skeleton h-24 rounded-2xl" />
+          <div className="skeleton h-40 rounded-2xl" />
+        </div>
+      )}
+
+      {errand && (
+        <div className="fade-in space-y-6">
+          <div className="flex flex-col items-center pt-2 text-center">
+            <StatusBadge status={errand.status} />
+            <p className="tabular mt-3 flex flex-wrap items-baseline justify-center gap-x-1.5 text-[34px] leading-none font-bold tracking-tight text-nus-orange">
+              <span className="min-w-0 break-all">{errand.rewardCredits.toLocaleString()}</span>
+              <span className="text-[15px] font-semibold whitespace-nowrap text-muted">
+                {errand.rewardCredits === 1 ? "credit" : "credits"}
+              </span>
+            </p>
+            <p className="mt-2 text-[13px] text-muted">
+              {errand.status === "Pending"
+                ? "Waiting for the supplier check and credit reservation. This updates on its own."
+                : `Expires ${formatTime(errand.expiresAt)} · ${timeLeft(errand.expiresAt)}`}
+            </p>
           </div>
-        )}
 
-        {errand && (
-          <>
-            <div className="flex items-center gap-2 mb-1">
-              <StatusBadge status={errand.status} />
-              <span className="text-sm text-muted">{role}</span>
-            </div>
-            {errand.status === "Pending" && (
-              <p className="text-xs text-muted mb-3">
-                Waiting for supplier validation and the credit reservation. This refreshes on its own.
-              </p>
+          <Section title="Route">
+            <DetailRow label="Pickup">
+              {errand.pickupName ?? supplier?.displayName ?? "Unknown supplier"}
+              {errand.pickupLocation ? ` · ${errand.pickupLocation}` : ""}
+              {errand.pickupDescription && (
+                <span className="mt-0.5 block text-[13px] text-muted">{errand.pickupDescription}</span>
+              )}
+            </DetailRow>
+            <DetailRow label="Deliver to">{formatDelivery(errand)}</DetailRow>
+          </Section>
+
+          <Section title="Request">
+            <DetailRow label="Items">
+              <span className="whitespace-pre-wrap">{errand.collectionItems}</span>
+            </DetailRow>
+            {errand.description && (
+              <DetailRow label="Note">
+                <span className="whitespace-pre-wrap">{errand.description}</span>
+              </DetailRow>
             )}
+            {errand.cancellationReason && (
+              <DetailRow label="Reason">{cancellationText(errand.cancellationReason, errand.requesterId === me)}</DetailRow>
+            )}
+            <DetailRow label="Created">{formatTime(errand.createdAt)}</DetailRow>
+          </Section>
 
-            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm mt-4">
-              <dt className="text-muted">Pickup</dt>
-              <dd>
-                {errand.pickupName ?? supplier?.displayName ?? shortId(errand.supplierId)}
-                {errand.pickupLocation ? ` · ${errand.pickupLocation}` : ""}
-                {errand.pickupDescription && (
-                  <span className="block text-xs text-muted">{errand.pickupDescription}</span>
-                )}
-              </dd>
-              <dt className="text-muted">Deliver to</dt>
-              <dd>{errand.deliveryLocation}</dd>
-              <dt className="text-muted">Items</dt>
-              <dd className="whitespace-pre-wrap">{errand.collectionItems}</dd>
-              {errand.description && (
-                <>
-                  <dt className="text-muted">Note</dt>
-                  <dd className="whitespace-pre-wrap">{errand.description}</dd>
-                </>
-              )}
-              <dt className="text-muted">Reward</dt>
-              <dd className="font-semibold">{errand.rewardCredits} credits</dd>
-              <dt className="text-muted">Expires</dt>
-              <dd>
-                {formatTime(errand.expiresAt)} ({timeLeft(errand.expiresAt)})
-              </dd>
-              <dt className="text-muted">Created</dt>
-              <dd>{formatTime(errand.createdAt)}</dd>
-              {errand.requesterId && (
-                <>
-                  <dt className="text-muted">Requester</dt>
-                  <dd className="font-mono text-xs">{errand.requesterId}</dd>
-                  <dt className="text-muted">Courier</dt>
-                  <dd className="font-mono text-xs">{errand.courierId ?? "—"}</dd>
-                </>
-              )}
-              {errand.cancellationReason && (
-                <>
-                  <dt className="text-muted">Reason</dt>
-                  <dd>{errand.cancellationReason}</dd>
-                </>
-              )}
-            </dl>
-
-            <div className="mt-6 space-y-3">
-              {(actions.includes("withdraw") || actions.includes("adjust")) && (
-                <div className="grid gap-2">
-                  {actions.includes("withdraw") && (
-                    <input
-                      value={reason}
-                      onChange={(e) => setReason(e.target.value)}
-                      placeholder="Withdraw reason (required)"
-                      className={inputClass}
-                    />
-                  )}
-                  {actions.includes("adjust") && (
-                    <input
-                      type="number"
-                      min={1}
-                      value={newAmount || ""}
-                      onChange={(e) => setNewAmount(Number(e.target.value))}
-                      placeholder="New reward amount"
-                      className={inputClass}
-                    />
-                  )}
-                </div>
-              )}
-
-              {actions.length === 0 ? (
-                <p className="text-sm text-muted">No actions for you at this stage.</p>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {actions.map((a) => (
-                    <button
-                      key={a}
-                      disabled={pending}
-                      onClick={() => run(a)}
-                      className={`btn-press rounded-xl px-3.5 py-2 text-sm font-semibold transition-colors disabled:opacity-50 ${
-                        a === "cancel" || a === "incomplete" || a === "withdraw"
-                          ? "border border-danger text-danger hover:bg-danger/10"
-                          : "bg-nus-orange text-white hover:bg-nus-orange-hover"
-                      }`}
-                    >
-                      {ACTION_LABELS[a]}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {result && (
-                <p
-                  role="status"
-                  className={`text-sm ${result.ok ? "text-success" : "text-danger"}`}
-                >
-                  {result.text}
-                </p>
-              )}
-
-              {lastSent && (
-                <button
+          {actions.length === 0 ? (
+            <p className="text-center text-[13px] text-muted">Nothing for you to do at this stage.</p>
+          ) : (
+            <div className="grid gap-2">
+              {actions.map((a) => (
+                <Button
+                  key={a}
+                  size="lg"
+                  block
                   disabled={pending}
-                  onClick={() => void send(lastSent)}
-                  className="btn-press text-sm text-nus-blue hover:underline disabled:opacity-50"
+                  onClick={() => {
+                    if (CONFIRM[a]) {
+                      setReason("");
+                      setNewAmount(errand.rewardCredits);
+                      setConfirming(a);
+                      setConfirmOpen(true);
+                    } else run(a);
+                  }}
+                  intent={DESTRUCTIVE.includes(a) ? "danger-outline" : "primary"}
                 >
-                  Send “{ACTION_LABELS[lastSent.action]}” again with the same Idempotency-Key
-                </button>
-              )}
+                  {ACTION_LABELS[a]}
+                </Button>
+              ))}
             </div>
-          </>
+          )}
+
+          {resultLine}
+        </div>
+      )}
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title={(confirming && CONFIRM[confirming]?.title) ?? ""}
+        description={(confirming && CONFIRM[confirming]?.description) ?? ""}
+        confirmLabel={confirming ? ACTION_LABELS[confirming] : ""}
+        intent={confirming && DESTRUCTIVE.includes(confirming) ? "danger" : "primary"}
+        confirmDisabled={
+          (confirming === "withdraw" && reason.trim() === "") ||
+          (confirming === "adjust" && !(Number.isInteger(newAmount) && newAmount >= 1))
+        }
+        onConfirm={() => {
+          setConfirmOpen(false);
+          if (confirming) run(confirming);
+        }}
+      >
+        {confirming === "withdraw" && (
+          <input
+            autoFocus
+            maxLength={500}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Reason (required)"
+            aria-label="Withdraw reason"
+            className={`w-full ${inputClass}`}
+          />
         )}
+        {confirming === "adjust" && (
+          <input
+            autoFocus
+            type="number"
+            inputMode="numeric"
+            min={1}
+            step={1}
+            value={newAmount || ""}
+            onChange={(e) => setNewAmount(Number(e.target.value))}
+            placeholder="New reward in credits"
+            aria-label="New reward amount"
+            className={`w-full ${inputClass}`}
+          />
+        )}
+      </ConfirmDialog>
+    </Sheet>
+  );
+}
+
+// A labelled value inside a grouped section; hairlines start at the text, as in table views.
+function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="pl-4 [&+&>div]:border-t">
+      <div className="border-border py-2.5 pr-4">
+        <p className="text-[13px] text-muted">{label}</p>
+        <p className="mt-0.5 text-[15px] break-words">{children}</p>
       </div>
     </div>
   );

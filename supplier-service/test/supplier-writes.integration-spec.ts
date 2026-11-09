@@ -6,16 +6,19 @@ import {
 } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
+import { BrandsService } from '../src/brands/brands.service.js';
 import { BuildingsService } from '../src/buildings/buildings.service.js';
 import { CategoriesService } from '../src/categories/categories.service.js';
 import type { EnvironmentVariables } from '../src/config/environment.schema.js';
 import { createDatabaseOptions } from '../src/database/database-options.js';
 import {
+  Brand,
   Building,
   BuildingNameKey,
   Category,
   Supplier,
   SupplierKind,
+  SupplierOpeningInterval,
   SupplierStatus,
 } from '../src/database/entities/index.js';
 import { ListSuppliersQueryDto } from '../src/suppliers/dto/list-suppliers-query.dto.js';
@@ -58,6 +61,7 @@ describe('admin supplier writes (real PostgreSQL)', () => {
   let queries: SupplierQueriesService;
   let buildings: BuildingsService;
   let categories: CategoriesService;
+  let brands: BrandsService;
   let com2: Building;
   let com3: Building;
   let food: Category;
@@ -86,6 +90,7 @@ describe('admin supplier writes (real PostgreSQL)', () => {
       dataSource.getRepository(BuildingNameKey),
     );
     categories = new CategoriesService(dataSource.getRepository(Category));
+    brands = new BrandsService(dataSource.getRepository(Brand));
   });
 
   afterAll(async () => {
@@ -94,8 +99,8 @@ describe('admin supplier writes (real PostgreSQL)', () => {
 
   beforeEach(async () => {
     await dataSource.query(`
-      TRUNCATE supplier_requests, supplier_categories, suppliers, categories,
-               building_name_keys, buildings
+      TRUNCATE supplier_requests, supplier_categories, supplier_opening_intervals, suppliers, brands, categories,
+               venues, building_name_keys, buildings
     `);
     com2 = await buildings.create({
       canonicalName: 'Computing 2',
@@ -305,6 +310,31 @@ describe('admin supplier writes (real PostgreSQL)', () => {
       ).resolves.toBeUndefined();
     });
 
+    it('refuses the map-pin building for a new supplier and for a move', async () => {
+      const pin = await buildings.create({
+        canonicalName: 'Other (map pin)',
+        shortName: 'PIN',
+        aliases: [],
+        latitude: 1.295,
+        longitude: 103.765,
+      });
+      const unusable = [
+        { field: 'buildingId', reason: 'building cannot hold suppliers' },
+      ];
+
+      const created = await failure(
+        suppliers.create({ ...coolSpot(), buildingId: pin.id }),
+      );
+      expect(created.status).toBe(400);
+      expect(created.body.violations).toEqual(unusable);
+
+      const { id } = await suppliers.create(coolSpot());
+      const moved = await failure(
+        suppliers.update(id, 1, { buildingId: pin.id }),
+      );
+      expect(moved.body.violations).toEqual(unusable);
+    });
+
     it('answers a distinct not-found for an unknown supplier', async () => {
       const { status, body } = await failure(
         suppliers.update('00000000-0000-4000-8000-000000000003', 1, {
@@ -313,6 +343,386 @@ describe('admin supplier writes (real PostgreSQL)', () => {
       );
       expect(status).toBe(404);
       expect(body.code).toBe('SUPPLIER_NOT_FOUND');
+    });
+  });
+
+  describe('opening hours (F1.2.8, F2)', () => {
+    const weekdays = {
+      days: {
+        mon: [
+          { opens: '13:00', closes: '18:00' },
+          { opens: '09:00', closes: '12:00' },
+        ],
+        sat: [{ opens: '22:00', closes: '02:00' }],
+      },
+    };
+    const intervalsOf = (id: string) =>
+      dataSource
+        .getRepository(SupplierOpeningInterval)
+        .find({
+          where: { supplierId: id },
+          order: { day: 'ASC', opensAt: 'ASC' },
+        })
+        .then((rows) =>
+          rows.map(({ day, opensAt, closesAt }) => ({
+            day,
+            opensAt,
+            closesAt,
+          })),
+        );
+    const flagOf = async (id: string) =>
+      (await dataSource.getRepository(Supplier).findOneByOrFail({ id }))
+        .open24Hours;
+
+    it('stores weekly intervals when creating, overnight included (F2.1, F2.3)', async () => {
+      const { id } = await suppliers.create({
+        ...coolSpot(),
+        openingHours: weekdays,
+      });
+
+      await expect(intervalsOf(id)).resolves.toEqual([
+        { day: 0, opensAt: 540, closesAt: 720 },
+        { day: 0, opensAt: 780, closesAt: 1080 },
+        { day: 5, opensAt: 1320, closesAt: 120 },
+      ]);
+      await expect(flagOf(id)).resolves.toBe(false);
+    });
+
+    it('stores open around the clock as a flag without intervals (F2.2)', async () => {
+      const { id } = await suppliers.create({
+        ...coolSpot(),
+        openingHours: { open24Hours: true },
+      });
+
+      await expect(flagOf(id)).resolves.toBe(true);
+      await expect(intervalsOf(id)).resolves.toEqual([]);
+    });
+
+    it('creates a supplier without hours as having none (F1.2.8)', async () => {
+      const { id } = await suppliers.create(coolSpot());
+      const none = await suppliers.create({
+        ...coolSpot(),
+        name: 'Other',
+        openingHours: null,
+      });
+
+      for (const supplierId of [id, none.id]) {
+        await expect(flagOf(supplierId)).resolves.toBe(false);
+        await expect(intervalsOf(supplierId)).resolves.toEqual([]);
+      }
+    });
+
+    it('refuses bad hours with their paths, saving no part of the supplier (F2.4, F1.6)', async () => {
+      const { status, body } = await failure(
+        suppliers.create({
+          ...coolSpot(),
+          openingHours: {
+            days: {
+              mon: [
+                { opens: '09:00', closes: '12:00' },
+                { opens: '11:00', closes: '18:00' },
+              ],
+              tue: [{ opens: '10:00', closes: '10:00' }],
+            },
+          },
+        }),
+      );
+
+      expect(status).toBe(400);
+      expect(
+        (body.violations as { field: string }[]).map((v) => v.field),
+      ).toEqual(['openingHours.days.tue[0]', 'openingHours.days.mon[1]']);
+      await expect(dataSource.getRepository(Supplier).count()).resolves.toBe(0);
+      await expect(
+        dataSource.getRepository(SupplierOpeningInterval).count(),
+      ).resolves.toBe(0);
+    });
+
+    it('reports bad hours together with other field problems', async () => {
+      const { body } = await failure(
+        suppliers.create({
+          ...coolSpot(),
+          floor: 'Z',
+          openingHours: { days: {} },
+        }),
+      );
+
+      expect(
+        new Set((body.violations as { field: string }[]).map((v) => v.field)),
+      ).toEqual(new Set(['floor', 'openingHours.days']));
+    });
+
+    it('replaces the whole schedule on an edit and bumps the version, even if only the hours change (F1.3.1)', async () => {
+      const { id } = await suppliers.create({
+        ...coolSpot(),
+        openingHours: weekdays,
+      });
+
+      await suppliers.update(id, 1, {
+        openingHours: {
+          days: { fri: [{ opens: '10:00', closes: '14:00' }] },
+        },
+      });
+
+      await expect(intervalsOf(id)).resolves.toEqual([
+        { day: 4, opensAt: 600, closesAt: 840 },
+      ]);
+      await expect(queries.get(id)).resolves.toMatchObject({
+        version: 2,
+        name: 'Cool Spot',
+      });
+    });
+
+    it('switches between open around the clock and weekly hours', async () => {
+      const { id } = await suppliers.create({
+        ...coolSpot(),
+        openingHours: weekdays,
+      });
+
+      await suppliers.update(id, 1, { openingHours: { open24Hours: true } });
+      await expect(flagOf(id)).resolves.toBe(true);
+      await expect(intervalsOf(id)).resolves.toEqual([]);
+
+      await suppliers.update(id, 2, { openingHours: weekdays });
+      await expect(flagOf(id)).resolves.toBe(false);
+      await expect(intervalsOf(id)).resolves.toHaveLength(3);
+    });
+
+    it('removes the hours when openingHours is null', async () => {
+      const { id } = await suppliers.create({
+        ...coolSpot(),
+        openingHours: weekdays,
+      });
+
+      await suppliers.update(id, 1, { openingHours: null });
+
+      await expect(intervalsOf(id)).resolves.toEqual([]);
+      await expect(flagOf(id)).resolves.toBe(false);
+      await expect(queries.get(id)).resolves.toMatchObject({ version: 2 });
+    });
+
+    it('leaves the hours alone when an edit does not mention them', async () => {
+      const { id } = await suppliers.create({
+        ...coolSpot(),
+        openingHours: weekdays,
+      });
+
+      await suppliers.update(id, 1, { locationDescription: 'Near the lift' });
+
+      await expect(intervalsOf(id)).resolves.toHaveLength(3);
+    });
+
+    it('refuses overlapping hours on an edit, changing nothing (F2.4)', async () => {
+      const { id } = await suppliers.create({
+        ...coolSpot(),
+        openingHours: weekdays,
+      });
+
+      const { status } = await failure(
+        suppliers.update(id, 1, {
+          openingHours: {
+            days: {
+              sun: [{ opens: '23:00', closes: '03:00' }],
+              mon: [{ opens: '02:00', closes: '09:00' }],
+            },
+          },
+        }),
+      );
+
+      expect(status).toBe(400);
+      await expect(intervalsOf(id)).resolves.toHaveLength(3);
+      await expect(queries.get(id)).resolves.toMatchObject({ version: 1 });
+    });
+
+    it('deletes the intervals with their supplier', async () => {
+      const { id } = await suppliers.create({
+        ...coolSpot(),
+        openingHours: weekdays,
+      });
+
+      await dataSource.query(`DELETE FROM suppliers WHERE id = $1`, [id]);
+
+      await expect(intervalsOf(id)).resolves.toEqual([]);
+    });
+
+    it.each([
+      ['a day outside 0-6', 7, 540, 720, 'CHK_supplier_opening_intervals_day'],
+      [
+        'a minute outside the day',
+        0,
+        1440,
+        720,
+        'CHK_supplier_opening_intervals_opens_at',
+      ],
+      [
+        'equal opening and closing',
+        0,
+        540,
+        540,
+        'CHK_supplier_opening_intervals_differ',
+      ],
+    ])(
+      'refuses %s in the database itself',
+      async (_, day, opens, closes, check) => {
+        const { id } = await suppliers.create(coolSpot());
+
+        await expect(
+          dataSource.query(
+            `INSERT INTO supplier_opening_intervals (supplier_id, day, opens_at, closes_at)
+           VALUES ($1, $2, $3, $4)`,
+            [id, day, opens, closes],
+          ),
+        ).rejects.toMatchObject({ driverError: { constraint: check } });
+      },
+    );
+  });
+
+  describe('brand (F1.2.10, F3.4, F1.8)', () => {
+    const brandOf = async (id: string) =>
+      (await dataSource.getRepository(Supplier).findOneByOrFail({ id }))
+        .brandId;
+
+    it('creates a supplier with a brand, or without one (F1.2.10)', async () => {
+      const cheers = await brands.create('Cheers');
+
+      const withBrand = await suppliers.create({
+        ...coolSpot(),
+        brandId: cheers.id,
+      });
+      const without = await suppliers.create({
+        ...coolSpot(),
+        name: 'Plain Stall',
+      });
+      const explicitNull = await suppliers.create({
+        ...coolSpot(),
+        name: 'Null Stall',
+        brandId: null,
+      });
+
+      await expect(brandOf(withBrand.id)).resolves.toBe(cheers.id);
+      await expect(brandOf(without.id)).resolves.toBeNull();
+      await expect(brandOf(explicitNull.id)).resolves.toBeNull();
+    });
+
+    it('lets several outlets share a brand, told apart by building and floor (F3.4, F1.5)', async () => {
+      const cheers = await brands.create('Cheers');
+
+      await suppliers.create({ ...coolSpot(), brandId: cheers.id });
+      await expect(
+        suppliers.create({
+          ...coolSpot(),
+          buildingId: com3.id,
+          brandId: cheers.id,
+        }),
+      ).resolves.toBeDefined();
+      // The same name, building and floor is still a duplicate, brand or not.
+      const { status, body } = await failure(
+        suppliers.create({ ...coolSpot(), brandId: cheers.id }),
+      );
+      expect(status).toBe(409);
+      expect(body.code).toBe('DUPLICATE_SUPPLIER');
+    });
+
+    it('refuses a brand that does not exist, with its path, saving nothing', async () => {
+      const { status, body } = await failure(
+        suppliers.create({
+          ...coolSpot(),
+          brandId: '11111111-1111-4111-8111-111111111111',
+        }),
+      );
+
+      expect(status).toBe(400);
+      expect(body.violations).toEqual([
+        { field: 'brandId', reason: 'brand does not exist' },
+      ]);
+      await expect(dataSource.getRepository(Supplier).count()).resolves.toBe(0);
+    });
+
+    it('refuses a malformed brand id', async () => {
+      const { body } = await failure(
+        suppliers.create({ ...coolSpot(), brandId: 'cheers' }),
+      );
+
+      expect(
+        (body.violations as { field: string }[]).map((v) => v.field),
+      ).toEqual(['brandId']);
+    });
+
+    it('refuses a retired brand for a new supplier (F3.3.1)', async () => {
+      const gone = await brands.create('Gone');
+      await brands.retire(gone.id);
+
+      const { body } = await failure(
+        suppliers.create({ ...coolSpot(), brandId: gone.id }),
+      );
+
+      expect(body.violations).toEqual([
+        { field: 'brandId', reason: 'brand is retired and cannot be chosen' },
+      ]);
+    });
+
+    it('sets, changes and removes the brand on an edit, bumping the version', async () => {
+      const cheers = await brands.create('Cheers');
+      const coconut = await brands.create('Mr Coconut');
+      const { id } = await suppliers.create(coolSpot());
+
+      await suppliers.update(id, 1, { brandId: cheers.id });
+      await expect(brandOf(id)).resolves.toBe(cheers.id);
+      await expect(queries.get(id)).resolves.toMatchObject({ version: 2 });
+
+      await suppliers.update(id, 2, { brandId: coconut.id });
+      await expect(brandOf(id)).resolves.toBe(coconut.id);
+
+      await suppliers.update(id, 3, { brandId: null });
+      await expect(brandOf(id)).resolves.toBeNull();
+      await expect(queries.get(id)).resolves.toMatchObject({ version: 4 });
+    });
+
+    it('leaves the brand alone when an edit does not mention it', async () => {
+      const cheers = await brands.create('Cheers');
+      const { id } = await suppliers.create({
+        ...coolSpot(),
+        brandId: cheers.id,
+      });
+
+      await suppliers.update(id, 1, { locationDescription: 'Near the lift' });
+
+      await expect(brandOf(id)).resolves.toBe(cheers.id);
+    });
+
+    it('keeps a brand that was retired later, but refuses choosing another retired one (F1.8)', async () => {
+      const cheers = await brands.create('Cheers');
+      const other = await brands.create('Other');
+      const { id } = await suppliers.create({
+        ...coolSpot(),
+        brandId: cheers.id,
+      });
+      await brands.retire(cheers.id);
+      await brands.retire(other.id);
+
+      // Editing something else, or sending the same retired brand, is fine.
+      await suppliers.update(id, 1, { locationDescription: 'Near the lift' });
+      await suppliers.update(id, 2, { brandId: cheers.id });
+      await expect(brandOf(id)).resolves.toBe(cheers.id);
+
+      const { body } = await failure(
+        suppliers.update(id, 3, { brandId: other.id }),
+      );
+      expect(body.violations).toEqual([
+        { field: 'brandId', reason: 'brand is retired and cannot be chosen' },
+      ]);
+      await expect(brandOf(id)).resolves.toBe(cheers.id);
+    });
+
+    it('refuses deleting a brand that suppliers hold, in the database itself', async () => {
+      const cheers = await brands.create('Cheers');
+      await suppliers.create({ ...coolSpot(), brandId: cheers.id });
+
+      await expect(
+        dataSource.query(`DELETE FROM brands WHERE id = $1`, [cheers.id]),
+      ).rejects.toMatchObject({
+        driverError: { constraint: 'FK_suppliers_brand' },
+      });
     });
   });
 

@@ -1,5 +1,6 @@
 import { Transform, Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsEnum,
   IsIn,
   IsInt,
@@ -72,6 +73,12 @@ export class ListSuppliersQueryDto {
   @IsUUID('all', { each: true, message: 'each buildingId must be a UUID' })
   buildingId?: string[];
 
+  /** Suppliers of any of these brands (F5.4.6). */
+  @IsOptional()
+  @Transform(asIdArray)
+  @IsUUID('all', { each: true, message: 'each brandId must be a UUID' })
+  brandId?: string[];
+
   /** One or more kinds (F5.4.4). */
   @IsOptional()
   @Transform(asArray)
@@ -87,6 +94,18 @@ export class ListSuppliersQueryDto {
     message: `status must be one of ${Object.values(SupplierStatus).join(', ')}`,
   })
   status?: SupplierStatus;
+
+  /**
+   * Only suppliers open now, in Singapore time (F5.4.7). Only `true`
+   * filters; `false` is the same as leaving it out.
+   */
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => {
+    if (value === 'true') return true;
+    return value === 'false' ? false : value;
+  })
+  @IsBoolean({ message: 'openNow must be true or false' })
+  openNow?: boolean;
 
   /** Omitted = display name (F5.3); otherwise F5.3.1. */
   @IsOptional()

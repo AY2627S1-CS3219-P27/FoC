@@ -26,7 +26,10 @@ export interface Errand {
   pickupName: string | null;
   pickupLocation: string | null;
   pickupDescription: string | null;
-  deliveryLocation: string;
+  /** Building short-name snapshot; null until the supplier validates. */
+  deliveryLocation: string | null;
+  /** Requester's room or level, e.g. "Level 3 04-02". */
+  deliveryDetail: string;
   collectionItems: string;
   description: string | null;
   rewardCredits: number;
@@ -35,6 +38,15 @@ export interface Errand {
   requesterId?: string;
   courierId?: string | null;
   cancellationReason?: string | null;
+}
+
+/** Building snapshot plus the requester's room/level, for display. */
+export function formatDelivery(
+  errand: Pick<Errand, "deliveryLocation" | "deliveryDetail">,
+): string {
+  return `${errand.deliveryLocation ?? "—"}${
+    errand.deliveryDetail ? ` · ${errand.deliveryDetail}` : ""
+  }`;
 }
 
 export interface AdminErrand extends Errand {
@@ -54,7 +66,7 @@ export interface SupplierOption {
   id: string;
   displayName: string;
   building: { id: string; shortName: string } | null;
-  locationDescription: string;
+  floor: string;
 }
 
 export interface BuildingOption {
@@ -84,9 +96,8 @@ export const ACTION_LABELS: Record<ActionName, string> = {
   cancel: "Cancel errand",
 };
 
-export const ALL_ACTIONS = Object.keys(ACTION_LABELS) as ActionName[];
 
-// Mirrors the backend's edges so normal mode only shows what should succeed.
+// Mirrors the backend's edges so only actions that should succeed are shown.
 export function availableActions(errand: Errand, me: string): ActionName[] {
   const isRequester = errand.requesterId === me;
   const isCourier = !!errand.courierId && errand.courierId === me;

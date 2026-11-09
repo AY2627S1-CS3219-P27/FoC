@@ -1,0 +1,11 @@
+{
+  "eventId": "10000000-0000-4000-8000-000000000001",
+  "eventType": "ErrandAccepted",
+  "timestamp": "2026-11-04T01:00:00.000Z",
+  "publisher": "order-service",
+  "payload": {
+    "errandId": "20000000-0000-4000-8000-000000000001",
+    "requesterUserId": "30000000-0000-4000-8000-000000000001",
+    "courierUserId": "40000000-0000-4000-8000-000000000001"
+  }
+}

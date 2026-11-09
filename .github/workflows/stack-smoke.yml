@@ -29,16 +29,62 @@ jobs:
       - name: Generate throwaway env, secrets and RabbitMQ users
         run: bash scripts/ci-stack-secrets.sh
 
-      - name: Start databases and broker
-        run: docker compose up -d --wait rabbitmq credit-db order-db
+      - name: Verify Communication Service network isolation
+        run: |
+          docker compose config --format json > /tmp/compose.json
+          jq -e '
+            (.services["comms-service"].ports // [] | length == 0)
+            and (.services["comms-db"].ports // [] | length == 0)
+            and (.services["comms-service"].networks | has("internal"))
+            and (.services["comms-db"].networks | has("internal"))
+            and (.services["comms-service"].depends_on | has("comms-db"))
+            and (.services["comms-service"].depends_on | has("rabbitmq"))
+            and (.services["comms-service"].depends_on | has("redis"))
+          ' /tmp/compose.json
 
-      # Neither service migrates on startup; order-service's outbox relay
+          docker compose -f compose.yaml -f compose.debug.yaml config --format json > /tmp/compose-debug.json
+          jq -e '
+            (.services["comms-service"].networks | has("internal") and has("ops"))
+            and (.services["comms-db"].networks | has("internal") and has("ops"))
+            and (.services["comms-service"].ports | length == 1)
+            and (.services["comms-service"].ports[0] |
+              .host_ip == "127.0.0.1" and .published == "3006" and .target == 3000)
+            and (.services["comms-db"].ports | length == 1)
+            and (.services["comms-db"].ports[0] |
+              .host_ip == "127.0.0.1" and .published == "5437" and .target == 5432)
+          ' /tmp/compose-debug.json
+
+          docker compose -f comms-service/compose.yml --profile test config --format json > /tmp/comms-test.json
+          jq -e '
+            (.services["comms-db-test"].ports | length == 1)
+            and (.services["comms-rabbitmq-test"].ports | length == 2)
+            and (.services["comms-db-test"].ports[0] |
+              .host_ip == "127.0.0.1" and .published == "5441" and .target == 5432)
+            and (all(
+              .services["comms-db-test"].ports[],
+              .services["comms-rabbitmq-test"].ports[];
+              .host_ip == "127.0.0.1"))
+          ' /tmp/comms-test.json
+
+          docker compose --profile test config --format json > /tmp/compose-test.json
+          jq -e '
+            (.services["order-db-test"].ports[0] |
+              .host_ip == "127.0.0.1" and .published == "5440" and .target == 5432)
+            and (.services["comms-db-test"].ports[0] |
+              .host_ip == "127.0.0.1" and .published == "5441" and .target == 5432)
+          ' /tmp/compose-test.json
+
+      - name: Start databases and broker
+        run: docker compose up -d --wait rabbitmq credit-db order-db comms-db
+
+      # These services do not migrate on startup; order-service's outbox relay
       # crashes the app on its first poll if its tables are missing.
       - name: Run migrations
         run: |
-          docker compose build credit-service order-service
+          docker compose build credit-service order-service comms-service
           docker compose run --rm credit-service npm run migration:run
           docker compose run --rm --no-deps order-service npm run db:migrate
+          docker compose run --rm --no-deps comms-service npm run migration:run
 
       - name: Start full stack
         run: docker compose up -d --build --wait

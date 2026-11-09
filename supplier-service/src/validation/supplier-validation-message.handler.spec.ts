@@ -12,7 +12,11 @@ const request = (overrides: Record<string, unknown> = {}) => ({
   eventType: 'SupplierValidationRequested',
   timestamp: '2026-10-20T10:00:00.000Z',
   publisher: 'order-service',
-  payload: { errandId: randomUUID(), supplierId: randomUUID() },
+  payload: {
+    errandId: randomUUID(),
+    supplierId: randomUUID(),
+    deliveryBuildingId: randomUUID(),
+  },
   ...overrides,
 });
 
@@ -64,7 +68,9 @@ describe('SupplierValidationMessageHandler', () => {
   it.each([
     [
       'a missing supplier id',
-      request({ payload: { errandId: randomUUID() } }),
+      request({
+        payload: { errandId: randomUUID(), deliveryBuildingId: randomUUID() },
+      }),
       'INVALID_PAYLOAD',
     ],
     [
@@ -73,6 +79,7 @@ describe('SupplierValidationMessageHandler', () => {
         payload: {
           errandId: randomUUID(),
           supplierId: randomUUID(),
+          deliveryBuildingId: randomUUID(),
           extra: 1,
         },
       }),

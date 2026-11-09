@@ -23,7 +23,7 @@ export const PAYLOADS: Record<string, Joi.ObjectSchema> = {
     creditEventId: Joi.string().uuid(),
     requestedAmount: amount,
     supplierEventId: Joi.string().uuid(),
-    supplierOutcome: Joi.string().valid('NOT_FOUND', 'INACTIVE'),
+    supplierOutcome: Joi.string().valid('NOT_FOUND', 'INACTIVE', 'BUILDING_NOT_FOUND', 'VENUE_NOT_FOUND'),
   })
     .and('creditEventId', 'requestedAmount')
     .and('supplierEventId', 'supplierOutcome')
@@ -50,6 +50,15 @@ export const PAYLOADS: Record<string, Joi.ObjectSchema> = {
     transferredAmount: amount.required(),
   }),
   CreditTransferRejected: Joi.object({ creditEventId: uuid, reason }),
+  // The amount and note ride in `set` (projection columns), not the payload.
+  SettlementRequested: none,
+  // A zero share has no transaction, so each id is a UUID or null (credit.settlement-succeeded.v1).
+  CreditSettlementSucceeded: Joi.object({
+    creditEventId: uuid,
+    courierCreditTransactionId: uuid.allow(null),
+    requesterCreditTransactionId: uuid.allow(null),
+  }),
+  CreditSettlementRejected: Joi.object({ creditEventId: uuid, reason }),
 };
 
 // An event type without a schema is refused, so a new edge needs one. No

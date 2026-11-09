@@ -13,12 +13,23 @@ export const supplierSnapshot = {
   coordinates: { latitude: 1.294, longitude: 103.7738 },
 };
 
+export const deliveryBuilding = {
+  id: randomUUID(),
+  shortName: 'COM2',
+  canonicalName: 'Computing 2',
+  coordinates: { latitude: 1.2939, longitude: 103.7742 },
+};
+
 export const supplierValidated = () => ({
   set: {
     supplierValidatedAt: new Date('2030-01-01T00:00:00.000Z'),
     pickupName: 'Cool Spot @ COM2',
     pickupLocation: 'COM2',
     pickupDescription: 'Floor 1 · Next to LT19',
+    deliveryLocation: 'COM2',
+    deliveryVenue: 'Around COM2',
+    deliveryLatitude: 1.2939,
+    deliveryLongitude: 103.7742,
   },
   payload: { supplierEventId: randomUUID(), supplier: supplierSnapshot },
 });

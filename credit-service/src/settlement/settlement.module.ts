@@ -6,10 +6,14 @@ import { ErrandCancelledConsumerLifecycle } from './errand-cancelled-consumer.li
 import { ErrandCancelledMessageHandler } from './errand-cancelled-message.handler.js';
 import { ErrandCompletedConsumerLifecycle } from './errand-completed-consumer.lifecycle.js';
 import { ErrandCompletedMessageHandler } from './errand-completed-message.handler.js';
+import { CreditSettlementConsumerLifecycle } from './credit-settlement-consumer.lifecycle.js';
+import { CreditSettlementMessageHandler } from './credit-settlement-message.handler.js';
 import { ReleaseService } from './release.service.js';
 import { ReleaseOperationProcessor } from './release-operation.processor.js';
 import { TransferOperationProcessor } from './transfer-operation.processor.js';
 import { TransferService } from './transfer.service.js';
+import { SettlementService } from './settlement.service.js';
+import { SettlementOperationProcessor } from './settlement-operation.processor.js';
 
 @Module({
   imports: [ContractsModule, DatabaseModule, MessagingModule],
@@ -18,6 +22,10 @@ import { TransferService } from './transfer.service.js';
     ReleaseOperationProcessor,
     TransferService,
     TransferOperationProcessor,
+    SettlementService,
+    SettlementOperationProcessor,
+    CreditSettlementMessageHandler,
+    CreditSettlementConsumerLifecycle,
     ErrandCancelledMessageHandler,
     ErrandCancelledConsumerLifecycle,
     ErrandCompletedMessageHandler,
@@ -28,6 +36,8 @@ import { TransferService } from './transfer.service.js';
     ReleaseOperationProcessor,
     TransferService,
     TransferOperationProcessor,
+    SettlementService,
+    SettlementOperationProcessor,
   ],
 })
 export class SettlementModule {}

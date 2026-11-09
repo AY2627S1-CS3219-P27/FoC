@@ -13,16 +13,19 @@ export interface NoticeContext {
   errandId: string;
   requesterId: string;
   courierId: string | null;
+  actorUserId: string | null;
   rewardCredits: number;
   payload: Record<string, unknown>;
+  // Events of this edge's type on the errand, this one included (credit.settlement.v1).
+  attempt: number;
 }
 
-// `key` is the contract's routing key; builders may return undefined to skip.
+// `key` is the contract's routing key; builders may return undefined to skip, or several notices.
 export interface Notice {
   key: EventContractKey;
   payload: object;
 }
-export type NoticeBuilder = (c: NoticeContext) => Notice | undefined;
+export type NoticeBuilder = (c: NoticeContext) => Notice | Notice[] | undefined;
 
 // Compiles every schema once.
 const validator = new AccountEventContractValidator();
@@ -81,10 +84,20 @@ export const enqueueSupplierRequest = (
   db: Db,
   errandId: string,
   supplierId: string,
+  deliveryBuildingId: string,
   attempt: number,
+  deliveryVenueId?: string | null,
 ) =>
   enqueueNotice(
     db,
-    { key: 'order.supplier-validation-requested.v1', payload: { errandId, supplierId } },
+    {
+      key: 'order.supplier-validation-requested.v1',
+      payload: {
+        errandId,
+        supplierId,
+        deliveryBuildingId,
+        ...(deliveryVenueId && { deliveryVenueId }),
+      },
+    },
     supplierRequestId(errandId, attempt),
   );
