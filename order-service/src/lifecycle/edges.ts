@@ -4,7 +4,7 @@ import {
   ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
   ORDER_REQUESTER_ERRAND_CANCELLED_V1_ROUTING_KEY,
 } from '@foc/contracts';
-import { supplierRequest, supplierRevalidationId, type Notice, type NoticeBuilder } from './notice.js';
+import { supplierRequest, supplierRevalidationId, type NoticeBuilder, type Notice } from './notice.js';
 import type { Status } from './status.js';
 
 // Projection columns a transition may write; values come from the caller.
