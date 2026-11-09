@@ -176,12 +176,15 @@ export function EditErrandForm({
         </div>
       </FormGroup>
 
-      {problem && problem !== NOTHING_CHANGED && <p className="text-[13px] break-words text-muted">{problem}</p>}
-      {error && <FormError>{error}</FormError>}
+      {/* Pinned, so the reason Save is blocked shows wherever the edit was made. The offset cancels the sheet's bottom padding, or content shows below the bar. */}
+      <div className="sticky bottom-[calc(-1*max(1.5rem,env(safe-area-inset-bottom)))] -mx-4 space-y-2 bg-[var(--background)] px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] md:-mx-5 md:px-5">
+        {problem && problem !== NOTHING_CHANGED && <p className="text-[13px] break-words text-muted">{problem}</p>}
+        {error && <FormError>{error}</FormError>}
 
-      <Button type="submit" size="lg" block disabled={pending || problem !== null}>
-        {pending ? "Saving…" : "Save changes"}
-      </Button>
+        <Button type="submit" size="lg" block disabled={pending || problem !== null}>
+          {pending ? "Saving…" : "Save changes"}
+        </Button>
+      </div>
     </form>
   );
 }
