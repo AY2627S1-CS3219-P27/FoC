@@ -13,7 +13,6 @@ import { cancellationText } from "./cancellation";
 import {
   ACTION_LABELS,
   availableActions,
-  cancellationText,
   formatDelivery,
   type ActionName,
   type Errand,
