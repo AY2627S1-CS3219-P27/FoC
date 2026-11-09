@@ -5,7 +5,9 @@ function controller(
   overrides: {
     db?: () => Promise<unknown>;
     rabbit?: () => Promise<void>;
+    consumers?: () => Promise<void>;
     redis?: () => Promise<void>;
+    socketRedis?: () => Promise<void>;
   } = {},
 ) {
   const dataSource = {
@@ -17,10 +19,18 @@ function controller(
   const redis = {
     check: overrides.redis ?? vi.fn().mockResolvedValue(undefined),
   };
+  const consumers = {
+    checkConsumers: overrides.consumers ?? vi.fn().mockResolvedValue(undefined),
+  };
+  const socketRedis = {
+    check: overrides.socketRedis ?? vi.fn().mockResolvedValue(undefined),
+  };
   return new HealthController(
     dataSource as never,
     rabbitMq as never,
+    consumers as never,
     redis as never,
+    socketRedis as never,
   );
 }
 
@@ -33,7 +43,13 @@ describe('HealthController', () => {
     await expect(controller().ready()).resolves.toEqual({ status: 'ok' });
   });
 
-  it.each(['database', 'rabbitmq', 'redis'] as const)(
+  it.each([
+    'database',
+    'rabbitmq',
+    'consumers',
+    'redis',
+    'socketRedis',
+  ] as const)(
     'sanitizes a %s readiness failure',
     async (dependency) => {
       const failure = vi
@@ -42,7 +58,9 @@ describe('HealthController', () => {
       const subject = controller({
         db: dependency === 'database' ? failure : undefined,
         rabbit: dependency === 'rabbitmq' ? failure : undefined,
+        consumers: dependency === 'consumers' ? failure : undefined,
         redis: dependency === 'redis' ? failure : undefined,
+        socketRedis: dependency === 'socketRedis' ? failure : undefined,
       });
       const promise = subject.ready();
       await expect(promise).rejects.toBeInstanceOf(ServiceUnavailableException);

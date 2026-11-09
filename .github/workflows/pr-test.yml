@@ -36,6 +36,9 @@ jobs:
           - module: email-service
             lint: echo "no lint script"
             test: npm test
+          - module: notification-service
+            lint: npm run lint
+            test: npm test
           - module: frontend
             lint: npm run lint
             test: npm run build

@@ -14,6 +14,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { Idempotent } from '../idempotency/idempotent.decorator.js';
 import { parseIfMatch } from '../common/validation/if-match.js';
 import { uuidParam } from '../common/validation/parse-uuid.pipe.js';
 import { ChangeSupplierStatusDto } from './dto/change-supplier-status.dto.js';
@@ -65,6 +66,7 @@ export class SuppliersController {
    */
   @Post()
   @UseGuards(AdminGuard)
+  @Idempotent()
   @HttpCode(201)
   async create(
     @Body() body: unknown,

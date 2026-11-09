@@ -26,7 +26,7 @@ money, and only circulate within the platform.
 
 This repository follows a **one-service-per-folder** structure: each
 microservice (`user-service/`, `supplier-service/`, `order-service/`,
-`credit-service/`) lives in its own top-level folder.
+`credit-service/`, `comms-service/`) lives in its own top-level folder.
 
 ```text
 .
@@ -34,6 +34,7 @@ microservice (`user-service/`, `supplier-service/`, `order-service/`,
 ├── supplier-service/
 ├── order-service/
 ├── credit-service/
+├── comms-service/
 ├── email-service/
 ├── frontend/
 └── README.md
@@ -71,13 +72,19 @@ Node is only needed to run a service's tests or tooling outside Docker.
    `rabbitmq/definitions.json`, so only run it on a throwaway checkout.
 3. **RabbitMQ passwords.** Each service's RabbitMQ password must match its hash
    in `rabbitmq/definitions.json`; see [RabbitMQ set-up](#rabbitmq-set-up).
-4. **Create the Credit database schema.** Credit Service does not migrate on
-   startup, and its consumers and outbox relay fail on an empty schema:
+4. **Create the Credit and Communication Service database schemas.** Neither
+   service migrates on startup: Credit's consumers and outbox relay fail on
+   an empty schema, and Communication Service's TypeORM `synchronize` is
+   disabled in every environment.
 
    ```sh
    docker compose up -d --wait rabbitmq credit-db
    docker compose build credit-service
    docker compose run --rm credit-service npm run migration:run
+
+   docker compose up -d --wait rabbitmq comms-db
+   docker compose build comms-service
+   docker compose run --rm comms-service npm run migration:run
    ```
 
    Order and Supplier Services apply their own migrations on startup
@@ -102,6 +109,7 @@ Node is only needed to run a service's tests or tooling outside Docker.
 | Changed `package.json` / `package-lock.json`, a Dockerfile, or `packages/*` | `docker compose up --build --watch` (or `docker compose build <service>` first) |
 | Edited `env/*.env` or a `*.secret` | `docker compose up -d --force-recreate <service>` |
 | Pulled a new **Credit** migration | `docker compose run --rm credit-service npm run migration:run`, then restart `credit-service` |
+| Pulled a new **Communication Service** migration | `docker compose run --rm comms-service npm run migration:run`, then restart `comms-service` |
 | Pulled a new **Order** migration | Restart `order-service`; it migrates on startup. To run it by hand: `docker compose run --rm --no-deps order-service npm run db:migrate` |
 | Pulled a new **Supplier** migration | Restart `supplier-service`; it migrates on startup |
 | Changed `order-service/src/db/schema.ts` | `cd order-service && npm run db:generate -- --name=<slug>` and commit the SQL and `drizzle/meta`. Existing rows need a default for any new `NOT NULL` column. |
@@ -112,7 +120,8 @@ Node is only needed to run a service's tests or tooling outside Docker.
 | Debug a service or DB directly (Swagger, psql) | `docker compose -f compose.yaml -f compose.debug.yaml up -d --wait` |
 
 Service-specific workflows and verification commands are in each service's
-README, e.g. [Credit Service](credit-service/README.md#run-with-docker-compose).
+README, e.g. [Credit Service](credit-service/README.md#run-with-docker-compose)
+or [Communication Service](comms-service/README.md#local-commands).
 
 ### RabbitMQ set-up
 

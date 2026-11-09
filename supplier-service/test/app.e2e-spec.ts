@@ -5,6 +5,7 @@ import request from 'supertest';
 import { DataSource, QueryFailedError } from 'typeorm';
 import { seedTestEnvironment } from './test-env.js';
 import { withoutBroker } from './without-broker.js';
+import { BuildingSeedService } from '../src/seed/building-seed.service.js';
 
 class ProbeDto {
   @IsString()
@@ -55,6 +56,9 @@ describe('supplier-service (e2e)', () => {
     )
       // The TypeORM DataSource factory would otherwise try to reach Postgres
       // during app.init().
+      // There is no database here: the startup pin seed is covered against PostgreSQL.
+      .overrideProvider(BuildingSeedService)
+      .useValue({})
       .overrideProvider(DataSource)
       .useValue({
         entityMetadatas: [],

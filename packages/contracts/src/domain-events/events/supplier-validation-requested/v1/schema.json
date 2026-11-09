@@ -31,7 +31,14 @@
             "deliveryBuildingId": {
               "type": "string",
               "format": "uuid"
+            },
+            "deliveryVenueId": {
+              "type": "string",
+              "format": "uuid"
             }
+          },
+          "dependentRequired": {
+            "deliveryVenueId": ["deliveryBuildingId"]
           }
         }
       }

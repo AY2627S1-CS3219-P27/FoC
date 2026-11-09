@@ -17,15 +17,17 @@ import { nameKey } from '../common/normalise/normalise.js';
 import type { EnvironmentVariables } from '../config/environment.schema.js';
 import type { Building } from '../database/entities/index.js';
 import { SuppliersService } from '../suppliers/suppliers.service.js';
-import { SEED_BUILDINGS } from './reference-data.js';
+import { BuildingSeedService } from './building-seed.service.js';
 import { type SeedCsvRow, readSeedCsv } from './seed-csv.js';
 import {
   SEED_COLUMNS,
   categoryNamesOf,
+  seedHoursViolations,
   seedSupplierName,
   splitBuildingSuffix,
   toSupplierInput,
 } from './seed-row.mapper.js';
+import { SeedFileUnreadableError } from './venue-seed-file.js';
 
 /** Stands in for the category ids while the row's other fields are checked. */
 const PLACEHOLDER_CATEGORY_ID = '00000000-0000-4000-8000-000000000000';
@@ -45,7 +47,8 @@ type RowOutcome = keyof SeedReport;
  * duplicate constraint makes re-running safe (F12.1), and a bad row is
  * skipped and reported without stopping the import (F12.4). The startup
  * import only runs while there are no suppliers at all; importSeed() itself
- * stays re-runnable for a deliberate import.
+ * stays re-runnable for a deliberate import. The buildings come from the seed
+ * JSON through the shared building step.
  */
 @Injectable()
 export class SupplierSeedService implements OnApplicationBootstrap {
@@ -54,6 +57,7 @@ export class SupplierSeedService implements OnApplicationBootstrap {
   constructor(
     private readonly config: ConfigService<EnvironmentVariables, true>,
     private readonly buildings: BuildingsService,
+    private readonly buildingSeed: BuildingSeedService,
     private readonly categories: CategoriesService,
     private readonly suppliers: SuppliersService,
   ) {}
@@ -83,11 +87,20 @@ export class SupplierSeedService implements OnApplicationBootstrap {
       );
       return;
     }
-    await this.importSeed(bytes);
+    try {
+      await this.importSeed(bytes);
+    } catch (error) {
+      // Without the building file no row can be placed: skip like a missing
+      // CSV, so the service still starts.
+      if (!(error instanceof SeedFileUnreadableError)) {
+        throw error;
+      }
+      this.logger.error(`Skipping seed import: ${error.message}.`);
+    }
   }
 
   async importSeed(bytes: Uint8Array): Promise<SeedReport> {
-    await this.ensureBuildings();
+    await this.buildingSeed.ensure();
 
     const report: SeedReport = { created: 0, alreadyPresent: 0, rejected: 0 };
     const categoryIds = new Map<string, string>();
@@ -99,30 +112,6 @@ export class SupplierSeedService implements OnApplicationBootstrap {
       `seed: ${report.created} created, ${report.alreadyPresent} already present, ${report.rejected} rejected`,
     );
     return report;
-  }
-
-  /**
-   * Creates any seed building not yet present (F12.2.1). A building that
-   * exists but was retired by an admin is left retired, not created again.
-   */
-  private async ensureBuildings(): Promise<void> {
-    for (const building of SEED_BUILDINGS) {
-      if (await this.buildings.findByAnyName(building.canonicalName)) {
-        continue;
-      }
-      try {
-        await this.buildings.create(building);
-      } catch (error) {
-        // Another replica created it first, or an admin building already
-        // uses one of its names: keep going with what exists.
-        if (!(error instanceof ConflictException)) {
-          throw error;
-        }
-        this.logger.warn(
-          `seed building ${building.canonicalName} not created: ${messageOf(error)}`,
-        );
-      }
-    }
   }
 
   private async importRow(
@@ -188,6 +177,7 @@ export class SupplierSeedService implements OnApplicationBootstrap {
       categoryIds: [PLACEHOLDER_CATEGORY_ID],
     });
     const fieldViolations = await this.suppliers.fieldViolations(draft);
+    fieldViolations.push(...seedHoursViolations(row.values));
     if (categoryNames.length === 0) {
       fieldViolations.push({
         field: SEED_COLUMNS.type,

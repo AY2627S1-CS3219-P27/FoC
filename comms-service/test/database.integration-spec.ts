@@ -40,6 +40,7 @@ describe('communication persistence migration', () => {
     if (dataSource?.isInitialized) {
       if (!migrationReverted) {
         await dataSource.undoLastMigration({ transaction: 'all' });
+        await dataSource.undoLastMigration({ transaction: 'all' });
       }
       await dataSource.destroy();
     }
@@ -168,6 +169,7 @@ describe('communication persistence migration', () => {
         'IDX_chats_due_grace',
         'UQ_messages_chat_sequence',
         'UQ_messages_chat_sender_client',
+        'IDX_messages_chat_sender_unread_sequence',
         'UQ_chat_archives_chat',
         'IDX_chat_archives_requester_archived_id',
         'IDX_chat_archives_courier_archived_id',
@@ -177,6 +179,12 @@ describe('communication persistence migration', () => {
       indexes.find(({ indexname }) => indexname === 'IDX_chats_due_grace')
         ?.indexdef,
     ).toContain(`WHERE ((state = 'GRACE'::text) AND (archive_id IS NULL))`);
+    expect(
+      indexes.find(
+        ({ indexname }) =>
+          indexname === 'IDX_messages_chat_sender_unread_sequence',
+      )?.indexdef,
+    ).toContain('WHERE (read_at IS NULL)');
     for (const name of [
       'IDX_chat_archives_requester_archived_id',
       'IDX_chat_archives_courier_archived_id',
@@ -483,7 +491,40 @@ describe('communication persistence migration', () => {
     ).rejects.toMatchObject({ code: '23503', constraint: 'FK_chats_archive' });
   });
 
+  it('applies and reverts the unread index without rewriting populated read timestamps', async () => {
+    await dataSource.undoLastMigration({ transaction: 'all' });
+    const chat = await insertChat();
+    const messageId = randomUUID();
+    const readAt = '2026-11-05T01:00:00.000Z';
+    await dataSource.query(
+      `INSERT INTO messages
+       (id, chat_id, sequence, sender_id, client_message_id, content,
+        committed_at, read_at)
+       VALUES ($1, $2, 1, $3, $4, 'already read', $5, $5)`,
+      [messageId, chat.chatId, chat.courierUserId, randomUUID(), readAt],
+    );
+
+    await dataSource.runMigrations({ transaction: 'all' });
+    const [message] = await dataSource.query<{ read_at: Date }[]>(
+      'SELECT read_at FROM messages WHERE id = $1',
+      [messageId],
+    );
+    expect(message!.read_at.toISOString()).toBe(readAt);
+    const [applied] = await dataSource.query<{ present: boolean }[]>(
+      `SELECT to_regclass('public."IDX_messages_chat_sender_unread_sequence"') IS NOT NULL AS present`,
+    );
+    expect(applied).toEqual({ present: true });
+
+    await dataSource.undoLastMigration({ transaction: 'all' });
+    const [reverted] = await dataSource.query<{ present: boolean }[]>(
+      `SELECT to_regclass('public."IDX_messages_chat_sender_unread_sequence"') IS NOT NULL AS present`,
+    );
+    expect(reverted).toEqual({ present: false });
+    await dataSource.runMigrations({ transaction: 'all' });
+  });
+
   it('reverts and reapplies the entire schema cleanly', async () => {
+    await dataSource.undoLastMigration({ transaction: 'all' });
     await dataSource.undoLastMigration({ transaction: 'all' });
     const missing = await dataSource.query<{ table_name: string }[]>(`
       SELECT table_name FROM information_schema.tables
@@ -501,6 +542,7 @@ describe('communication persistence migration', () => {
     `);
     expect(reapplied).toEqual([{ table_name: 'chats' }]);
 
+    await dataSource.undoLastMigration({ transaction: 'all' });
     await dataSource.undoLastMigration({ transaction: 'all' });
     migrationReverted = true;
   });

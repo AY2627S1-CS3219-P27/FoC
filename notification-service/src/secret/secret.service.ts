@@ -10,6 +10,8 @@ import { readFileSync } from 'node:fs';
 export class SecretService {
   private dbPassword: string;
   private rabbitMqPassword: string;
+  private jwtPublicKey: string;
+  private vapidPrivateKey: string;
 
   constructor(private configService: ConfigService) {}
 
@@ -25,6 +27,38 @@ export class SecretService {
       this.rabbitMqPassword = this.readSecretFile('RABBITMQ_PASSWORD_FILE');
     }
     return this.rabbitMqPassword;
+  }
+
+  /**
+   * The user-service RS256 public key used to verify access tokens. An empty
+   * key must fail here: it would not fail at boot, every request would just
+   * be a 401.
+   */
+  getJwtPublicKey(): string {
+    if (this.jwtPublicKey === undefined) {
+      const publicKey = this.readSecretFile('JWT_PUBLIC_KEY_FILE');
+      if (publicKey.length === 0) {
+        throw new Error('JWT public key file is empty');
+      }
+      this.jwtPublicKey = publicKey;
+    }
+    return this.jwtPublicKey;
+  }
+
+  /**
+   * The VAPID private key used to sign Web Push requests. It must match the
+   * public key handed to browsers, so an empty file is a configuration error
+   * rather than a boot-time warning.
+   */
+  getVapidPrivateKey(): string {
+    if (this.vapidPrivateKey === undefined) {
+      const privateKey = this.readSecretFile('VAPID_PRIVATE_KEY_FILE');
+      if (privateKey.length === 0) {
+        throw new Error('VAPID private key file is empty');
+      }
+      this.vapidPrivateKey = privateKey;
+    }
+    return this.vapidPrivateKey;
   }
 
   private readSecretFile(envVar: string): string {

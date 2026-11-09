@@ -1,15 +1,13 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  DataSource,
-  type EntityManager,
-  type EntityTarget,
-  In,
-} from 'typeorm';
+import { DataSource, type EntityManager, type EntityTarget, In } from 'typeorm';
+import { CLOCK, type Clock, systemClock } from '../common/clock.js';
 import {
   ErrorCode,
   type FieldViolation,
@@ -17,11 +15,19 @@ import {
 import { nameKey } from '../common/normalise/normalise.js';
 import type { EnvironmentVariables } from '../config/environment.schema.js';
 import {
+  Brand,
   Building,
   Category,
   Supplier,
   SupplierCategory,
+  SupplierOpeningInterval,
 } from '../database/entities/index.js';
+import {
+  fromRows,
+  type IntervalRow,
+  openStatus,
+  singaporeWeekMinute,
+} from '../opening-hours/opening-hours.js';
 import type { ListSuppliersQueryDto } from './dto/list-suppliers-query.dto.js';
 import {
   type Page,
@@ -49,6 +55,8 @@ export class SupplierQueriesService {
   constructor(
     private readonly dataSource: DataSource,
     config: ConfigService<EnvironmentVariables, true>,
+    // The current time, replaceable in tests (opening hours, F2.5).
+    @Optional() @Inject(CLOCK) private readonly clock: Clock = systemClock,
   ) {
     this.placeholder =
       config.get('PLACEHOLDER_IMAGE_URL', { infer: true }) || null;
@@ -57,6 +65,8 @@ export class SupplierQueriesService {
   async list(query: ListSuppliersQueryDto): Promise<Page<SupplierListItem>> {
     const { offset, limit } = query;
     const violations: FieldViolation[] = [];
+    // One instant per request, for the filter and for every isOpenNow.
+    const now = this.clock();
     const categoryIds = await this.usableIds(
       Category,
       query.categoryId,
@@ -71,6 +81,13 @@ export class SupplierQueriesService {
       'building',
       violations,
     );
+    const brandIds = await this.usableIds(
+      Brand,
+      query.brandId,
+      'brandId',
+      'brand',
+      violations,
+    );
     if (violations.length > 0) {
       // Unknown ids are rejected rather than ignored (F5.8).
       throw new BadRequestException({
@@ -80,18 +97,25 @@ export class SupplierQueriesService {
       });
     }
     // Only retired ids were given: no supplier can match (F5.8.1).
-    if (categoryIds?.length === 0 || buildingIds?.length === 0) {
+    if (
+      categoryIds?.length === 0 ||
+      buildingIds?.length === 0 ||
+      brandIds?.length === 0
+    ) {
       return { items: [], total: 0, offset, limit, hasMore: false };
     }
 
     // Every filter narrows the same query, so they combine with AND (F5.5).
     const qb = this.dataSource
       .createQueryBuilder(Supplier, 's')
-      .innerJoinAndSelect('s.building', 'b');
+      .innerJoinAndSelect('s.building', 'b')
+      .leftJoinAndSelect('s.brand', 'br');
     if (query.name !== undefined) {
-      qb.andWhere(`s.nameKey LIKE :name ESCAPE '\\'`, {
-        name: `%${escapeLike(nameKey(query.name))}%`,
-      });
+      // The supplier's own name or its brand's name (F5.4.1).
+      qb.andWhere(
+        `(s.nameKey LIKE :name ESCAPE '\\' OR br.nameKey LIKE :name ESCAPE '\\')`,
+        { name: `%${escapeLike(nameKey(query.name))}%` },
+      );
     }
     if (categoryIds !== undefined) {
       // Suppliers having any of the categories (F5.4.2).
@@ -105,11 +129,33 @@ export class SupplierQueriesService {
     if (buildingIds !== undefined) {
       qb.andWhere('s.buildingId IN (:...buildingIds)', { buildingIds });
     }
+    if (brandIds !== undefined) {
+      qb.andWhere('s.brandId IN (:...brandIds)', { brandIds });
+    }
     if (query.kind !== undefined) {
       qb.andWhere('s.kind IN (:...kinds)', { kinds: query.kind });
     }
     if (query.status !== undefined) {
       qb.andWhere('s.status = :status', { status: query.status });
+    }
+    if (query.openNow === true) {
+      // Open around the clock, or inside an interval of today, or inside an
+      // overnight interval that opened yesterday (F5.4.7, F2.3). Only true
+      // filters; false is the same as not setting it.
+      const week = singaporeWeekMinute(now);
+      const day = Math.floor(week / 1440);
+      qb.andWhere(
+        `(s.open24Hours OR EXISTS (
+           SELECT 1 FROM supplier_opening_intervals i
+           WHERE i.supplier_id = s.id AND (
+             (i.opens_at < i.closes_at AND i.day = :day
+               AND :minute >= i.opens_at AND :minute < i.closes_at)
+             OR (i.opens_at > i.closes_at AND (
+               (i.day = :day AND :minute >= i.opens_at)
+               OR (i.day = :previousDay AND :minute < i.closes_at)))))
+         )`,
+        { day, minute: week % 1440, previousDay: (day + 6) % 7 },
+      );
     }
 
     const total = await qb.getCount();
@@ -145,7 +191,9 @@ export class SupplierQueriesService {
     qb.addOrderBy('s.id', 'ASC');
 
     const suppliers = await qb.offset(offset).limit(limit).getMany();
-    const categories = await this.categoriesOf(suppliers.map((s) => s.id));
+    const supplierIds = suppliers.map((s) => s.id);
+    const categories = await this.categoriesOf(supplierIds);
+    const intervals = await this.intervalsOf(supplierIds);
 
     return {
       items: suppliers.map((supplier) =>
@@ -153,6 +201,11 @@ export class SupplierQueriesService {
           supplier,
           categories.get(supplier.id) ?? [],
           this.placeholder,
+          openStatus(
+            intervals.get(supplier.id) ?? [],
+            supplier.open24Hours,
+            now,
+          ).isOpenNow,
         ),
       ),
       total,
@@ -173,7 +226,7 @@ export class SupplierQueriesService {
   ): Promise<SupplierDetail> {
     const supplier = await manager.findOne(Supplier, {
       where: { id },
-      relations: { building: true },
+      relations: { building: true, brand: true },
     });
     if (!supplier) {
       throw new NotFoundException({
@@ -182,7 +235,31 @@ export class SupplierQueriesService {
       });
     }
     const categories = await this.categoriesOf([id], manager);
-    return toDetail(supplier, categories.get(id) ?? [], this.placeholder);
+    const rows = (await this.intervalsOf([id], manager)).get(id) ?? [];
+    return toDetail(supplier, categories.get(id) ?? [], this.placeholder, {
+      openingHours: fromRows(supplier.open24Hours, rows),
+      status: openStatus(rows, supplier.open24Hours, this.clock()),
+    });
+  }
+
+  /** Opening intervals per supplier, in one query for a whole page. */
+  private async intervalsOf(
+    supplierIds: string[],
+    manager: EntityManager = this.dataSource.manager,
+  ): Promise<Map<string, IntervalRow[]>> {
+    const bySupplier = new Map<string, IntervalRow[]>();
+    if (supplierIds.length === 0) {
+      return bySupplier;
+    }
+    const rows = await manager.find(SupplierOpeningInterval, {
+      where: { supplierId: In(supplierIds) },
+    });
+    for (const { supplierId, day, opensAt, closesAt } of rows) {
+      const list = bySupplier.get(supplierId) ?? [];
+      list.push({ day, opensAt, closesAt });
+      bySupplier.set(supplierId, list);
+    }
+    return bySupplier;
   }
 
   /**
@@ -190,7 +267,7 @@ export class SupplierQueriesService {
    * was not given. Ids that do not exist are reported as violations.
    */
   private async usableIds(
-    entity: EntityTarget<Building | Category>,
+    entity: EntityTarget<Building | Category | Brand>,
     requested: string[] | undefined,
     field: string,
     label: string,

@@ -32,22 +32,15 @@ describe('environmentSchema', () => {
     expect(environment.REDIS_DB_INDEX).toBe(0);
     expect(environment.SOCKET_PATH).toBe('/socket.io');
     expect(environment.SOCKET_ALLOWED_ORIGINS).toEqual([
-      'http://localhost:3000',
+      'http://localhost:3001',
     ]);
     expect(environment.SOCKET_TRANSPORT).toBe('websocket');
-    expect(environment.RABBITMQ_EXCHANGE).toBe('foc.events');
-    expect(environment.RABBITMQ_ORDER_ERRAND_ACCEPTED_QUEUE).toBe(
-      'comms-service.order-errand-accepted.v1',
-    );
-    expect(environment.RABBITMQ_ORDER_ERRAND_DELIVERED_QUEUE).toBe(
-      'comms-service.order-errand-delivered.v1',
-    );
-    expect(environment.RABBITMQ_ORDER_COURIER_CANCELLED_QUEUE).toBe(
-      'comms-service.order-courier-cancelled.v1',
-    );
-    expect(environment.RABBITMQ_ORDER_ERRAND_CANCELLED_QUEUE).toBe(
-      'comms-service.order-errand-cancelled.v1',
-    );
+    expect(environment.ARCHIVE_POLL_INTERVAL_MS).toBe(5_000);
+    expect(environment.ARCHIVE_BATCH_SIZE).toBe(25);
+    expect(environment.ARCHIVE_CLAIM_TTL_MS).toBe(60_000);
+    expect(environment.ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS).toBe(10_000);
+    expect(environment.RABBITMQ_PUBSUB_EXCHANGE).toBe('foc.pubsub');
+    expect(environment.RABBITMQ_EVENTS_QUEUE).toBe('comms-service.events');
     expect(environment.RABBITMQ_RETRY_EXCHANGE).toBe('foc.comms.retry');
     expect(environment.RABBITMQ_RETRY_RETURN_EXCHANGE).toBe('foc.comms.back');
     expect(environment.RABBITMQ_DEAD_LETTER_EXCHANGE).toBe('foc.comms.dlx');
@@ -84,8 +77,47 @@ describe('environmentSchema', () => {
     ['SOCKET_PATH', '/socket.io#fragment'],
     ['SOCKET_ALLOWED_ORIGINS', 'https://foc.example/path'],
     ['SOCKET_TRANSPORT', 'polling'],
+    ['ARCHIVE_POLL_INTERVAL_MS', 249],
+    ['ARCHIVE_POLL_INTERVAL_MS', 60_001],
+    ['ARCHIVE_BATCH_SIZE', 0],
+    ['ARCHIVE_BATCH_SIZE', 101],
+    ['ARCHIVE_CLAIM_TTL_MS', 4_999],
+    ['ARCHIVE_CLAIM_TTL_MS', 600_001],
+    ['ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS', 999],
+    ['ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS', 60_001],
   ])('rejects invalid %s', (name, value) => {
     expect(() => validate({ [name]: value })).toThrow();
+  });
+
+  it('requires the archive claim TTL to exceed the poll interval', () => {
+    expect(() =>
+      validate({
+        ARCHIVE_POLL_INTERVAL_MS: 5_000,
+        ARCHIVE_CLAIM_TTL_MS: 5_000,
+      }),
+    ).toThrow();
+    expect(
+      validate({
+        ARCHIVE_POLL_INTERVAL_MS: 5_000,
+        ARCHIVE_CLAIM_TTL_MS: 5_001,
+        ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS: 1_000,
+      }).ARCHIVE_CLAIM_TTL_MS,
+    ).toBe(5_001);
+  });
+
+  it('requires the archive shutdown drain timeout to be shorter than the claim TTL', () => {
+    expect(() =>
+      validate({
+        ARCHIVE_CLAIM_TTL_MS: 10_000,
+        ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS: 10_000,
+      }),
+    ).toThrow();
+    expect(
+      validate({
+        ARCHIVE_CLAIM_TTL_MS: 10_001,
+        ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS: 10_000,
+      }).ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS,
+    ).toBe(10_000);
   });
 
   it('requires all dependency connection settings', () => {
@@ -112,11 +144,8 @@ describe('environmentSchema', () => {
   });
 
   it.each([
-    ['RABBITMQ_EXCHANGE', 'foc.other'],
-    ['RABBITMQ_ORDER_ERRAND_ACCEPTED_QUEUE', 'comms-service.other.v1'],
-    ['RABBITMQ_ORDER_ERRAND_DELIVERED_QUEUE', 'comms-service.other.v1'],
-    ['RABBITMQ_ORDER_COURIER_CANCELLED_QUEUE', 'comms-service.other.v1'],
-    ['RABBITMQ_ORDER_ERRAND_CANCELLED_QUEUE', 'comms-service.other.v1'],
+    ['RABBITMQ_PUBSUB_EXCHANGE', 'foc.other'],
+    ['RABBITMQ_EVENTS_QUEUE', 'comms-service.other'],
     ['RABBITMQ_RETRY_EXCHANGE', 'foc.other.retry'],
     ['RABBITMQ_RETRY_RETURN_EXCHANGE', 'foc.other.back'],
     ['RABBITMQ_DEAD_LETTER_EXCHANGE', 'foc.other.dlx'],

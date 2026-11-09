@@ -10,6 +10,16 @@ import {
   SupplierKind,
 } from '../database/entities/index.js';
 import { SuppliersService } from './suppliers.service.js';
+import { recordAudit } from '../audit/record-audit.js';
+
+// The audit log is covered against a real database (test/audit-writes); here
+// only the service's own rules are tested against mocks.
+vi.mock('../audit/record-audit.js', () => ({
+  recordAudit: vi.fn(async () => undefined),
+}));
+vi.mock('../audit/supplier-snapshot.js', () => ({
+  loadSupplierSnapshot: vi.fn(async () => ({ version: 1 })),
+}));
 
 const BUILDING_ID = '6f1c2e0a-8d4b-4d3e-b1a2-9c8d7e6f5a41';
 const FOOD_ID = '0b7e6c8a-3f0e-4c3f-9a55-2a9d0b7d1c11';
@@ -98,6 +108,31 @@ describe('SuppliersService.create', () => {
     expect(manager.insert).toHaveBeenCalledWith(SupplierCategory, [
       { supplierId: saved.id, categoryId: FOOD_ID },
     ]);
+  });
+
+  it('records the creation in the audit log, in the same transaction (F14.4)', async () => {
+    const { service, manager } = setup();
+
+    const created = await service.create(VALID);
+
+    expect(recordAudit).toHaveBeenLastCalledWith(manager, {
+      action: 'supplier.created',
+      targetType: 'supplier',
+      targetId: created.id,
+      after: { version: 1 },
+      version: 1,
+    });
+  });
+
+  it('records nothing when the creation fails (F14.4)', async () => {
+    vi.mocked(recordAudit).mockClear();
+    const { service } = setup({ building: null });
+
+    await expect(service.create(VALID)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+
+    expect(recordAudit).not.toHaveBeenCalled();
   });
 
   it('reports field errors and missing references together (F1.6.1)', async () => {

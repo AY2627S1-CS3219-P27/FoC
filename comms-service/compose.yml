@@ -7,6 +7,7 @@ services:
     image: ${FOC_IMAGE_PREFIX:-foc}/comms-service:${COMMS_SERVICE_IMAGE_TAG:-dev}
     command: npm run start:dev
     restart: unless-stopped
+    stop_grace_period: 75s
     depends_on:
       comms-db:
         condition: service_healthy
@@ -27,11 +28,8 @@ services:
       RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
       RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/foc}
       RABBITMQ_PASSWORD_FILE: /run/secrets/rabbitmq_password_comms_service
-      RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-foc.events}
-      RABBITMQ_ORDER_ERRAND_ACCEPTED_QUEUE: ${RABBITMQ_ORDER_ERRAND_ACCEPTED_QUEUE:-comms-service.order-errand-accepted.v1}
-      RABBITMQ_ORDER_ERRAND_DELIVERED_QUEUE: ${RABBITMQ_ORDER_ERRAND_DELIVERED_QUEUE:-comms-service.order-errand-delivered.v1}
-      RABBITMQ_ORDER_COURIER_CANCELLED_QUEUE: ${RABBITMQ_ORDER_COURIER_CANCELLED_QUEUE:-comms-service.order-courier-cancelled.v1}
-      RABBITMQ_ORDER_ERRAND_CANCELLED_QUEUE: ${RABBITMQ_ORDER_ERRAND_CANCELLED_QUEUE:-comms-service.order-errand-cancelled.v1}
+      RABBITMQ_PUBSUB_EXCHANGE: ${RABBITMQ_PUBSUB_EXCHANGE:-foc.pubsub}
+      RABBITMQ_EVENTS_QUEUE: ${RABBITMQ_EVENTS_QUEUE:-comms-service.events}
       RABBITMQ_RETRY_EXCHANGE: ${RABBITMQ_RETRY_EXCHANGE:-foc.comms.retry}
       RABBITMQ_RETRY_RETURN_EXCHANGE: ${RABBITMQ_RETRY_RETURN_EXCHANGE:-foc.comms.back}
       RABBITMQ_DEAD_LETTER_EXCHANGE: ${RABBITMQ_DEAD_LETTER_EXCHANGE:-foc.comms.dlx}
@@ -41,8 +39,12 @@ services:
       REDIS_USERNAME: ${REDIS_USERNAME:-default}
       REDIS_DB_INDEX: ${REDIS_DB_INDEX:-0}
       SOCKET_PATH: ${SOCKET_PATH:-/socket.io}
-      SOCKET_ALLOWED_ORIGINS: ${SOCKET_ALLOWED_ORIGINS:-http://localhost:3000}
+      SOCKET_ALLOWED_ORIGINS: ${SOCKET_ALLOWED_ORIGINS:-http://localhost:3001}
       SOCKET_TRANSPORT: ${SOCKET_TRANSPORT:-websocket}
+      ARCHIVE_POLL_INTERVAL_MS: ${ARCHIVE_POLL_INTERVAL_MS:-5000}
+      ARCHIVE_BATCH_SIZE: ${ARCHIVE_BATCH_SIZE:-25}
+      ARCHIVE_CLAIM_TTL_MS: ${ARCHIVE_CLAIM_TTL_MS:-60000}
+      ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS: ${ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS:-10000}
     secrets:
       - comms_db_password
       - rabbitmq_password_comms_service
@@ -167,6 +169,19 @@ services:
       interval: 5s
       timeout: 5s
       retries: 12
+
+  comms-redis-test:
+    image: redis:8.6.1-alpine
+    profiles: ['test']
+    ports:
+      - '127.0.0.1:${COMMS_REDIS_TEST_HOST_PORT:-6381}:6379'
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 3s
+      retries: 15
 
 volumes:
   comms-db-data:

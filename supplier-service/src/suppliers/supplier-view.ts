@@ -1,5 +1,9 @@
 import { displayName } from '../common/normalise/normalise.js';
 import type {
+  OpeningHours,
+  OpenStatus,
+} from '../opening-hours/opening-hours.js';
+import type {
   Category,
   Supplier,
   SupplierKind,
@@ -16,15 +20,15 @@ export interface SupplierListItem {
   id: string;
   displayName: string;
   name: string;
-  /** Brands arrive in step 14 (F3). */
-  brand: null;
+  /** The brand, if any (F5.1, F1.2.10); a retired one still shows (F1.8). */
+  brand: { id: string; name: string } | null;
   kind: SupplierKind;
   categories: CategoryRef[];
   building: { id: string; shortName: string };
   floor: string;
   status: SupplierStatus;
-  /** Not applicable until opening hours exist (F2.5.1, step 13). */
-  isOpenNow: null;
+  /** Null where the supplier has no opening hours (F2.5.1). */
+  isOpenNow: boolean | null;
   thumbnailUrl: string | null;
 }
 
@@ -36,9 +40,10 @@ export interface SupplierDetail extends Omit<SupplierListItem, 'building'> {
   building: { id: string; shortName: string; canonicalName: string };
   locationDescription: string;
   coordinates: { latitude: number; longitude: number };
-  /** Not applicable until opening hours exist (F2.5.1, step 13). */
-  openingHours: null;
-  nextChangeAt: null;
+  /** Regular weekly hours (F2); null where there are none (F1.2.8). */
+  openingHours: OpeningHours | null;
+  /** The next opening or closing; null where not applicable (F2.5.1). */
+  nextChangeAt: Date | null;
   /** Image variants; the original stands in until variants exist (F17.3). */
   images: { original: string; thumbnail: string } | null;
   version: number;
@@ -66,24 +71,27 @@ function categoryRefs(categories: Category[]): CategoryRef[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** `supplier.building` must be loaded. */
+/** `supplier.building` (and `supplier.brand`, if any) must be loaded. */
 export function toListItem(
   supplier: Supplier,
   categories: Category[],
   placeholder: string | null,
+  isOpenNow: boolean | null = null,
 ): SupplierListItem {
   const building = supplier.building!;
   return {
     id: supplier.id,
     displayName: displayName(supplier.name, building.shortName),
     name: supplier.name,
-    brand: null,
+    brand: supplier.brand
+      ? { id: supplier.brand.id, name: supplier.brand.name }
+      : null,
     kind: supplier.kind,
     categories: categoryRefs(categories),
     building: { id: building.id, shortName: building.shortName },
     floor: supplier.floor,
     status: supplier.status,
-    isOpenNow: null,
+    isOpenNow,
     thumbnailUrl: imageUrl(supplier, placeholder),
   };
 }
@@ -93,11 +101,15 @@ export function toDetail(
   supplier: Supplier,
   categories: Category[],
   placeholder: string | null,
+  hours: { openingHours: OpeningHours | null; status: OpenStatus } = {
+    openingHours: null,
+    status: { isOpenNow: null, nextChangeAt: null },
+  },
 ): SupplierDetail {
   const building = supplier.building!;
   const image = imageUrl(supplier, placeholder);
   return {
-    ...toListItem(supplier, categories, placeholder),
+    ...toListItem(supplier, categories, placeholder, hours.status.isOpenNow),
     building: {
       id: building.id,
       shortName: building.shortName,
@@ -108,8 +120,8 @@ export function toDetail(
       latitude: supplier.latitude,
       longitude: supplier.longitude,
     },
-    openingHours: null,
-    nextChangeAt: null,
+    openingHours: hours.openingHours,
+    nextChangeAt: hours.status.nextChangeAt,
     images: image === null ? null : { original: image, thumbnail: image },
     version: supplier.version,
     createdAt: supplier.createdAt,

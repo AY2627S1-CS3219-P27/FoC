@@ -1,19 +1,12 @@
 import Joi from 'joi';
 import {
   COMMS_DEAD_LETTER_EXCHANGE,
-  COMMS_DOMAIN_EXCHANGE,
-  COMMS_LIFECYCLE_STREAMS,
+  COMMS_EVENTS_QUEUE,
+  COMMS_PUBSUB_EXCHANGE,
   COMMS_RETRY_DELAYS_MS,
   COMMS_RETRY_EXCHANGE,
   COMMS_RETRY_RETURN_EXCHANGE,
 } from '../messaging/rabbitmq-topology.js';
-
-const [
-  acceptedStream,
-  deliveredStream,
-  courierCancelledStream,
-  cancelledStream,
-] = COMMS_LIFECYCLE_STREAMS;
 
 export interface EnvironmentVariables {
   NODE_ENV: 'development' | 'test' | 'production';
@@ -31,11 +24,8 @@ export interface EnvironmentVariables {
   RABBITMQ_PORT: number;
   RABBITMQ_VHOST: string;
   RABBITMQ_PASSWORD_FILE: string;
-  RABBITMQ_EXCHANGE: typeof COMMS_DOMAIN_EXCHANGE;
-  RABBITMQ_ORDER_ERRAND_ACCEPTED_QUEUE: typeof acceptedStream.queue;
-  RABBITMQ_ORDER_ERRAND_DELIVERED_QUEUE: typeof deliveredStream.queue;
-  RABBITMQ_ORDER_COURIER_CANCELLED_QUEUE: typeof courierCancelledStream.queue;
-  RABBITMQ_ORDER_ERRAND_CANCELLED_QUEUE: typeof cancelledStream.queue;
+  RABBITMQ_PUBSUB_EXCHANGE: typeof COMMS_PUBSUB_EXCHANGE;
+  RABBITMQ_EVENTS_QUEUE: typeof COMMS_EVENTS_QUEUE;
   RABBITMQ_RETRY_EXCHANGE: typeof COMMS_RETRY_EXCHANGE;
   RABBITMQ_RETRY_RETURN_EXCHANGE: typeof COMMS_RETRY_RETURN_EXCHANGE;
   RABBITMQ_DEAD_LETTER_EXCHANGE: typeof COMMS_DEAD_LETTER_EXCHANGE;
@@ -47,10 +37,14 @@ export interface EnvironmentVariables {
   SOCKET_PATH: string;
   SOCKET_ALLOWED_ORIGINS: string[];
   SOCKET_TRANSPORT: 'websocket';
+  ARCHIVE_POLL_INTERVAL_MS: number;
+  ARCHIVE_BATCH_SIZE: number;
+  ARCHIVE_CLAIM_TTL_MS: number;
+  ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS: number;
 }
 
 const origins = Joi.any()
-  .default(['http://localhost:3000'])
+  .default(['http://localhost:3001'])
   .custom((value: unknown, helpers) => {
     if (Array.isArray(value)) return value;
     if (typeof value !== 'string') return helpers.error('any.invalid');
@@ -118,21 +112,12 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
   RABBITMQ_PORT: Joi.number().integer().min(1).max(65_535).required(),
   RABBITMQ_VHOST: Joi.string().min(1).required(),
   RABBITMQ_PASSWORD_FILE: Joi.string().min(1).required(),
-  RABBITMQ_EXCHANGE: Joi.string()
-    .valid(COMMS_DOMAIN_EXCHANGE)
-    .default(COMMS_DOMAIN_EXCHANGE),
-  RABBITMQ_ORDER_ERRAND_ACCEPTED_QUEUE: Joi.string()
-    .valid(acceptedStream.queue)
-    .default(acceptedStream.queue),
-  RABBITMQ_ORDER_ERRAND_DELIVERED_QUEUE: Joi.string()
-    .valid(deliveredStream.queue)
-    .default(deliveredStream.queue),
-  RABBITMQ_ORDER_COURIER_CANCELLED_QUEUE: Joi.string()
-    .valid(courierCancelledStream.queue)
-    .default(courierCancelledStream.queue),
-  RABBITMQ_ORDER_ERRAND_CANCELLED_QUEUE: Joi.string()
-    .valid(cancelledStream.queue)
-    .default(cancelledStream.queue),
+  RABBITMQ_PUBSUB_EXCHANGE: Joi.string()
+    .valid(COMMS_PUBSUB_EXCHANGE)
+    .default(COMMS_PUBSUB_EXCHANGE),
+  RABBITMQ_EVENTS_QUEUE: Joi.string()
+    .valid(COMMS_EVENTS_QUEUE)
+    .default(COMMS_EVENTS_QUEUE),
   RABBITMQ_RETRY_EXCHANGE: Joi.string()
     .valid(COMMS_RETRY_EXCHANGE)
     .default(COMMS_RETRY_EXCHANGE),
@@ -152,8 +137,35 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
     .default('/socket.io'),
   SOCKET_ALLOWED_ORIGINS: origins,
   SOCKET_TRANSPORT: Joi.string().valid('websocket').default('websocket'),
+  ARCHIVE_POLL_INTERVAL_MS: Joi.number()
+    .integer()
+    .min(250)
+    .max(60_000)
+    .default(5_000),
+  ARCHIVE_BATCH_SIZE: Joi.number().integer().min(1).max(100).default(25),
+  ARCHIVE_CLAIM_TTL_MS: Joi.number()
+    .integer()
+    .min(5_000)
+    .max(600_000)
+    .default(60_000),
+  ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS: Joi.number()
+    .integer()
+    .min(1_000)
+    .max(60_000)
+    .default(10_000),
 })
   .custom((environment: EnvironmentVariables, helpers) => {
+    if (
+      environment.ARCHIVE_CLAIM_TTL_MS <= environment.ARCHIVE_POLL_INTERVAL_MS
+    ) {
+      return helpers.error('any.invalid');
+    }
+    if (
+      environment.ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS >=
+      environment.ARCHIVE_CLAIM_TTL_MS
+    ) {
+      return helpers.error('any.invalid');
+    }
     if (
       environment.NODE_ENV === 'production' &&
       environment.SOCKET_ALLOWED_ORIGINS.some(

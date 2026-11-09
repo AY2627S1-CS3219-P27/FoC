@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -30,15 +31,22 @@ import {
   BEARER_SECURITY_SCHEME,
 } from '../http/configure-http.js';
 import { CreditAccountQueryService } from './credit-account-query.service.js';
+import { CreditTransactionQueryService } from './credit-transaction-query.service.js';
 import {
   ApiErrorResponseDto,
   CreditBalanceResponseDto,
   CreditSufficiencyRequestDto,
   CreditSufficiencyResponseDto,
+  CreditTransactionHistoryItemDto,
+  CreditTransactionHistoryQueryDto,
+  CreditTransactionHistoryResponseDto,
+  CreditTransactionParticipantDto,
 } from './credits.dto.js';
 
 type ResponseModel =
-  typeof CreditBalanceResponseDto | typeof CreditSufficiencyResponseDto;
+  | typeof CreditBalanceResponseDto
+  | typeof CreditSufficiencyResponseDto
+  | typeof CreditTransactionHistoryResponseDto;
 
 const EXAMPLE_USER_ID = '11111111-1111-4111-8111-111111111111';
 
@@ -75,6 +83,9 @@ function errorResponse(description: string, example: Record<string, unknown>) {
   ApiErrorResponseDto,
   CreditBalanceResponseDto,
   CreditSufficiencyResponseDto,
+  CreditTransactionParticipantDto,
+  CreditTransactionHistoryItemDto,
+  CreditTransactionHistoryResponseDto,
 )
 @ApiProduces('application/json')
 @ApiBearerAuth(BEARER_SECURITY_SCHEME)
@@ -88,7 +99,10 @@ function errorResponse(description: string, example: Record<string, unknown>) {
 @Controller('v1/credits')
 @UseGuards(JwtAuthGuard)
 export class CreditsController {
-  constructor(private readonly accounts: CreditAccountQueryService) {}
+  constructor(
+    private readonly accounts: CreditAccountQueryService,
+    private readonly transactions: CreditTransactionQueryService,
+  ) {}
 
   @Get('balance')
   @ApiOperation({
@@ -113,6 +127,71 @@ export class CreditsController {
     @Req() request: AuthenticatedRequest,
   ): Promise<CreditBalanceResponseDto> {
     return this.accounts.getBalance(request.user.sub);
+  }
+
+  @Get('transactions')
+  @ApiOperation({
+    summary: 'Get the authenticated user credit transaction history',
+    description:
+      'Returns every immutable ledger movement involving the authenticated user, ordered by transaction datetime descending with transaction ID as a deterministic tie-breaker.',
+  })
+  @ApiOkResponse(
+    successResponse(
+      CreditTransactionHistoryResponseDto,
+      'One page of the authenticated user transaction history.',
+      {
+        items: [
+          {
+            transactionId: '55555555-5555-4555-8555-555555555555',
+            type: 'TRANSFER',
+            datetime: '2026-10-17T08:00:00.000Z',
+            amount: 25,
+            errandId: '22222222-2222-4222-8222-222222222222',
+            origin: {
+              userId: EXAMPLE_USER_ID,
+              balanceType: 'RESERVED_BALANCE',
+            },
+            destination: {
+              userId: '33333333-3333-4333-8333-333333333333',
+              balanceType: 'CREDIT_BALANCE',
+            },
+          },
+        ],
+        total: 1,
+        offset: 0,
+        limit: 25,
+        hasMore: false,
+      },
+    ),
+  )
+  @ApiBadRequestResponse(
+    errorResponse('The pagination query violates the API contract.', {
+      code: 'VALIDATION_ERROR',
+      message: 'Request validation failed',
+      reasons: [
+        { field: 'limit', reason: 'limit must not be greater than 1000' },
+      ],
+    }),
+  )
+  @ApiNotFoundResponse(
+    errorResponse('The authenticated user has no Credit account.', {
+      code: 'CREDIT_ACCOUNT_NOT_FOUND',
+      message: 'Credit account not found',
+    }),
+  )
+  async getTransactionHistory(
+    @Req() request: AuthenticatedRequest,
+    @Query() query: CreditTransactionHistoryQueryDto,
+  ): Promise<CreditTransactionHistoryResponseDto> {
+    const page = await this.transactions.listHistory(
+      request.user.sub,
+      query.offset,
+      query.limit,
+    );
+    return {
+      ...page,
+      hasMore: page.offset + page.items.length < page.total,
+    };
   }
 
   @Post('sufficiency')

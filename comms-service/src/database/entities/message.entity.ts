@@ -20,6 +20,11 @@ import { Chat } from './chat.entity.js';
     unique: true,
   },
 )
+@Index(
+  'IDX_messages_chat_sender_unread_sequence',
+  ['chatId', 'senderId', 'sequence'],
+  { where: 'read_at IS NULL' },
+)
 @Check('CHK_messages_sequence', 'sequence > 0')
 @Check(
   'CHK_messages_content',

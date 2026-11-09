@@ -1,0 +1,184 @@
+import { Type } from 'class-transformer';
+import {
+  IsEnum,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import type {
+  ChatCloseReason,
+  ChatState,
+} from '../database/entities/chat.entity.js';
+import type { MessageHistoryDirection } from './chat-cursor.codec.js';
+
+/**
+ * Deliberately deviates from N3.1.2's offset pagination: chat activity can
+ * reorder rows, while message history has a stable sequence, so an opaque
+ * keyset cursor avoids offset drift and supports efficient continuation.
+ */
+export class CursorPageQueryDto {
+  @ApiPropertyOptional({ description: 'Opaque continuation cursor.' })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  cursor?: string;
+
+  @ApiPropertyOptional({ default: 20, minimum: 1, maximum: 50 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  limit = 20;
+}
+
+export class MessageHistoryQueryDto extends CursorPageQueryDto {
+  @ApiPropertyOptional({
+    enum: ['forward', 'backward'],
+    default: 'forward',
+    description:
+      'Forward returns the next chronological page; backward starts at the latest page and continues toward older messages.',
+  })
+  @IsOptional()
+  @IsEnum(['forward', 'backward'])
+  direction: MessageHistoryDirection = 'forward';
+}
+
+export class ApiErrorResponseDto {
+  @ApiProperty()
+  code: string;
+
+  @ApiProperty()
+  message: string;
+}
+
+export class MessageViewDto {
+  @ApiProperty({ format: 'uuid' })
+  messageId: string;
+
+  @ApiProperty({ minimum: 1 })
+  sequence: number;
+
+  @ApiProperty({ format: 'uuid' })
+  senderUserId: string;
+
+  @ApiProperty()
+  content: string;
+
+  @ApiProperty({ format: 'date-time' })
+  timestamp: string;
+
+  @ApiProperty({ enum: ['UNREAD', 'READ'] })
+  status: 'UNREAD' | 'READ';
+}
+
+export class ChatViewDto {
+  @ApiProperty({ format: 'uuid' })
+  chatId: string;
+
+  @ApiProperty({ format: 'uuid' })
+  errandId: string;
+
+  @ApiProperty({ format: 'uuid' })
+  requesterUserId: string;
+
+  @ApiProperty({ format: 'uuid' })
+  courierUserId: string;
+
+  @ApiProperty({ enum: ['ACTIVE', 'GRACE'] })
+  state: Exclude<ChatState, 'ARCHIVED'>;
+
+  @ApiProperty({ format: 'date-time', nullable: true })
+  closesAt: string | null;
+
+  @ApiProperty({
+    enum: ['ERRAND_DELIVERED', 'COURIER_CANCELLED', 'ERRAND_CANCELLED'],
+    nullable: true,
+  })
+  closeReason: ChatCloseReason | null;
+
+  @ApiProperty({ format: 'date-time' })
+  updatedAt: string;
+
+  @ApiProperty({ type: MessageViewDto, nullable: true })
+  lastMessage: MessageViewDto | null;
+
+  @ApiProperty()
+  unread: boolean;
+}
+
+export class ChatListResponseDto {
+  @ApiProperty({ type: [ChatViewDto] })
+  items: ChatViewDto[];
+
+  @ApiProperty()
+  hasMore: boolean;
+
+  @ApiProperty({ nullable: true })
+  nextCursor: string | null;
+}
+
+export class MessageHistoryResponseDto {
+  @ApiProperty({ type: [MessageViewDto] })
+  items: MessageViewDto[];
+
+  @ApiProperty()
+  hasMore: boolean;
+
+  @ApiProperty({ nullable: true })
+  nextCursor: string | null;
+}
+
+export class ArchiveListItemDto {
+  @ApiProperty({ format: 'uuid' })
+  archiveId: string;
+
+  @ApiProperty({ format: 'uuid' })
+  chatId: string;
+
+  @ApiProperty({ format: 'uuid' })
+  errandId: string;
+
+  @ApiProperty({ format: 'uuid' })
+  requesterUserId: string;
+
+  @ApiProperty({ format: 'uuid' })
+  courierUserId: string;
+
+  @ApiProperty({ format: 'date-time' })
+  archivedAt: string;
+}
+
+export class ArchiveListResponseDto {
+  @ApiProperty({ type: [ArchiveListItemDto] })
+  items: ArchiveListItemDto[];
+
+  @ApiProperty()
+  hasMore: boolean;
+
+  @ApiProperty({ nullable: true })
+  nextCursor: string | null;
+}
+
+export class ArchiveMessageDto {
+  @ApiProperty({ enum: ['REQUESTER', 'COURIER'] })
+  role: 'REQUESTER' | 'COURIER';
+
+  @ApiProperty()
+  content: string;
+
+  @ApiProperty({ format: 'date-time' })
+  timestamp: string;
+}
+
+export class ArchiveDetailDto extends ArchiveListItemDto {
+  @ApiProperty({ enum: [1] })
+  schemaVersion: 1;
+
+  @ApiProperty({ type: [ArchiveMessageDto] })
+  messages: ArchiveMessageDto[];
+}

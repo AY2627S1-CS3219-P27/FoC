@@ -47,5 +47,35 @@ export function createLabeledCounter(
   });
 }
 
+/** Create a gauge metric with optional labels. */
+export function createLabeledGauge(
+  name: string,
+  help: string,
+  labelNames: readonly string[],
+): Gauge<string> {
+  return new Gauge({
+    name: `${METRICS_PREFIX}${name}`,
+    help,
+    labelNames,
+    registers: [globalRegistry],
+  });
+}
+
+/** Create a histogram metric with optional labels and explicit buckets. */
+export function createLabeledHistogram(
+  name: string,
+  help: string,
+  labelNames: readonly string[],
+  buckets?: number[],
+): Histogram<string> {
+  return new Histogram({
+    name: `${METRICS_PREFIX}${name}`,
+    help,
+    labelNames,
+    ...(buckets ? { buckets } : {}),
+    registers: [globalRegistry],
+  });
+}
+
 export { globalRegistry as registry };
 export type { Counter, Gauge, Histogram };
