@@ -61,7 +61,14 @@ export function chunkDocument(
 
   const sections: { section: string; lines: string[] }[] = [];
   let inCodeBlock = false;
-  for (const line of body.replace(/<!--[\s\S]*?-->/g, '').split(/\r?\n/)) {
+  let bodyWithoutComments = body;
+  let previousBody: string;
+  do {
+    previousBody = bodyWithoutComments;
+    bodyWithoutComments = bodyWithoutComments.replace(/<!--[\s\S]*?-->/g, '');
+  } while (bodyWithoutComments !== previousBody);
+
+  for (const line of bodyWithoutComments.split(/\r?\n/)) {
     if (line.trimStart().startsWith('```')) {
       inCodeBlock = !inCodeBlock;
     }
