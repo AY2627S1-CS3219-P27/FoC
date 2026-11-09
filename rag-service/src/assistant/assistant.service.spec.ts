@@ -69,7 +69,7 @@ describe('AssistantService', () => {
     expect(request.system).toBe(SYSTEM_PROMPT);
     expect(request.user).toContain('About One');
     expect(request.user).toContain('<question>how?</question>');
-    expect(request.maxTokens).toBe(500);
+    expect(request.maxTokens).toBe(1000);
   });
 
   it('skips the chat model when nothing is relevant enough', async () => {

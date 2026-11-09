@@ -26,7 +26,7 @@ interface EmbeddingsReply {
 }
 
 interface ChatReply {
-  choices?: { message?: { content?: unknown } }[];
+  choices?: { message?: { content?: unknown }; finish_reason?: unknown }[];
   usage?: { prompt_tokens?: unknown; completion_tokens?: unknown };
   error?: ReplyError;
 }
@@ -113,6 +113,13 @@ export class OpenRouterClient {
     const text = reply.choices?.[0]?.message?.content;
     if (typeof text !== 'string') {
       throw new OpenRouterError('invalid-response', 'The reply has no text');
+    }
+    // Cut off at the token limit: half an answer must never reach a student.
+    if (reply.choices?.[0]?.finish_reason === 'length') {
+      throw new OpenRouterError(
+        'invalid-response',
+        `The reply was cut off at ${request.maxTokens} tokens`,
+      );
     }
     return {
       text,

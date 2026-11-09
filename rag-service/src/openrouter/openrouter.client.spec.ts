@@ -221,6 +221,33 @@ describe('OpenRouterClient.complete', () => {
     });
   });
 
+  it('rejects a reply cut off at the token limit', async () => {
+    fetchMock.mockResolvedValue(
+      reply({
+        choices: [
+          { message: { content: 'Step 1. Step' }, finish_reason: 'length' },
+        ],
+      }),
+    );
+
+    await expect(client.complete(request)).rejects.toMatchObject({
+      kind: 'invalid-response',
+      message: 'The reply was cut off at 50 tokens',
+    });
+  });
+
+  it('accepts a reply that finished normally', async () => {
+    fetchMock.mockResolvedValue(
+      reply({
+        choices: [{ message: { content: 'Done.' }, finish_reason: 'stop' }],
+      }),
+    );
+
+    await expect(client.complete(request)).resolves.toMatchObject({
+      text: 'Done.',
+    });
+  });
+
   it('copes with a reply that has no token counts', async () => {
     fetchMock.mockResolvedValue(
       reply({ choices: [{ message: { content: 'Hello.' } }] }),

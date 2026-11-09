@@ -28,8 +28,12 @@ const MAX_SECTIONS = 4;
  */
 const EMBEDDING_TIMEOUT_MS = 5_000;
 const CHAT_TIMEOUT_MS = 20_000;
-/** Caps the cost of one answer; the rules ask for far less. */
-const MAX_ANSWER_TOKENS = 500;
+/**
+ * Caps the cost of one answer. The model's hidden reasoning counts against it
+ * (up to about 190 tokens measured, with totals up to about 440), so a lower
+ * limit cuts real answers off.
+ */
+const MAX_ANSWER_TOKENS = 1000;
 
 export const NO_ANSWER_MESSAGE =
   "I can't answer that from the FoC help documents. I also can't see your account, so to check your own balance or errands, open them in the app. For anything else, please contact an admin.";
