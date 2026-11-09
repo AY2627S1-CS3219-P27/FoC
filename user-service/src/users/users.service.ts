@@ -435,7 +435,7 @@ export class UsersService {
     );
     if (!canRemove) {
       throw new ConflictException(
-        'Role cannot be removed while the account has active items related to the role.',
+        "You can't turn off a role while you still have ongoing errands in it. Finish or cancel those errands first.",
       );
     }
   }
@@ -838,7 +838,7 @@ export class UsersService {
     );
     if (!canArchive) {
       throw new ConflictException(
-        'Account cannot be archived while it has active errands.',
+        'You have ongoing errands. Finish or cancel them before archiving your account.',
       );
     }
   }

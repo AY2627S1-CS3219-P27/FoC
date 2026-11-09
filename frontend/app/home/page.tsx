@@ -212,7 +212,9 @@ function Home() {
       body: JSON.stringify({ roles: selectedRoles }),
     });
     if (!res.ok) {
-      toast.error("Couldn't update your roles.");
+      // 4xx bodies carry the reason (e.g. a role still in use); 5xx stays on
+      // the friendly fallback.
+      toast.error(await errorMessage(res, "Couldn't update your roles. Please try again."));
       return;
     }
     // A refreshed token carries the new roles, so no re-login is needed.
