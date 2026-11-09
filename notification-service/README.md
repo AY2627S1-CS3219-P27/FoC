@@ -19,7 +19,7 @@ is public information and needs no token.
 | Method | Path                                     | Result                                                                                                                       |
 | ------ | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `GET`  | `/v1/subscriptions/vapid-public-key`     | Returns `{ publicKey }` for `pushManager.subscribe`. No token required.                                                     |
-| `POST` | `/v1/subscriptions/web`                  | Creates the subscription for a new `(user, endpoint)` pair: `201` + `Location`. An existing pair is `409 Conflict` — reconcile it with PATCH instead. An endpoint held by another account is taken over atomically: the previous row is deactivated. With `previousEndpoint` (the old URL after a `pushsubscriptionchange`), the old row is deactivated and the new one is inserted in one transaction. |
+| `POST` | `/v1/subscriptions/web`                  | Creates the subscription for a new `(user, endpoint)` pair: `201` + `Location`. An existing pair is `409 Conflict` — reconcile it with PATCH instead. An endpoint held by another account is taken over atomically: the previous row is deactivated. With `previousEndpoints` (the stale URLs after a `pushsubscriptionchange`), their rows are deactivated and the new endpoint stored in one transaction; the rotation is idempotent — an endpoint this user already registered is reactivated with the fresh credentials instead of conflicting. |
 | `PATCH` | `/v1/subscriptions/web?endpoint=<url>`  | Partial update of an existing row: `status: "active"` reactivates a soft-deleted row (and deactivates another account's row for the same endpoint), `keys`/`expirationTime` refresh credentials. `200`; `404` if the pair is unknown. The endpoint itself is immutable. |
 | `DELETE` | `/v1/subscriptions/web?endpoint=<url>` | Soft-deletes the `(user, endpoint)` row: `204`, idempotently, even when it was already inactive.                              |
 
@@ -29,10 +29,12 @@ that reconciliation is the truthful representation of the browser's state.
 
 When the push service re-issues the endpoint (`pushsubscriptionchange`), the
 client re-subscribes and POSTs the new subscription with
-`previousEndpoint: <old endpoint>`: the service marks the old row inactive and
-inserts the new one in a single transaction, so no stale endpoint keeps
-receiving deliveries. A `previousEndpoint` equal to `endpoint`, or omitted, is a
-plain create/re-registration.
+`previousEndpoints: [<old endpoints>]`: the service marks those rows inactive
+and stores the new endpoint in a single transaction, so no stale endpoint keeps
+receiving deliveries. The rotation is idempotent — repeating it, or landing on
+an endpoint this user already registered, reactivates that row with the fresh
+credentials. A `previousEndpoints` entry equal to `endpoint`, or an omitted or
+empty list, is a plain create/re-registration.
 
 The public path through the frontend proxy is `/api/notifications/...`
 (e.g. `POST /api/notifications/subscriptions/web`).
@@ -58,8 +60,8 @@ Ownership follows whoever is signed in on the browser. When another account
 registers an endpoint that is still active, the previous owner's row is
 deactivated and the caller's row created in one transaction; reactivating a
 row does the same in reverse. Rotation is the same guarantee across endpoints
-for one account: a POST carrying `previousEndpoint` deactivates the old row in
-the same transaction as the new one is inserted. See
+for one account: a POST carrying `previousEndpoints` deactivates the stale rows
+in the same transaction as the new one is stored, idempotently. See
 [`docs/adr/notification-service/0002-single-owner-push-endpoints.md`](../docs/adr/notification-service/0002-single-owner-push-endpoints.md).
 
 The schema is migration-owned (see [Persistence](#persistence)); the unique
