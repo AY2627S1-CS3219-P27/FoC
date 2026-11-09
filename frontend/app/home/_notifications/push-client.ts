@@ -37,17 +37,27 @@ export function registerPushServiceWorker() {
  * the POST takes the endpoint over and deactivates the previous owner's row.
  */
 export async function syncSubscriptionToServer(
-  subscription: PushSubscription,
+  subscription: PushSubscription | PushSubscriptionJSON,
   previousEndpoint?: string,
 ): Promise<SyncResult> {
-  const payload = subscription.toJSON();
+  // The service worker can only hand the JSON shape across postMessage
+  // (PushSubscription is not structured-cloneable); the profile card passes the
+  // live browser object. Normalise both before talking to the service.
+  const payload =
+    "toJSON" in subscription ? subscription.toJSON() : subscription;
+  // The JSON shape types endpoint as optional; a message without one cannot
+  // identify a row, so fail visibly instead of POSTing a broken payload.
+  if (!payload.endpoint) {
+    return {
+      ok: false,
+      message: "This browser's push subscription is missing its endpoint.",
+    };
+  }
+  const endpoint = payload.endpoint;
   const body: Record<string, unknown> = { ...payload };
   // Only rotation carries the old endpoint; a re-registration is a 409, not a
   // rotation, and the client reconciles it with PATCH.
-  if (
-    previousEndpoint !== undefined &&
-    previousEndpoint !== payload.endpoint
-  ) {
+  if (previousEndpoint !== undefined && previousEndpoint !== endpoint) {
     body.previousEndpoint = previousEndpoint;
   }
 
@@ -71,7 +81,7 @@ export async function syncSubscriptionToServer(
     result = await api(
       "PATCH",
       `/api/notifications/subscriptions/web?endpoint=${encodeURIComponent(
-        subscription.endpoint,
+        endpoint,
       )}`,
       { body: patchBody, quiet: true },
     );

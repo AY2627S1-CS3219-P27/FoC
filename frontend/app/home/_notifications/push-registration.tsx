@@ -42,7 +42,7 @@ export function PushRegistrationSync() {
     function onSubscriptionRotated(event: MessageEvent) {
       const data = event.data as {
         type?: string;
-        subscription?: PushSubscription;
+        subscription?: PushSubscriptionJSON;
         previousEndpoint?: string;
       };
       if (
@@ -59,7 +59,9 @@ export function PushRegistrationSync() {
       void syncSubscriptionToServer(
         data.subscription,
         data.previousEndpoint,
-      );
+      ).catch(() => {
+        // The card re-syncs this browser's subscription on the next load.
+      });
     }
 
     if ("serviceWorker" in navigator) {
