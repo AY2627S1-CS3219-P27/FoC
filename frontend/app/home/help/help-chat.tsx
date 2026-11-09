@@ -17,9 +17,15 @@ const INTRODUCTION = [
   "🔒 Your questions are kept for 30 days and sent to an outside AI provider, so please don't include passwords or other sensitive details.",
 ];
 
-// The model sometimes marks words as **bold**. Building elements keeps everything else as plain text, so an answer can never inject HTML.
+// The model sometimes marks words as **bold** or `code`. Building elements keeps everything else as plain text, so an answer can never inject HTML.
 function renderAnswer(answer: string): React.ReactNode[] {
-  return answer.split(/\*\*([^*\n]+)\*\*/g).map((part, index) => (index % 2 === 1 ? <strong key={index} className="font-semibold">{part}</strong> : part));
+  // Two capture groups, so split returns text, bold, code, text, bold, code...
+  return answer.split(/\*\*([^*\n]+)\*\*|`([^`\n]+)`/g).map((part, index) => {
+    if (part === undefined) return null;
+    if (index % 3 === 1) return <strong key={index} className="font-semibold">{part}</strong>;
+    if (index % 3 === 2) return <code key={index} className="font-mono text-[0.9em]">{part}</code>;
+    return part;
+  });
 }
 
 function BotBubble({ children }: { children: React.ReactNode }) {
@@ -54,7 +60,7 @@ function Exchange({ exchange, canRetry, onRetry }: { exchange: HelpExchange; can
         </article>
         {failed && (
           <p className="mt-0.5 flex flex-wrap items-center justify-end gap-x-2 px-1 text-[11px] font-medium text-muted">
-            <span className="text-danger">⚠️ Not sent. {exchange.error}</span>
+            <span className="text-danger">⚠️ Couldn&apos;t get an answer. {exchange.error}</span>
             <button type="button" disabled={!canRetry} onClick={onRetry} className="font-semibold text-nus-orange disabled:opacity-40">
               Retry
             </button>
@@ -150,7 +156,7 @@ export function HelpChat() {
             🤖
           </span>
           <div className="min-w-0 flex-1">
-            <h1 id="help-heading" title="FoC AI RAG-based chat assistant" className="truncate text-[16px] leading-tight font-semibold">FoC AI RAG-based chat assistant</h1>
+            <h1 id="help-heading" className="truncate text-[16px] leading-tight font-semibold">FoC help bot</h1>
             <p className="truncate text-xs text-muted">✨ Answers from FoC&apos;s help documents</p>
           </div>
         </div>
