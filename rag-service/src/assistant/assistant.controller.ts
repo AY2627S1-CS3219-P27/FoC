@@ -1,5 +1,12 @@
-import { JwtAuthGuard } from '@foc/auth';
-import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { type AuthenticatedRequest, JwtAuthGuard } from '@foc/auth';
+import {
+  Body,
+  Controller,
+  HttpCode,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { AssistantService, type AssistantAnswer } from './assistant.service.js';
 import { QuestionDto } from './question.dto.js';
 
@@ -11,7 +18,10 @@ export class AssistantController {
   /** 200 even for "can't find it": the request worked, and that is an answer. */
   @Post('questions')
   @HttpCode(200)
-  ask(@Body() body: QuestionDto): Promise<AssistantAnswer> {
-    return this.assistant.ask(body.question);
+  ask(
+    @Body() body: QuestionDto,
+    @Req() req: AuthenticatedRequest,
+  ): Promise<AssistantAnswer> {
+    return this.assistant.ask(req.user.sub, body.question);
   }
 }

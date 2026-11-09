@@ -101,6 +101,31 @@ describe('AllExceptionsFilter', () => {
     );
   });
 
+  it('sends the real wait with a 429', () => {
+    filter.catch(
+      new HttpException(
+        { code: 'RATE_LIMITED', message: 'Wait.', retryAfterSeconds: 42 },
+        429,
+      ),
+      host,
+    );
+
+    expect(adapter.setHeader).toHaveBeenCalledWith(
+      'response',
+      'Retry-After',
+      '42',
+    );
+    expect(adapter.reply).toHaveBeenCalledWith(
+      'response',
+      expect.objectContaining({
+        statusCode: 429,
+        code: 'RATE_LIMITED',
+        retryAfterSeconds: 42,
+      }),
+      429,
+    );
+  });
+
   it('keeps the 413 of an oversized body instead of reporting a 500', () => {
     const parserError = Object.assign(new Error('request entity too large'), {
       type: 'entity.too.large',

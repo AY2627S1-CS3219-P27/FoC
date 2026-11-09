@@ -8,8 +8,9 @@ import {
   OpenRouterClient,
   OpenRouterError,
 } from '../src/openrouter/openrouter.client.js';
+import { ChatLogRepository } from '../src/assistant/chat-log.repository.js';
 import { ChunkSearchService } from '../src/assistant/chunk-search.service.js';
-import { signAccessToken } from './access-token.js';
+import { signAccessToken, TEST_USER_ID } from './access-token.js';
 import { seedTestEnvironment } from './test-env.js';
 
 describe('POST /assistant/questions (e2e)', () => {
@@ -18,6 +19,8 @@ describe('POST /assistant/questions (e2e)', () => {
   let embed: ReturnType<typeof vi.fn>;
   let complete: ReturnType<typeof vi.fn>;
   let nearest: ReturnType<typeof vi.fn>;
+  let reserve: ReturnType<typeof vi.fn>;
+  let complete_: ReturnType<typeof vi.fn>;
 
   const ask = async (body: object, token?: string) =>
     request(app.getHttpServer())
@@ -34,6 +37,8 @@ describe('POST /assistant/questions (e2e)', () => {
     embed = vi.fn();
     complete = vi.fn();
     nearest = vi.fn();
+    reserve = vi.fn();
+    complete_ = vi.fn();
 
     const moduleFixture = await Test.createTestingModule({
       imports: [AppModule],
@@ -48,6 +53,12 @@ describe('POST /assistant/questions (e2e)', () => {
       .useValue({ embed, complete, embeddingModel: 'test/model' })
       .overrideProvider(ChunkSearchService)
       .useValue({ nearest })
+      .overrideProvider(ChatLogRepository)
+      .useValue({
+        reserve,
+        complete: complete_,
+        deleteOlderThan: () => Promise.resolve(0),
+      })
       .compile();
 
     app = moduleFixture.createNestApplication();
@@ -60,6 +71,8 @@ describe('POST /assistant/questions (e2e)', () => {
   });
 
   beforeEach(() => {
+    reserve.mockReset().mockResolvedValue({ allowed: true, id: 'row' });
+    complete_.mockReset().mockResolvedValue(undefined);
     embed.mockReset().mockResolvedValue([[0.1]]);
     complete.mockReset().mockResolvedValue({ text: 'Do this.\nSOURCES: 1' });
     nearest.mockReset().mockResolvedValue([
@@ -93,6 +106,44 @@ describe('POST /assistant/questions (e2e)', () => {
       )
       .send({ question: 'can I cancel?' })
       .expect(200);
+  });
+
+  it('charges the question to the user in the token, not the body', async () => {
+    await ask({ question: 'can I cancel?' });
+
+    expect(reserve).toHaveBeenCalledWith(TEST_USER_ID, 'can I cancel?', 10);
+    expect(complete_).toHaveBeenCalledWith(
+      'row',
+      expect.objectContaining({ outcome: 'answered' }),
+    );
+  });
+
+  it('answers 429 with the wait when over the limit, before any model call', async () => {
+    reserve.mockResolvedValue({ allowed: false, retryAfterSeconds: 37 });
+
+    const response = await ask({ question: 'again?' });
+
+    expect(response.status).toBe(429);
+    expect(response.headers['retry-after']).toBe('37');
+    expect(response.body).toMatchObject({
+      code: 'RATE_LIMITED',
+      retryAfterSeconds: 37,
+    });
+    expect(embed).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it('answers 503 without a model call when the limit cannot be checked', async () => {
+    reserve.mockRejectedValue(
+      Object.assign(new Error('connect ECONNREFUSED'), {
+        code: 'ECONNREFUSED',
+      }),
+    );
+
+    const response = await ask({ question: 'hello' });
+
+    expect(response.status).toBe(503);
+    expect(embed).not.toHaveBeenCalled();
   });
 
   it('answers 200 with answered false when nothing is relevant', async () => {

@@ -39,6 +39,7 @@ describe('route audit (e2e)', () => {
         entityMetadatas: [],
         options: { type: 'postgres' },
         getRepository: () => ({}),
+        query: () => Promise.resolve([[], 0]),
       })
       .compile();
 
