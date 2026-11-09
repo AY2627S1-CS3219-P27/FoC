@@ -108,7 +108,7 @@ export function OptionCombobox<V extends string>({
 
       <BaseCombobox.Portal>
         <BaseCombobox.Positioner sideOffset={4} collisionPadding={8} className="z-[60]">
-          <BaseCombobox.Popup className="w-(--anchor-width) overflow-y-auto overscroll-contain rounded-xl border border-border bg-surface p-1.5 shadow-overlay outline-none">
+          <BaseCombobox.Popup className="max-h-(--available-height) w-(--anchor-width) overflow-y-auto overscroll-contain rounded-xl border border-border bg-surface p-1.5 shadow-overlay outline-none">
             {queryCount !== null && (
               <BaseCombobox.Status className="px-2.5 py-1.5 text-xs text-muted">
                 {queryCount === 0 ? "" : `${queryCount} ${queryCount === 1 ? "match" : "matches"}`}
