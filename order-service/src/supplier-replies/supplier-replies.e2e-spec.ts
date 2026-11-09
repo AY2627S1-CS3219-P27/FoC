@@ -151,7 +151,10 @@ describe('supplier validation reply against the database', () => {
     expect((await events(id)).find((e) => e.sequenceNumber === 2)).toMatchObject({
       payload: { supplierEventId: eventId, supplierOutcome: 'VENUE_NOT_FOUND' },
     });
-    expect(await outbox(id)).toEqual(['order.supplier-validation-requested.v1']);
+    expect(await outbox(id)).toEqual([
+      'order.supplier-validation-requested.v1',
+      'order.requester-errand-cancelled.v1',
+    ]);
   });
 
   it('keeps a pin and labels it Requester Delivery Location', async () => {

@@ -37,6 +37,7 @@
               "enum": [
                 "SUPPLIER_UNAVAILABLE",
                 "BUILDING_UNAVAILABLE",
+                "VENUE_UNAVAILABLE",
                 "SUPPLIER_VALIDATION_TIMEOUT",
                 "INSUFFICIENT_CREDITS",
                 "MISSING_BALANCE",

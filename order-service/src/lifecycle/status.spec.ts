@@ -1,4 +1,6 @@
-import { EDGES, findEdge } from './edges.js';
+import { randomUUID } from 'node:crypto';
+import { AccountEventContractValidator } from '@foc/contracts';
+import { CANCELLATION_REASONS, EDGES, USER_REASONS, findEdge } from './edges.js';
 import {
   ACTIVE_STATUSES,
   ALLOWED,
@@ -147,4 +149,19 @@ describe('EDGES', () => {
     // The requester's own cancel: release only.
     expect(keys('Open', 'REQUESTER_CANCELLED')).toEqual(['order.errand-cancelled.v1']);
   });
+
+  // A reason the contract refuses throws inside the transition and rolls the cancel back.
+  it.each(CANCELLATION_REASONS.filter((r) => !USER_REASONS.includes(r)))(
+    'order.requester-errand-cancelled.v1 accepts the system reason %s',
+    (cancellationReason) => {
+      const checked = new AccountEventContractValidator().validate('order.requester-errand-cancelled.v1', {
+        eventId: randomUUID(),
+        eventType: 'RequesterErrandCancelled',
+        timestamp: new Date().toISOString(),
+        publisher: 'order-service',
+        payload: { errandId: randomUUID(), requesterUserId: randomUUID(), cancellationReason },
+      });
+      expect(checked.valid).toBe(true);
+    },
+  );
 });
