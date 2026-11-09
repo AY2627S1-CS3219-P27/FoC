@@ -20,12 +20,12 @@ export interface NoticeContext {
   attempt: number;
 }
 
-// `key` is the contract's routing key; builders may return undefined to skip.
+// `key` is the contract's routing key; builders may return undefined to skip, or several notices.
 export interface Notice {
   key: EventContractKey;
   payload: object;
 }
-export type NoticeBuilder = (c: NoticeContext) => Notice | undefined;
+export type NoticeBuilder = (c: NoticeContext) => Notice | Notice[] | undefined;
 
 // Compiles every schema once.
 const validator = new AccountEventContractValidator();
@@ -86,12 +86,18 @@ export const enqueueSupplierRequest = (
   supplierId: string,
   deliveryBuildingId: string,
   attempt: number,
+  deliveryVenueId?: string | null,
 ) =>
   enqueueNotice(
     db,
     {
       key: 'order.supplier-validation-requested.v1',
-      payload: { errandId, supplierId, deliveryBuildingId },
+      payload: {
+        errandId,
+        supplierId,
+        deliveryBuildingId,
+        ...(deliveryVenueId && { deliveryVenueId }),
+      },
     },
     supplierRequestId(errandId, attempt),
   );

@@ -24,6 +24,8 @@ async function seed(status: Status) {
     courierId: courier,
     supplierId: randomUUID(),
     deliveryLocation: 'COM2',
+    deliveryBuildingId: randomUUID(),
+    deliveryDetail: 'Level 3 04-02',
     rewardCredits: 5,
     collectionItems: 'bubble tea',
   });
@@ -126,7 +128,11 @@ describe('settlement edges', () => {
       expected: 'Settling-Credit',
       to: 'Resolved',
       actor: SYSTEM,
-      payload: { creditEventId: randomUUID(), creditTransactionId: randomUUID() },
+      payload: {
+        creditEventId: randomUUID(),
+        courierCreditTransactionId: randomUUID(),
+        requesterCreditTransactionId: null,
+      },
     });
     expect(ok).toMatchObject({ ok: true });
     expect(await row(id)).toMatchObject({ status: 'Resolved', settlementAmount: 2 });
@@ -146,7 +152,11 @@ describe('settlement edges', () => {
         expected: 'Settling-Credit',
         to: 'Resolved',
         actor: admin(adminId),
-        payload: { creditEventId: randomUUID(), creditTransactionId: randomUUID() },
+        payload: {
+        creditEventId: randomUUID(),
+        courierCreditTransactionId: randomUUID(),
+        requesterCreditTransactionId: null,
+      },
       }),
     ).toEqual({ ok: false, reason: 'FORBIDDEN' });
 

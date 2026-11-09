@@ -424,6 +424,6 @@ async function apply(
         ? await countEvents(tx, i.errandId, edge.type)
         : 1,
   });
-  if (notice) await enqueueNotice(tx, notice);
+  for (const n of [notice ?? []].flat()) await enqueueNotice(tx, n);
   return { ok: true, sequenceNumber: row.seq };
 }

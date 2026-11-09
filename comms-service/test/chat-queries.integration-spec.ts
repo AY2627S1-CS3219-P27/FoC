@@ -291,6 +291,63 @@ describe('participant-only chat queries', () => {
     ).rejects.toEqual(expected);
   });
 
+  it('returns latest history first and continues backward without cursor drift', async () => {
+    const chatId = await createChat('2026-11-04T01:00:00.000Z');
+    for (let sequence = 1; sequence <= 5; sequence += 1) {
+      await createMessage({
+        chatId,
+        sequence,
+        senderId: sequence % 2 === 0 ? courierId : requesterId,
+        content: `Message ${sequence}`,
+        committedAt: `2026-11-04T01:0${sequence}:00.000Z`,
+      });
+    }
+
+    const latest = await queries.history(
+      requesterId,
+      chatId,
+      undefined,
+      2,
+      'backward',
+    );
+    expect(latest).toMatchObject({
+      items: [{ sequence: 4 }, { sequence: 5 }],
+      hasMore: true,
+    });
+
+    await createMessage({
+      chatId,
+      sequence: 6,
+      senderId: courierId,
+      content: 'Committed after the latest page',
+      committedAt: '2026-11-04T01:06:00.000Z',
+    });
+
+    const older = await queries.history(
+      requesterId,
+      chatId,
+      latest.nextCursor!,
+      2,
+      'backward',
+    );
+    expect(older).toMatchObject({
+      items: [{ sequence: 2 }, { sequence: 3 }],
+      hasMore: true,
+    });
+    const oldest = await queries.history(
+      requesterId,
+      chatId,
+      older.nextCursor!,
+      2,
+      'backward',
+    );
+    expect(oldest).toEqual({
+      items: [expect.objectContaining({ sequence: 1 })],
+      hasMore: false,
+      nextCursor: null,
+    });
+  });
+
   it('lists only participant archives newest-first without microsecond pagination gaps', async () => {
     const firstChat = await createChat('2026-11-04T01:00:00.000Z');
     const secondChat = await createChat('2026-11-04T02:00:00.000Z');

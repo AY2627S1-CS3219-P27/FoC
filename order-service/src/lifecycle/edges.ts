@@ -2,8 +2,9 @@ import {
   ORDER_COURIER_CANCELLED_V1_ROUTING_KEY,
   ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY,
   ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
+  ORDER_REQUESTER_ERRAND_CANCELLED_V1_ROUTING_KEY,
 } from '@foc/contracts';
-import type { NoticeBuilder } from './notice.js';
+import type { Notice, NoticeBuilder } from './notice.js';
 import type { Status } from './status.js';
 
 // Projection columns a transition may write; values come from the caller.
@@ -18,6 +19,9 @@ export type Col =
   | 'pickupName'
   | 'pickupDescription'
   | 'deliveryLocation'
+  | 'deliveryVenue'
+  | 'deliveryLatitude'
+  | 'deliveryLongitude'
   | 'settlementAmount'
   | 'settlementNote';
 
@@ -34,6 +38,7 @@ export const CREDIT_SETTLEMENT_REJECTED = 'CreditSettlementRejected';
 export const CANCELLATION_REASONS = [
   'SUPPLIER_UNAVAILABLE',
   'BUILDING_UNAVAILABLE',
+  'VENUE_UNAVAILABLE',
   'SUPPLIER_VALIDATION_TIMEOUT',
   'INSUFFICIENT_CREDITS',
   'MISSING_BALANCE',
@@ -86,6 +91,18 @@ const courierCancelled: NoticeBuilder = (c) => ({
     courierUserId: c.actorUserId,
   },
 });
+// Tells the requester why the system cancelled; their own cancel needs no notice.
+const requesterCancelled: NoticeBuilder = (c) =>
+  USER_REASONS.includes(c.payload.cancellationReason as CancellationReason)
+    ? undefined
+    : {
+        key: ORDER_REQUESTER_ERRAND_CANCELLED_V1_ROUTING_KEY,
+        payload: {
+          errandId: c.errandId,
+          requesterUserId: c.requesterId,
+          cancellationReason: c.payload.cancellationReason,
+        },
+      };
 const cancel = (
   who: Role[],
   reasons: CancellationReason[],
@@ -96,7 +113,8 @@ const cancel = (
   clears: [],
   who,
   reasons,
-  notice: notice ?? undefined,
+  notice: (c) =>
+    [notice?.(c), requesterCancelled(c)].flat().filter((n): n is Notice => !!n),
 });
 const plain = (type: string, who: Role[], notice?: NoticeBuilder): Edge => ({
   type,
@@ -127,12 +145,15 @@ export const EDGES: Partial<
         'pickupLocation',
         'pickupDescription',
         'deliveryLocation',
+        'deliveryVenue',
+        'deliveryLatitude',
+        'deliveryLongitude',
       ],
     },
     // Nothing reserved yet, so nothing to release.
     Cancelled: cancel(
       sys,
-      ['SUPPLIER_UNAVAILABLE', 'BUILDING_UNAVAILABLE', 'SUPPLIER_VALIDATION_TIMEOUT'],
+      ['SUPPLIER_UNAVAILABLE', 'BUILDING_UNAVAILABLE', 'VENUE_UNAVAILABLE', 'SUPPLIER_VALIDATION_TIMEOUT'],
       null,
     ),
   },

@@ -1,5 +1,12 @@
 import { EDGES, findEdge } from './edges.js';
-import { ACTIVE_STATUSES, ALLOWED, STATUSES, TERMINAL_STATUS, canTransition } from './status.js';
+import {
+  ACTIVE_STATUSES,
+  ALLOWED,
+  STATUSES,
+  TERMINAL_STATUS,
+  canTransition,
+  type Status,
+} from './status.js';
 
 describe('status transitions', () => {
   for (const from of STATUSES) {
@@ -49,11 +56,14 @@ describe('EDGES', () => {
     ).toEqual([]);
   });
 
-  it('lets the supplier validation write the delivery snapshot and cancel for a missing building', () => {
-    expect(findEdge('Pending-Supplier', 'Reserving-Credit')?.sets).toContain('deliveryLocation');
+  it('lets the supplier validation write the delivery snapshot and cancel for a missing building or venue', () => {
+    expect(findEdge('Pending-Supplier', 'Reserving-Credit')?.sets).toEqual(
+      expect.arrayContaining(['deliveryLocation', 'deliveryVenue', 'deliveryLatitude', 'deliveryLongitude']),
+    );
     expect(findEdge('Pending-Supplier', 'Cancelled')?.reasons).toEqual([
       'SUPPLIER_UNAVAILABLE',
       'BUILDING_UNAVAILABLE',
+      'VENUE_UNAVAILABLE',
       'SUPPLIER_VALIDATION_TIMEOUT',
     ]);
   });
@@ -75,7 +85,9 @@ describe('EDGES', () => {
       courierId: '33333333-3333-4333-8333-333333333333',
       actorUserId: '44444444-4444-4444-8444-444444444444',
       rewardCredits: 5,
+      attempt: 1,
       payload: {},
+      attempt: 1,
     };
 
     expect(findEdge('Open', 'Accepted')?.notice?.(context)).toEqual({
@@ -107,5 +119,32 @@ describe('EDGES', () => {
         courierUserId: context.actorUserId,
       },
     });
+  });
+  it('tells the requester about a system cancel, alongside the release to credit, but not about their own', () => {
+    const ctx = (cancellationReason: string) => ({
+      errandId: '11111111-1111-4111-8111-111111111111',
+      requesterId: '22222222-2222-4222-8222-222222222222',
+      courierId: null,
+      actorUserId: null,
+      rewardCredits: 5,
+      attempt: 1,
+      payload: { cancellationReason },
+    });
+    const keys = (from: Status, reason: string) =>
+      [findEdge(from, 'Cancelled')?.notice?.(ctx(reason))]
+        .flat()
+        .map((n) => n?.key);
+
+    // Nothing reserved: only the requester notice.
+    expect(keys('Pending-Supplier', 'SUPPLIER_VALIDATION_TIMEOUT')).toEqual([
+      'order.requester-errand-cancelled.v1',
+    ]);
+    // A timeout may leave a reservation behind, so credit gets a release too.
+    expect(keys('Reserving-Credit', 'CREDIT_TIMEOUT')).toEqual([
+      'order.errand-cancelled.v1',
+      'order.requester-errand-cancelled.v1',
+    ]);
+    // The requester's own cancel: release only.
+    expect(keys('Open', 'REQUESTER_CANCELLED')).toEqual(['order.errand-cancelled.v1']);
   });
 });

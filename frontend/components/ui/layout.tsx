@@ -1,4 +1,5 @@
 import { clsx } from "clsx";
+import Link from "next/link";
 import { Button } from "./button";
 import { AlertIcon, ChevronRightIcon, InboxIcon } from "./icons";
 
@@ -125,9 +126,16 @@ export function ListRow({
           {body}
         </button>
       ) : href ? (
-        <a href={href} className={rowClass}>
-          {body}
-        </a>
+        // In-app paths navigate client-side; anything else is a plain link.
+        href.startsWith("/") && !href.startsWith("//") ? (
+          <Link href={href} className={rowClass}>
+            {body}
+          </Link>
+        ) : (
+          <a href={href} className={rowClass}>
+            {body}
+          </a>
+        )
       ) : (
         <div className={rowClass}>{body}</div>
       )}

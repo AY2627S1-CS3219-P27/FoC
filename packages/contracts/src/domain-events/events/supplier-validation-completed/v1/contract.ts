@@ -25,6 +25,7 @@ export interface DeliveryBuildingSnapshot {
   id: string;
   shortName: string;
   canonicalName: string;
+  coordinates: { latitude: number; longitude: number };
 }
 
 export interface DeliveryVenueSnapshot {

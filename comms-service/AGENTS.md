@@ -2,7 +2,11 @@
 
 NestJS Communication Service foundation using PostgreSQL with TypeORM,
 RabbitMQ, Redis, shared User Service JWT verification, and shared observability.
-Architecture decisions live in `../docs/adr/comms-service/`.
+Architecture decisions live in `../docs/adr/comms-service/`. Operational
+runbooks live in `../docs/runbooks/`: lifecycle ingestion and DLQ redrive
+(`comms-service-lifecycle-operations.md`), realtime socket/Redis operations
+(`comms-service-realtime-operations.md`), and grace-deadline/archive-worker
+operations (`comms-service-archive-operations.md`).
 
 Run npm commands from this directory. Schema synchronization is prohibited in
 all environments: use explicit TypeORM migrations. PostgreSQL is authoritative;
@@ -38,7 +42,12 @@ bounded drain deadline; abandoned claims recover only through lease expiry.
 The backend realtime boundary includes committed message/read events and the
 best-effort `chat:closing` and `chat:archived` notifications. Do not add browser
 socket lifecycle, countdown rendering, archive screens, navigation, refresh,
-or visible receipt rendering here; those remain frontend responsibilities.
+or visible receipt rendering here; those remain frontend responsibilities. The
+Package 5 frontend now implements exactly this boundary end to end
+(`frontend/app/home/chats/**`, `frontend/app/home/archives/**`,
+`frontend/lib/chat/**`); this service's role is to keep serving the committed
+HTTP and socket contracts those routes consume, never to grow a browser-side
+implementation of them.
 
 Metrics use bounded operational labels only; never add participant, errand,
 chat, message, archive, event, claim, cursor, or token values as labels. Grace
@@ -71,3 +80,9 @@ Useful commands:
 - `npm run socket:test:up` / `npm run socket:test:down`
 - `npm run test:socket-integration`
 - `npm run test:rabbitmq-permissions`
+- `npm run test:fixtures`
+- `npm run dlq:operator`
+- `npm run realtime:fixture`
+- the `event:fixtures:list` / `event:publish:*` fixture-publishing family
+- `npm run migration:generate` / `npm run migration:create`
+- `npm run migration:run:prod` / `npm run migration:show:prod` / `npm run migration:revert:prod`

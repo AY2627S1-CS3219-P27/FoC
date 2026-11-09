@@ -1,6 +1,6 @@
 # order-service architecture
 
-Diagrams are Mermaid (render on GitHub / VS Code). Decisions behind them: ADRs [0001](../docs/adr/order-service/0001-hand-rolled-event-sourcing-on-postgres.md)–[0007](../docs/adr/order-service/0007-expiry-duration-autocomplete-and-supplier-validation.md), [0008](../docs/adr/order-service/0008-transactional-outbox-and-broker-access.md), [0009](../docs/adr/order-service/0009-referenced-data-ids-and-supplier-snapshot.md), [0010](../docs/adr/order-service/0010-role-block-with-ttl.md), [0011](../docs/adr/order-service/0011-delivery-building-snapshot.md). Terms: [`CONTEXT.md`](./CONTEXT.md).
+Diagrams are Mermaid (render on GitHub / VS Code). Decisions behind them: ADRs [0001](../docs/adr/order-service/0001-hand-rolled-event-sourcing-on-postgres.md)–[0007](../docs/adr/order-service/0007-expiry-duration-autocomplete-and-supplier-validation.md), [0008](../docs/adr/order-service/0008-transactional-outbox-and-broker-access.md), [0009](../docs/adr/order-service/0009-referenced-data-ids-and-supplier-snapshot.md), [0010](../docs/adr/order-service/0010-role-block-with-ttl.md), [0011](../docs/adr/order-service/0011-delivery-building-snapshot.md), [0013](../docs/adr/order-service/0013-dispute-resolution-settlement.md). Terms: [`CONTEXT.md`](./CONTEXT.md).
 
 ## 1. Components
 
@@ -107,7 +107,7 @@ Each row is one database transaction (§3): a conditional `UPDATE … WHERE stat
 | # | From → To | Event | Triggered by | Conditions | Cross-service notice → resulting state |
 |---|---|---|---|---|---|
 | 1 | Pending-Supplier → Reserving-Credit | `SupplierValidated` | system: supplier reply `FOUND` + `Active` | supplier exists and is Active | `credit.reservation.v1` (hold `rewardCredits`); waits in Reserving-Credit |
-| 2 | Pending-Supplier → Cancelled | `ErrandCancelled` | system: supplier reply `NOT_FOUND` / `Inactive` (`SUPPLIER_UNAVAILABLE`) or `BUILDING_NOT_FOUND` (`BUILDING_UNAVAILABLE`), or hold-window sweep (`SUPPLIER_VALIDATION_TIMEOUT`) | reason fits the edge | none: nothing reserved yet |
+| 2 | Pending-Supplier → Cancelled | `ErrandCancelled` | system: supplier reply `NOT_FOUND` / `Inactive` (`SUPPLIER_UNAVAILABLE`) `BUILDING_NOT_FOUND` (`BUILDING_UNAVAILABLE`) or `VENUE_NOT_FOUND` (`VENUE_UNAVAILABLE`), or hold-window sweep (`SUPPLIER_VALIDATION_TIMEOUT`) | reason fits the edge | none: nothing reserved yet |
 | 3 | Reserving-Credit → Open | `CreditReserved` | system: `credit.reservation-success.v1` | — | credits held; sets `expires_at` = now + duration (ADR 0007) |
 | 4 | Reserving-Credit → Cancelled | `ErrandCancelled` | system: `credit.reservation-rejected.v1` (`INSUFFICIENT_CREDITS`, `MISSING_BALANCE`), or sweep after `RESERVING_CREDIT_TIMEOUT_MS` (`CREDIT_TIMEOUT`) | reason fits the edge | rejection: none. Timeout: `order.errand-cancelled.v1` (release, in case a reservation landed) |
 | 5 | Open → Accepted | `ErrandAccepted` | courier: `POST /:id/accept` | caller is not the requester; `expires_at` not passed; caller holds no other `Accepted` / `Picked Up` errand | `order.errand-accepted.v1` for Communication Service; credits stay held |
@@ -179,7 +179,7 @@ stateDiagram-v2
     PendingSupplier --> ReservingCredit: supplier validation confirmed
     ReservingCredit
   }
-  PendingSupplier --> Cancelled: supplier validation failed (SUPPLIER_UNAVAILABLE / BUILDING_UNAVAILABLE / VALIDATION_TIMEOUT)
+  PendingSupplier --> Cancelled: supplier validation failed (SUPPLIER_UNAVAILABLE / BUILDING_UNAVAILABLE / VENUE_UNAVAILABLE / VALIDATION_TIMEOUT)
   ReservingCredit --> Open: credit reservation confirmed
   ReservingCredit --> Cancelled: reservation failed / timed out
   Open --> Accepted: courier accepts
@@ -275,7 +275,7 @@ sequenceDiagram
 
 `createErrand()` requires `expiryDurationMinutes` (15 to 10080) and a non-blank `collectionItems` string. The duration stays in the `ErrandCreated` payload only; `collectionItems` is also an `errands` column (read-only, not filtered); the `CreditReserved` edge sets `expires_at` and records it in its own payload (ADR 0007). Creation never blocks on the supplier or credit outcome (F1.4.2).
 
-Supplier validation (`src/supplier-replies/`, supplier ADR 0002): an Active supplier moves the errand on, sets `pickup_name` (supplier display name), `pickup_location` (building short name) and `pickup_description` (floor and spot) from the reply's supplier snapshot (ADR 0009), and the `SupplierValidated` event keeps that snapshot verbatim; a missing or Inactive one cancels it (F1.4.4). The same reply validates the delivery building (ADR 0011): `FOUND` also sets `delivery_location` to the building's short name, and `BUILDING_NOT_FOUND` (supplier exists, building does not) cancels with `BUILDING_UNAVAILABLE`; nothing is reserved yet, so no release is sent. A reply whose `supplierId` is not the errand's is dead-lettered, and the errand stays in `Pending-Supplier`. If no reply comes (F1.5), a sweep sends a new request with its own `eventId` (derived from the errand and attempt number). Supplier Service answers each `eventId` only once, so reusing the original would never recover a lost reply. Extra replies hit the `Pending-Supplier` guard and are acked. The sweep skips a resend while the relay has not yet published the previous request, and uses exponential backoff and jitter (`SUPPLIER_RETRY_BASE_MS`, `SUPPLIER_RETRY_MAX_MS`), tracking attempts in `supplier_validation_retries`. After `SUPPLIER_VALIDATION_HOLD_MS` from creation it cancels with `SUPPLIER_VALIDATION_TIMEOUT`; a reply arriving after that is acked and dropped.
+Supplier validation (`src/supplier-replies/`, supplier ADR 0002): an Active supplier moves the errand on, sets `pickup_name` (supplier display name), `pickup_location` (building short name) and `pickup_description` (floor and spot) from the reply's supplier snapshot (ADR 0009), and the `SupplierValidated` event keeps that snapshot verbatim; a missing or Inactive one cancels it (F1.4.4). The same reply validates the delivery building (ADR 0011): `FOUND` also sets `delivery_location` to the building's short name, and `BUILDING_NOT_FOUND` (supplier exists, building does not) cancels with `BUILDING_UNAVAILABLE`; nothing is reserved yet, so no release is sent. The reply also validates an optional delivery venue (ADR 0012): `FOUND` sets `delivery_latitude`, `delivery_longitude` (stored pin, else venue point, else building point) and the `delivery_venue` label, and `VENUE_NOT_FOUND` cancels with `VENUE_UNAVAILABLE`. A pin is checked against the campus boundary at create time and never sent to supplier-service. A reply whose `supplierId` is not the errand's is dead-lettered, and the errand stays in `Pending-Supplier`. If no reply comes (F1.5), a sweep sends a new request with its own `eventId` (derived from the errand and attempt number). Supplier Service answers each `eventId` only once, so reusing the original would never recover a lost reply. Extra replies hit the `Pending-Supplier` guard and are acked. The sweep skips a resend while the relay has not yet published the previous request, and uses exponential backoff and jitter (`SUPPLIER_RETRY_BASE_MS`, `SUPPLIER_RETRY_MAX_MS`), tracking attempts in `supplier_validation_retries`. After `SUPPLIER_VALIDATION_HOLD_MS` from creation it cancels with `SUPPLIER_VALIDATION_TIMEOUT`; a reply arriving after that is acked and dropped.
 
 
 ## 5. Read side
@@ -320,10 +320,12 @@ Order-service and credit-service never share a transaction. Order changes its ow
 - The one overlap is a timeout release racing its reservation. Credit holds a release that arrives before its reservation and retries it (credit ADR 0008).
 
 **Planned, not built.** These are documented gaps, not current behaviour:
-- **Credits held in `Incomplete` (S3, #584).** Releasing or transferring them is a dispute decision: an admin settles through the dispute routes (edge 18). Credit-service's settlement handling (#661) is not built yet, and there is no aging alert for a stale dispute.
+- **Credits held in `Incomplete` (S3, #584).** Releasing or transferring them is a dispute decision: an admin settles through the dispute routes (edge 18). Settlement is built on both services ([ADR 0013](../docs/adr/order-service/0013-dispute-resolution-settlement.md), credit [ADR 0010](../docs/adr/credit-service/0010-credit-settlement.md)); there is no aging alert for a stale dispute.
 - **Telling the user a credit step failed (S6).** The reason is already in the revert event's payload. A notice will be added on those edges once notification-service defines its event contract.
 - **"You may resubmit" after `SUPPLIER_VALIDATION_TIMEOUT` (F1.5.3).** Today the requester sees `Cancelled` and the reason on the detail endpoint.
 - **The `ADMIN ALERT` repeats every tick.** Windows are counted from `updated_at`, with no stored attempt count.
+
+**Requester cancellation notice.** Every `Cancelled` edge also writes `order.requester-errand-cancelled.v1` (requester id and `cancellationReason`) in the same transaction, except when the requester cancelled themselves. It is separate from `order.errand-cancelled.v1` because that one is credit's release (no recipient, and not sent when nothing was reserved); `Reserving-Credit` → `Cancelled` on `CREDIT_TIMEOUT` writes both. Notification-service pushes the "you can resubmit" copy and the frontend shows the same copy on the errand (`cancellation.ts`). Courier withdrawal (edge 11) is not a cancellation and uses `order.courier-cancelled.v1`; the courier's free-text reason is not shown to the requester.
 
 ## Remaining work before rollout
 
