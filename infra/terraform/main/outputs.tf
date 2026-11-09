@@ -17,3 +17,8 @@ output "db_host" {
   description = "Private address of the Postgres instance."
   value       = aws_db_instance.main.address
 }
+
+output "public_url" {
+  description = "The site's public HTTPS address."
+  value       = "https://${aws_cloudfront_distribution.app.domain_name}"
+}

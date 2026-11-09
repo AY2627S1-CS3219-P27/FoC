@@ -65,13 +65,17 @@ resource "aws_security_group" "app" {
   vpc_id      = aws_vpc.main.id
 }
 
+data "aws_ec2_managed_prefix_list" "cloudfront" {
+  name = "com.amazonaws.global.cloudfront.origin-facing"
+}
+
 resource "aws_vpc_security_group_ingress_rule" "app_frontend" {
   security_group_id = aws_security_group.app.id
-  description       = "Frontend (step 9 narrows this to CloudFront)"
+  description       = "Frontend, from CloudFront only"
   ip_protocol       = "tcp"
   from_port         = 3001
   to_port           = 3001
-  cidr_ipv4         = "0.0.0.0/0"
+  prefix_list_id    = data.aws_ec2_managed_prefix_list.cloudfront.id
 }
 
 resource "aws_vpc_security_group_egress_rule" "app_all" {
