@@ -9,10 +9,12 @@ Errand lifecycle, state model and expiry. See `AGENTS.md` and `ARCHITECTURE.md`.
 | `GET /` | Courier | Browse open errands (`pickupBuilding`, `deliveryBuilding`, `minCredits`, `sort`, `limit`, `offset`) |
 | `GET /mine` | Requester or Courier | The caller's errands as requester or courier (`role`, `status`, `limit`, `offset`) |
 | `GET /:id` | Requester or Courier | One errand; 404 unless a party or the errand is open and unexpired |
-| `POST /` | Requester | Create |
+| `POST /` | Requester | Create. `deliveryBuildingId` plus at most one of `deliveryVenueId` or `deliveryPin { latitude, longitude }` (both: 400; a pin outside the campus boundary: 400). `deliveryDetail` is required unless a venue is given |
 | `POST /:id/accept`, `pickup`, `deliver`, `withdraw` | Courier | Courier actions |
 | `POST /:id/confirm`, `incomplete`, `adjust`, `cancel` | Requester | Requester actions |
 | `POST /:id/report` | Requester or assigned Courier | File one immutable text report (max 2,000 characters) on an `Incomplete` errand. 201 `{ filed: true }`; 404 for a non-party; 409 if not `Incomplete`, already reported, or settlement was requested. No attachments yet |
+
+Errand views carry `deliveryLocation` (building short name), `deliveryDetail`, `deliveryVenue` (label), `deliveryLatitude` and `deliveryLongitude`; the last three are null until supplier validation (ADR 0012).
 
 On a `Resolved` errand, `GET /mine` and `GET /:id` add `settlementAmount` (the courier's share) and `settlementNote` for the two parties (and admins, on the admin routes). Never on the open list, never for other users.
 

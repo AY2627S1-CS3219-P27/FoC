@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   IsIn,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
@@ -11,6 +12,7 @@ import {
   MaxLength,
   Min,
   Max,
+  ValidateNested,
 } from 'class-validator';
 import { API_STATUSES, type ApiStatus } from './api-status.js';
 import { MAX_EXPIRY_MINUTES, MIN_EXPIRY_MINUTES } from '../lifecycle/create.js';
@@ -21,8 +23,20 @@ const NOT_BLANK = /\S/;
 // reward_credits is a Postgres integer; a bigger amount would fail the write.
 const MAX_CREDITS = 2_147_483_647;
 
-// The body of POST /v1/errands. 
+export class DeliveryPinDto {
+  // IsNumber, not IsLatitude: that one also accepts numeric strings.
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  latitude: number;
 
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  longitude: number;
+}
+
+// The body of POST /v1/errands.
 export class CreateErrandDto {
   @IsUUID()
   supplierId: string;
@@ -30,11 +44,23 @@ export class CreateErrandDto {
   @IsUUID()
   deliveryBuildingId: string;
 
-  // Room or level, e.g. "Level 3 04-02". Stays in order-service.
+  // At most one of venue or pin, and the note's blank rule depend on each
+  // other, so createErrand() checks those; the DTO checks shapes only.
+  @IsOptional()
+  @IsUUID()
+  deliveryVenueId?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DeliveryPinDto)
+  deliveryPin?: DeliveryPinDto;
+
+  // Room or level, e.g. "Level 3 04-02". Stays in order-service. Required
+  // (non-blank) unless a venue is chosen; checked in createErrand().
+  @IsOptional()
   @IsString()
-  @Length(1, MAX_LOCATION_LENGTH)
-  @Matches(NOT_BLANK)
-  deliveryDetail: string;
+  @MaxLength(MAX_LOCATION_LENGTH)
+  deliveryDetail?: string;
 
   @IsInt()
   @Min(1)

@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { DB } from '../db/db.module.js';
 import { errandEvents, errands } from '../db/schema.js';
 import { enqueueRelease } from './notice.js';
@@ -46,6 +46,17 @@ export class LifecycleService {
       .from(errands)
       .where(eq(errands.id, errandId));
     return row?.supplierId;
+  }
+
+  // The pin given at creation. Read from the ErrandCreated event, not the row: validation
+  // overwrites the row's coordinates, and a redelivered reply must see the same answer.
+  async pinOf(errandId: string): Promise<{ latitude: number; longitude: number } | undefined> {
+    const [row] = await this.db
+      .select({ payload: errandEvents.payload })
+      .from(errandEvents)
+      .where(and(eq(errandEvents.errandId, errandId), eq(errandEvents.sequenceNumber, 1)));
+    const { deliveryLatitude: latitude, deliveryLongitude: longitude } = (row?.payload ?? {}) as Record<string, unknown>;
+    return typeof latitude === 'number' && typeof longitude === 'number' ? { latitude, longitude } : undefined;
   }
 
   async lastEvent(
