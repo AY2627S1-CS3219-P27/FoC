@@ -161,3 +161,21 @@ export const SignOutIcon = (p: IconProps) => (
     <path d="M10 8l-4 4 4 4M6 12h10" />
   </Icon>
 );
+
+export const ChatIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1-3.9A8 8 0 1 1 20 12Z" />
+  </Icon>
+);
+
+export const ArchiveBoxIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 7h16v3H4zM5.5 10v8a1.5 1.5 0 0 0 1.5 1.5h10a1.5 1.5 0 0 0 1.5-1.5v-8M10 14h4" />
+  </Icon>
+);
+
+export const ArrowUpIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 19V5M6 11l6-6 6 6" />
+  </Icon>
+);

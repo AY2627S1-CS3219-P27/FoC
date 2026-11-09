@@ -234,6 +234,16 @@ a:focus-visible,
   to { transform: none; opacity: 1; }
 }
 
+/* Chat bubbles grow out of the sender's corner. */
+.bubble-in {
+  animation: bubbleIn 220ms var(--ease-ui);
+}
+
+@keyframes bubbleIn {
+  from { opacity: 0; transform: scale(0.94) translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
 .stagger > * {
   animation: fadeIn 240ms var(--ease-ui) backwards;
 }
@@ -471,7 +481,7 @@ a:focus-visible,
 /* --- Accessibility --- */
 
 @media (prefers-reduced-motion: reduce) {
-  .fade-in, .tab-enter, .push-enter, .pop-enter, .stagger > * {
+  .fade-in, .tab-enter, .push-enter, .pop-enter, .bubble-in, .stagger > * {
     animation-name: fadeOnly;
   }
 

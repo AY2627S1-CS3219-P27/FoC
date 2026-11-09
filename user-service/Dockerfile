@@ -53,17 +53,9 @@ RUN npm run build
 RUN npm prune --omit=dev
 RUN npm prune --omit=dev --prefix /usr/src/packages/contracts
 
-# @foc/auth and @foc/outbox are file: deps (npm ci links them, and the prebuild's
-# :link scripts keep them as symlinks); their peer deps (e.g. typeorm) live in the
-# app's node_modules and can't be reached from the /usr/src/packages symlink target.
-# Copy them in as real dirs, then drop their own node_modules so their runtime and
-# peer deps resolve from the app's single hoisted node_modules. (A copied @nestjs/core
-# would be a second class instance and break NestJS DI token identity for the guards.)
-RUN rm -rf node_modules/@foc/auth node_modules/@foc/outbox node_modules/@foc/observability
-RUN cp -r /usr/src/packages/auth node_modules/@foc/auth
-RUN cp -r /usr/src/packages/outbox node_modules/@foc/outbox
-RUN cp -r /usr/src/packages/observability node_modules/@foc/observability
-RUN rm -rf node_modules/@foc/auth/node_modules node_modules/@foc/outbox/node_modules node_modules/@foc/observability/node_modules
+# prune re-symlinks @foc/auth, @foc/outbox and @foc/observability; re-copy them so they share
+# the app's @nestjs/core and their own runtime deps (e.g. OpenTelemetry) are hoisted in too
+RUN NPM_CONFIG_OMIT=dev npm run auth:link && NPM_CONFIG_OMIT=dev npm run outbox:link && NPM_CONFIG_OMIT=dev npm run obs:link
 
 # Minimal production image
 FROM node:26-alpine AS production
@@ -92,4 +84,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider "http://127.0.0.1:${PORT:-3000}/health" || exit 1
 
-CMD ["npm", "run", "start:prod"]
+# node as PID 1 receives SIGTERM directly, so shutdown hooks run
+CMD ["node", "dist/main"]
