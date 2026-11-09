@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, authFetch } from "@/lib/api";
 import {
-  registerPushServiceWorker,
+  syncCurrentSubscription,
   syncSubscriptionToServer,
 } from "./push-client";
 
@@ -55,20 +55,19 @@ export function PushNotificationsCard() {
       }
 
       try {
-        const registration = await registerPushServiceWorker();
-        const subscription = await registration.pushManager.getSubscription();
+        // The browser may have rotated the endpoint while the user was away
+        // (pushsubscriptionchange), or this device may still hold a previous
+        // account's subscription. Claim it before claiming it works: the sync
+        // re-reads the live subscription inside the sync queue, so it never
+        // posts one captured before a rotation.
+        if (!cancelled) setStatus("syncing");
+        const sync = await syncCurrentSubscription();
+        if (cancelled) return;
 
-        if (subscription === null) {
+        if (sync === null) {
           if (!cancelled) setStatus("idle");
           return;
         }
-
-        // The browser may have rotated the endpoint while the user was away
-        // (pushsubscriptionchange), or this device may still hold a previous
-        // account's subscription. Claim it before claiming it works.
-        if (!cancelled) setStatus("syncing");
-        const sync = await syncSubscriptionToServer(subscription);
-        if (cancelled) return;
 
         if (sync.ok) {
           setStatus("subscribed");
