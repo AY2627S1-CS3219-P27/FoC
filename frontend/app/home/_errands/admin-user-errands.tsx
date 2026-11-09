@@ -39,19 +39,22 @@ export function AdminUserErrands({ user }: { user: { uuid: string; displayName: 
   return (
     <div>
       <div className="mb-4 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none]">
-        <FilterSelect label="Role" value={role} onChange={(e) => setRole(e.target.value)}>
-          <option value="">As requester or courier</option>
-          <option value="requester">As requester</option>
-          <option value="courier">As courier</option>
-        </FilterSelect>
-        <FilterSelect label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="">Any status</option>
-          {ERRAND_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </FilterSelect>
+        <FilterSelect
+          label="Role"
+          value={role}
+          onValueChange={setRole}
+          options={[
+            { value: "", label: "As requester or courier" },
+            { value: "requester", label: "As requester" },
+            { value: "courier", label: "As courier" },
+          ]}
+        />
+        <FilterSelect
+          label="Status"
+          value={status}
+          onValueChange={setStatus}
+          options={[{ value: "", label: "Any status" }, ...ERRAND_STATUSES.map((s) => ({ value: s, label: s }))]}
+        />
       </div>
 
       {loading ? (

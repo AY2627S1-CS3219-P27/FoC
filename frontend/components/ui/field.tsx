@@ -1,5 +1,6 @@
 import { clsx } from "clsx";
-import { ChevronDownIcon } from "./icons";
+import { Select as BaseSelect } from "@base-ui/react/select";
+import { CheckIcon, ChevronDownIcon } from "./icons";
 
 // Filled fields with no border, like system text fields on a grouped cell.
 export const inputClass =
@@ -36,24 +37,62 @@ export function FormError({ children }: { children: React.ReactNode }) {
   );
 }
 
-// A filter shown as a pill with a chevron, wrapping the native select so phones keep their picker.
+export interface FilterOption {
+  value: string;
+  label: string;
+}
+
+// A filter shown as a pill with a chevron; opens the same rounded popup as OptionCombobox.
 export function FilterSelect({
   label,
   className,
-  children,
-  ...props
-}: React.ComponentProps<"select"> & { label: string }) {
+  options,
+  value,
+  onValueChange,
+}: {
+  label: string;
+  className?: string;
+  options: readonly FilterOption[];
+  value: string;
+  onValueChange: (value: string) => void;
+}) {
   return (
-    <span className={clsx("relative inline-flex shrink-0", className)}>
-      <select
+    <BaseSelect.Root
+      items={options as FilterOption[]}
+      value={value}
+      onValueChange={(next) => onValueChange(next ?? "")}
+    >
+      <BaseSelect.Trigger
         aria-label={label}
-        className="h-9 w-full min-w-0 appearance-none truncate rounded-full border-0 bg-surface pr-8 pl-3.5 text-[13px] font-medium text-foreground shadow-raised"
-        {...props}
+        className={clsx(
+          "relative inline-flex h-9 min-w-0 shrink-0 cursor-pointer items-center rounded-full border-0 bg-surface pr-8 pl-3.5 text-left text-[13px] font-medium text-foreground shadow-raised outline-none",
+          className,
+        )}
       >
-        {children}
-      </select>
-      <ChevronDownIcon size={13} className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-muted" />
-    </span>
+        <BaseSelect.Value className="truncate" />
+        <BaseSelect.Icon className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-muted">
+          <ChevronDownIcon size={13} />
+        </BaseSelect.Icon>
+      </BaseSelect.Trigger>
+      <BaseSelect.Portal>
+        <BaseSelect.Positioner sideOffset={4} collisionPadding={8} alignItemWithTrigger={false} className="z-[60]">
+          <BaseSelect.Popup className="max-h-(--available-height) min-w-(--anchor-width) overflow-y-auto overscroll-contain rounded-xl border border-border bg-surface p-1.5 shadow-overlay outline-none">
+            {options.map((o) => (
+              <BaseSelect.Item
+                key={o.value}
+                value={o.value}
+                className="flex cursor-pointer items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-[15px] text-foreground outline-none data-highlighted:bg-fill"
+              >
+                <BaseSelect.ItemText className="truncate">{o.label}</BaseSelect.ItemText>
+                <BaseSelect.ItemIndicator className="shrink-0 text-nus-orange">
+                  <CheckIcon size={16} strokeWidth={2.5} />
+                </BaseSelect.ItemIndicator>
+              </BaseSelect.Item>
+            ))}
+          </BaseSelect.Popup>
+        </BaseSelect.Positioner>
+      </BaseSelect.Portal>
+    </BaseSelect.Root>
   );
 }
 

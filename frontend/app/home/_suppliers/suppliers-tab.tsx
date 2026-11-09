@@ -121,20 +121,23 @@ export function SuppliersTab({
       </label>
 
       <div className="-mx-4 mb-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] md:mx-0 md:px-0">
-        <FilterSelect label="Building" value={filterBuilding} onChange={(e) => setFilterBuilding(e.target.value)}>
-          <option value="">All buildings</option>
-          {buildings.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.shortName}
-            </option>
-          ))}
-        </FilterSelect>
-        <FilterSelect label="Type" value={filterKind} onChange={(e) => setFilterKind(e.target.value)}>
-          <option value="">All types</option>
-          <option value="Store">Stores</option>
-          <option value="Facility">Facilities</option>
-          <option value="Landmark">Landmarks</option>
-        </FilterSelect>
+        <FilterSelect
+          label="Building"
+          value={filterBuilding}
+          onValueChange={setFilterBuilding}
+          options={[{ value: "", label: "All buildings" }, ...buildings.map((b) => ({ value: b.id, label: b.shortName }))]}
+        />
+        <FilterSelect
+          label="Type"
+          value={filterKind}
+          onValueChange={setFilterKind}
+          options={[
+            { value: "", label: "All types" },
+            { value: "Store", label: "Stores" },
+            { value: "Facility", label: "Facilities" },
+            { value: "Landmark", label: "Landmarks" },
+          ]}
+        />
       </div>
 
       {loading ? (

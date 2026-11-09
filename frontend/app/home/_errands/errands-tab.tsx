@@ -184,22 +184,18 @@ export function ErrandsTab({
       <div className="-mx-4 mb-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] md:mx-0 md:flex-wrap md:px-0">
         {view === "browse" ? (
           <>
-            <FilterSelect label="Pickup building" value={pickupBuilding} onChange={(e) => setPickupBuilding(e.target.value)}>
-              <option value="">Any pickup</option>
-              {buildings.map((b) => (
-                <option key={b.id} value={b.shortName}>
-                  Pickup: {b.shortName}
-                </option>
-              ))}
-            </FilterSelect>
-            <FilterSelect label="Delivery building" value={deliveryBuilding} onChange={(e) => setDeliveryBuilding(e.target.value)}>
-              <option value="">Any delivery</option>
-              {buildings.map((b) => (
-                <option key={b.id} value={b.shortName}>
-                  Deliver: {b.shortName}
-                </option>
-              ))}
-            </FilterSelect>
+            <FilterSelect
+              label="Pickup building"
+              value={pickupBuilding}
+              onValueChange={setPickupBuilding}
+              options={[{ value: "", label: "Any pickup" }, ...buildings.map((b) => ({ value: b.shortName, label: `Pickup: ${b.shortName}` }))]}
+            />
+            <FilterSelect
+              label="Delivery building"
+              value={deliveryBuilding}
+              onValueChange={setDeliveryBuilding}
+              options={[{ value: "", label: "Any delivery" }, ...buildings.map((b) => ({ value: b.shortName, label: `Deliver: ${b.shortName}` }))]}
+            />
             <input
               type="number"
               min={1}
@@ -209,27 +205,35 @@ export function ErrandsTab({
               onChange={(e) => setMinCredits(e.target.value)}
               className="h-9 w-28 shrink-0 rounded-full border-0 bg-surface px-3.5 text-[13px] font-medium shadow-raised placeholder:text-muted"
             />
-            <FilterSelect label="Sort by" value={sort} onChange={(e) => setSort(e.target.value)}>
-              <option value="expiring">Expiring soonest</option>
-              <option value="newest">Newest</option>
-              <option value="credits">Highest credits</option>
-            </FilterSelect>
+            <FilterSelect
+              label="Sort by"
+              value={sort}
+              onValueChange={setSort}
+              options={[
+                { value: "expiring", label: "Expiring soonest" },
+                { value: "newest", label: "Newest" },
+                { value: "credits", label: "Highest credits" },
+              ]}
+            />
           </>
         ) : (
           <>
-            <FilterSelect label="Role" value={mineRole} onChange={(e) => setMineRole(e.target.value)}>
-              <option value="">Requests and deliveries</option>
-              <option value="requester">My requests</option>
-              <option value="courier">My deliveries</option>
-            </FilterSelect>
-            <FilterSelect label="Status" value={mineStatus} onChange={(e) => setMineStatus(e.target.value)}>
-              <option value="">Any status</option>
-              {ERRAND_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </FilterSelect>
+            <FilterSelect
+              label="Role"
+              value={mineRole}
+              onValueChange={setMineRole}
+              options={[
+                { value: "", label: "Requests and deliveries" },
+                { value: "requester", label: "My requests" },
+                { value: "courier", label: "My deliveries" },
+              ]}
+            />
+            <FilterSelect
+              label="Status"
+              value={mineStatus}
+              onValueChange={setMineStatus}
+              options={[{ value: "", label: "Any status" }, ...ERRAND_STATUSES.map((s) => ({ value: s, label: s }))]}
+            />
           </>
         )}
       </div>
