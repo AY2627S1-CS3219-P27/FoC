@@ -1,3 +1,4 @@
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   IsOptional,
@@ -17,6 +18,7 @@ const trim = ({ value }: { value: unknown }) =>
  * nullable); other fields reject `null` outright.
  */
 export class UpdateProfileDto {
+  @ApiPropertyOptional({ example: 'Alex Teo', minLength: 1, maxLength: 255 })
   @IsOptional()
   @Transform(trim)
   @IsString()
@@ -25,6 +27,12 @@ export class UpdateProfileDto {
   })
   displayName?: string;
 
+  @ApiPropertyOptional({
+    example: 'https://example.com/avatar.png',
+    nullable: true,
+    maxLength: 2083,
+    description: 'An explicit null clears the stored picture.',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(2083)

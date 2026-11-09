@@ -1,8 +1,8 @@
-"use client";
+'use client';
 
-import { api } from "@/lib/api";
+import { api } from '@/lib/api';
 
-const SERVICE_WORKER_URL = "/service-worker.js";
+const SERVICE_WORKER_URL = '/service-worker.js';
 
 export interface SyncResult {
   ok: boolean;
@@ -15,8 +15,8 @@ export interface SyncResult {
  */
 export function registerPushServiceWorker() {
   return navigator.serviceWorker.register(SERVICE_WORKER_URL, {
-    scope: "/",
-    updateViaCache: "none",
+    scope: '/',
+    updateViaCache: 'none',
   });
 }
 
@@ -44,7 +44,7 @@ export async function syncSubscriptionToServer(
   // (PushSubscription is not structured-cloneable); the profile card passes the
   // live browser object. Normalise both before talking to the service.
   const payload =
-    "toJSON" in subscription ? subscription.toJSON() : subscription;
+    'toJSON' in subscription ? subscription.toJSON() : subscription;
   // The JSON shape types endpoint as optional; a message without one cannot
   // identify a row, so fail visibly instead of POSTing a broken payload.
   if (!payload.endpoint) {
@@ -61,14 +61,13 @@ export async function syncSubscriptionToServer(
     body.previousEndpoint = previousEndpoint;
   }
 
-  let result = await api("POST", "/api/notifications/subscriptions/web", {
+  let result = await api('POST', '/api/notifications/subscriptions/web', {
     body,
-    quiet: true,
   });
 
   if (result.status === 409) {
     const patchBody: Record<string, unknown> = {
-      status: "active",
+      status: 'active',
       expirationTime: payload.expirationTime ?? null,
     };
     if (payload.keys?.p256dh && payload.keys.auth) {
@@ -79,11 +78,11 @@ export async function syncSubscriptionToServer(
     }
 
     result = await api(
-      "PATCH",
+      'PATCH',
       `/api/notifications/subscriptions/web?endpoint=${encodeURIComponent(
         endpoint,
       )}`,
-      { body: patchBody, quiet: true },
+      { body: patchBody },
     );
   }
 

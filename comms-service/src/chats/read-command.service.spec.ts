@@ -25,6 +25,7 @@ describe('ReadCommandService', () => {
     requester_user_id: requesterId,
     courier_user_id: courierId,
     state: 'ACTIVE',
+    writable: true,
     latest_sequence: '4',
   };
 
@@ -53,6 +54,8 @@ describe('ReadCommandService', () => {
       expect.any(Function),
     );
     expect(query.mock.calls[0]![0]).toContain('FOR UPDATE');
+    expect(query.mock.calls[0]![0]).toContain('WITH locked AS MATERIALIZED');
+    expect(query.mock.calls[0]![0]).toContain('clock_timestamp() < closes_at');
     expect(query.mock.calls[0]![1]).toEqual([chatId, requesterId]);
     expect(query.mock.calls[1]![0]).toContain('statement_timestamp()');
     expect(query.mock.calls[1]![0]).toContain('message.read_at IS NULL');
@@ -98,8 +101,11 @@ describe('ReadCommandService', () => {
     expect(query).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects archived chats before updating messages', async () => {
-    query.mockResolvedValueOnce([{ ...liveChat, state: 'ARCHIVED' }]);
+  it.each([
+    { state: 'ARCHIVED', writable: false },
+    { state: 'GRACE', writable: false },
+  ])('rejects a non-writable chat before updating messages', async (state) => {
+    query.mockResolvedValueOnce([{ ...liveChat, ...state }]);
 
     await expect(service.markRead(command)).rejects.toMatchObject({
       code: 'CHAT_ARCHIVED',

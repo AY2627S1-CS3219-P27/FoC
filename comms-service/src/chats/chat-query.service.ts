@@ -1,13 +1,20 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { ChatCursorCodec } from './chat-cursor.codec.js';
+import {
+  ChatCursorCodec,
+  type MessageHistoryDirection,
+} from './chat-cursor.codec.js';
 import type {
+  ArchiveDetailDto,
+  ArchiveListItemDto,
+  ArchiveListResponseDto,
   ChatListResponseDto,
   ChatViewDto,
   MessageHistoryResponseDto,
   MessageViewDto,
 } from './chats.dto.js';
+import type { ChatArchiveSnapshot } from '../database/entities/chat-archive.entity.js';
 
 interface ChatRow {
   chat_id: string;
@@ -36,6 +43,21 @@ interface MessageRow {
   content: string | null;
   committed_at: Date | string | null;
   read_at: Date | string | null;
+}
+
+interface ArchiveListRow {
+  archive_id: string;
+  chat_id: string;
+  errand_id: string;
+  requester_user_id: string;
+  courier_user_id: string;
+  archived_at: Date | string;
+  cursor_archived_at: string;
+}
+
+interface ArchiveDetailRow extends ArchiveListRow {
+  schema_version: number;
+  snapshot: unknown;
 }
 
 function iso(value: Date | string): string {
@@ -68,6 +90,82 @@ function messageView(row: {
     timestamp: iso(row.committed_at),
     status: row.read_at === null ? 'UNREAD' : 'READ',
   };
+}
+
+function archiveNotFound(): NotFoundException {
+  return new NotFoundException({
+    code: 'ARCHIVE_NOT_FOUND',
+    message: 'Archive not found',
+  });
+}
+
+function archiveListItem(row: ArchiveListRow): ArchiveListItemDto {
+  return {
+    archiveId: row.archive_id,
+    chatId: row.chat_id,
+    errandId: row.errand_id,
+    requesterUserId: row.requester_user_id,
+    courierUserId: row.courier_user_id,
+    archivedAt: iso(row.archived_at),
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasExactKeys(value: Record<string, unknown>, keys: string[]): boolean {
+  const actual = Object.keys(value).sort();
+  return (
+    actual.length === keys.length && actual.every((key, i) => key === keys[i])
+  );
+}
+
+function isCanonicalTimestamp(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString() === value;
+}
+
+function validatedSnapshot(row: ArchiveDetailRow): ChatArchiveSnapshot {
+  const snapshot = row.snapshot;
+  const expectedArchivedAt = iso(row.archived_at);
+  const keys = [
+    'archivedAt',
+    'chatId',
+    'courierUserId',
+    'errandId',
+    'messages',
+    'requesterUserId',
+    'schemaVersion',
+  ];
+  if (
+    row.schema_version !== 1 ||
+    !isRecord(snapshot) ||
+    !hasExactKeys(snapshot, keys) ||
+    snapshot.schemaVersion !== 1 ||
+    snapshot.chatId !== row.chat_id ||
+    snapshot.errandId !== row.errand_id ||
+    snapshot.requesterUserId !== row.requester_user_id ||
+    snapshot.courierUserId !== row.courier_user_id ||
+    snapshot.archivedAt !== expectedArchivedAt ||
+    !Array.isArray(snapshot.messages)
+  ) {
+    throw new Error('Stored archive snapshot failed integrity validation');
+  }
+
+  for (const message of snapshot.messages) {
+    if (
+      !isRecord(message) ||
+      !hasExactKeys(message, ['content', 'role', 'timestamp']) ||
+      (message.role !== 'REQUESTER' && message.role !== 'COURIER') ||
+      typeof message.content !== 'string' ||
+      !isCanonicalTimestamp(message.timestamp)
+    ) {
+      throw new Error('Stored archive snapshot failed integrity validation');
+    }
+  }
+  return snapshot as unknown as ChatArchiveSnapshot;
 }
 
 @Injectable()
@@ -167,10 +265,15 @@ export class ChatQueryService {
     chatId: string,
     cursorValue: string | undefined,
     limit: number,
+    direction: MessageHistoryDirection = 'forward',
   ): Promise<MessageHistoryResponseDto> {
-    const afterSequence = cursorValue
-      ? this.cursors.decodeMessages(cursorValue)
-      : 0;
+    const boundarySequence = cursorValue
+      ? this.cursors.decodeMessages(cursorValue, direction)
+      : direction === 'forward'
+        ? 0
+        : null;
+    const comparison = direction === 'forward' ? '>' : '<';
+    const pageOrder = direction === 'forward' ? 'ASC' : 'DESC';
     const rows = await this.dataSource.query<MessageRow[]>(
       `WITH authorized_chat AS (
          SELECT c.id
@@ -191,12 +294,13 @@ export class ChatQueryService {
            SELECT m.id, m.sequence, m.sender_id, m.content,
                   m.committed_at, m.read_at
              FROM messages m
-            WHERE m.chat_id = chat.id AND m.sequence > $3::bigint
-            ORDER BY m.sequence ASC
+            WHERE m.chat_id = chat.id
+              AND ($3::bigint IS NULL OR m.sequence ${comparison} $3::bigint)
+            ORDER BY m.sequence ${pageOrder}
             LIMIT $4
          ) page ON true
         ORDER BY page.sequence ASC NULLS LAST`,
-      [chatId, callerId, afterSequence, limit + 1],
+      [chatId, callerId, boundarySequence, limit + 1],
     );
 
     if (rows.length === 0) {
@@ -218,15 +322,111 @@ export class ChatQueryService {
       } => row.message_id !== null,
     );
     const hasMore = messageRows.length > limit;
-    const page = messageRows.slice(0, limit);
+    const page =
+      direction === 'backward' && hasMore
+        ? messageRows.slice(1)
+        : messageRows.slice(0, limit);
     const items = page.map(messageView);
+    const cursorSequence =
+      direction === 'backward' ? items.at(0)?.sequence : items.at(-1)?.sequence;
     return {
       items,
       hasMore,
       nextCursor:
-        hasMore && items.length > 0
-          ? this.cursors.encodeMessages(items.at(-1)!.sequence)
+        hasMore && cursorSequence !== undefined
+          ? this.cursors.encodeMessages(cursorSequence, direction)
           : null,
+    };
+  }
+
+  async listArchives(
+    callerId: string,
+    cursorValue: string | undefined,
+    limit: number,
+  ): Promise<ArchiveListResponseDto> {
+    const cursor = cursorValue
+      ? this.cursors.decodeArchive(cursorValue)
+      : undefined;
+    const rows = await this.dataSource.query<ArchiveListRow[]>(
+      `SELECT archive.id AS archive_id,
+              archive.chat_id,
+              archive.errand_id,
+              archive.requester_user_id,
+              archive.courier_user_id,
+              archive.archived_at,
+              to_char(
+                archive.archived_at AT TIME ZONE 'UTC',
+                'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+              ) AS cursor_archived_at
+         FROM chat_archives archive
+        WHERE (archive.requester_user_id = $1::uuid
+               OR archive.courier_user_id = $1::uuid)
+          AND ($2::timestamptz IS NULL
+               OR (archive.archived_at, archive.id) < ($2::timestamptz, $3::uuid))
+        ORDER BY archive.archived_at DESC, archive.id DESC
+        LIMIT $4`,
+      [
+        callerId,
+        cursor?.archivedAt ?? null,
+        cursor?.archiveId ?? null,
+        limit + 1,
+      ],
+    );
+
+    const hasMore = rows.length > limit;
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    return {
+      items: page.map(archiveListItem),
+      hasMore,
+      nextCursor:
+        hasMore && last
+          ? this.cursors.encodeArchive(last.cursor_archived_at, last.archive_id)
+          : null,
+    };
+  }
+
+  async archiveDetail(
+    callerId: string,
+    archiveId: string,
+  ): Promise<ArchiveDetailDto> {
+    const rows = await this.dataSource.query<ArchiveDetailRow[]>(
+      `SELECT archive.id AS archive_id,
+              archive.chat_id,
+              archive.errand_id,
+              archive.requester_user_id,
+              archive.courier_user_id,
+              archive.archived_at,
+              to_char(
+                archive.archived_at AT TIME ZONE 'UTC',
+                'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+              ) AS cursor_archived_at,
+              archive.schema_version,
+              archive.snapshot
+         FROM chat_archives archive
+        WHERE archive.id = $1::uuid
+          AND (archive.requester_user_id = $2::uuid
+               OR archive.courier_user_id = $2::uuid)`,
+      [archiveId, callerId],
+    );
+    const row = rows[0];
+    if (!row) throw archiveNotFound();
+
+    const snapshot = validatedSnapshot(row);
+    const metadata = archiveListItem(row);
+    return {
+      archiveId: metadata.archiveId,
+      chatId: metadata.chatId,
+      errandId: metadata.errandId,
+      requesterUserId: metadata.requesterUserId,
+      courierUserId: metadata.courierUserId,
+      archivedAt: metadata.archivedAt,
+      schemaVersion: snapshot.schemaVersion,
+      messages: snapshot.messages.map(({ role, content, timestamp }) => ({
+        role,
+        content,
+        timestamp,
+      })),
     };
   }
 }

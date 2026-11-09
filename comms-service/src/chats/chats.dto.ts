@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsEnum,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -12,6 +13,7 @@ import type {
   ChatCloseReason,
   ChatState,
 } from '../database/entities/chat.entity.js';
+import type { MessageHistoryDirection } from './chat-cursor.codec.js';
 
 /**
  * Deliberately deviates from N3.1.2's offset pagination: chat activity can
@@ -32,6 +34,18 @@ export class CursorPageQueryDto {
   @Min(1)
   @Max(50)
   limit = 20;
+}
+
+export class MessageHistoryQueryDto extends CursorPageQueryDto {
+  @ApiPropertyOptional({
+    enum: ['forward', 'backward'],
+    default: 'forward',
+    description:
+      'Forward returns the next chronological page; backward starts at the latest page and continues toward older messages.',
+  })
+  @IsOptional()
+  @IsEnum(['forward', 'backward'])
+  direction: MessageHistoryDirection = 'forward';
 }
 
 export class ApiErrorResponseDto {
@@ -117,4 +131,54 @@ export class MessageHistoryResponseDto {
 
   @ApiProperty({ nullable: true })
   nextCursor: string | null;
+}
+
+export class ArchiveListItemDto {
+  @ApiProperty({ format: 'uuid' })
+  archiveId: string;
+
+  @ApiProperty({ format: 'uuid' })
+  chatId: string;
+
+  @ApiProperty({ format: 'uuid' })
+  errandId: string;
+
+  @ApiProperty({ format: 'uuid' })
+  requesterUserId: string;
+
+  @ApiProperty({ format: 'uuid' })
+  courierUserId: string;
+
+  @ApiProperty({ format: 'date-time' })
+  archivedAt: string;
+}
+
+export class ArchiveListResponseDto {
+  @ApiProperty({ type: [ArchiveListItemDto] })
+  items: ArchiveListItemDto[];
+
+  @ApiProperty()
+  hasMore: boolean;
+
+  @ApiProperty({ nullable: true })
+  nextCursor: string | null;
+}
+
+export class ArchiveMessageDto {
+  @ApiProperty({ enum: ['REQUESTER', 'COURIER'] })
+  role: 'REQUESTER' | 'COURIER';
+
+  @ApiProperty()
+  content: string;
+
+  @ApiProperty({ format: 'date-time' })
+  timestamp: string;
+}
+
+export class ArchiveDetailDto extends ArchiveListItemDto {
+  @ApiProperty({ enum: [1] })
+  schemaVersion: 1;
+
+  @ApiProperty({ type: [ArchiveMessageDto] })
+  messages: ArchiveMessageDto[];
 }

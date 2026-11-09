@@ -68,6 +68,18 @@ describe('environmentSchema', () => {
     expect(
       environment.RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_REJECTED_ROUTING_KEY,
     ).toBe('credit.reservation-adjustment-rejected.v1');
+    expect(environment.RABBITMQ_CREDIT_SETTLEMENT_QUEUE).toBe(
+      'credit-service.credit-settlement.v1',
+    );
+    expect(environment.RABBITMQ_CREDIT_SETTLEMENT_ROUTING_KEY).toBe(
+      'credit.settlement.v1',
+    );
+    expect(environment.RABBITMQ_CREDIT_SETTLEMENT_SUCCEEDED_ROUTING_KEY).toBe(
+      'credit.settlement-succeeded.v1',
+    );
+    expect(environment.RABBITMQ_CREDIT_SETTLEMENT_REJECTED_ROUTING_KEY).toBe(
+      'credit.settlement-rejected.v1',
+    );
     expect(environment.RABBITMQ_ORDER_ERRAND_COMPLETED_QUEUE).toBe(
       'credit-service.order-errand-completed.v1',
     );
@@ -154,6 +166,7 @@ describe('environmentSchema', () => {
       'RABBITMQ_ORDER_ERRAND_COMPLETED_QUEUE',
       'credit-service.order-errand-completed.v1',
     ],
+    ['RABBITMQ_CREDIT_SETTLEMENT_QUEUE', 'credit-service.credit-settlement.v1'],
     [
       'RABBITMQ_ORDER_ERRAND_CANCELLED_QUEUE',
       'credit-service.order-errand-cancelled.v1',
@@ -215,6 +228,15 @@ describe('environmentSchema', () => {
     [
       'RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_REJECTED_ROUTING_KEY',
       'credit.adjusted-rejected.v1',
+    ],
+    ['RABBITMQ_CREDIT_SETTLEMENT_ROUTING_KEY', 'credit.settle.v1'],
+    [
+      'RABBITMQ_CREDIT_SETTLEMENT_SUCCEEDED_ROUTING_KEY',
+      'credit.settlement-success.v1',
+    ],
+    [
+      'RABBITMQ_CREDIT_SETTLEMENT_REJECTED_ROUTING_KEY',
+      'credit.settlement-failed.v1',
     ],
     ['RABBITMQ_ORDER_ERRAND_COMPLETED_ROUTING_KEY', 'order.completed.v1'],
     ['RABBITMQ_ORDER_ERRAND_CANCELLED_ROUTING_KEY', 'order.cancelled.v1'],

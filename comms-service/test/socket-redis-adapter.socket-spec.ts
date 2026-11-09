@@ -82,6 +82,22 @@ describe('Socket.IO Redis adapter cross-replica delivery', () => {
   it.each([
     ['message:new', { chatId: 'chat-test', sequence: 4 }],
     ['messages:read-receipt', { chatId: 'chat-test', throughSequence: 4 }],
+    [
+      'chat:closing',
+      {
+        chatId: 'chat-test',
+        closesAt: '2026-11-06T10:00:00.000Z',
+        closeReason: 'ERRAND_DELIVERED',
+      },
+    ],
+    [
+      'chat:archived',
+      {
+        chatId: 'chat-test',
+        archiveId: 'archive-test',
+        archivedAt: '2026-11-06T10:00:00.000Z',
+      },
+    ],
   ])(
     'delivers %s from one replica to a client on the other',
     async (event, payload) => {

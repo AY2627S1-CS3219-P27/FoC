@@ -13,6 +13,7 @@ import {
 } from './config/environment.js';
 import { CreditsModule } from './credits/credits.module.js';
 import { DatabaseModule } from './database/database.module.js';
+import { HealthController } from './health/health.controller.js';
 import { ReservationModule } from './reservation/reservation.module.js';
 import { MessagingModule } from './messaging/messaging.module.js';
 import { RABBITMQ_CONNECTION_URL } from './messaging/rabbitmq-connection-url.provider.js';
@@ -51,5 +52,6 @@ import { SettlementModule } from './settlement/settlement.module.js';
       }),
     }),
   ],
+  controllers: [HealthController],
 })
 export class AppModule {}

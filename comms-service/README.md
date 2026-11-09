@@ -11,7 +11,11 @@ The current HTTP surface exposes:
   both Socket.IO adapter Redis connections;
 - `GET /v1/chats` for the authenticated participant's active/grace chats;
 - `GET /v1/chats/:chatId/messages` for participant-only cursor-paginated
-  history;
+  history, with an optional `direction=forward|backward` query;
+- `GET /v1/chats/archives` for the authenticated participant's immutable
+  archives, newest first;
+- `GET /v1/chats/archives/:archiveId` for one participant-owned archive
+  snapshot;
 - `/chat` as the authenticated Socket.IO namespace on `SOCKET_PATH` for
   participant-only `chat:join` admission;
 - `/docs` and `/docs-json` for the implemented OpenAPI document; and
@@ -19,13 +23,14 @@ The current HTTP surface exposes:
 
 In the background, one RabbitMQ consumer reads the Order event stream and
 dispatches four lifecycle notices for validation and deduplication. Accepted
-notices create one private chat per event identity; delivered and cancellation
-notices are retained as immutable facts for later deadline reconciliation.
-Both chat routes verify the shared User Service JWT, use opaque keyset cursors,
-and conceal absent chats from non-participants. Socket.IO authentication,
-participant room admission, expiry disconnects, transactional message sends,
-explicit read receipts, and cross-replica Redis fan-out are active;
-grace-period transitions and archives remain deferred.
+notices create one private chat per event identity. Delivered and cancellation
+notices apply monotonic grace deadlines transactionally, including terminal
+facts received before acceptance. All chat routes verify the shared User
+Service JWT, use opaque keyset cursors where paginated, and conceal absent
+resources from non-participants. Socket.IO authentication, participant room
+admission, expiry disconnects, transactional message sends, explicit read
+receipts, cross-replica Redis fan-out, immutable archiving, and archive reads
+are active.
 
 ## Lifecycle contracts and publication
 
@@ -51,15 +56,43 @@ compatibility; Communication Service later correlates it by `errandId`.
 
 ## Local commands
 
-Run commands from this directory:
+Run commands from this directory. Build, lint, test, and run the dev server:
 
 ```powershell
 npm install
 npm run build
 npm run lint
 npm test
+npm run test:watch
+npm run test:cov
+npm run format:check
 npm run start:dev
 ```
+
+Migrations (see "Compose and secrets" below for when to run them):
+
+```powershell
+npm run migration:show
+npm run migration:run
+npm run migration:revert
+npm run migration:generate
+npm run migration:create
+```
+
+The three `*:prod` variants (`migration:run:prod`, `migration:show:prod`,
+`migration:revert:prod`) target the production-built `dist/` artifact and
+connection; they are not a different migration behavior, only a different
+build/runtime target.
+
+Operational and fixture tooling, documented in full further down this file
+and in the linked runbooks:
+
+- `npm run dlq:operator` — DLQ inspect/redrive; see
+  [`docs/runbooks/comms-service-lifecycle-operations.md`](../docs/runbooks/comms-service-lifecycle-operations.md).
+- `npm run realtime:fixture` — realtime smoke fixture; see "Realtime smoke
+  fixture" below.
+- `npm run event:fixtures:list` and `npm run event:publish:*` — lifecycle
+  fixture publishing; see "Publish lifecycle fixtures" below.
 
 ## Compose and secrets
 
@@ -76,8 +109,13 @@ User Service owns the JWT signing key pair. Communication Service mounts only
 `user-service/secrets/jwt_public_key.secret`; generate the User Service keys
 using its documented setup before starting the root stack. Shared Redis,
 RabbitMQ, observability, and logging settings remain in `env/shared.env`.
-Service-specific database, queue-name, socket, and host-port settings live in
-`env/comms-service.env`.
+Service-specific database, queue-name, socket, archive-worker, and host-port
+settings live in `env/comms-service.env`. Archive polling defaults to five
+seconds with batches of 25 and 60-second claim leases. The claim TTL must be
+greater than the poll interval. Shutdown stops new archive work and drains the
+current operation for at most `ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS`, which
+defaults to 10 seconds and must remain shorter than the claim TTL. Claims left
+behind after that deadline are recovered through normal lease expiry.
 
 Apply the schema explicitly before starting the application. From the
 repository root:
@@ -104,10 +142,10 @@ truth.
 
 The frontend exposes Communication Service through same-origin rewrites:
 
-| Browser path                | Private destination                          |
-| --------------------------- | -------------------------------------------- |
-| `/api/chats/:path*`         | `${COMMS_SERVICE_URL}/v1/chats/:path*`       |
-| `${SOCKET_PATH}/:path*`     | `${COMMS_SERVICE_URL}${SOCKET_PATH}/:path*`  |
+| Browser path            | Private destination                         |
+| ----------------------- | ------------------------------------------- |
+| `/api/chats/:path*`     | `${COMMS_SERVICE_URL}/v1/chats/:path*`      |
+| `${SOCKET_PATH}/:path*` | `${COMMS_SERVICE_URL}${SOCKET_PATH}/:path*` |
 
 The socket rewrite covers the base path and every Socket.IO subpath. Next.js
 external rewrites retain the query string, cookies, and `Origin` header and
@@ -136,10 +174,11 @@ npm run migration:revert
 The initial migration owns five tables: `inbox_events`,
 `chat_lifecycle_events`, `chats`, `messages`, and `chat_archives`. Lifecycle
 facts and archives are immutable at the PostgreSQL boundary. Chats retain the
-acceptance identity and archived chat row, while mutable message rows can later
-be removed only after an immutable JSONB archive is committed. Per-chat
+acceptance identity and archived chat row. The archive worker removes mutable
+message rows only after an immutable JSONB archive is inserted in the same
+transaction. Per-chat
 sequence constraints provide stable message ordering; participant, errand,
-due-chat, and archive-list indexes support the later API and worker queries.
+due-chat, and archive-list indexes support the active API and worker queries.
 The realtime forward migration adds the partial
 `IDX_messages_chat_sender_unread_sequence` index for received-message read
 updates and caller-relative unread lookup without modifying existing read
@@ -183,6 +222,58 @@ no durable data.
 contain container file paths, never secret values. The corresponding secret
 files are mounted read-only under `/run/secrets`.
 
+## Environment variables
+
+`env/comms-service.env.example` names Compose-level variables; `comms-service/compose.yml`
+maps several of them onto the differently-named runtime variables validated
+by `src/config/environment.ts`, the single source of truth for defaults and
+bounds:
+
+| Compose variable (`env/comms-service.env.example`) | Runtime variable  |
+| ---------------------------------------------------- | ------------------ |
+| `COMMS_SERVICE_PORT`                                 | `PORT`              |
+| `COMMS_SERVICE_DB_HOST`                               | `DB_HOST`            |
+| `COMMS_SERVICE_DB_PORT`                               | `DB_PORT`            |
+| `COMMS_SERVICE_DB_USERNAME`                           | `DB_USERNAME`        |
+| `COMMS_SERVICE_DB_DATABASE`                           | `DB_DATABASE`        |
+| `COMMS_SERVICE_RABBITMQ_USER`                         | `RABBITMQ_USER`      |
+| `COMMS_JWT_PUBLIC_KEY_PATH`                            | mounted file backing `JWT_PUBLIC_KEY_FILE` |
+
+`COMMS_SERVICE_HOST_PORT` and `COMMS_SERVICE_DB_HOST_PORT` are consumed only
+by the opt-in `compose.debug.yaml` overlay; the application never reads them.
+
+The remaining runtime variables keep the same name on both sides:
+
+| Variable                              | Default                        | Notes                                             |
+| -------------------------------------- | ------------------------------- | -------------------------------------------------- |
+| `RABBITMQ_PUBSUB_EXCHANGE`             | `foc.pubsub`                    | Fixed; must match the root broker identity.        |
+| `RABBITMQ_EVENTS_QUEUE`                | `comms-service.events`          | Fixed; the service's primary queue name.           |
+| `RABBITMQ_RETRY_EXCHANGE`              | `foc.comms.retry`                | Fixed.                                              |
+| `RABBITMQ_RETRY_RETURN_EXCHANGE`       | `foc.comms.back`                 | Fixed.                                              |
+| `RABBITMQ_DEAD_LETTER_EXCHANGE`        | `foc.comms.dlx`                  | Fixed.                                              |
+| `RABBITMQ_RETRY_DELAYS_MS`             | `1000,2000,4000,8000,16000`      | Fixed; five canonical retry delays.                 |
+| `SOCKET_PATH`                          | `/socket.io`                     | Shared with the frontend's `SOCKET_PATH`.           |
+| `SOCKET_ALLOWED_ORIGINS`               | `http://localhost:3001`          | Comma-separated absolute origins; must be `https:` origins only when `NODE_ENV=production`. |
+| `SOCKET_TRANSPORT`                     | `websocket`                      | Fixed; polling is not supported.                    |
+| `ARCHIVE_POLL_INTERVAL_MS`             | `5000`                           | 250–60000ms.                                        |
+| `ARCHIVE_BATCH_SIZE`                   | `25`                             | 1–100.                                              |
+| `ARCHIVE_CLAIM_TTL_MS`                 | `60000`                          | 5000–600000ms; must exceed `ARCHIVE_POLL_INTERVAL_MS`. |
+| `ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS`    | `10000`                          | 1000–60000ms; must be shorter than `ARCHIVE_CLAIM_TTL_MS`. |
+
+`NODE_ENV`, `LOG_LEVEL`, `OTEL_EXPORTER_OTLP_ENDPOINT`,
+`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, and `REDIS_HOST`/`REDIS_PORT`/
+`REDIS_USERNAME`/`REDIS_DB_INDEX` come from shared `env/shared.env` and are
+not service-specific. `DB_PASSWORD_FILE`, `RABBITMQ_PASSWORD_FILE`, and
+`JWT_PUBLIC_KEY_FILE` are fixed Compose secret-mount paths, not driven by an
+environment file.
+
+The host-side `comms-service/.env.example` additionally defines
+`RABBITMQ_FIXTURE_URL` and the `RABBITMQ_OPERATOR_*` variables used only by
+local CLI tooling (lifecycle fixtures, the DLQ operator) run outside the
+container — see "Publish lifecycle fixtures" and
+[`docs/runbooks/comms-service-lifecycle-operations.md`](../docs/runbooks/comms-service-lifecycle-operations.md)
+for their dedicated-identity rationale.
+
 ## Realtime protocol
 
 `SOCKET_PATH` is the HTTP/WebSocket transport path and defaults to
@@ -206,23 +297,26 @@ Errors expose only the sanitized codes `UNAUTHENTICATED`, `FORBIDDEN`,
 and `INTERNAL_ERROR`. Unknown and unauthorized chat IDs remain
 indistinguishable.
 
-| Client event | Payload | Committed behavior |
-| --- | --- | --- |
-| `chat:join` | `{ chatId }` | Authorizes membership, joins the caller's user-scoped room, and returns `latestSequence`. |
-| `message:send` | `{ chatId, clientMessageId, content }` | Accepts non-blank content up to 4,000 Unicode code points, deduplicates sender retries, allocates the next sequence transactionally, then acknowledges. |
-| `messages:read` | `{ chatId, throughSequence }` | Marks only unread messages from the other participant through the committed sequence using one database timestamp. Repeated and multi-tab reads are no-op successes. |
+| Client event    | Payload                                | Committed behavior                                                                                                                                                   |
+| --------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `chat:join`     | `{ chatId }`                           | Authorizes membership, joins the caller's user-scoped room, and returns `latestSequence`.                                                                            |
+| `message:send`  | `{ chatId, clientMessageId, content }` | Accepts non-blank content up to 4,000 Unicode code points, deduplicates sender retries, allocates the next sequence transactionally, then acknowledges.              |
+| `messages:read` | `{ chatId, throughSequence }`          | Marks only unread messages from the other participant through the committed sequence using one database timestamp. Repeated and multi-tab reads are no-op successes. |
 
-| Server event | Delivery |
-| --- | --- |
-| `message:new` | Emitted after commit to the recipient's room and other sender tabs; idempotent retries emit nothing. |
-| `messages:read-receipt` | Emitted after a changed read transaction commits, only to the affected sender's room. |
+| Server event            | Delivery                                                                                             |
+| ----------------------- | ---------------------------------------------------------------------------------------------------- |
+| `message:new`           | Emitted after commit to the recipient's room and other sender tabs; idempotent retries emit nothing. |
+| `messages:read-receipt` | Emitted after a changed read transaction commits, only to the affected sender's room.                |
+| `chat:closing`          | Emitted to both participant rooms after a new or shorter grace deadline commits.                     |
+| `chat:archived`         | Emitted to both participant rooms after the immutable archive transaction commits.                   |
 
 Redis carries best-effort room fan-out between replicas through dedicated
 publisher and subscriber connections. Both connections participate in startup,
 shutdown, and `/health/ready`, but Redis stores no authoritative chat state. If
 delivery is missed, reconnect, call `chat:join`, compare `latestSequence`, and
-recover gaps through `GET /v1/chats/:chatId/messages`. Fetching history never
-marks messages read.
+recover gaps through `GET /v1/chats/:chatId/messages`. A missed lifecycle
+notification is recoverable through the live-chat and archive HTTP APIs.
+Fetching history never marks messages read.
 
 ### Realtime smoke fixture
 
@@ -314,16 +408,23 @@ Deploy the foundation in this order:
    the Communication Service migration explicitly.
 4. Start Communication Service. Its startup provisioner creates or adopts the
    compatible primary queue, `order.#` binding, retry chain, return binding,
-   and DLQ, then starts the unified lifecycle consumer.
+   and DLQ, then starts the unified lifecycle consumer and leased archive
+   worker on every replica.
 5. Enable Order Service lifecycle publication only after the Communication
    Service startup provisioner succeeds. Retained notices are consumed
    idempotently after service startup.
 
-To roll back, disable Order Service publication first and stop Communication
-Service without deleting its database, queues, or retained messages. Revert a
-migration only after confirming the schema contains no required retained
+To roll back, disable Order Service publication first, stop new archive claim
+cycles, drain in-flight archive transactions, and stop Communication Service
+without deleting its database, queues, retained messages, deadlines, or
+archives. Do not reopen archived chats or restore deleted live messages. Revert
+a migration only after confirming the schema contains no required retained
 evidence and receiving explicit approval. Broker definitions removal is
 non-destructive and is not a reason to delete queues during ordinary rollback.
+The deployment stop-grace period must exceed the configured archive drain
+timeout so the shutdown hook can finish before forced termination. The bundled
+Compose service uses 75 seconds, exceeding the maximum accepted 60-second
+archive drain deadline.
 
 ## Verification
 
@@ -344,25 +445,39 @@ root stack health check. From the repository root,
 `COMMS_SERVICE_IMAGE_TAG`; `docker compose up -d --wait` must report the
 service, PostgreSQL, RabbitMQ, Redis, and observability dependencies healthy.
 
-## Authenticated chat reads
+## Authenticated chat and archive reads
 
-Both `/v1/chats` routes accept the shared `access_token` cookie or supported
-Bearer token. List responses contain only the caller's `ACTIVE` and `GRACE`
+All `/v1/chats` routes accept the shared `access_token` cookie or supported
+Bearer token. Live list responses contain only the caller's `ACTIVE` and `GRACE`
 chats, including their latest message and caller-relative unread state. History
 returns messages in ascending per-chat sequence order and derives `UNREAD` or
-`READ` from the persisted read timestamp. Both endpoints accept an opaque
-`cursor` and a `limit` from 1 to 50 (default 20). Cursors are endpoint-specific
-and modified, malformed, or cross-endpoint values return 400. An unknown,
-archived, or unauthorized history target always returns the same sanitized 404.
+`READ` from the persisted read timestamp. The optional
+`direction=forward|backward` query defaults to the existing forward behavior.
+Backward paging without a cursor returns the latest bounded window; its opaque
+continuation cursor retrieves older windows, which are also returned in
+ascending sequence order. Message cursors are direction-scoped, while legacy
+message cursors remain valid only for forward paging. Archive lists contain
+only rows where the caller is the persisted requester or courier and are
+ordered by `archivedAt DESC, archiveId DESC`. Archive detail returns schema
+version 1 and ordered `{ role, content, timestamp }` messages. Paginated
+endpoints accept an opaque `cursor` and a `limit` from 1 to 50 (default 20).
+Cursors are endpoint-specific; modified, malformed, cross-endpoint, or
+cross-direction values return 400. Unknown and unauthorized live-history
+targets share one sanitized 404; unknown and unauthorized archive IDs share
+another. Archives expose GET only and remain immutable at the database
+boundary.
 
 ## Metrics and recovery operations
 
 `/metrics` exposes delivery outcomes, handler latency, committed chat creation,
-normalized HTTP latency, handshake results, active sockets, join/send/read
-outcomes and latency, idempotent sends, no-op reads, and adapter errors. Labels
-are limited to bounded operation, outcome, role, stream, normalized route,
-status class, and fixed source; participant, errand, chat, message, event,
-cursor, and token values are never labels.
+actual deadline changes, normalized HTTP latency, handshake results, active
+sockets, join/send/read outcomes and latency, archive claim results and
+latency, in-flight claims, archive results and latency, lifecycle notification
+outcomes, archive-worker shutdown outcomes, and adapter errors. Labels are
+limited to bounded operation, outcome, reason, role, stream, normalized route,
+status class, and fixed source;
+participant, errand, chat, message, archive, event, claim, cursor, and token
+values are never labels.
 
 Malformed or contract-invalid notices are confirmed into their stream DLQ.
 Transient handler failures enter the five-stage retry chain and are confirmed
@@ -381,6 +496,11 @@ the runtime Communication Service credentials.
 Realtime readiness, Redis-outage recovery, cross-replica verification, rollout,
 and rollback are documented in
 [`docs/runbooks/comms-service-realtime-operations.md`](../docs/runbooks/comms-service-realtime-operations.md).
+
+Grace-deadline reconciliation, the leased archive worker's claim/signal
+behavior, abandoned-claim recovery, and archive evidence for manual
+demonstration are documented in
+[`docs/runbooks/comms-service-archive-operations.md`](../docs/runbooks/comms-service-archive-operations.md).
 
 ## Publish lifecycle fixtures
 
@@ -464,13 +584,21 @@ or retry-return exchange. Tear down the disposable services after testing:
 npm run fixtures:test:down
 ```
 
-## Deferred behavior
+## Frontend boundary
 
-The service consumes lifecycle messages, creates accepted chats, exposes
-participant-only chat reads, and supports the authenticated Socket.IO
-namespace, participant room admission, ordered idempotent message sending,
-explicit read receipts, and cross-replica Redis fan-out. Archive APIs, grace
-transitions, the archive worker, and frontend chat screens remain deferred.
+The service owns committed grace state, deadline enforcement, leased immutable
+archiving, archive reads, and best-effort lifecycle socket notifications. The
+Package 5 frontend (`frontend/app/home/chats/**`, `frontend/app/home/archives/**`,
+`frontend/lib/chat/**`) consumes this boundary end to end: it reaches the HTTP
+surface above through the same-origin `/api/chats/*` rewrite for live-chat
+list/history, archive list, and archive detail, and reaches the `/chat`
+Socket.IO namespace through the same-origin `${SOCKET_PATH}` rewrite for
+`chat:join`, `message:send`, `messages:read`, and the `message:new`/
+`messages:read-receipt`/`chat:closing`/`chat:archived` events. Countdown
+rendering, lifecycle-event handling, archive list/detail screens, and
+navigation between live and archived conversations are implemented in the
+frontend, not here; this service never renders them and never substitutes a
+browser-side authority for the committed state above.
 
 The governing decisions are recorded under
 `docs/adr/comms-service/0001`–`0004`: PostgreSQL authority and message

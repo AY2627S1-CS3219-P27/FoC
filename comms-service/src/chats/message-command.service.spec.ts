@@ -67,6 +67,8 @@ describe('MessageCommandService', () => {
       expect.any(Function),
     );
     expect(query.mock.calls[0]![0]).toContain('FOR UPDATE');
+    expect(query.mock.calls[0]![0]).toContain('WITH locked AS MATERIALIZED');
+    expect(query.mock.calls[0]![0]).toContain('clock_timestamp() < closes_at');
     expect(query.mock.calls[0]![1]).toEqual([chatId, requesterId]);
     expect(query.mock.calls[2]![0]).toContain('next_sequence + 1');
     expect(query.mock.calls[2]![0]).toContain('updated_at = now()');

@@ -1,3 +1,4 @@
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
@@ -20,11 +21,7 @@ import {
  * as-is so `@IsBoolean` rejects it instead of silently coercing `'yes'` to
  * `true`.
  */
-export const parseQueryBoolean = ({
-  value,
-}: {
-  value: unknown;
-}): unknown => {
+export const parseQueryBoolean = ({ value }: { value: unknown }): unknown => {
   if (value === true || value === 'true') return true;
   if (value === false || value === 'false') return false;
   return value;
@@ -37,12 +34,23 @@ export const parseQueryBoolean = ({
  */
 export class ListUsersQueryDto {
   /** Zero-based offset into the full result set, default 0. */
+  @ApiPropertyOptional({
+    example: DEFAULT_PAGE_OFFSET,
+    minimum: 0,
+    default: DEFAULT_PAGE_OFFSET,
+  })
   @IsInt()
   @Min(0)
   @Type(() => Number)
   offset: number = DEFAULT_PAGE_OFFSET;
 
   /** Maximum page size, default 25 and capped at 1000 (N3.1.1). */
+  @ApiPropertyOptional({
+    example: DEFAULT_PAGE_LIMIT,
+    minimum: 1,
+    maximum: MAX_PAGE_LIMIT,
+    default: DEFAULT_PAGE_LIMIT,
+  })
   @IsInt()
   @Min(1)
   @Max(MAX_PAGE_LIMIT)
@@ -50,23 +58,27 @@ export class ListUsersQueryDto {
   limit: number = DEFAULT_PAGE_LIMIT;
 
   /** Filter to users holding this participant role (F10.3). */
+  @ApiPropertyOptional({ enum: Role, example: Role.Courier })
   @IsOptional()
   @IsEnum(Role)
   role?: Role;
 
   /** Admin-only: filter to admin/non-admin accounts (F10.4). */
+  @ApiPropertyOptional({ example: false, description: 'Admin-only filter.' })
   @IsOptional()
   @IsBoolean()
   @Transform(parseQueryBoolean)
   isAdmin?: boolean;
 
   /** Admin-only: filter to locked/unlocked accounts (F10.4). */
+  @ApiPropertyOptional({ example: false, description: 'Admin-only filter.' })
   @IsOptional()
   @IsBoolean()
   @Transform(parseQueryBoolean)
   isLocked?: boolean;
 
   /** Admin-only: filter to archived/live accounts (F10.4). */
+  @ApiPropertyOptional({ example: false, description: 'Admin-only filter.' })
   @IsOptional()
   @IsBoolean()
   @Transform(parseQueryBoolean)
