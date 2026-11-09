@@ -12,17 +12,27 @@ export const textareaClass =
 export function Field({
   label,
   hint,
+  required,
   className,
   children,
 }: {
   label: string;
   hint?: React.ReactNode;
+  /** Marks the label with a red asterisk; the input still needs its own `required`. */
+  required?: boolean;
   className?: string;
   children: React.ReactNode;
 }) {
   return (
     <label className={clsx("block min-w-0", className)}>
-      <span className="mb-1.5 block text-[13px] font-medium text-muted">{label}</span>
+      <span className="mb-1.5 block text-[13px] font-medium text-muted">
+        {label}
+        {required && (
+          <span aria-hidden="true" className="ml-0.5 font-semibold text-danger">
+            *
+          </span>
+        )}
+      </span>
       {children}
       {hint && <span className="mt-1.5 block text-xs text-muted">{hint}</span>}
     </label>

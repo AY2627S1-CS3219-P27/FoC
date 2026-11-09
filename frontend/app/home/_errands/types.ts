@@ -30,6 +30,10 @@ export interface Errand {
   deliveryLocation: string | null;
   /** Requester's room or level, e.g. "Level 3 04-02". */
   deliveryDetail: string;
+  /** Display label snapshotted by order-service once the venue is validated; null before. */
+  deliveryVenue: string | null;
+  deliveryLatitude: number | null;
+  deliveryLongitude: number | null;
   collectionItems: string;
   description: string | null;
   rewardCredits: number;
@@ -40,13 +44,21 @@ export interface Errand {
   cancellationReason?: string | null;
 }
 
-/** Building snapshot plus the requester's room/level, for display. */
+/** Venue label (order-service labels pins too), else building name, then the requester's note. */
 export function formatDelivery(
-  errand: Pick<Errand, "deliveryLocation" | "deliveryDetail">,
+  errand: Pick<Errand, "deliveryLocation" | "deliveryDetail" | "deliveryVenue">,
 ): string {
-  return `${errand.deliveryLocation ?? "—"}${
-    errand.deliveryDetail ? ` · ${errand.deliveryDetail}` : ""
-  }`;
+  const place = errand.deliveryVenue ?? errand.deliveryLocation ?? "—";
+  return `${place}${errand.deliveryDetail ? ` · ${errand.deliveryDetail}` : ""}`;
+}
+
+const CANCELLATION_TEXT: Record<string, string> = {
+  VENUE_UNAVAILABLE: "That venue is no longer available. Pick another.",
+};
+
+/** Plain-English cancellation reason; unknown reasons show as sent. */
+export function cancellationText(reason: string): string {
+  return CANCELLATION_TEXT[reason] ?? reason;
 }
 
 export interface AdminErrand extends Errand {
@@ -73,6 +85,17 @@ export interface BuildingOption {
   id: string;
   shortName: string;
   canonicalName: string;
+  coordinates: { latitude: number; longitude: number };
+  venueCount: number;
+  allowsPin: boolean;
+}
+
+export interface VenueOption {
+  id: string;
+  code: string;
+  name: string | null;
+  floor: string;
+  coordinates: { latitude: number; longitude: number };
 }
 
 export type ActionName =

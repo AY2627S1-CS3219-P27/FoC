@@ -188,13 +188,13 @@ export function ErrandsTab({
               label="Pickup building"
               value={pickupBuilding}
               onValueChange={setPickupBuilding}
-              options={[{ value: "", label: "Any pickup" }, ...buildings.map((b) => ({ value: b.shortName, label: `Pickup: ${b.shortName}` }))]}
+              options={[{ value: "", label: "Any pickup" }, ...buildings.filter((b) => !b.allowsPin).map((b) => ({ value: b.shortName, label: `Pickup: ${b.shortName}` }))]}
             />
             <FilterSelect
               label="Delivery building"
               value={deliveryBuilding}
               onValueChange={setDeliveryBuilding}
-              options={[{ value: "", label: "Any delivery" }, ...buildings.map((b) => ({ value: b.shortName, label: `Deliver: ${b.shortName}` }))]}
+              options={[{ value: "", label: "Any delivery" }, ...buildings.map((b) => ({ value: b.shortName, label: `Deliver: ${b.allowsPin ? "Other (map pin)" : b.shortName}` }))]}
             />
             <input
               type="number"
