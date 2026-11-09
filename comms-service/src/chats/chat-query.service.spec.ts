@@ -81,6 +81,49 @@ describe('ChatQueryService', () => {
     ]);
   });
 
+  it('reads one participant live chat and conceals absent or unauthorized ones', async () => {
+    query.mockResolvedValueOnce([
+      {
+        chat_id: chatId,
+        errand_id: '33333333-3333-4333-8333-333333333333',
+        requester_user_id: callerId,
+        courier_user_id: '44444444-4444-4444-8444-444444444444',
+        state: 'ACTIVE',
+        closes_at: null,
+        close_reason: null,
+        updated_at: new Date('2026-11-04T02:00:00.000Z'),
+        cursor_updated_at: '2026-11-04T02:00:00.000600Z',
+        message_id: null,
+        sequence: null,
+        sender_id: null,
+        content: null,
+        committed_at: null,
+        read_at: null,
+        unread: false,
+      },
+    ]);
+
+    await expect(service.get(callerId, chatId)).resolves.toMatchObject({
+      chatId,
+      errandId: '33333333-3333-4333-8333-333333333333',
+      requesterUserId: callerId,
+      state: 'ACTIVE',
+      lastMessage: null,
+    });
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("c.state IN ('ACTIVE', 'GRACE')"),
+      [callerId, chatId],
+    );
+
+    query.mockResolvedValueOnce([]);
+    await expect(service.get(callerId, chatId)).rejects.toEqual(
+      new NotFoundException({
+        code: 'CHAT_NOT_FOUND',
+        message: 'Chat not found',
+      }),
+    );
+  });
+
   it('maps history status and paginates by ascending sequence', async () => {
     query.mockResolvedValue([
       {

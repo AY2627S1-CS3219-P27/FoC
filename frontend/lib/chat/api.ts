@@ -5,9 +5,11 @@ import {
   parseArchiveDetail,
   parseArchiveListResponse,
   parseChatListResponse,
+  parseChatView,
   parseMessageHistoryResponse,
   type ArchiveDetail,
   type ArchiveListResponse,
+  type ChatView,
   type ChatListResponse,
   type MessageHistoryDirection,
   type MessageHistoryResponse,
@@ -60,6 +62,10 @@ export function getChats(options: PageOptions = {}): Promise<ChatListResponse> {
   return request(withQuery("/api/chats", pageQuery(options)), parseChatListResponse);
 }
 
+export function getChat(chatId: string): Promise<ChatView> {
+  return request(`/api/chats/${encodeURIComponent(chatId)}`, parseChatView);
+}
+
 export function getMessageHistory(
   chatId: string,
   options: PageOptions & { direction?: MessageHistoryDirection } = {}
@@ -95,18 +101,12 @@ export async function findArchiveByChatId(chatId: string) {
   return null;
 }
 
-export async function findLiveChatById(chatId: string) {
-  let cursor: string | undefined;
-  const visited = new Set<string>();
-
-  do {
-    const page = await getChats({ cursor, limit: 50 });
-    const chat = page.items.find((item) => item.chatId === chatId);
-    if (chat) return chat;
-    if (!page.hasMore || page.nextCursor === null || visited.has(page.nextCursor)) return null;
-    visited.add(page.nextCursor);
-    cursor = page.nextCursor;
-  } while (cursor !== undefined);
-
-  return null;
+// null means the chat is not live for this caller (archived, absent or not theirs); other failures throw.
+export async function findLiveChatById(chatId: string): Promise<ChatView | null> {
+  try {
+    return await getChat(chatId);
+  } catch (error) {
+    if (error instanceof ChatApiError && error.status === 404) return null;
+    throw error;
+  }
 }
