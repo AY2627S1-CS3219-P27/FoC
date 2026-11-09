@@ -322,11 +322,15 @@ export function CreateErrandForm({
             ) : (
               !mapError && <div className="h-64 w-full animate-pulse rounded-xl bg-fill" />
             )}
-            <p aria-live="polite" className={`mt-1.5 text-xs ${mapError ? "text-danger" : "text-muted"}`}>
-              {mapError ||
-                (location.kind === "pin" && location.at
-                  ? `Pin at ${location.at.latitude.toFixed(5)}, ${location.at.longitude.toFixed(5)}`
-                  : "Tap the map to drop a pin. Drag it to adjust.")}
+            {mapError && (
+              <p aria-live="polite" className="mt-1.5 text-xs text-danger">
+                {mapError}
+              </p>
+            )}
+            <p className="mt-1.5 text-xs text-muted">
+              {location.kind === "pin" && location.at
+                ? `Pin at ${location.at.latitude.toFixed(5)}, ${location.at.longitude.toFixed(5)}`
+                : "Tap the map to drop a pin. Drag it to adjust."}
               {location.kind === "pin" && location.at && (
                 <>
                   {" "}

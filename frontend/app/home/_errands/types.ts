@@ -44,21 +44,11 @@ export interface Errand {
   cancellationReason?: string | null;
 }
 
-/**
- * Short name of the seeded "Other (map pin)" placeholder building (supplier-service).
- * The one coupling to that data: order-service's errand read has no allowsPin.
- */
-export const PIN_SHORT_NAME = "PIN";
-
-/** Venue label, else "Pin location" / building name, then the requester's note. */
+/** Venue label (order-service labels pins too), else building name, then the requester's note. */
 export function formatDelivery(
   errand: Pick<Errand, "deliveryLocation" | "deliveryDetail" | "deliveryVenue">,
 ): string {
-  const place =
-    errand.deliveryVenue ??
-    (errand.deliveryLocation === PIN_SHORT_NAME
-      ? "Pin location"
-      : (errand.deliveryLocation ?? "—"));
+  const place = errand.deliveryVenue ?? errand.deliveryLocation ?? "—";
   return `${place}${errand.deliveryDetail ? ` · ${errand.deliveryDetail}` : ""}`;
 }
 
