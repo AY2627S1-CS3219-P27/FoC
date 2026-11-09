@@ -111,7 +111,8 @@ describe('sweeps', () => {
     });
     expect((await row(live)).status).toBe('Open');
     expect((await row(noExpiry)).status).toBe('Open');
-    expect(await outboxFor(expired)).toHaveLength(1);
+    // credit's release plus the requester's notice
+    expect(await outboxFor(expired)).toHaveLength(2);
   });
 
   it('cancels Picked Up errands 24h after pickup', async () => {
@@ -134,7 +135,7 @@ describe('sweeps', () => {
       cancellationReason: 'CREDIT_TIMEOUT',
     });
     expect((await row(fresh)).status).toBe('Reserving-Credit');
-    expect(await outboxFor(stuck)).toHaveLength(1);
+    expect(await outboxFor(stuck)).toHaveLength(2);
   });
 
   it('auto-completes a Delivered errand after 24h, sending the transfer notice', async () => {
@@ -166,7 +167,7 @@ describe('sweeps', () => {
     const id = await seed('Open', { expiresAt: ago(MIN) });
     await Promise.all([runSweeps(t.db, cfg), runSweeps(t.db, cfg)]);
     expect((await row(id)).status).toBe('Cancelled');
-    expect(await outboxFor(id)).toHaveLength(1);
+    expect(await outboxFor(id)).toHaveLength(2);
     expect((await row(id)).lastSequenceNumber).toBe(1);
   });
 });

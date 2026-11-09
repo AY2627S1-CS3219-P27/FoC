@@ -248,7 +248,7 @@ describe('transition notices', () => {
     expect(await outbox(id)).toHaveLength(0);
   });
 
-  it('emits nothing on a rejection cancel, a release on timeout', async () => {
+  it('tells only the requester on a rejection cancel, and credit too on timeout', async () => {
     const rejected = await seed('Reserving-Credit');
     await transition(t.db, {
       errandId: rejected,
@@ -258,7 +258,9 @@ describe('transition notices', () => {
       payload: { creditEventId: randomUUID(), requestedAmount: 5 },
       set: { cancellationReason: 'INSUFFICIENT_CREDITS' },
     });
-    expect(await outbox(rejected)).toHaveLength(0);
+    expect(await outbox(rejected)).toMatchObject([
+      { routingKey: 'order.requester-errand-cancelled.v1' },
+    ]);
 
     const timedOut = await seed('Reserving-Credit');
     await transition(t.db, {
@@ -270,6 +272,7 @@ describe('transition notices', () => {
     });
     expect(await outbox(timedOut)).toMatchObject([
       { routingKey: 'order.errand-cancelled.v1' },
+      { routingKey: 'order.requester-errand-cancelled.v1' },
     ]);
   });
 });
