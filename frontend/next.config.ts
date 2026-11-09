@@ -38,8 +38,8 @@ const nextConfig: NextConfig = {
         destination: `${supplierService}/supplier-requests/:path*`,
       },
       {
-        source: "/api/buildings",
-        destination: `${supplierService}/buildings`,
+        source: "/api/buildings/:path*",
+        destination: `${supplierService}/buildings/:path*`,
       },
       {
         source: "/api/categories",

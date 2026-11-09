@@ -12,6 +12,10 @@ services:
       - NOTIFICATION_SERVICE_URL=${NOTIFICATION_SERVICE_URL-http://notification-service:3000}
       - COMMS_SERVICE_URL=${COMMS_SERVICE_URL-http://comms-service:3000}
       - SOCKET_PATH=${SOCKET_PATH-/socket.io}
+      - CAMPUS_BOUNDARY_PATH=/campus-data/campus-boundary.geojson
+    volumes:
+      # Campus boundary, read in place (never copied into the image).
+      - ../data/json:/campus-data:ro
     ports:
       - '3001:3000' # 3000 is user-service
     develop:

@@ -7,6 +7,7 @@ const REQUESTER_COPY: Record<string, string> = {
   CREDIT_TIMEOUT: "We couldn't reserve your credits in time. You can resubmit your errand.",
   SUPPLIER_UNAVAILABLE: "That supplier is no longer available. Resubmit with another one.",
   BUILDING_UNAVAILABLE: "That building is no longer available. Resubmit with another one.",
+  VENUE_UNAVAILABLE: "That venue is no longer available. Resubmit with another one.",
   INSUFFICIENT_CREDITS: "You didn't have enough credits. Top up, then resubmit your errand.",
   MISSING_BALANCE: "You didn't have enough credits. Top up, then resubmit your errand.",
   ERRAND_EXPIRED: "No courier accepted it in time. You can resubmit it with a longer expiry.",
