@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { EmptyState, List, ListRow, Pill, SkeletonList } from "@/components/ui/layout";
 import { api } from "@/lib/api";
 
 const PAGE_LIMIT = 25;
@@ -92,16 +94,12 @@ function shortId(id: string): string {
   return id.slice(0, 8);
 }
 
-const TYPE_BADGE_CLASS: Record<CreditTransactionType, string> = {
-  RESERVATION: "bg-sky-500/15 text-sky-800 dark:text-sky-300",
-  RESERVATION_ADJUSTMENT: "bg-amber-500/15 text-amber-800 dark:text-amber-300",
-  TRANSFER: "bg-emerald-500/15 text-emerald-800 dark:text-emerald-300",
-  RELEASE: "bg-violet-500/15 text-violet-800 dark:text-violet-300",
+const TYPE_TONE: Record<CreditTransactionType, React.ComponentProps<typeof Pill>["tone"]> = {
+  RESERVATION: "blue",
+  RESERVATION_ADJUSTMENT: "orange",
+  TRANSFER: "success",
+  RELEASE: "neutral",
 };
-
-function typeBadgeClass(type: CreditTransactionType): string {
-  return TYPE_BADGE_CLASS[type];
-}
 
 function typeLabel(type: CreditTransactionType): string {
   switch (type) {
@@ -132,20 +130,20 @@ function TransactionRow({
       : null;
 
   return (
-    <li className="px-4 py-4 sm:px-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${typeBadgeClass(transaction.type)}`}>
-              {typeLabel(transaction.type)}
-            </span>
-            <span className="font-semibold">{presentation.label}</span>
-          </div>
-          <p className="mt-1 text-sm text-muted">
+    <ListRow
+      title={
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="font-semibold">{presentation.label}</span>
+          <Pill tone={TYPE_TONE[transaction.type]}>{typeLabel(transaction.type)}</Pill>
+        </span>
+      }
+      subtitle={
+        <>
+          <span className="block">
             {balanceLabel(transaction.origin.balanceType)} →{" "}
             {balanceLabel(transaction.destination.balanceType)}
-          </p>
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+          </span>
+          <span className="mt-0.5 flex flex-wrap gap-x-3">
             <span title={transaction.errandId} aria-label={`Errand ${transaction.errandId}`}>
               Errand <span className="font-mono">#{shortId(transaction.errandId)}</span>
             </span>
@@ -155,22 +153,24 @@ function TransactionRow({
                 <span className="font-mono">{shortId(counterparty)}</span>
               </span>
             )}
-          </div>
-        </div>
-        <div className="shrink-0 sm:text-right">
-          <p
-            className={`text-lg font-bold tabular-nums ${presentation.amountClass}`}
+          </span>
+        </>
+      }
+      trailing={
+        <span className="shrink-0 text-right">
+          <span
+            className={`tabular block text-[17px] font-semibold ${presentation.amountClass}`}
             aria-label={`${presentation.label}: ${presentation.amountPrefix}${transaction.amount.toLocaleString()} credits`}
           >
             {presentation.amountPrefix}
-            {transaction.amount.toLocaleString()} credits
-          </p>
-          <time className="text-xs text-muted" dateTime={transaction.datetime}>
+            {transaction.amount.toLocaleString()}
+          </span>
+          <time className="block text-[13px] text-muted" dateTime={transaction.datetime}>
             {new Date(transaction.datetime).toLocaleString()}
           </time>
-        </div>
-      </div>
-    </li>
+        </span>
+      }
+    />
   );
 }
 
@@ -220,121 +220,101 @@ export function CreditTransactionHistory({ userId }: { userId: string }) {
     };
   }, [loadPage, userId]);
 
+  const retry = () => void loadPage(retryOffset.current);
   const showInitialLoading = loading && !page;
   const firstRecord = page && page.items.length > 0 ? page.offset + 1 : 0;
   const lastRecord = page ? page.offset + page.items.length : 0;
 
-  return (
-    <section
-      aria-labelledby="credit-transaction-history-heading"
-      className="rounded-2xl border border-border bg-surface mb-6 shadow-sm overflow-hidden"
-    >
-      <div className="flex flex-wrap items-start justify-between gap-3 px-6 py-5">
-        <div>
-          <h3 id="credit-transaction-history-heading" className="text-lg font-semibold">
-            Transaction History
-          </h3>
-          <p className="mt-1 text-sm text-muted">Movements into, out of, and within your credit account.</p>
-        </div>
-        {loading && page && (
-          <span role="status" className="text-sm text-muted">
-            Updating…
-          </span>
-        )}
+  if (showInitialLoading) return <SkeletonList count={6} />;
+
+  if (error === "not-found") {
+    return (
+      <div className="rounded-2xl bg-surface">
+        <EmptyState
+          title="Account not ready"
+          body="Your transaction history will appear after your credit account is ready."
+        />
       </div>
+    );
+  }
 
-      {showInitialLoading && (
-        <p role="status" className="border-t border-border px-6 py-8 text-center text-sm text-muted">
-          Loading transaction history…
-        </p>
+  if (!page) {
+    return (
+      <div className="rounded-2xl bg-surface">
+        <EmptyState
+          tone="error"
+          title="History unavailable"
+          body="Transaction history is temporarily unavailable."
+          action={
+            <Button intent="tinted" size="sm" onClick={retry}>
+              Retry
+            </Button>
+          }
+        />
+      </div>
+    );
+  }
+
+  return (
+    <section aria-label="Credit transaction history" className="space-y-3">
+      {error === "error" && (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-3 rounded-2xl bg-danger/10 px-4 py-3 text-[15px] text-danger"
+        >
+          <span>Could not load that page.</span>
+          <Button intent="danger-outline" size="sm" onClick={retry}>
+            Retry
+          </Button>
+        </div>
       )}
 
-      {!showInitialLoading && error === "not-found" && (
-        <p role="alert" className="border-t border-border px-6 py-8 text-center text-sm text-muted">
-          Your transaction history will appear after your credit account is ready.
-        </p>
+      {page.items.length === 0 ? (
+        <div className="rounded-2xl bg-surface">
+          <EmptyState title="No transactions yet" body="Credit movements will show up here." />
+        </div>
+      ) : (
+        <div className={loading ? "opacity-60 transition-opacity" : "transition-opacity"}>
+          <List>
+            {page.items.map((transaction) => (
+              <TransactionRow
+                key={transaction.transactionId}
+                transaction={transaction}
+                userId={userId}
+              />
+            ))}
+          </List>
+        </div>
       )}
 
-      {!showInitialLoading && error === "error" && !page && (
-        <HistoryFailure onRetry={() => void loadPage(retryOffset.current)} />
-      )}
-
-      {page && (
-        <>
-          {error === "error" && (
-            <div role="alert" className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-6 py-3 text-sm text-danger">
-              <span>Could not load that page.</span>
-              <button
-                type="button"
-                onClick={() => void loadPage(retryOffset.current)}
-                className="btn-press rounded-xl border border-border px-3 py-1.5 font-medium hover:bg-background transition-colors"
-              >
-                Retry
-              </button>
-            </div>
-          )}
-
-          {page.items.length === 0 ? (
-            <p className="border-t border-border px-6 py-8 text-center text-sm text-muted">
-              No credit transactions yet.
-            </p>
-          ) : (
-            <ul className="divide-y divide-border border-t border-border" aria-label="Credit transactions">
-              {page.items.map((transaction) => (
-                <TransactionRow
-                  key={transaction.transactionId}
-                  transaction={transaction}
-                  userId={userId}
-                />
-              ))}
-            </ul>
-          )}
-
-          {page.total > 0 && (
-            <nav
-              aria-label="Transaction history pagination"
-              className="flex flex-col gap-3 border-t border-border px-6 py-4 sm:flex-row sm:items-center sm:justify-between"
+      {page.total > 0 && (
+        <nav
+          aria-label="Transaction history pagination"
+          className="flex flex-col items-center gap-2 pt-2"
+        >
+          <p className="tabular text-[13px] text-muted" aria-live="polite">
+            {loading ? "Updating…" : `Showing ${firstRecord}–${lastRecord} of ${page.total.toLocaleString()}`}
+          </p>
+          <div className="flex gap-2">
+            <Button
+              intent="outline"
+              size="sm"
+              onClick={() => void loadPage(Math.max(0, page.offset - page.limit))}
+              disabled={loading || page.offset === 0}
             >
-              <p className="text-sm text-muted" aria-live="polite">
-                Showing {firstRecord}–{lastRecord} of {page.total}
-              </p>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => void loadPage(Math.max(0, page.offset - page.limit))}
-                  disabled={loading || page.offset === 0}
-                  className="btn-press rounded-xl border border-border px-3 py-1.5 text-sm font-medium hover:bg-background disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
-                >
-                  Previous
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void loadPage(page.offset + page.limit)}
-                  disabled={loading || !page.hasMore}
-                  className="btn-press rounded-xl border border-border px-3 py-1.5 text-sm font-medium hover:bg-background disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
-                >
-                  Next
-                </button>
-              </div>
-            </nav>
-          )}
-        </>
+              Previous
+            </Button>
+            <Button
+              intent="outline"
+              size="sm"
+              onClick={() => void loadPage(page.offset + page.limit)}
+              disabled={loading || !page.hasMore}
+            >
+              Next
+            </Button>
+          </div>
+        </nav>
       )}
     </section>
-  );
-}
-
-function HistoryFailure({ onRetry }: { onRetry: () => void }) {
-  return (
-    <div role="alert" className="flex flex-col items-center gap-3 border-t border-border px-6 py-8 text-center">
-      <p className="text-sm text-muted">Transaction history is temporarily unavailable.</p>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="btn-press rounded-xl border border-border px-3 py-1.5 text-sm font-medium hover:bg-background transition-colors"
-      >
-        Retry
-      </button>
-    </div>
   );
 }

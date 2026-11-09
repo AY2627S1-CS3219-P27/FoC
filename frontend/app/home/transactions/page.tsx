@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { authFetch, setSessionExpiredHandler } from "@/lib/api";
+import { ChevronLeftIcon } from "@/components/ui/icons";
+import { PageHeader } from "@/components/ui/layout";
 import { CreditTransactionHistory } from "../_account/credit-transaction-history";
 import { ADMIN_TABS, TAB_ORDER, type Tab, type UserProfile } from "../_shared/types";
 import { AppShell } from "../_shell/app-shell";
@@ -76,19 +78,16 @@ export default function TransactionsPage() {
     >
       <Link
         href="/home?tab=profile"
-        className="btn-press -ml-3 mt-3 inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-medium text-nus-orange transition-colors hover:bg-fill"
+        className="btn-press -ml-1 mt-3 mb-1 inline-flex items-center gap-0.5 rounded-lg py-1.5 pr-2 text-[15px] font-medium text-nus-orange"
       >
-        <span aria-hidden="true" className="mr-1.5 font-bold">&lt;</span>
-        Back to My Account
+        <ChevronLeftIcon size={18} strokeWidth={2.5} />
+        Account
       </Link>
 
-      <div className="mt-4 mb-6">
-        <h1 className="text-3xl font-bold">Credit transactions</h1>
-        <p className="mt-2 text-sm text-muted">
-          Review every reservation, adjustment, transfer, and release involving
-          your account.
-        </p>
-      </div>
+      <PageHeader
+        title="Transactions"
+        subtitle="Movements into, out of, and within your credit account."
+      />
 
       <CreditTransactionHistory userId={user.uuid} />
     </AppShell>
