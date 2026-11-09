@@ -39,7 +39,7 @@ function setup(
     releaseCredit: vi.fn().mockResolvedValue(undefined),
     supplierIdOf: vi.fn().mockResolvedValue(errandSupplier),
     replyErrandOf: vi.fn().mockResolvedValue(
-      errandSupplier && { status, supplierId: errandSupplier, deliveryBuildingId: deliveryBuilding.id },
+      errandSupplier && { status, supplierId: errandSupplier, deliveryBuildingId: deliveryBuilding.id, storedDeliveryBuildingId: deliveryBuilding.id },
     ),
     pinOf: vi.fn().mockResolvedValue(pin),
   };
@@ -178,10 +178,25 @@ describe('supplier validation reply', () => {
       });
     });
 
+    it('moves the delivery point to a new building, dropping the venue or pin', async () => {
+      const { lifecycle, handler } = revalidating();
+      lifecycle.replyErrandOf.mockResolvedValue({
+        status: 'Revalidating-Supplier', supplierId, deliveryBuildingId: deliveryBuilding.id, storedDeliveryBuildingId: randomUUID(),
+      });
+      await handler.handle(message(found('Active')));
+      expect(lifecycle.transition.mock.calls[0][0].set).toMatchObject({
+        deliveryVenueId: null,
+        deliveryVenue: 'Around COM2',
+        deliveryLatitude: deliveryBuilding.coordinates.latitude,
+        deliveryLongitude: deliveryBuilding.coordinates.longitude,
+      });
+    });
+
     it.each([
       ['an Inactive supplier', found('Inactive'), 'INACTIVE'],
       ['a missing supplier', envelope({ errandId, supplierId, outcome: 'NOT_FOUND' }), 'NOT_FOUND'],
       ['a missing building', envelope({ errandId, supplierId, outcome: 'BUILDING_NOT_FOUND' }), 'BUILDING_NOT_FOUND'],
+      ['a late missing venue', envelope({ errandId, supplierId, outcome: 'VENUE_NOT_FOUND' }), 'VENUE_NOT_FOUND'],
     ])('keeps the old supplier for %s, cancelling nothing', async (_, body, supplierOutcome) => {
       const { lifecycle, handler } = revalidating();
       expect(await handler.handle(message(body))).toEqual({ outcome: 'ack' });

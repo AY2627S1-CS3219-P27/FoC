@@ -262,7 +262,7 @@ describe('ErrandsController', () => {
     });
 
     it('sends a new building with the supplier as it stands', async () => {
-      const current = { status: 'Open', supplierId: randomUUID(), deliveryBuildingId: randomUUID() };
+      const current = { status: 'Open', supplierId: randomUUID(), deliveryBuildingId: randomUUID(), deliveryDetail: 'Level 3' };
       lifecycle.replyErrandOf.mockResolvedValue(current);
       lifecycle.transition.mockResolvedValue({ ok: true, sequenceNumber: 4 });
       const deliveryBuildingId = randomUUID();
@@ -270,6 +270,28 @@ describe('ErrandsController', () => {
       expect(lifecycle.transition.mock.calls[0][0].set).toEqual({
         pendingSupplierId: current.supplierId,
         pendingDeliveryBuildingId: deliveryBuildingId,
+      });
+    });
+
+    describe('a new building on an errand with no note (a venue allowed it blank)', () => {
+      const current = { status: 'Open', supplierId: randomUUID(), deliveryBuildingId: randomUUID(), deliveryDetail: '' };
+      beforeEach(() => {
+        lifecycle.replyErrandOf.mockResolvedValue(current);
+        lifecycle.transition.mockResolvedValue({ ok: true, sequenceNumber: 4 });
+      });
+
+      it('is a 400, since the venue is dropped', async () => {
+        expect((await patch({ deliveryBuildingId: randomUUID() }, await requesterToken())).status).toBe(400);
+        expect(lifecycle.transition).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ['it brings a note', () => ({ deliveryBuildingId: randomUUID(), deliveryDetail: 'Level 5' })],
+        ['the building is the same', () => ({ deliveryBuildingId: current.deliveryBuildingId })],
+        ['only the supplier changes', () => ({ supplierId: randomUUID() })],
+      ])('goes ahead when %s', async (_, body) => {
+        expect((await patch(body(), await requesterToken())).status).toBe(200);
+        expect(lifecycle.transition).toHaveBeenCalled();
       });
     });
 

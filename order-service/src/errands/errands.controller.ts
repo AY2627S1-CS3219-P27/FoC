@@ -206,6 +206,15 @@ export class ErrandsController {
       // The half not being changed is re-checked as it stands.
       const current = await this.lifecycle.replyErrandOf(id);
       if (!current) return resultToHttp({ ok: false, reason: 'NOT_FOUND' });
+      // A new building drops the venue, and without a venue the note is required (F2.1.1).
+      if (
+        deliveryBuildingId !== undefined &&
+        deliveryBuildingId.toLowerCase() !== current.deliveryBuildingId.toLowerCase() &&
+        fields.deliveryDetail === undefined &&
+        !current.deliveryDetail.trim()
+      ) {
+        return resultToHttp({ ok: false, reason: 'INVALID_FIELDS' });
+      }
       edge = {
         to: 'Revalidating-Supplier',
         payload: expiry,

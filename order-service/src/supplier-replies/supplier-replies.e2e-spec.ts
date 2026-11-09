@@ -22,7 +22,7 @@ afterAll(() => t.close());
 const contracts = new AccountEventContractValidator();
 const timestamp = '2030-01-01T00:00:00.000Z';
 
-async function create() {
+async function create(over: { deliveryVenueId?: string; deliveryDetail?: string } = {}) {
   const supplierId = randomUUID();
   const res = await createErrand(t.db, {
     requesterId: randomUUID(),
@@ -32,6 +32,7 @@ async function create() {
     rewardCredits: 5,
     expiryDurationMinutes: 60,
     collectionItems: 'bubble tea',
+    ...over,
   });
   if (!res.ok) throw new Error(res.reason);
   return { id: res.errandId, supplierId };
@@ -182,8 +183,8 @@ describe('supplier validation reply against the database', () => {
 
   describe('re-checking an edited supplier (F2.1.1)', () => {
     // Open errand with a pending change to a new supplier and building.
-    async function revalidating() {
-      const { id, supplierId: oldSupplier } = await create();
+    async function revalidating(over: { deliveryVenueId?: string; deliveryDetail?: string } = {}, sameBuilding = false) {
+      const { id, supplierId: oldSupplier } = await create(over);
       await transition(t.db, {
         errandId: id, expected: 'Pending-Supplier', to: 'Reserving-Credit', actor: SYSTEM,
         set: { supplierValidatedAt: new Date(timestamp), pickupName: 'Old Spot', pickupLocation: 'AS6', pickupDescription: 'x', deliveryLocation: 'AS6', deliveryVenue: 'Around AS6', deliveryLatitude: 1.29, deliveryLongitude: 103.77 },
@@ -197,7 +198,7 @@ describe('supplier validation reply against the database', () => {
       const requester = (await row(id))!.requesterId;
       const res = await lifecycle.transition({
         errandId: id, expected: 'Open', to: 'Revalidating-Supplier', actor: { kind: 'user', id: requester },
-        set: { pendingSupplierId: supplierId, pendingDeliveryBuildingId: deliveryBuilding.id },
+        set: { pendingSupplierId: supplierId, pendingDeliveryBuildingId: sameBuilding ? (await row(id))!.deliveryBuildingId : deliveryBuilding.id },
       });
       if (!res.ok) throw new Error(res.reason);
       return { id, oldSupplier, supplierId };
@@ -224,6 +225,37 @@ describe('supplier validation reply against the database', () => {
       ]);
       const { idempotencyKey: _, createdAt: __, updatedAt: ___, ...projection } = live!;
       expect(await rebuildProjection(t.db, id)).toEqual(projection);
+    });
+
+    it('moves to a new building, dropping the venue, and the log rebuilds it', async () => {
+      const { id, supplierId } = await revalidating({ deliveryVenueId: randomUUID() });
+      await deliver({ errandId: id, supplierId, outcome: 'FOUND', supplier: supplierSnapshot, deliveryBuilding });
+      const live = await row(id);
+      expect(live).toMatchObject({
+        status: 'Open',
+        deliveryVenueId: null,
+        deliveryVenue: 'Around COM2',
+        deliveryLatitude: deliveryBuilding.coordinates.latitude,
+        deliveryLongitude: deliveryBuilding.coordinates.longitude,
+      });
+      const { idempotencyKey: _, createdAt: __, updatedAt: ___, ...projection } = live!;
+      expect(await rebuildProjection(t.db, id)).toEqual(projection);
+    });
+
+    it('keeps the venue and point when only the supplier changes', async () => {
+      const deliveryVenueId = randomUUID();
+      const { id, supplierId } = await revalidating({ deliveryVenueId }, true);
+      const building = { ...deliveryBuilding, id: (await row(id))!.deliveryBuildingId };
+      await deliver({ errandId: id, supplierId, outcome: 'FOUND', supplier: supplierSnapshot, deliveryBuilding: building });
+      expect(await row(id)).toMatchObject({
+        status: 'Open', supplierId, deliveryVenueId, deliveryVenue: 'Around AS6', deliveryLatitude: 1.29, deliveryLongitude: 103.77,
+      });
+    });
+
+    it('asks about the supplier and building only, never the venue', async () => {
+      const { id } = await revalidating({ deliveryVenueId: randomUUID() });
+      const [request] = await t.db.select().from(outboxEvents).where(sql`envelope->'payload'->>'errandId' = ${id} AND routing_key = 'order.supplier-validation-requested.v1'`).orderBy(sql`created_at DESC`).limit(1);
+      expect(request.envelope.payload).not.toHaveProperty('deliveryVenueId');
     });
 
     it('keeps the old supplier when the new one is inactive', async () => {

@@ -18,6 +18,7 @@ export type Col =
   | 'pickupName'
   | 'pickupDescription'
   | 'deliveryLocation'
+  | 'deliveryVenueId'
   | 'deliveryVenue'
   | 'deliveryLatitude'
   | 'deliveryLongitude'
@@ -227,6 +228,8 @@ export const EDGES: Partial<
           'pickupDescription',
           'deliveryLocation',
         ],
+        // Only a new building moves the delivery point.
+        optional: ['deliveryVenueId', 'deliveryVenue', 'deliveryLatitude', 'deliveryLongitude'],
         clears: PENDING,
         who: sys,
       },

@@ -12,6 +12,14 @@ export const pickupOf = (s: { displayName: string; building: { shortName: string
 
 type Completed = EventOf<'supplier.validation-completed.v1'>;
 
+// A new building leaves the old venue or pin behind, so point and label restart from it.
+const deliveryPointOf = (b: { shortName: string; coordinates: { latitude: number; longitude: number } }) => ({
+  deliveryVenueId: null,
+  deliveryVenue: deliveryLabel({ buildingShortName: b.shortName }),
+  deliveryLatitude: b.coordinates.latitude,
+  deliveryLongitude: b.coordinates.longitude,
+});
+
 // F2: the answer to an edit's re-check. The reply carries no request id, so one
 // about another supplier or building is a stale answer to an earlier request.
 function revalidation(e: Completed, errand: ReplyErrand) {
@@ -34,6 +42,8 @@ function revalidation(e: Completed, errand: ReplyErrand) {
         supplierValidatedAt: new Date(e.timestamp),
         ...pickupOf(p.supplier),
         deliveryLocation: p.deliveryBuilding.shortName,
+        ...(p.deliveryBuilding.id.toLowerCase() !== errand.storedDeliveryBuildingId.toLowerCase() &&
+          deliveryPointOf(p.deliveryBuilding)),
       },
       payload: { supplierEventId: e.eventId, supplier: p.supplier },
     };

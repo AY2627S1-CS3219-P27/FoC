@@ -11,7 +11,9 @@ import { transition, type Db, type TransitionInput } from './transition.js';
 export interface ReplyErrand {
   status: Status;
   supplierId: string;
-  deliveryBuildingId: string;
+  deliveryBuildingId: string; // the pending one while revalidating
+  storedDeliveryBuildingId: string;
+  deliveryDetail: string;
 }
 
 
@@ -58,6 +60,8 @@ export class LifecycleService {
         status: errands.status,
         supplierId: sql<string>`coalesce(${errands.pendingSupplierId}, ${errands.supplierId})`,
         deliveryBuildingId: sql<string>`coalesce(${errands.pendingDeliveryBuildingId}, ${errands.deliveryBuildingId})`,
+        storedDeliveryBuildingId: errands.deliveryBuildingId,
+        deliveryDetail: errands.deliveryDetail,
       })
       .from(errands)
       .where(eq(errands.id, errandId));

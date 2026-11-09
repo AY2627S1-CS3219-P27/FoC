@@ -36,7 +36,7 @@ export const PAYLOADS: Record<string, Joi.ObjectSchema> = {
   // TIMEOUT comes from the hold sweep, every other outcome from a supplier reply.
   SupplierRevalidationFailed: Joi.object({
     supplierOutcome: Joi.string()
-      .valid('NOT_FOUND', 'INACTIVE', 'BUILDING_NOT_FOUND', 'TIMEOUT')
+      .valid('NOT_FOUND', 'INACTIVE', 'BUILDING_NOT_FOUND', 'VENUE_NOT_FOUND', 'TIMEOUT')
       .required(),
     supplierEventId: Joi.string()
       .uuid()
