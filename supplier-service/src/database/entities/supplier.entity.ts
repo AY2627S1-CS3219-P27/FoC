@@ -12,6 +12,7 @@ import {
   UpdateDateColumn,
   VersionColumn,
 } from 'typeorm';
+import { Brand } from './brand.entity.js';
 import { Building } from './building.entity.js';
 import { SupplierCategory } from './supplier-category.entity.js';
 
@@ -42,6 +43,7 @@ export enum SupplierStatus {
   'floor',
 ])
 @Index('IDX_suppliers_building_id', ['buildingId'])
+@Index('IDX_suppliers_brand_id', ['brandId'])
 @Check('CHK_suppliers_name', `length(btrim(name)) BETWEEN 1 AND 100`)
 @Check('CHK_suppliers_floor', `floor ~ '^(B[1-9]|[1-9][0-9]?|M)$'`)
 @Check(
@@ -76,6 +78,17 @@ export class Supplier {
   })
   building?: Building;
 
+  /** Optional (F1.2.10): at most one brand (F3.4). A retired one stays (F1.8). */
+  @Column({ name: 'brand_id', type: 'uuid', nullable: true })
+  brandId: string | null;
+
+  @ManyToOne(() => Brand, { onDelete: 'RESTRICT', nullable: true })
+  @JoinColumn({
+    name: 'brand_id',
+    foreignKeyConstraintName: 'FK_suppliers_brand',
+  })
+  brand?: Brand | null;
+
   /** Stored upper-cased: B1-B9, 1-99 or M (F1.2.5). */
   @Column({ type: 'varchar', length: 2 })
   floor: string;
@@ -93,6 +106,13 @@ export class Supplier {
   /** Optional (F1.2.9); a placeholder is returned when absent. */
   @Column({ name: 'photo_url', type: 'varchar', length: 2048, nullable: true })
   photoUrl: string | null;
+
+  /**
+   * Open around the clock (F2.2). Weekly hours are in
+   * supplier_opening_intervals; neither means no fixed hours (F1.2.8).
+   */
+  @Column({ name: 'open_24_hours', type: 'boolean', default: false })
+  open24Hours: boolean;
 
   @Column({
     type: 'enum',

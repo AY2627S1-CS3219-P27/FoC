@@ -76,6 +76,22 @@ function invalidPublisher<T>(
 type RuntimeContract = EventContractDefinition<string, string, string, object>;
 
 /**
+ * Result of validating a message whose contract is not known in advance: the
+ * received routing key selects the contract from the registry.
+ */
+export type ReceivedEventValidation =
+  | {
+      valid: true;
+      key: EventContractKey;
+      value: EventOf<EventContractKey>;
+    }
+  | {
+      valid: false;
+      code: EventContractFailureCode;
+      violations: ContractViolation[];
+    };
+
+/**
  * Validates decoded domain events against the contract selected by its
  * versioned routing key. The class is framework-neutral and compiles every
  * registered schema once during construction.
@@ -148,5 +164,43 @@ export class AccountEventContractValidator {
     }
 
     return { valid: true, value: input };
+  }
+
+  /**
+   * Validates a message received on a shared (pub/sub) subscription, where the
+   * routing key — not the consumer — selects the contract. An unregistered key
+   * is reported as `UNSUPPORTED_EVENT_TYPE` so callers can skip it instead of
+   * treating it as a payload failure.
+   */
+  validateReceived(
+    routingKey: string,
+    input: unknown,
+  ): ReceivedEventValidation {
+    if (!Object.hasOwn(eventRegistry, routingKey)) {
+      return {
+        valid: false,
+        code: 'UNSUPPORTED_EVENT_TYPE',
+        violations: [
+          {
+            instancePath: '/routingKey',
+            schemaPath: '#/properties/routingKey/enum',
+            keyword: 'enum',
+            message: `routing key ${routingKey} is not a registered event contract`,
+          },
+        ],
+      };
+    }
+
+    const key = routingKey as EventContractKey;
+    const checked = this.validate(key, input);
+    if (!checked.valid) {
+      return {
+        valid: false,
+        code: checked.code,
+        violations: checked.violations,
+      };
+    }
+
+    return { valid: true, key, value: checked.value };
   }
 }

@@ -1,7 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { toast } from "sonner";
+import { api, errorText } from "@/lib/api";
+import { formatTime } from "../_errands/ui";
+import { Button } from "@/components/ui/button";
+import { EmptyState, Pill, SkeletonList } from "@/components/ui/layout";
 
 interface MyRequest {
   id: string;
@@ -14,11 +18,11 @@ interface MyRequest {
   denialReason: string | null;
 }
 
-const STATE_STYLES: Record<MyRequest["state"], string> = {
-  Pending: "bg-nus-orange/15 text-nus-orange",
-  Approved: "bg-success/15 text-success",
-  Denied: "bg-danger/15 text-danger",
-  Withdrawn: "bg-muted/15 text-muted",
+const STATE_TONES: Record<MyRequest["state"], React.ComponentProps<typeof Pill>["tone"]> = {
+  Pending: "orange",
+  Approved: "success",
+  Denied: "danger",
+  Withdrawn: "neutral",
 };
 
 export function MyRequests({
@@ -30,14 +34,16 @@ export function MyRequests({
 }) {
   const [items, setItems] = useState<MyRequest[]>([]);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    const res = await api<{ items: MyRequest[] }>("GET", "/api/supplier-requests/mine?limit=50", { quiet: true });
+    const res = await api<{ items: MyRequest[] }>("GET", "/api/supplier-requests/mine?limit=50");
+    setLoading(false);
     if (res.ok && res.data) {
       setItems(res.data.items);
       setError("");
     } else {
-      setError(`${res.status} ${res.message ?? "Could not load your requests."}`);
+      setError(errorText(res, "Could not load your requests."));
     }
   }, []);
 
@@ -48,36 +54,56 @@ export function MyRequests({
 
   async function withdraw(id: string) {
     const res = await api("POST", `/api/supplier-requests/${id}/withdraw`);
-    if (!res.ok) setError(`${res.status} ${res.message ?? "Could not withdraw."}`);
+    if (res.ok) toast.success("Request withdrawn");
+    else setError(errorText(res, "Could not withdraw."));
     await load();
   }
 
-  if (error) return <p role="alert" className="text-sm text-danger">{error}</p>;
-  if (items.length === 0) return <p className="text-sm text-muted">You have not sent any supplier requests yet.</p>;
+  if (loading) return <SkeletonList count={2} />;
+  if (error) return <EmptyState tone="error" title="Couldn't load your requests" body={error} />;
+  if (items.length === 0)
+    return <EmptyState title="No requests yet" body="Suggestions you send to the admins will appear here." />;
 
   return (
-    <ul className="space-y-2">
+    <ul className="stagger overflow-hidden rounded-2xl bg-surface [&>li+li>div]:border-t">
       {items.map((r) => (
-        <li key={r.id} className="rounded-xl border border-border bg-surface p-3 text-sm">
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-medium">
-              {r.type === "Create"
-                ? `New: ${String(r.values.name ?? "")}`
-                : `Edit: ${supplierName(r.supplierId ?? "") ?? r.supplierId?.slice(0, 8)}`}
-            </span>
-            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATE_STYLES[r.state]}`}>{r.state}</span>
+        <li key={r.id} className="pl-4">
+          <div className="border-border py-3 pr-4">
+            <div className="flex items-start justify-between gap-3">
+              <span className="min-w-0 text-[15px] font-semibold break-words">
+                {r.type === "Create"
+                  ? `New: ${String(r.values.name ?? "")}`
+                  : `Edit: ${supplierName(r.supplierId ?? "") ?? "Unknown supplier"}`}
+              </span>
+              <Pill tone={STATE_TONES[r.state]} className="shrink-0">
+                {r.state}
+              </Pill>
+            </div>
+            <p className="mt-0.5 text-[13px] break-words text-muted">
+              {Object.keys(r.values).map(fieldLabel).join(", ")} · sent {formatTime(r.submittedAt)}
+            </p>
+            {r.denialReason && <p className="mt-1 text-[13px] break-words text-danger">Reason: {r.denialReason}</p>}
+            {r.state === "Pending" && (
+              <Button intent="danger-outline" size="xs" onClick={() => withdraw(r.id)} className="mt-2.5">
+                Withdraw
+              </Button>
+            )}
           </div>
-          <p className="text-xs text-muted mt-1">
-            {Object.keys(r.values).join(", ")} · sent {new Date(r.submittedAt).toLocaleString()}
-          </p>
-          {r.denialReason && <p className="text-xs text-danger mt-1">Reason: {r.denialReason}</p>}
-          {r.state === "Pending" && (
-            <button onClick={() => withdraw(r.id)} className="btn-press mt-2 text-xs text-danger hover:underline">
-              Withdraw
-            </button>
-          )}
         </li>
       ))}
     </ul>
   );
 }
+
+const FIELD_NAMES: Record<string, string> = {
+  name: "name",
+  kind: "type",
+  categoryIds: "categories",
+  buildingId: "building",
+  floor: "floor",
+  locationDescription: "location",
+  coordinates: "coordinates",
+  photoUrl: "photo",
+};
+
+const fieldLabel = (key: string) => FIELD_NAMES[key] ?? key;

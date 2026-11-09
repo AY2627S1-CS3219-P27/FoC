@@ -22,10 +22,12 @@ import {
   Category,
   SupplierKind,
   SupplierStatus,
+  Venue,
 } from '../dist/database/entities/index.js';
 import { RabbitMqConsumerTransport } from '../dist/messaging/rabbitmq-consumer.transport.js';
 import { SupplierQueriesService } from '../dist/suppliers/supplier-queries.service.js';
 import { SuppliersService } from '../dist/suppliers/suppliers.service.js';
+import { VenuesService } from '../dist/venues/venues.service.js';
 import { SupplierValidationMessageHandler } from '../dist/validation/supplier-validation-message.handler.js';
 import { SupplierValidationService } from '../dist/validation/supplier-validation.service.js';
 
@@ -105,6 +107,15 @@ const com2 = await buildings.create({
   latitude: 1.2939,
   longitude: 103.7742,
 });
+const venues = new VenuesService(dataSource.getRepository(Venue));
+const lt19 = await venues.create({
+  buildingId: com2.id,
+  code: 'LT19',
+  name: 'Lecture Theatre 19',
+  floor: '1',
+  latitude: 1.2941,
+  longitude: 103.7739,
+});
 const food = await new CategoriesService(
   dataSource.getRepository(Category),
 ).create('Food');
@@ -141,6 +152,8 @@ const handler = new SupplierValidationMessageHandler(
   new SupplierValidationService(
     dataSource,
     new SupplierQueriesService(dataSource, config),
+    buildings,
+    venues,
     contracts,
     config,
   ),
@@ -159,12 +172,22 @@ const relay = new OutboxRelay(
 );
 await relay.start();
 
-const question = (supplierId, eventId = randomUUID()) => ({
+const question = (
+  supplierId,
+  deliveryBuildingId = com2.id,
+  eventId = randomUUID(),
+  deliveryVenueId = undefined,
+) => ({
   eventId,
   eventType: 'SupplierValidationRequested',
   timestamp: new Date().toISOString(),
   publisher: 'order-service',
-  payload: { errandId: randomUUID(), supplierId },
+  payload: {
+    errandId: randomUUID(),
+    supplierId,
+    deliveryBuildingId,
+    ...(deliveryVenueId && { deliveryVenueId }),
+  },
 });
 const ask = (body) =>
   channel.publish(EXCHANGE, QUESTION_KEY, Buffer.from(JSON.stringify(body)), {
@@ -174,15 +197,15 @@ const ask = (body) =>
   });
 function describeAnswer(answer) {
   if (!answer) return '(no answer)';
-  const { outcome, supplier } = answer.payload;
+  const { outcome, supplier, deliveryBuilding, deliveryVenue } = answer.payload;
   return outcome === 'FOUND'
-    ? `FOUND: ${supplier.displayName}, ${supplier.status}, version ${supplier.version}, floor ${supplier.floor}`
-    : 'NOT_FOUND';
+    ? `FOUND: ${supplier.displayName}, ${supplier.status}, version ${supplier.version}, floor ${supplier.floor}; deliver to ${deliveryBuilding.shortName} (${deliveryBuilding.canonicalName})${deliveryVenue ? `, room ${deliveryVenue.code}` : ''}`
+    : outcome;
 }
 async function scene(title, body, { expectAnswer = true } = {}) {
   console.log(`\n${title}`);
   console.log(
-    `  → Order Service asks (event ${short(body.eventId)}): is supplier ${short(String(body.payload.supplierId))} OK?`,
+    `  → Order Service asks (event ${short(body.eventId)}): is supplier ${short(String(body.payload.supplierId))} OK, and delivery building ${short(String(body.payload.deliveryBuildingId))}?`,
   );
   ask(body);
   if (expectAnswer) {
@@ -200,9 +223,26 @@ await scene(
   question(closed.id),
 );
 await scene('3. A supplier that does not exist', question(randomUUID()));
+await scene(
+  '4. A real supplier, but an unknown delivery building',
+  question(active.id, randomUUID()),
+);
+await scene(
+  '5. Neither exists (the missing supplier is reported first)',
+  question(randomUUID(), randomUUID()),
+);
+
+await scene(
+  '5a. A delivery venue inside the building',
+  question(active.id, com2.id, randomUUID(), lt19.id),
+);
+await scene(
+  '5b. A venue that does not exist (the supplier and building are fine)',
+  question(active.id, com2.id, randomUUID(), randomUUID()),
+);
 
 const repeated = question(active.id);
-await scene('4. The same question delivered twice', repeated);
+await scene('6. The same question delivered twice', repeated);
 ask(structuredClone(repeated));
 const second = await nextMessage(channel, REPLIES, 2500);
 console.log(
@@ -211,7 +251,7 @@ console.log(
 
 const malformed = question(active.id);
 malformed.payload.supplierId = 'not-a-uuid';
-await scene('5. A malformed question', malformed, { expectAnswer: false });
+await scene('7. A malformed question', malformed, { expectAnswer: false });
 const deadLetter = await nextMessage(channel, DEAD_LETTERS);
 console.log(
   `  ✗ ${deadLetter ? `moved to the dead-letter queue ${DEAD_LETTERS}, no answer, no retry` : 'not dead-lettered (unexpected)'}`,

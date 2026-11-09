@@ -1,0 +1,24 @@
+import {
+  ORDER_COURIER_CANCELLED_V1_ROUTING_KEY,
+  ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY,
+  ORDER_ERRAND_CANCELLED_V1_ROUTING_KEY,
+  ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
+} from '@foc/contracts';
+
+export const COMMS_DOMAIN_EXCHANGE = 'foc.events';
+export const COMMS_PUBSUB_EXCHANGE = 'foc.pubsub';
+export const COMMS_RETRY_EXCHANGE = 'foc.comms.retry';
+export const COMMS_RETRY_RETURN_EXCHANGE = 'foc.comms.back';
+export const COMMS_DEAD_LETTER_EXCHANGE = 'foc.comms.dlx';
+export const COMMS_RETRY_DELAYS_MS = [
+  1_000, 2_000, 4_000, 8_000, 16_000,
+] as const;
+
+export const COMMS_EVENTS_QUEUE = 'comms-service.events';
+export const COMMS_EVENTS_BINDING_KEY = 'order.#';
+export const COMMS_SUPPORTED_LIFECYCLE_ROUTING_KEYS = new Set<string>([
+  ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY,
+  ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
+  ORDER_COURIER_CANCELLED_V1_ROUTING_KEY,
+  ORDER_ERRAND_CANCELLED_V1_ROUTING_KEY,
+]);

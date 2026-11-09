@@ -58,6 +58,9 @@ describe('payloadValid', () => {
     const supplierEventId = randomUUID();
     expect(payloadValid('ErrandCancelled', { supplierEventId, supplierOutcome: 'NOT_FOUND' })).toBe(true);
     expect(payloadValid('ErrandCancelled', { supplierEventId, supplierOutcome: 'INACTIVE' })).toBe(true);
+    expect(
+      payloadValid('ErrandCancelled', { supplierEventId, supplierOutcome: 'BUILDING_NOT_FOUND' }),
+    ).toBe(true);
     expect(payloadValid('ErrandCancelled', { supplierEventId })).toBe(false);
     expect(payloadValid('ErrandCancelled', { supplierEventId, supplierOutcome: 'GONE' })).toBe(false);
     expect(

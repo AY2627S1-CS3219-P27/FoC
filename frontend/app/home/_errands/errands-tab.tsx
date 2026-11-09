@@ -1,21 +1,39 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import NumberFlow from "@number-flow/react";
+import { clsx } from "clsx";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import { api, errorText, type ApiResult } from "@/lib/api";
+import { fetchFirst } from "@/lib/paging";
+import { Button } from "@/components/ui/button";
+import { FilterSelect } from "@/components/ui/field";
+import { BoxIcon, ChevronRightIcon, PlusIcon } from "@/components/ui/icons";
+import { EmptyState, IconTile, LoadMore, PageHeader, SkeletonList } from "@/components/ui/layout";
+import { Segmented } from "@/components/ui/segmented";
+import { Sheet } from "@/components/ui/sheet";
 import { CreateErrandForm } from "./create-errand-form";
 import { ErrandDetail } from "./errand-detail";
 import {
   ERRAND_STATUSES,
+  formatDelivery,
   type BuildingOption,
   type Errand,
   type Page,
   type SupplierOption,
 } from "./types";
-import { inputClass, StatusBadge, timeLeft } from "./ui";
+import { formatCredits, statusColor, StatusBadge, timeLeft } from "./ui";
 
 const POLL_MS = 5000;
+const PAGE_SIZE = 20;
+const MAX_PAGE_SIZE = 50; // order-service caps limit at 50
 
-type View = "browse" | "mine" | "new";
+type View = "browse" | "mine";
+
+const VIEWS = [
+  ["browse", "Open errands"],
+  ["mine", "My errands"],
+] as const;
 
 interface Balance {
   creditBalance: number;
@@ -32,13 +50,15 @@ export function ErrandsTab({
   buildings: BuildingOption[];
 }) {
   const [view, setView] = useState<View>(roles.includes("courier") ? "browse" : "mine");
-  const [showAllActions, setShowAllActions] = useState(false);
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
   const [balance, setBalance] = useState<Balance | null>(null);
   const [items, setItems] = useState<Errand[]>([]);
   const [listError, setListError] = useState("");
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  // A new errand opens its detail sheet once the compose sheet has finished closing.
+  const openAfterCreate = useRef<string | null>(null);
 
   const [pickupBuilding, setPickupBuilding] = useState("");
   const [deliveryBuilding, setDeliveryBuilding] = useState("");
@@ -48,44 +68,59 @@ export function ErrandsTab({
   const [mineStatus, setMineStatus] = useState("");
 
   const loadBalance = useCallback(async () => {
-    const res = await api<Balance>("GET", "/api/credits/balance", { quiet: true });
+    const res = await api<Balance>("GET", "/api/credits/balance");
     if (res.ok) setBalance(res.data);
   }, []);
 
-  const loadList = useCallback(
-    async (quiet: boolean) => {
-      if (view === "new") return;
-      const params = new URLSearchParams();
-      if (view === "browse") {
-        if (pickupBuilding) params.set("pickupBuilding", pickupBuilding);
-        if (deliveryBuilding) params.set("deliveryBuilding", deliveryBuilding);
-        if (minCredits) params.set("minCredits", minCredits);
-        params.set("sort", sort);
-      } else {
-        if (mineRole) params.set("role", mineRole);
-        if (mineStatus) params.set("status", mineStatus);
-      }
-      const path = view === "browse" ? "/api/errands" : "/api/errands/mine";
-      const res = await api<Page<Errand>>("GET", `${path}?${params}`, { quiet });
-      setLoading(false);
-      if (res.ok && res.data) {
-        setItems(res.data.items);
-        setListError("");
-      } else {
-        setItems([]);
-        setListError(`${res.status} ${res.code ?? ""}: ${res.message ?? "Could not load errands."}`);
-      }
-    },
-    [view, pickupBuilding, deliveryBuilding, minCredits, sort, mineRole, mineStatus],
-  );
+  // "Load more" grows this; changing the view or a filter starts again from one page.
+  const listKey = JSON.stringify([view, pickupBuilding, deliveryBuilding, minCredits, sort, mineRole, mineStatus]);
+  const [paging, setPaging] = useState({ key: listKey, count: PAGE_SIZE });
+  const count = paging.key === listKey ? paging.count : PAGE_SIZE;
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  const loadList = useCallback(async () => {
+    const params = new URLSearchParams();
+    if (view === "browse") {
+      if (pickupBuilding) params.set("pickupBuilding", pickupBuilding);
+      if (deliveryBuilding) params.set("deliveryBuilding", deliveryBuilding);
+      if (minCredits) params.set("minCredits", minCredits);
+      params.set("sort", sort);
+    } else {
+      if (mineRole) params.set("role", mineRole);
+      if (mineStatus) params.set("status", mineStatus);
+    }
+    const path = view === "browse" ? "/api/errands" : "/api/errands/mine";
+    let failed: ApiResult | null = null;
+    const loaded = await fetchFirst(count, MAX_PAGE_SIZE, async (offset, limit) => {
+      params.set("offset", String(offset));
+      params.set("limit", String(limit));
+      const res = await api<Page<Errand>>("GET", `${path}?${params}`);
+      if (res.ok && res.data) return res.data;
+      failed = res;
+      return null;
+    });
+    setLoading(false);
+    setLoadingMore(false);
+    if (loaded) {
+      setItems(loaded.items);
+      setHasMore(loaded.hasMore);
+      setListError("");
+    } else {
+      const res = failed as ApiResult | null;
+      setItems([]);
+      setHasMore(false);
+      setListError(res ? errorText(res, "Could not load errands.") : "Could not load errands.");
+    }
+  }, [view, pickupBuilding, deliveryBuilding, minCredits, sort, mineRole, mineStatus, count]);
 
   useEffect(() => {
     const first = setTimeout(() => {
-      void loadList(false);
+      void loadList();
       void loadBalance();
     }, 0);
     const timer = setInterval(() => {
-      void loadList(true);
+      void loadList();
       void loadBalance();
     }, POLL_MS);
     return () => {
@@ -95,176 +130,192 @@ export function ErrandsTab({
   }, [loadList, loadBalance]);
 
   useEffect(() => {
-    api<Page<SupplierOption>>("GET", "/api/suppliers?status=Active&limit=100", { quiet: true }).then(
-      (res) => setSuppliers(res.data?.items ?? []),
-    );
+    // Every active supplier, so the pickup picker is never cut off at one page.
+    void fetchFirst(Infinity, 1000, async (offset, limit) => {
+      const res = await api<{ items: SupplierOption[]; total: number }>(
+        "GET",
+        `/api/suppliers?status=Active&offset=${offset}&limit=${limit}`,
+      );
+      return res.data;
+    }).then((loaded) => setSuppliers(loaded?.items ?? []));
   }, []);
 
   const refresh = () => {
-    void loadList(true);
+    void loadList();
     void loadBalance();
   };
 
-  const supplierName = (id: string) => suppliers.find((s) => s.id === id)?.displayName ?? "Supplier";
+  const supplierName = (id: string) => suppliers.find((s) => s.id === id)?.displayName ?? "Unknown supplier";
+  const canRequest = roles.includes("requester");
 
   return (
     <div>
-      <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
-        <div>
-          <h2 className="text-2xl font-bold mb-1">Errands</h2>
-          <p className="text-muted text-sm">
-            Your roles: {roles.length ? roles.join(", ") : "none"}
-          </p>
-        </div>
-        <div className="flex gap-3 text-sm">
-          <div className="rounded-xl bg-surface border border-border px-3 py-2">
-            <span className="text-muted">Available </span>
-            <span className="font-bold">{balance?.creditBalance ?? "—"}</span>
-          </div>
-          <div className="rounded-xl bg-surface border border-border px-3 py-2">
-            <span className="text-muted">Reserved </span>
-            <span className="font-bold">{balance?.reservedBalance ?? "—"}</span>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        title="Errands"
+        subtitle={<>You&rsquo;re a {roles.join(" and ")}</>}
+        actions={
+          canRequest && (
+            <Button size="sm" onClick={() => setCreating(true)}>
+              <PlusIcon size={15} strokeWidth={2.5} />
+              New errand
+            </Button>
+          )
+        }
+      />
 
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
-        <div className="flex gap-1 rounded-xl bg-surface border border-border p-1">
-          {(
-            [
-              ["browse", "Open errands"],
-              ["mine", "My errands"],
-              ["new", "New errand"],
-            ] as [View, string][]
-          ).map(([v, label]) => (
-            <button
-              key={v}
-              onClick={() => {
-                setLoading(true);
-                setView(v);
-              }}
-              className={`btn-press px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                view === v ? "bg-nus-orange text-white" : "text-muted hover:text-foreground"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <label className="flex items-center gap-2 text-sm text-muted">
-          <input
-            type="checkbox"
-            checked={showAllActions}
-            onChange={(e) => setShowAllActions(e.target.checked)}
-          />
-          Demo: show all actions (the backend decides)
-        </label>
-      </div>
+      {/* Side by side only when both full amounts fit; phones stack them rather than cut a number. */}
+      <section aria-label="Credits" className="mb-6 grid grid-cols-1 overflow-hidden rounded-2xl bg-surface sm:grid-cols-2">
+        <BalanceCell label="Available" value={balance?.creditBalance} accent />
+        <BalanceCell label="Reserved" value={balance?.reservedBalance} />
+      </section>
 
-      {view === "new" && (
-        <CreateErrandForm
-          userId={me}
-          suppliers={suppliers}
-          buildings={buildings}
-          onCreated={(id) => {
-            setSelected(id);
-            setView("mine");
-            refresh();
-          }}
-        />
-      )}
+      <Segmented
+        label="Errand views"
+        className="mb-4 w-full sm:w-auto"
+        value={view}
+        items={VIEWS}
+        onChange={(v) => {
+          setLoading(true);
+          setView(v);
+        }}
+      />
 
-      {view === "browse" && (
-        <div className="flex flex-wrap gap-3 mb-5">
-          <select value={pickupBuilding} onChange={(e) => setPickupBuilding(e.target.value)} className={inputClass}>
-            <option value="">Any pickup building</option>
-            {buildings.map((b) => (
-              <option key={b.id} value={b.shortName}>
-                Pickup: {b.shortName}
-              </option>
-            ))}
-          </select>
-          <select value={deliveryBuilding} onChange={(e) => setDeliveryBuilding(e.target.value)} className={inputClass}>
-            <option value="">Any delivery building</option>
-            {buildings.map((b) => (
-              <option key={b.id} value={b.shortName}>
-                Deliver: {b.shortName}
-              </option>
-            ))}
-          </select>
-          <input
-            type="number"
-            min={1}
-            placeholder="Min credits"
-            value={minCredits}
-            onChange={(e) => setMinCredits(e.target.value)}
-            className={`w-32 ${inputClass}`}
-          />
-          <select value={sort} onChange={(e) => setSort(e.target.value)} className={inputClass}>
-            <option value="expiring">Expiring soonest</option>
-            <option value="newest">Newest</option>
-            <option value="credits">Highest credits</option>
-          </select>
-        </div>
-      )}
-
-      {view === "mine" && (
-        <div className="flex flex-wrap gap-3 mb-5">
-          <select value={mineRole} onChange={(e) => setMineRole(e.target.value)} className={inputClass}>
-            <option value="">As requester or courier</option>
-            <option value="requester">My requests</option>
-            <option value="courier">My deliveries</option>
-          </select>
-          <select value={mineStatus} onChange={(e) => setMineStatus(e.target.value)} className={inputClass}>
-            <option value="">Any status</option>
-            {ERRAND_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-
-      {view !== "new" &&
-        (loading ? (
-          <p className="text-center py-12 text-muted">Loading errands…</p>
-        ) : listError ? (
-          <p role="alert" className="text-center py-12 text-danger text-sm">
-            {listError}
-          </p>
-        ) : items.length === 0 ? (
-          <p className="text-center py-12 text-muted">No errands here yet.</p>
+      {/* Filters scroll sideways on phones instead of wrapping into a wall. */}
+      <div className="-mx-4 mb-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] md:mx-0 md:flex-wrap md:px-0">
+        {view === "browse" ? (
+          <>
+            <FilterSelect label="Pickup building" value={pickupBuilding} onChange={(e) => setPickupBuilding(e.target.value)}>
+              <option value="">Any pickup</option>
+              {buildings.map((b) => (
+                <option key={b.id} value={b.shortName}>
+                  Pickup: {b.shortName}
+                </option>
+              ))}
+            </FilterSelect>
+            <FilterSelect label="Delivery building" value={deliveryBuilding} onChange={(e) => setDeliveryBuilding(e.target.value)}>
+              <option value="">Any delivery</option>
+              {buildings.map((b) => (
+                <option key={b.id} value={b.shortName}>
+                  Deliver: {b.shortName}
+                </option>
+              ))}
+            </FilterSelect>
+            <input
+              type="number"
+              min={1}
+              placeholder="Min credits"
+              aria-label="Minimum credits"
+              value={minCredits}
+              onChange={(e) => setMinCredits(e.target.value)}
+              className="h-9 w-28 shrink-0 rounded-full border-0 bg-surface px-3.5 text-[13px] font-medium shadow-raised placeholder:text-muted"
+            />
+            <FilterSelect label="Sort by" value={sort} onChange={(e) => setSort(e.target.value)}>
+              <option value="expiring">Expiring soonest</option>
+              <option value="newest">Newest</option>
+              <option value="credits">Highest credits</option>
+            </FilterSelect>
+          </>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <>
+            <FilterSelect label="Role" value={mineRole} onChange={(e) => setMineRole(e.target.value)}>
+              <option value="">Requests and deliveries</option>
+              <option value="requester">My requests</option>
+              <option value="courier">My deliveries</option>
+            </FilterSelect>
+            <FilterSelect label="Status" value={mineStatus} onChange={(e) => setMineStatus(e.target.value)}>
+              <option value="">Any status</option>
+              {ERRAND_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </FilterSelect>
+          </>
+        )}
+      </div>
+
+      {loading ? (
+        <SkeletonList />
+      ) : listError ? (
+        <EmptyState tone="error" title="Couldn't load errands" body={listError} />
+      ) : items.length === 0 ? (
+        <EmptyState
+          title={view === "browse" ? "No open errands" : "No errands yet"}
+          body={
+            view === "browse"
+              ? "New requests show up here on their own. Try widening your filters."
+              : "Errands you request or deliver will be listed here."
+          }
+          action={
+            view === "mine" &&
+            canRequest && (
+              <Button intent="tinted" size="sm" onClick={() => setCreating(true)}>
+                New errand
+              </Button>
+            )
+          }
+        />
+      ) : (
+        <>
+          <ul className="stagger overflow-hidden rounded-2xl bg-surface [&>li+li_.row-content]:border-t">
             {items.map((e) => (
-              <button
+              <ErrandRow
                 key={e.id}
-                onClick={() => setSelected(e.id)}
-                className="card-press text-left rounded-2xl border border-border bg-surface p-4 hover:border-nus-orange/50 hover:shadow-md"
-              >
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <h3 className="font-semibold">{e.pickupName ?? supplierName(e.supplierId)}</h3>
-                  <StatusBadge status={e.status} />
-                </div>
-                <p className="text-sm text-muted mb-1">
-                  {e.pickupLocation ?? "—"} → {e.deliveryLocation}
-                </p>
-                <p className="text-sm line-clamp-2 mb-2">{e.collectionItems}</p>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="font-semibold text-nus-orange">{e.rewardCredits} credits</span>
-                  <span className="text-muted">
-                    {view === "mine"
-                      ? e.requesterId === me
-                        ? "You requested"
-                        : "You deliver"
-                      : timeLeft(e.expiresAt)}
-                  </span>
-                </div>
-              </button>
+                errand={e}
+                title={e.pickupName ?? supplierName(e.supplierId)}
+                meta={
+                  view === "mine"
+                    ? e.requesterId === me
+                      ? "You requested"
+                      : "You deliver"
+                    : timeLeft(e.expiresAt)
+                }
+                onOpen={() => setSelected(e.id)}
+              />
             ))}
-          </div>
-        ))}
+          </ul>
+          <LoadMore
+            noun="errands"
+            shown={items.length}
+            total={null}
+            hasMore={hasMore}
+            loading={loadingMore}
+            onLoadMore={() => {
+              setLoadingMore(true);
+              setPaging({ key: listKey, count: count + PAGE_SIZE });
+            }}
+          />
+        </>
+      )}
+
+      {creating && (
+        <Sheet
+          title="New errand"
+          onClose={() => {
+            setCreating(false);
+            const id = openAfterCreate.current;
+            openAfterCreate.current = null;
+            if (id) setSelected(id);
+          }}
+        >
+          {(close) => (
+            <CreateErrandForm
+              userId={me}
+              suppliers={suppliers}
+              buildings={buildings}
+              onCreated={(id) => {
+                toast.success("Errand created", {
+                  description: "It opens to couriers once the supplier and credits are confirmed.",
+                });
+                openAfterCreate.current = id;
+                setView("mine");
+                refresh();
+                close();
+              }}
+            />
+          )}
+        </Sheet>
+      )}
 
       {selected && (
         <ErrandDetail
@@ -272,11 +323,67 @@ export function ErrandsTab({
           errandId={selected}
           me={me}
           suppliers={suppliers}
-          showAllActions={showAllActions}
           onChanged={refresh}
           onClose={() => setSelected(null)}
         />
       )}
     </div>
+  );
+}
+
+function BalanceCell({ label, value, accent = false }: { label: string; value: number | undefined; accent?: boolean }) {
+  return (
+    <div className="min-w-0 border-border px-4 py-3.5 first:border-b sm:first:border-r sm:first:border-b-0">
+      <p className="text-[13px] text-muted">{label}</p>
+      <p className={clsx("tabular mt-0.5 text-[22px] font-semibold tracking-tight [overflow-wrap:anywhere]", accent && "text-nus-orange")}>
+        {value === undefined ? "—" : <NumberFlow value={value} />}
+      </p>
+    </div>
+  );
+}
+
+function ErrandRow({
+  errand,
+  title,
+  meta,
+  onOpen,
+}: {
+  errand: Errand;
+  title: string;
+  meta: string;
+  onOpen: () => void;
+}) {
+  return (
+    <li>
+      <button type="button" onClick={onOpen} className="row-press flex w-full items-start pl-4 text-left">
+        <span className="pt-3">
+          <IconTile color={statusColor(errand.status)}>
+            <BoxIcon size={17} strokeWidth={2} />
+          </IconTile>
+        </span>
+        <span className="row-content ml-3 flex min-w-0 flex-1 items-center gap-2 border-border py-3 pr-3">
+          {/* Title gets the full width; the reward sits at the end of the status line so it never squeezes the title. */}
+          <span className="min-w-0 flex-1">
+            <span className="line-clamp-2 text-[15px] font-semibold break-words">{title}</span>
+            <span className="mt-0.5 flex items-start justify-between gap-3 text-[13px] text-muted">
+              {/* The route wraps to a second line instead of cutting the pickup building short. */}
+              <span className="line-clamp-2 min-w-0 break-words">
+                {errand.pickupLocation ?? "—"} → {formatDelivery(errand)}
+              </span>
+              <span className="shrink-0">{meta}</span>
+            </span>
+            {/* When a large reward can't fit beside the badge, it drops to its own line rather than being cut. */}
+            <span className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+              <StatusBadge status={errand.status} />
+              <span className="min-w-16 flex-1 truncate text-[13px] text-muted">{errand.collectionItems}</span>
+              <span className="tabular ml-auto shrink-0 text-[15px] font-semibold text-nus-orange">
+                {formatCredits(errand.rewardCredits)}
+              </span>
+            </span>
+          </span>
+          <ChevronRightIcon size={14} strokeWidth={2.5} className="shrink-0 text-muted/60" />
+        </span>
+      </button>
+    </li>
   );
 }

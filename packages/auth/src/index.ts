@@ -15,4 +15,5 @@ export {
   AccessTokenVerifier,
   InvalidAccessTokenError,
 } from './access-token/access-token-verifier.js';
+export type { VerifiedAccessToken } from './access-token/access-token-verifier.js';
 export { extractAccessToken } from './access-token/extract-access-token.js';

@@ -15,5 +15,6 @@ export const creditAccountInitialisedV1Contract =
     routingKey: CREDIT_ACCOUNT_INITIALISED_V1_ROUTING_KEY,
     eventType: 'CreditAccountInitialised',
     publisher: 'credit-service',
+    kind: 'event',
     schema,
   });
