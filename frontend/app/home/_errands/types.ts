@@ -73,6 +73,8 @@ export interface BuildingOption {
   id: string;
   shortName: string;
   canonicalName: string;
+  /** True only for the "Other (map pin)" placeholder. */
+  allowsPin?: boolean;
 }
 
 export type ActionName =
