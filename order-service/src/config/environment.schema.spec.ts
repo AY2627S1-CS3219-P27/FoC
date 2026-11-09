@@ -12,6 +12,7 @@ const base = {
   RABBITMQ_PORT: '5672',
   RABBITMQ_VHOST: '/foc',
   RABBITMQ_PASSWORD_FILE: '/p',
+  CAMPUS_BOUNDARY_PATH: '/campus-boundary.geojson',
 };
 
 describe('db env', () => {
@@ -80,5 +81,12 @@ describe("role block env", () => {
     const { value, error } = environmentSchema.validate(base);
     expect(error).toBeUndefined();
     expect(value.ROLE_BLOCK_TTL_MS).toBe(960_000);
+  });
+});
+
+describe('campus boundary env', () => {
+  it('is required', () => {
+    const { CAMPUS_BOUNDARY_PATH: _, ...without } = base;
+    expect(environmentSchema.validate(without).error).toBeDefined();
   });
 });

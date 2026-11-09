@@ -13,6 +13,7 @@ import type {
   RabbitMqMessageHandler,
 } from '../messaging/rabbitmq-message.types.js';
 
+type PinOf = (errandId: string) => Promise<{ latitude: number; longitude: number } | undefined>;
 type Step = Omit<TransitionInput, 'actor' | 'idempotencyKey'> & {
   supplierId?: string; // when set, the errand must reference this supplier
 };
@@ -22,7 +23,7 @@ type Plan = Step | { log: string } | { deadLetter: string };
 export interface ReplySpec {
   key: EventContractKey;
   queue: string; // seeded in rabbitmq/definitions.json
-  plan(event: EventOf<never>): Plan;
+  plan(event: EventOf<never>, pinOf: PinOf): Plan | Promise<Plan>;
   // On a STATE_MISMATCH against a Cancelled errand, send the release again.
   releaseIfCancelled?: true;
 }
@@ -30,7 +31,7 @@ export interface ReplySpec {
 // Typed per key; the payload and event id feed the event's private payload.
 export const reply = <K extends EventContractKey>(
   key: K,
-  plan: (e: EventOf<K>) => Plan,
+  plan: (e: EventOf<K>, pinOf: PinOf) => Plan | Promise<Plan>,
   releaseIfCancelled?: true,
 ): ReplySpec => ({
   key,
@@ -39,7 +40,7 @@ export const reply = <K extends EventContractKey>(
   releaseIfCancelled,
 });
 
-// The seven credit replies. The event's payload keeps credit's reason and
+// The nine credit replies. The event's payload keeps credit's reason and
 // event id and never a projection column name (ADR 0005).
 export const REPLY_SPECS: ReplySpec[] = [
   reply(
@@ -112,6 +113,23 @@ export const REPLY_SPECS: ReplySpec[] = [
     to: 'Incomplete',
     payload: { creditEventId: e.eventId, reason: e.payload.rejectionReason },
   })),
+  // Dispute settlement (#662, ADR 0013). A rejection returns to Incomplete, so the admin can settle again.
+  reply('credit.settlement-succeeded.v1', (e) => ({
+    errandId: e.payload.errandId,
+    expected: 'Settling-Credit',
+    to: 'Resolved',
+    payload: {
+      creditEventId: e.eventId,
+      courierCreditTransactionId: e.payload.courierCreditTransactionId,
+      requesterCreditTransactionId: e.payload.requesterCreditTransactionId,
+    },
+  })),
+  reply('credit.settlement-rejected.v1', (e) => ({
+    errandId: e.payload.errandId,
+    expected: 'Settling-Credit',
+    to: 'Incomplete',
+    payload: { creditEventId: e.eventId, reason: e.payload.rejectionReason },
+  })),
   // Release is fire-and-forget (ADR 0006): nothing to revert, only an alert.
   reply('credit.release-rejected.v1', (e) => ({
     log: `credit rejected the release of errand ${e.payload.errandId}: ${e.payload.rejectionReason}`,
@@ -137,7 +155,7 @@ export class CreditReplyHandler implements RabbitMqMessageHandler {
     private readonly spec: ReplySpec,
     private readonly lifecycle: Pick<
       LifecycleService,
-      'transition' | 'releaseCredit' | 'supplierIdOf'
+      'transition' | 'releaseCredit' | 'supplierIdOf' | 'pinOf'
     >,
     private readonly contracts: AccountEventContractValidator,
   ) {}
@@ -153,7 +171,7 @@ export class CreditReplyHandler implements RabbitMqMessageHandler {
       };
     }
     const event = checked.value;
-    const plan = this.spec.plan(event as EventOf<never>);
+    const plan = await this.spec.plan(event as EventOf<never>, (id) => this.lifecycle.pinOf(id));
 
     if ('log' in plan) {
       this.logger.error(plan.log);

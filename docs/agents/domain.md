@@ -12,6 +12,7 @@ One microservice per top-level folder. Each has its own `Dockerfile`, `README.md
 | `supplier-service/` | M.2: suppliers, categories, update-request moderation; seed data in `data/csv/supplier-seed-data.csv`, images in `data/images/` |
 | `order-service/` | M.3: errand lifecycle, state model, expiry |
 | `credit-service/` | Credit ledger; reacts to `ErrandCompleted` / `ErrandCancelled` from order-service. No backlog issues yet. |
+| `comms-service/` | Private errand chat; reacts to Order Service lifecycle events (accepted/delivered/cancelled) to create chats and apply delivery/cancellation grace deadlines, then archives them immutably. |
 | `<name>-service/` | Each N2H feature that needs its own service gets an extra top-level folder (e.g. notifications for N.1) |
 
 Shared: `compose.yaml`, `env/`, `data/` and `packages/` (shared libraries consumed via `file:`/packed deps: `@foc/contracts`, `@foc/auth`).
@@ -26,6 +27,9 @@ Before reading, planning, or changing anything inside a service folder, an agent
 - `CONTEXT.md` at the repo root
 - `docs/adr/` entries touching the area you're working in: `docs/adr/<service>/` for each service involved, plus any top-level `docs/adr/*.md`
 - The relevant `[M.x]`/`[N.x]` issues (parent requirement first)
+- Operational runbooks under top-level `docs/runbooks/`, when the task
+  touches deployment, migration, or incident recovery — one file per
+  operational concern, e.g. `docs/runbooks/comms-service-lifecycle-operations.md`
 
 ## ADR location
 

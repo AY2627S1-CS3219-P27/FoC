@@ -65,7 +65,7 @@ a shared package yet; revisit when supplier-service becomes the third user).
 
 - **Event contracts.** The credit notices and replies are in `@foc/contracts`
   (`credit.reservation.v1`, `credit.reservation-adjustment.v1`,
-  `order.errand-completed.v1`, `order.errand-cancelled.v1` and the seven credit
+  `order.errand-completed.v1`, `order.errand-cancelled.v1` and the nine credit
   replies). Communication lifecycle contracts are also shared there:
   `order.errand-accepted.v1`, `order.errand-delivered.v1`, and
   `order.courier-cancelled.v1`.

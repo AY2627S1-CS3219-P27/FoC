@@ -9,6 +9,7 @@ import { DB } from '../db/db.module.js';
 import { errands } from '../db/schema.js';
 import { configureHttp } from '../http/configure-http.js';
 import type { Status } from '../lifecycle/status.js';
+import { CAMPUS_CONTAINS } from '../campus/campus.module.js';
 import { ErrandsModule } from './errands.module.js';
 
 let t: Awaited<ReturnType<typeof createTestDb>>;
@@ -22,7 +23,10 @@ beforeAll(async () => {
   class TestDbModule {}
   const module = await Test.createTestingModule({
     imports: [FocAuthModule.register({ publicKey: testKeys.publicKey }), TestDbModule, ErrandsModule],
-  }).compile();
+  })
+    .overrideProvider(CAMPUS_CONTAINS)
+    .useValue(() => true)
+    .compile();
   app = module.createNestApplication();
   configureHttp(app);
   await app.listen(0, '127.0.0.1');
@@ -47,6 +51,9 @@ const seed = async (over: Partial<typeof errands.$inferInsert> = {}) => {
     deliveryBuildingId: randomUUID(),
     deliveryDetail: 'Level 3 04-02',
     deliveryLocation: 'COM2',
+    deliveryVenue: 'COM2 · LT19 · Level 3',
+    deliveryLatitude: 1.2949,
+    deliveryLongitude: 103.7737,
     pickupLocation: 'UTown',
     pickupName: 'Cool Spot @ UTown',
     pickupDescription: 'Floor 1 · Next to LT19',
@@ -91,6 +98,9 @@ describe('GET /v1/errands', () => {
           pickupDescription: 'Floor 1 · Next to LT19',
           deliveryLocation: 'COM2',
           deliveryDetail: 'Level 3 04-02',
+          deliveryVenue: 'COM2 · LT19 · Level 3',
+          deliveryLatitude: 1.2949,
+          deliveryLongitude: 103.7737,
           collectionItems: 'bubble tea',
           description: 'leave at door',
           rewardCredits: 5,

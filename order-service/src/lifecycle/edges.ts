@@ -19,6 +19,9 @@ export type Col =
   | 'pickupName'
   | 'pickupDescription'
   | 'deliveryLocation'
+  | 'deliveryVenue'
+  | 'deliveryLatitude'
+  | 'deliveryLongitude'
   | 'settlementAmount'
   | 'settlementNote';
 
@@ -35,6 +38,7 @@ export const CREDIT_SETTLEMENT_REJECTED = 'CreditSettlementRejected';
 export const CANCELLATION_REASONS = [
   'SUPPLIER_UNAVAILABLE',
   'BUILDING_UNAVAILABLE',
+  'VENUE_UNAVAILABLE',
   'SUPPLIER_VALIDATION_TIMEOUT',
   'INSUFFICIENT_CREDITS',
   'MISSING_BALANCE',
@@ -141,12 +145,15 @@ export const EDGES: Partial<
         'pickupLocation',
         'pickupDescription',
         'deliveryLocation',
+        'deliveryVenue',
+        'deliveryLatitude',
+        'deliveryLongitude',
       ],
     },
     // Nothing reserved yet, so nothing to release.
     Cancelled: cancel(
       sys,
-      ['SUPPLIER_UNAVAILABLE', 'BUILDING_UNAVAILABLE', 'SUPPLIER_VALIDATION_TIMEOUT'],
+      ['SUPPLIER_UNAVAILABLE', 'BUILDING_UNAVAILABLE', 'VENUE_UNAVAILABLE', 'SUPPLIER_VALIDATION_TIMEOUT'],
       null,
     ),
   },

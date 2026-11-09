@@ -206,6 +206,18 @@ are for the order-service owner to confirm.
   today. Admin endpoints to create, update and retire venues are tracked in
   #822 and deferred until time allows.
 
+## Amendment (2026-11-06): building coordinates in the answer
+
+Order Service now gives the courier a coordinate pair for every errand, so a
+building-only errand needs a point to navigate to. The v1 answer changed in
+place again, in the shared contracts:
+
+- `FOUND`'s `deliveryBuilding` gains a required `coordinates` (`latitude`,
+  `longitude`), the building's own point. Supplier Service and Order Service
+  change together in one PR, so it is required at once rather than made
+  temporarily optional as in PR #759.
+- A pin never reaches Supplier Service, so nothing else changes.
+
 ## Who does what
 
 | Order Service | Supplier Service |

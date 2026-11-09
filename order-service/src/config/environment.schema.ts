@@ -70,6 +70,9 @@ export const environmentSchema = Joi.object({
   SUPPLIER_RETRY_BASE_MS: Joi.number().integer().min(1).default(1_000),
   SUPPLIER_RETRY_MAX_MS: Joi.number().integer().min(Joi.ref('SUPPLIER_RETRY_BASE_MS')).default(300_000), // 5 min
   SUPPLIER_VALIDATION_HOLD_MS: Joi.number().integer().min(1).default(1_800_000), // 30 min
+
+  // GeoJSON campus boundary (data/json/campus-boundary.geojson), read once at boot.
+  CAMPUS_BOUNDARY_PATH: Joi.string().min(1).required(),
 })
   // The lease must outlast the confirm timeout, or a slow publish loses its claim.
   .custom((env, helpers) => {
