@@ -61,8 +61,10 @@ claiming one.
   re-registration that reconciles with PATCH, so it is ignored and falls through
   to the normal create path (a `409` if the pair is already present).
 
-The frontend re-subscribes in the service worker on `pushsubscriptionchange` and
-hands the new subscription (plus the old endpoint) to the app. The message only
+The frontend re-subscribes in the service worker on `pushsubscriptionchange` —
+reusing the user agent's own replacement (`newSubscription`) when it exists and
+was made under the current VAPID key, and re-subscribing otherwise — and hands
+the new subscription (plus the old endpoint) to the app. The message only
 reaches page clients that are open, so the worker also persists the old endpoint
 in IndexedDB; when the next page loads with no faster path having consumed it,
 `PushRegistrationSync` sends it alongside the current subscription and the

@@ -72,6 +72,18 @@ function urlBase64ToUint8Array(base64String) {
   return output;
 }
 
+// Comparing the server's VAPID public key with the one a subscription was
+// created under. Both sides are raw uncompressed P-256 points.
+function sameKeyBytes(subscriptionKey, serverKey) {
+  if (!subscriptionKey) return false;
+  const a = new Uint8Array(subscriptionKey);
+  if (a.length !== serverKey.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== serverKey[i]) return false;
+  }
+  return true;
+}
+
 self.addEventListener('pushsubscriptionchange', (event) => {
   void event.waitUntil(
     (async () => {
@@ -83,17 +95,49 @@ self.addEventListener('pushsubscriptionchange', (event) => {
       }
 
       try {
+        // Prefer the replacement the user agent already created. Subscribing
+        // again would either return it (a wasted call) or — when the server's
+        // VAPID key has rotated since it was made — reject with
+        // InvalidStateError and lose the rotation.
+        let subscription = event.newSubscription ?? null;
+
         const keyResponse = await fetch(
           '/api/notifications/subscriptions/vapid-public-key',
           { credentials: 'same-origin' },
         );
-        if (!keyResponse.ok) return;
-        const { publicKey } = await keyResponse.json();
+        const serverKey = keyResponse.ok
+          ? urlBase64ToUint8Array((await keyResponse.json()).publicKey)
+          : null;
 
-        const subscription = await self.registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(publicKey),
-        });
+        // The user agent creates its replacement with the options the old
+        // subscription was made under, so after a server-side key rotation it
+        // is bound to the retired key and the push service rejects our sends.
+        // Re-subscribe under the current key when that is the case.
+        const keyMatches =
+          subscription !== null &&
+          serverKey !== null &&
+          sameKeyBytes(subscription.options.applicationServerKey, serverKey);
+
+        if (subscription === null) {
+          // The user agent made no replacement (expired or revoked): only a
+          // fresh subscribe can produce one, and that needs the server key.
+          if (serverKey === null) return;
+          subscription = await self.registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: serverKey,
+          });
+        } else if (!keyMatches && serverKey !== null) {
+          // The replacement is bound to a retired key; a live subscription
+          // made under another key makes subscribe() reject, so release it
+          // first.
+          await subscription.unsubscribe();
+          subscription = await self.registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: serverKey,
+          });
+        }
+        // If the key fetch failed we keep the user agent's replacement as-is:
+        // the endpoint still changed, which the server needs to know.
 
         const clients = await self.clients.matchAll();
         for (const client of clients) {
