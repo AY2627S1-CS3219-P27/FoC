@@ -64,6 +64,11 @@ function accountLockKey(uuid: string): number {
   );
 }
 
+/** Set equality for role lists, which the set-replace path keeps canonical. */
+function sameRoles(a: Role[], b: Role[]): boolean {
+  return a.length === b.length && a.every((role) => b.includes(role));
+}
+
 /**
  * Advisory-lock key that serialises admin-privilege changes within the
  * user-service database. Arbitrary but fixed; the user-service owns its own
@@ -326,59 +331,74 @@ export class UsersService {
    *
    * The acting user's access token is forwarded to order-service, which
    * enforces "admin or self" on the role-block endpoints.
+   *
+   * Runs in one transaction behind a per-account advisory lock, so the
+   * in-use check, the block calls and the save all see one consistent role
+   * set and a concurrent update cannot clobber this one.
    */
   async updateRoles(
     uuid: string,
     roles: Role[],
     accessToken: string,
   ): Promise<PublicUserInfo> {
-    let user: User;
-    try {
-      user = await this.userRepository.findOneByOrFail({ uuid });
-    } catch (error) {
-      if (error instanceof EntityNotFoundError) {
-        throw new UnauthorizedException();
+    const saved = await this.dataSource.transaction(async (manager) => {
+      // Serialise concurrent role updates for this account. Without it, two
+      // requests can both read the same role set, each check/block a
+      // different diff, and the last save silently wins — leaving a held role
+      // blocked, or dropping a role without its in-use check.
+      await manager.query('SELECT pg_advisory_xact_lock($1::bigint)', [
+        accountLockKey(uuid),
+      ]);
+
+      let user: User;
+      try {
+        user = await manager.findOneByOrFail(User, { uuid });
+      } catch (error) {
+        if (error instanceof EntityNotFoundError) {
+          throw new UnauthorizedException();
+        }
+        throw error;
       }
-      throw error;
-    }
 
-    const roleList = Object.values(Role);
-    // incoming role list doesn't have role that user has => role got removed
-    const rolesToRemove: Role[] = roleList.filter(
-      (role) => user.roles.includes(role) && !roles.includes(role),
-    );
-    // conversely, incoming role list has role that user doesn't have => role got added
-    const rolesToAdd: Role[] = roleList.filter(
-      (role) => !user.roles.includes(role) && roles.includes(role),
-    );
+      const roleList = Object.values(Role);
+      // incoming role list doesn't have role that user has => role got removed
+      const rolesToRemove: Role[] = roleList.filter(
+        (role) => user.roles.includes(role) && !roles.includes(role),
+      );
+      // conversely, incoming role list has role that user doesn't have => role got added
+      const rolesToAdd: Role[] = roleList.filter(
+        (role) => !user.roles.includes(role) && roles.includes(role),
+      );
 
-    let saved: User;
-    let removalBlockPlaced = false;
-    try {
-      await this.tryRemoveRoles(user, rolesToRemove, accessToken);
-      removalBlockPlaced = rolesToRemove.length > 0;
-      await this.addRoles(user, rolesToAdd, accessToken);
+      let removalBlockPlaced = false;
+      try {
+        await this.tryRemoveRoles(user, rolesToRemove, accessToken);
+        removalBlockPlaced = rolesToRemove.length > 0;
+        await this.addRoles(user, rolesToAdd, accessToken);
 
-      // Set-replace: the stored roles are exactly the requested set, in the
-      // enum's canonical order, so duplicate and out-of-order input never
-      // survives. The order-service calls above only gate the change.
-      user.roles = roleList.filter((role) => roles.includes(role));
+        // Set-replace: the stored roles are exactly the requested set, in the
+        // enum's canonical order, so duplicate and out-of-order input never
+        // survives. The order-service calls above only gate the change.
+        user.roles = roleList.filter((role) => roles.includes(role));
 
-      saved = await this.userRepository.save(user);
-    } catch (error) {
-      // A block was placed for the roles leaving the account, but the change
-      // did not commit (a failed save, a rejected re-addition unblock, ...).
-      // Lift it, or the kept role stays unusable until the block TTL expires.
-      // Best effort: a missed compensation still expires on its own.
-      if (removalBlockPlaced) {
-        await this.orderServiceClient.unblockRoles(
-          user.uuid,
-          rolesToRemove,
-          accessToken,
-        );
+        await manager.save(user);
+      } catch (error) {
+        // A block was placed for the roles leaving the account, but the change
+        // did not commit (a failed save, a rejected re-addition unblock, ...).
+        // Lift it, or the kept role stays unusable until the block TTL expires.
+        // Best effort: a missed compensation still expires on its own.
+        if (removalBlockPlaced) {
+          await this.orderServiceClient.unblockRoles(
+            user.uuid,
+            rolesToRemove,
+            accessToken,
+          );
+        }
+        throw error;
       }
-      throw error;
-    }
+
+      return user;
+    });
 
     return this.getPublicUserInfo(saved);
   }
@@ -498,14 +518,13 @@ export class UsersService {
     // across network I/O. The transaction re-reads the row and stays
     // authoritative for the change itself.
     const existing = await this.userRepository.findOneBy({ uuid: targetUuid });
+    const archiving =
+      existing != null && fields.isArchived === true && !existing.isArchived;
+    const expectedRoles = existing?.roles ?? [];
     let blockedRoles: Role[] = [];
-    if (
-      existing != null &&
-      fields.isArchived === true &&
-      !existing.isArchived
-    ) {
+    if (existing != null && archiving && expectedRoles.length > 0) {
       await this.blockErrands(existing, accessToken);
-      blockedRoles = existing.roles;
+      blockedRoles = expectedRoles;
     }
 
     let demoted;
@@ -516,12 +535,25 @@ export class UsersService {
         await manager.query('SELECT pg_advisory_xact_lock($1::bigint)', [
           ADMIN_MUTATION_LOCK_KEY,
         ]);
+        // Order: admin lock, then the account lock shared with updateRoles,
+        // so an archive cannot interleave with a concurrent role change.
+        await manager.query('SELECT pg_advisory_xact_lock($1::bigint)', [
+          accountLockKey(targetUuid),
+        ]);
 
         await this.checkIsAdmin(manager, actorUuid);
 
         const target = await manager.findOneBy(User, { uuid: targetUuid });
         if (target === null) {
           throw new NotFoundException('User not found');
+        }
+
+        // The block above covers the roles read before the transaction. If
+        // they moved since, archiving would leave a held role unblocked.
+        if (archiving && !sameRoles(expectedRoles, target.roles)) {
+          throw new ConflictException(
+            'Account roles changed concurrently; retry the archive.',
+          );
         }
 
         // Audit record of changes
@@ -608,10 +640,12 @@ export class UsersService {
     // up to the client's timeout, and the advisory lock must not be held
     // across network I/O.
     const existing = await this.userRepository.findOneBy({ uuid });
+    const archiving = existing != null && !existing.isArchived;
+    const expectedRoles = existing?.roles ?? [];
     let blockedRoles: Role[] = [];
-    if (existing != null && !existing.isArchived) {
+    if (existing != null && archiving && expectedRoles.length > 0) {
       await this.blockErrands(existing, accessToken);
-      blockedRoles = existing.roles;
+      blockedRoles = expectedRoles;
     }
 
     try {
@@ -619,10 +653,23 @@ export class UsersService {
         await manager.query('SELECT pg_advisory_xact_lock($1::bigint)', [
           ADMIN_MUTATION_LOCK_KEY,
         ]);
+        // Order: admin lock, then the account lock shared with updateRoles,
+        // so an archive cannot interleave with a concurrent role change.
+        await manager.query('SELECT pg_advisory_xact_lock($1::bigint)', [
+          accountLockKey(uuid),
+        ]);
 
         const user = await manager.findOneBy(User, { uuid });
         if (user === null) {
           throw new UnauthorizedException();
+        }
+
+        // The block above covers the roles read before the transaction. If
+        // they moved since, archiving would leave a held role unblocked.
+        if (archiving && !sameRoles(expectedRoles, user.roles)) {
+          throw new ConflictException(
+            'Account roles changed concurrently; retry the archive.',
+          );
         }
 
         const archiveChange = await this.applyArchiveChange(

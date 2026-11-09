@@ -93,6 +93,7 @@ describe('UsersService', () => {
     manager = {
       query: vi.fn(async () => undefined),
       findOneBy: vi.fn(),
+      findOneByOrFail: vi.fn(),
       count: vi.fn(),
       save: vi.fn(async (_entity, data) => data),
       create: vi.fn((_entity, data) => data),
@@ -676,10 +677,10 @@ describe('UsersService', () => {
         ...registeredUser,
         roles: [Role.Courier],
       };
-      userRepository.findOneByOrFail.mockResolvedValue(storedUser);
+      manager.findOneByOrFail.mockResolvedValue(storedUser);
       // The save mock stamps a uuid back onto the row; assign an explicit
       // post-save roles value to model a real subsequent read.
-      userRepository.save.mockImplementation(async (row) => ({
+      manager.save.mockImplementation(async (row) => ({
         ...row,
         uuid: FIXED_UUID,
       }));
@@ -699,10 +700,10 @@ describe('UsersService', () => {
         isAdmin: false,
       });
 
-      expect(userRepository.findOneByOrFail).toHaveBeenCalledWith({
+      expect(manager.findOneByOrFail).toHaveBeenCalledWith(User, {
         uuid: FIXED_UUID,
       });
-      expect(userRepository.save).toHaveBeenCalledWith(
+      expect(manager.save).toHaveBeenCalledWith(
         expect.objectContaining({
           uuid: FIXED_UUID,
           roles: [Role.Requester, Role.Courier],
@@ -710,8 +711,28 @@ describe('UsersService', () => {
       );
     });
 
+    it('takes the per-account lock before reading the roles', async () => {
+      manager.findOneByOrFail.mockResolvedValue({
+        ...registeredUser,
+        roles: [Role.Courier],
+      });
+
+      await service.updateRoles(FIXED_UUID, [Role.Courier], ACCESS_TOKEN);
+
+      // Serializable per account: two concurrent updates must not both read
+      // the same role set and clobber each other on save.
+      expect(manager.query).toHaveBeenCalledWith(
+        'SELECT pg_advisory_xact_lock($1::bigint)',
+        [expect.any(Number)],
+      );
+      expect(manager.query.mock.invocationCallOrder[0]).toBeLessThan(
+        manager.findOneByOrFail.mock.invocationCallOrder[0],
+      );
+      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+    });
+
     it('normalises duplicate roles to a set', async () => {
-      userRepository.findOneByOrFail.mockResolvedValue({
+      manager.findOneByOrFail.mockResolvedValue({
         ...registeredUser,
         roles: [],
       });
@@ -726,7 +747,7 @@ describe('UsersService', () => {
     });
 
     it('allows opting out of every role', async () => {
-      userRepository.findOneByOrFail.mockResolvedValue({
+      manager.findOneByOrFail.mockResolvedValue({
         ...registeredUser,
         roles: [Role.Requester],
       });
@@ -739,7 +760,7 @@ describe('UsersService', () => {
     });
 
     it('rejects a user id with no matching account', async () => {
-      userRepository.findOneByOrFail.mockRejectedValue(
+      manager.findOneByOrFail.mockRejectedValue(
         new EntityNotFoundError(User, { uuid: FIXED_UUID }),
       );
 
@@ -749,7 +770,7 @@ describe('UsersService', () => {
     });
 
     it('lets non-entity look-up failures propagate', async () => {
-      userRepository.findOneByOrFail.mockRejectedValue(new Error('db down'));
+      manager.findOneByOrFail.mockRejectedValue(new Error('db down'));
 
       await expect(
         service.updateRoles(FIXED_UUID, [Role.Requester], ACCESS_TOKEN),
@@ -757,7 +778,7 @@ describe('UsersService', () => {
     });
 
     it('blocks every removed role with the acting token before dropping them', async () => {
-      userRepository.findOneByOrFail.mockResolvedValue({
+      manager.findOneByOrFail.mockResolvedValue({
         ...registeredUser,
         roles: [Role.Requester, Role.Courier],
       });
@@ -778,7 +799,7 @@ describe('UsersService', () => {
     });
 
     it('keeps every role when order-service reports one in use', async () => {
-      userRepository.findOneByOrFail.mockResolvedValue({
+      manager.findOneByOrFail.mockResolvedValue({
         ...registeredUser,
         roles: [Role.Requester, Role.Courier],
       });
@@ -794,18 +815,18 @@ describe('UsersService', () => {
         ACCESS_TOKEN,
       );
       // The role change is rejected outright: nothing is written.
-      expect(userRepository.save).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
       // A 409 means order-service blocked nothing, so there is nothing to
       // compensate.
       expect(orderServiceClient.unblockRoles).not.toHaveBeenCalled();
     });
 
     it('lifts the removal block when the save fails', async () => {
-      userRepository.findOneByOrFail.mockResolvedValue({
+      manager.findOneByOrFail.mockResolvedValue({
         ...registeredUser,
         roles: [Role.Requester, Role.Courier],
       });
-      userRepository.save.mockRejectedValue(new Error('db down'));
+      manager.save.mockRejectedValue(new Error('db down'));
 
       await expect(
         service.updateRoles(FIXED_UUID, [Role.Courier], ACCESS_TOKEN),
@@ -827,7 +848,7 @@ describe('UsersService', () => {
     });
 
     it('fails the change when a re-added role cannot be unblocked', async () => {
-      userRepository.findOneByOrFail.mockResolvedValue({
+      manager.findOneByOrFail.mockResolvedValue({
         ...registeredUser,
         roles: [],
       });
@@ -839,11 +860,11 @@ describe('UsersService', () => {
 
       // The unblock runs before the save, so the retry can re-attempt it with
       // nothing half-written.
-      expect(userRepository.save).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
     });
 
     it('lifts the removal block when a re-added role cannot be unblocked', async () => {
-      userRepository.findOneByOrFail.mockResolvedValue({
+      manager.findOneByOrFail.mockResolvedValue({
         ...registeredUser,
         roles: [Role.Requester],
       });
@@ -855,7 +876,7 @@ describe('UsersService', () => {
         service.updateRoles(FIXED_UUID, [Role.Courier], ACCESS_TOKEN),
       ).rejects.toThrow(BadGatewayException);
 
-      expect(userRepository.save).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
       expect(orderServiceClient.unblockRoles).toHaveBeenNthCalledWith(
         1,
         FIXED_UUID,
@@ -871,7 +892,7 @@ describe('UsersService', () => {
     });
 
     it('lifts any block on the roles being added', async () => {
-      userRepository.findOneByOrFail.mockResolvedValue({
+      manager.findOneByOrFail.mockResolvedValue({
         ...registeredUser,
         roles: [],
       });
@@ -890,7 +911,7 @@ describe('UsersService', () => {
     });
 
     it('makes no order-service call when the role set does not change', async () => {
-      userRepository.findOneByOrFail.mockResolvedValue({
+      manager.findOneByOrFail.mockResolvedValue({
         ...registeredUser,
         roles: [Role.Courier],
       });
@@ -1244,7 +1265,7 @@ describe('UsersService', () => {
       });
       manager.findOneBy
         .mockResolvedValueOnce(adminActor)
-        .mockResolvedValueOnce({ ...targetUser });
+        .mockResolvedValueOnce({ ...targetUser, roles: [Role.Requester] });
 
       await expect(
         service.adminUpdateUser(
@@ -1253,7 +1274,11 @@ describe('UsersService', () => {
           { isArchived: true },
           ACCESS_TOKEN,
         ),
-      ).resolves.toEqual({ ...targetUser, isArchived: true });
+      ).resolves.toEqual({
+        ...targetUser,
+        roles: [Role.Requester],
+        isArchived: true,
+      });
 
       expect(manager.save).toHaveBeenCalledWith(
         expect.objectContaining({ uuid: TARGET_UUID, isArchived: true }),
@@ -1272,7 +1297,10 @@ describe('UsersService', () => {
       });
       manager.findOneBy
         .mockResolvedValueOnce(adminActor)
-        .mockResolvedValueOnce({ ...targetUser });
+        .mockResolvedValueOnce({
+          ...targetUser,
+          roles: [Role.Requester, Role.Courier],
+        });
 
       await service.adminUpdateUser(
         ACTOR_UUID,
@@ -1292,6 +1320,36 @@ describe('UsersService', () => {
       expect(
         orderServiceClient.blockRoles.mock.invocationCallOrder[0],
       ).toBeLessThan(dataSource.transaction.mock.invocationCallOrder[0]);
+    });
+
+    it('rejects the archive when the target roles change after the block is placed', async () => {
+      userRepository.findOneBy.mockResolvedValue({
+        ...targetUser,
+        roles: [Role.Requester],
+      });
+      // A concurrent role update lands between the pre-read and the
+      // transaction.
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser, roles: [Role.Courier] });
+
+      await expect(
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { isArchived: true },
+          ACCESS_TOKEN,
+        ),
+      ).rejects.toThrow(ConflictException);
+
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(manager.create).not.toHaveBeenCalled();
+      // The account was not archived, so the block is lifted again.
+      expect(orderServiceClient.unblockRoles).toHaveBeenCalledWith(
+        TARGET_UUID,
+        [Role.Requester],
+        ACCESS_TOKEN,
+      );
     });
 
     it('refuses the archive when order-service reports a role in use', async () => {
@@ -1454,7 +1512,11 @@ describe('UsersService', () => {
       });
       manager.findOneBy
         .mockResolvedValueOnce(adminActor)
-        .mockResolvedValueOnce({ ...targetUser, isAdmin: true });
+        .mockResolvedValueOnce({
+          ...targetUser,
+          roles: [Role.Requester],
+          isAdmin: true,
+        });
       manager.count.mockResolvedValue(0);
 
       await expect(
@@ -1770,12 +1832,16 @@ describe('UsersService', () => {
         ...selfUser,
         roles: [Role.Requester],
       });
-      manager.findOneBy.mockResolvedValueOnce({ ...selfUser });
+      manager.findOneBy.mockResolvedValueOnce({
+        ...selfUser,
+        roles: [Role.Requester],
+      });
 
       await expect(
         service.archiveSelf(FIXED_UUID, ACCESS_TOKEN),
       ).resolves.toEqual({
         ...selfUser,
+        roles: [Role.Requester],
         isArchived: true,
       });
 
@@ -1792,7 +1858,10 @@ describe('UsersService', () => {
         ...selfUser,
         roles: [Role.Requester, Role.Courier],
       });
-      manager.findOneBy.mockResolvedValueOnce({ ...selfUser });
+      manager.findOneBy.mockResolvedValueOnce({
+        ...selfUser,
+        roles: [Role.Requester, Role.Courier],
+      });
 
       await service.archiveSelf(FIXED_UUID, ACCESS_TOKEN);
 
@@ -1852,7 +1921,10 @@ describe('UsersService', () => {
         ...selfUser,
         roles: [Role.Requester],
       });
-      manager.findOneBy.mockResolvedValueOnce({ ...selfUser });
+      manager.findOneBy.mockResolvedValueOnce({
+        ...selfUser,
+        roles: [Role.Requester],
+      });
 
       await service.archiveSelf(FIXED_UUID, ACCESS_TOKEN);
 
@@ -1901,6 +1973,7 @@ describe('UsersService', () => {
       manager.findOneBy.mockResolvedValueOnce({
         ...selfUser,
         isAdmin: true,
+        roles: [Role.Requester],
       });
       manager.count.mockResolvedValue(0);
 
@@ -1917,6 +1990,47 @@ describe('UsersService', () => {
       );
     });
 
+    it('rejects the archive when the roles change after the block is placed', async () => {
+      userRepository.findOneBy.mockResolvedValue({
+        ...selfUser,
+        roles: [Role.Requester],
+      });
+      // Another request changed the account between the pre-read and the
+      // transaction.
+      manager.findOneBy.mockResolvedValueOnce({
+        ...selfUser,
+        roles: [Role.Courier],
+      });
+
+      await expect(
+        service.archiveSelf(FIXED_UUID, ACCESS_TOKEN),
+      ).rejects.toThrow(ConflictException);
+
+      expect(manager.save).not.toHaveBeenCalled();
+      // The account was not archived, so the block is lifted again.
+      expect(orderServiceClient.unblockRoles).toHaveBeenCalledWith(
+        FIXED_UUID,
+        [Role.Requester],
+        ACCESS_TOKEN,
+      );
+    });
+
+    it('rejects the archive when a role is added after the pre-read', async () => {
+      // The account started with no roles, so nothing was blocked, but a
+      // concurrent update added one — archiving now would leave it unguarded.
+      userRepository.findOneBy.mockResolvedValue({ ...selfUser, roles: [] });
+      manager.findOneBy.mockResolvedValueOnce({
+        ...selfUser,
+        roles: [Role.Requester],
+      });
+
+      await expect(
+        service.archiveSelf(FIXED_UUID, ACCESS_TOKEN),
+      ).rejects.toThrow(ConflictException);
+
+      expect(manager.save).not.toHaveBeenCalled();
+    });
+
     it('takes the advisory lock before counting admins, serialising the check', async () => {
       userRepository.findOneBy.mockResolvedValue({
         ...selfUser,
@@ -1926,11 +2040,14 @@ describe('UsersService', () => {
       manager.findOneBy.mockResolvedValueOnce({
         ...selfUser,
         isAdmin: true,
+        roles: [Role.Requester],
       });
       manager.count.mockResolvedValue(2);
 
       await service.archiveSelf(FIXED_UUID, ACCESS_TOKEN);
 
+      // Global admin lock, then the per-account lock shared with updateRoles.
+      expect(manager.query).toHaveBeenCalledTimes(2);
       expect(manager.query).toHaveBeenCalledWith(
         'SELECT pg_advisory_xact_lock($1::bigint)',
         [expect.any(Number)],
