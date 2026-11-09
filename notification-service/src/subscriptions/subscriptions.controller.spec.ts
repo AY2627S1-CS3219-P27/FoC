@@ -283,18 +283,18 @@ describe('SubscriptionsController', () => {
     expect(createWebPush).not.toHaveBeenCalled();
   });
 
-  it('passes the previous endpoint through on rotation', async () => {
-    const previousEndpoint = 'https://push.example.com/prev';
+  it('passes the previous endpoints through on rotation', async () => {
+    const previousEndpoints = ['https://push.example.com/prev'];
 
     await request(app.getHttpServer())
       .post('/v1/subscriptions/web')
       .set('Authorization', `Bearer ${await accessToken()}`)
-      .send({ ...body, previousEndpoint })
+      .send({ ...body, previousEndpoints })
       .expect(201);
 
     expect(createWebPush).toHaveBeenCalledWith(userId, {
       ...body,
-      previousEndpoint,
+      previousEndpoints,
     });
   });
 
@@ -302,22 +302,22 @@ describe('SubscriptionsController', () => {
     await request(app.getHttpServer())
       .post('/v1/subscriptions/web')
       .set('Authorization', `Bearer ${await accessToken()}`)
-      .send({ ...body, previousEndpoint: 'http://example.com/push' })
+      .send({ ...body, previousEndpoints: ['http://example.com/push'] })
       .expect(400);
 
     expect(createWebPush).not.toHaveBeenCalled();
   });
 
-  it('accepts an explicit null previous endpoint on a plain create', async () => {
+  it('accepts an explicit null previous endpoints list on a plain create', async () => {
     await request(app.getHttpServer())
       .post('/v1/subscriptions/web')
       .set('Authorization', `Bearer ${await accessToken()}`)
-      .send({ ...body, previousEndpoint: null })
+      .send({ ...body, previousEndpoints: null })
       .expect(201);
 
     expect(createWebPush).toHaveBeenCalledWith(userId, {
       ...body,
-      previousEndpoint: null,
+      previousEndpoints: null,
     });
   });
 

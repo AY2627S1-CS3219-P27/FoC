@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   IsIn,
   IsInt,
   IsNotEmpty,
@@ -63,15 +64,17 @@ export class RegisterWebPushSubscriptionDto {
 
   @ApiPropertyOptional({
     description:
-      'The previous endpoint this browser held, when the push service rotated the subscription (pushsubscriptionchange). Presenting it lets the service deactivate the old row and insert the new one atomically, in one transaction.',
-    example: EXAMPLE_ENDPOINT,
+      'The previous endpoints this browser held, when the push service rotated its subscription (pushsubscriptionchange; one entry per rotation that was not yet acknowledged). Presenting them lets the service deactivate every stale row and store the new endpoint atomically, in one transaction.',
+    example: [EXAMPLE_ENDPOINT],
     nullable: true,
+    isArray: true,
     maxLength: 2048,
   })
   @IsOptional()
-  @IsUrl({ protocols: ['https'], require_protocol: true })
-  @MaxLength(2048)
-  previousEndpoint?: string;
+  @ArrayMaxSize(10)
+  @IsUrl({ protocols: ['https'], require_protocol: true }, { each: true })
+  @MaxLength(2048, { each: true })
+  previousEndpoints?: string[];
 
   @ApiProperty({ type: WebPushKeysDto })
   @ValidateNested()

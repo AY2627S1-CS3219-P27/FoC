@@ -49,8 +49,12 @@ function repositoryMock() {
     manager: {
       transaction: vi.fn(
         async (
-          run: (manager: { getRepository: () => unknown }) => Promise<unknown>,
-        ) => run({ getRepository: () => repository }),
+          run: (manager: { getRepository: () => unknown; withRepository: () => unknown }) => Promise<unknown>,
+        ) =>
+          run({
+            getRepository: () => repository,
+            withRepository: () => repository,
+          }),
       ),
     },
   };
@@ -181,14 +185,33 @@ describe('SubscriptionsService', () => {
       const repository = repositoryMock();
       const newEndpoint = 'https://push.example.com/next';
       const previousEndpoint = 'https://push.example.com/prev';
+      repository.findOne.mockResolvedValue(null);
 
       const subscription = await serviceWith(repository).createWebPush(
         userId,
-        newInput({ endpoint: newEndpoint, previousEndpoint }),
+        newInput({
+          endpoint: newEndpoint,
+          previousEndpoints: [previousEndpoint],
+        }),
       );
 
-      expect(repository.update).toHaveBeenCalledWith(
+      expect(repository.findOne).toHaveBeenCalledWith({
+        where: { userId, endpoint: newEndpoint },
+      });
+      // The stale row is deactivated before the new endpoint is stored.
+      expect(repository.update).toHaveBeenNthCalledWith(
+        1,
         { userId, endpoint: previousEndpoint, status: SubscriptionStatus.Active },
+        {
+          status: SubscriptionStatus.Inactive,
+          deactivatedAt: expect.any(Date),
+        },
+      );
+      // No row of the caller's exists for the new endpoint, so another
+      // account's active row is taken over inside the same transaction.
+      expect(repository.update).toHaveBeenNthCalledWith(
+        2,
+        { endpoint: newEndpoint, status: SubscriptionStatus.Active },
         {
           status: SubscriptionStatus.Inactive,
           deactivatedAt: expect.any(Date),
@@ -207,27 +230,167 @@ describe('SubscriptionsService', () => {
       expect(subscription.endpoint).toBe(newEndpoint);
     });
 
+    it('deactivates every stale endpoint the rotation presents', async () => {
+      const repository = repositoryMock();
+      const newEndpoint = 'https://push.example.com/next';
+      repository.findOne.mockResolvedValue(null);
+
+      await serviceWith(repository).createWebPush(
+        userId,
+        newInput({
+          endpoint: newEndpoint,
+          previousEndpoints: [
+            'https://push.example.com/prev-1',
+            'https://push.example.com/prev-2',
+          ],
+        }),
+      );
+
+      expect(repository.update).toHaveBeenNthCalledWith(
+        1,
+        {
+          userId,
+          endpoint: 'https://push.example.com/prev-1',
+          status: SubscriptionStatus.Active,
+        },
+        {
+          status: SubscriptionStatus.Inactive,
+          deactivatedAt: expect.any(Date),
+        },
+      );
+      expect(repository.update).toHaveBeenNthCalledWith(
+        2,
+        {
+          userId,
+          endpoint: 'https://push.example.com/prev-2',
+          status: SubscriptionStatus.Active,
+        },
+        {
+          status: SubscriptionStatus.Inactive,
+          deactivatedAt: expect.any(Date),
+        },
+      );
+    });
+
+    it('reactivates the caller’s own row for the new endpoint instead of conflicting', async () => {
+      const repository = repositoryMock();
+      const newEndpoint = 'https://push.example.com/next';
+      const previousEndpoint = 'https://push.example.com/prev';
+      const mine = existingRow({
+        endpoint: newEndpoint,
+        status: SubscriptionStatus.Inactive,
+        deactivatedAt: new Date('2026-01-01T00:00:00.000Z'),
+      });
+      repository.findOne.mockResolvedValue(mine);
+
+      const subscription = await serviceWith(repository).createWebPush(
+        userId,
+        newInput({
+          endpoint: newEndpoint,
+          previousEndpoints: [previousEndpoint],
+        }),
+      );
+
+      // The stale endpoint is still deactivated…
+      expect(repository.update).toHaveBeenCalledWith(
+        { userId, endpoint: previousEndpoint, status: SubscriptionStatus.Active },
+        {
+          status: SubscriptionStatus.Inactive,
+          deactivatedAt: expect.any(Date),
+        },
+      );
+      // …and the caller's own row is refreshed, not rejected: a conflict would
+      // push the client onto PATCH, which cannot rotate the stale row away.
+      expect(repository.update).toHaveBeenCalledTimes(1);
+      expect(repository.create).not.toHaveBeenCalled();
+      expect(repository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          endpoint: newEndpoint,
+          status: SubscriptionStatus.Active,
+          deactivatedAt: null,
+          credentials: { p256dh: 'p256dh-value', auth: 'auth-value' },
+        }),
+      );
+      expect(subscription.status).toBe(SubscriptionStatus.Active);
+    });
+
+    it('retries the rotation when a concurrent registration wins the first insert', async () => {
+      const repository = repositoryMock();
+      const newEndpoint = 'https://push.example.com/next';
+      const previousEndpoint = 'https://push.example.com/prev';
+      const mine = existingRow({ endpoint: newEndpoint });
+      repository.save.mockRejectedValueOnce(duplicateKey());
+      repository.findOne
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue(mine);
+
+      const subscription = await serviceWith(repository).createWebPush(
+        userId,
+        newInput({
+          endpoint: newEndpoint,
+          previousEndpoints: [previousEndpoint],
+        }),
+      );
+
+      // The failed insert aborted the first transaction; the retry sees the
+      // committed row and reactivates it instead of inserting a duplicate.
+      expect(repository.create).toHaveBeenCalledTimes(1);
+      expect(subscription.endpoint).toBe(newEndpoint);
+      expect(subscription.status).toBe(SubscriptionStatus.Active);
+    });
+
+    it('maps a lost rotation race to a conflict after the retry budget', async () => {
+      const repository = repositoryMock();
+      const previousEndpoint = 'https://push.example.com/prev';
+      repository.save.mockRejectedValue(duplicateKey());
+      repository.findOne.mockResolvedValue(null);
+
+      await expect(
+        serviceWith(repository).createWebPush(
+          userId,
+          newInput({ previousEndpoints: [previousEndpoint] }),
+        ),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(repository.save).toHaveBeenCalledTimes(3);
+    });
+
+    it('rethrows persistence errors that are not rotation races', async () => {
+      const repository = repositoryMock();
+      const previousEndpoint = 'https://push.example.com/prev';
+      repository.save.mockRejectedValue(new Error('connection lost'));
+      repository.findOne.mockResolvedValue(null);
+
+      await expect(
+        serviceWith(repository).createWebPush(
+          userId,
+          newInput({ previousEndpoints: [previousEndpoint] }),
+        ),
+      ).rejects.toThrow('connection lost');
+    });
+
     it('treats a previous endpoint equal to the new one as a re-registration', async () => {
       const repository = repositoryMock();
 
       const subscription = await serviceWith(repository).createWebPush(
         userId,
-        newInput({ previousEndpoint: input.endpoint }),
+        newInput({ previousEndpoints: [input.endpoint] }),
       );
 
+      // Filtered out before the rotation path: the normal insert path runs,
+      // and an already-present pair stays a 409 for the client's PATCH.
       expect(repository.update).not.toHaveBeenCalled();
       expect(repository.findOne).not.toHaveBeenCalled();
       expect(subscription.status).toBe(SubscriptionStatus.Active);
     });
 
-    it('treats an explicit null previous endpoint as absent', async () => {
+    it('treats an explicit null previous endpoints list as absent', async () => {
       const repository = repositoryMock();
 
       const subscription = await serviceWith(repository).createWebPush(userId, {
         endpoint,
         keys: { p256dh: 'p256dh-value', auth: 'auth-value' },
         expirationTime: null,
-        previousEndpoint: null,
+        previousEndpoints: null,
       } as unknown as RegisterWebPushSubscriptionDto);
 
       // No rotation: the normal insert path runs and never builds a where
@@ -235,53 +398,6 @@ describe('SubscriptionsService', () => {
       expect(repository.update).not.toHaveBeenCalled();
       expect(repository.findOne).not.toHaveBeenCalled();
       expect(subscription.status).toBe(SubscriptionStatus.Active);
-    });
-
-    it('takes over a new endpoint from another account while rotating the previous one', async () => {
-      const repository = repositoryMock();
-      const newEndpoint = 'https://push.example.com/next';
-      const previousEndpoint = 'https://push.example.com/prev';
-      repository.save.mockRejectedValueOnce(duplicateKey());
-      repository.findOne.mockResolvedValueOnce(null);
-
-      const subscription = await serviceWith(repository).createWebPush(
-        userId,
-        newInput({ endpoint: newEndpoint, previousEndpoint }),
-      );
-
-      // The previous endpoint is deactivated before the takeover runs.
-      expect(repository.update).toHaveBeenNthCalledWith(
-        1,
-        { userId, endpoint: previousEndpoint, status: SubscriptionStatus.Active },
-        {
-          status: SubscriptionStatus.Inactive,
-          deactivatedAt: expect.any(Date),
-        },
-      );
-      // Then another account's active row for the new endpoint is deactivated.
-      expect(repository.update).toHaveBeenNthCalledWith(
-        2,
-        { endpoint: newEndpoint, status: SubscriptionStatus.Active },
-        {
-          status: SubscriptionStatus.Inactive,
-          deactivatedAt: expect.any(Date),
-        },
-      );
-      expect(subscription.status).toBe(SubscriptionStatus.Active);
-      expect(subscription.endpoint).toBe(newEndpoint);
-    });
-
-    it('maps a rotation takeover race to a conflict instead of a 500', async () => {
-      const repository = repositoryMock();
-      const previousEndpoint = 'https://push.example.com/prev';
-      repository.save
-        .mockRejectedValueOnce(duplicateKey())
-        .mockRejectedValueOnce(duplicateKey());
-      repository.findOne.mockResolvedValueOnce(null);
-
-      await expect(
-        serviceWith(repository).createWebPush(userId, newInput({ previousEndpoint })),
-      ).rejects.toBeInstanceOf(ConflictException);
     });
   });
 
