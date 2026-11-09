@@ -46,6 +46,10 @@ export interface Errand {
   /** Parties on an Incomplete errand only: the caller's own report, and whether the form is still open. */
   hasReported?: boolean;
   canReport?: boolean;
+  /** Incomplete errands: SYSTEM_FAILURE = credit rejected the payout (no dispute to report). */
+  cause?: "SYSTEM_FAILURE" | "REQUESTER_DISPUTE";
+  /** Admin views only: credit service's rejection reason when cause is SYSTEM_FAILURE. */
+  causeReason?: string | null;
 }
 
 /** Building snapshot plus the requester's room/level, for display. */
