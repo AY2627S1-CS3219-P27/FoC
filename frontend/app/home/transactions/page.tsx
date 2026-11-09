@@ -5,16 +5,21 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { authFetch, setSessionExpiredHandler } from "@/lib/api";
 import { CreditTransactionHistory } from "../_account/credit-transaction-history";
-
-interface AuthenticatedUser {
-  uuid: string;
-  displayName: string;
-}
+import { ADMIN_TABS, TAB_ORDER, type Tab, type UserProfile } from "../_shared/types";
+import { AppShell } from "../_shell/app-shell";
 
 export default function TransactionsPage() {
   const router = useRouter();
-  const [user, setUser] = useState<AuthenticatedUser | null>(null);
+  const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [signingOut, setSigningOut] = useState(false);
+
+  async function signOut() {
+    setSigningOut(true);
+    // Revoke the refresh token server-side; leave even if that fails.
+    await authFetch("/api/auth/sessions/current", { method: "DELETE" }).catch(() => null);
+    router.push("/login");
+  }
 
   useEffect(
     () => setSessionExpiredHandler(() => router.push("/login")),
@@ -27,7 +32,7 @@ export default function TransactionsPage() {
       void authFetch("/api/users/me")
         .then((response) => {
           if (!response.ok) throw new Error("Not authenticated");
-          return response.json() as Promise<AuthenticatedUser>;
+          return response.json() as Promise<UserProfile>;
         })
         .then((authenticatedUser) => {
           if (active) setUser(authenticatedUser);
@@ -58,47 +63,34 @@ export default function TransactionsPage() {
 
   if (!user) return null;
 
+  const tabs = TAB_ORDER.filter((t) => user.isAdmin || !ADMIN_TABS.includes(t));
+
   return (
-    <div className="flex min-h-full flex-col">
-      <header className="glass-heavy sticky top-0 z-40 text-white">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 py-3">
-          <div className="flex min-w-0 items-center gap-4">
-            <Link href="/home" className="text-xl font-bold tracking-tight">
-              FoC
-            </Link>
-            <Link
-              href="/home?tab=profile"
-              className="btn-press rounded-lg px-3 py-1.5 text-sm font-medium text-white/80 transition-colors hover:bg-white/10 hover:text-white"
-            >
-              Back to My Account
-            </Link>
-          </div>
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="hidden truncate text-sm text-white/80 sm:inline">
-              {user.displayName}
-            </span>
-            <Link
-              href="/login"
-              className="shrink-0 text-sm text-white/70 transition-colors hover:text-white"
-            >
-              Sign out
-            </Link>
-          </div>
-        </div>
-      </header>
+    <AppShell
+      tabs={tabs}
+      tab="profile"
+      onTab={(next: Tab) => router.push(`/home?tab=${next}`)}
+      user={user}
+      signingOut={signingOut}
+      onSignOut={() => void signOut()}
+    >
+      <Link
+        href="/home?tab=profile"
+        className="btn-press -ml-3 mt-3 inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-medium text-nus-orange transition-colors hover:bg-fill"
+      >
+        <span aria-hidden="true" className="mr-1.5 font-bold">&lt;</span>
+        Back to My Account
+      </Link>
 
-      <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-8">
-        <div className="mb-6">
-          <p className="text-sm font-medium text-nus-orange">My Account</p>
-          <h1 className="mt-1 text-3xl font-bold">Credit transactions</h1>
-          <p className="mt-2 text-sm text-muted">
-            Review every reservation, adjustment, transfer, and release involving
-            your account.
-          </p>
-        </div>
+      <div className="mt-4 mb-6">
+        <h1 className="text-3xl font-bold">Credit transactions</h1>
+        <p className="mt-2 text-sm text-muted">
+          Review every reservation, adjustment, transfer, and release involving
+          your account.
+        </p>
+      </div>
 
-        <CreditTransactionHistory userId={user.uuid} />
-      </main>
-    </div>
+      <CreditTransactionHistory userId={user.uuid} />
+    </AppShell>
   );
 }
