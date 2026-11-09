@@ -41,6 +41,8 @@ const seed = async (status: Status = 'Incomplete') => {
     status,
     supplierId: randomUUID(),
     deliveryLocation: 'COM2',
+    deliveryBuildingId: randomUUID(),
+    deliveryDetail: 'Level 3 04-02',
     rewardCredits: 5,
     collectionItems: 'bubble tea',
   };

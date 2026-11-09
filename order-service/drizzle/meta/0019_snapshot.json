@@ -1,5 +1,5 @@
 {
-  "id": "3d73f17d-e594-4054-8f2f-502b79ce3c53",
+  "id": "493e003f-ab85-48f1-bb35-e62a5254ac69",
   "prevId": "2d79b07f-4e08-45cb-802a-a1ee43a2525d",
   "version": "7",
   "dialect": "postgresql",
@@ -264,6 +264,30 @@
           "primaryKey": false,
           "notNull": false
         },
+        "delivery_venue_id": {
+          "name": "delivery_venue_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "delivery_latitude": {
+          "name": "delivery_latitude",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "delivery_longitude": {
+          "name": "delivery_longitude",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "delivery_venue": {
+          "name": "delivery_venue",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "reward_credits": {
           "name": "reward_credits",
           "type": "integer",
@@ -275,18 +299,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
-        },
-        "pending_supplier_id": {
-          "name": "pending_supplier_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "pending_delivery_building_id": {
-          "name": "pending_delivery_building_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
         },
         "expires_at": {
           "name": "expires_at",
@@ -478,7 +490,7 @@
       "checkConstraints": {
         "errands_cancellation_reason_valid": {
           "name": "errands_cancellation_reason_valid",
-          "value": "\"errands\".\"cancellation_reason\" IN ('SUPPLIER_UNAVAILABLE', 'BUILDING_UNAVAILABLE', 'SUPPLIER_VALIDATION_TIMEOUT', 'INSUFFICIENT_CREDITS', 'MISSING_BALANCE', 'CREDIT_TIMEOUT', 'ERRAND_EXPIRED', 'PICKUP_TIME_EXCEEDED', 'REQUESTER_CANCELLED')"
+          "value": "\"errands\".\"cancellation_reason\" IN ('SUPPLIER_UNAVAILABLE', 'BUILDING_UNAVAILABLE', 'VENUE_UNAVAILABLE', 'SUPPLIER_VALIDATION_TIMEOUT', 'INSUFFICIENT_CREDITS', 'MISSING_BALANCE', 'CREDIT_TIMEOUT', 'ERRAND_EXPIRED', 'PICKUP_TIME_EXCEEDED', 'REQUESTER_CANCELLED')"
         },
         "errands_settlement_amount_valid": {
           "name": "errands_settlement_amount_valid",
@@ -776,8 +788,7 @@
         "Cancelled",
         "Incomplete",
         "Settling-Credit",
-        "Resolved",
-        "Revalidating-Supplier"
+        "Resolved"
       ]
     }
   },

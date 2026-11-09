@@ -5,6 +5,7 @@ import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { signAccessToken, TEST_USER_ID, testKeys } from '../../test/access-token.js';
 import { configureHttp } from '../http/configure-http.js';
+import { CAMPUS_CONTAINS } from '../campus/campus.module.js';
 import { LifecycleService } from '../lifecycle/lifecycle.service.js';
 import { ErrandsModule } from './errands.module.js';
 import { ErrandsQueryService } from './errands.query.js';
@@ -30,6 +31,8 @@ describe('ErrandsController', () => {
     })
       .overrideProvider(LifecycleService)
       .useValue(lifecycle)
+      .overrideProvider(CAMPUS_CONTAINS)
+      .useValue((lat: number) => lat < 2)
       .overrideProvider(ErrandsQueryService)
       .useValue({})
       .compile();
@@ -90,6 +93,23 @@ describe('ErrandsController', () => {
       });
     });
 
+    it('passes a venue and an optional note through', async () => {
+      lifecycle.create.mockResolvedValue({ ok: true, errandId: 'e1' });
+      const venue = { ...validBody, deliveryVenueId: randomUUID(), deliveryDetail: undefined };
+      expect((await post(venue, await signAccessToken())).status).toBe(201);
+    });
+
+    it('accepts a pin inside the campus and rejects one outside', async () => {
+      lifecycle.create.mockResolvedValue({ ok: true, errandId: 'e1' });
+      const token = await signAccessToken();
+      const pin = (latitude: number) => ({ ...validBody, deliveryPin: { latitude, longitude: 103.77 } });
+      expect((await post(pin(1.3), token)).status).toBe(201);
+      lifecycle.create.mockClear();
+      expect((await post(pin(5), token)).status).toBe(400);
+      expect((await post(pin(95), token)).status).toBe(400);
+      expect(lifecycle.create).not.toHaveBeenCalled();
+    });
+
     it('ignores a requesterId in the body: the requester is always the caller', async () => {
       lifecycle.create.mockResolvedValue({ ok: true, errandId: 'e1' });
 
@@ -103,8 +123,6 @@ describe('ErrandsController', () => {
       ['a non-uuid supplierId', { ...validBody, supplierId: 'abc' }],
       ['a missing deliveryBuildingId', { ...validBody, deliveryBuildingId: undefined }],
       ['a non-uuid deliveryBuildingId', { ...validBody, deliveryBuildingId: 'COM2' }],
-      ['a missing deliveryDetail', { ...validBody, deliveryDetail: undefined }],
-      ['a blank deliveryDetail', { ...validBody, deliveryDetail: '   ' }],
       ['an over-long deliveryDetail', { ...validBody, deliveryDetail: 'x'.repeat(201) }],
       ['only the old deliveryLocation', { ...validBody, deliveryBuildingId: undefined, deliveryDetail: undefined, deliveryLocation: 'COM2' }],
       ['zero rewardCredits', { ...validBody, rewardCredits: 0 }],

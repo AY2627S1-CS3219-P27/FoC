@@ -138,15 +138,22 @@
     {
       "idx": 19,
       "version": "7",
-      "when": 1793869035393,
-      "tag": "0019_errand_supplier_revalidation",
+      "when": 1793977552856,
+      "tag": "0019_delivery_venue_and_point",
       "breakpoints": true
     },
     {
       "idx": 20,
       "version": "7",
-      "when": 1793869331868,
-      "tag": "0020_supplier_retry_round",
+      "when": 1794216537000,
+      "tag": "0020_errand_supplier_revalidation",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794216538000,
+      "tag": "0021_supplier_retry_round",
       "breakpoints": true
     }
   ]

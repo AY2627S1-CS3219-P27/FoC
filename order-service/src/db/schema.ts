@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   check,
+  doublePrecision,
   index,
   uniqueIndex,
   integer,
@@ -42,6 +43,13 @@ export const errands = pgTable(
     deliveryBuildingId: uuid('delivery_building_id').notNull(),
     deliveryDetail: text('delivery_detail').notNull(), // requester's room or level; never sent to supplier-service
     deliveryLocation: text('delivery_location'), // building short name, from the delivery building snapshot
+    // Delivery point for the courier's navigation. A pin is stored at creation; at
+    // validation these are overwritten with the venue point, or the building point
+    // when neither venue nor pin was given. Null until then (and on older errands).
+    deliveryVenueId: uuid('delivery_venue_id'), // kept so a resent validation request asks the same question
+    deliveryLatitude: doublePrecision('delivery_latitude'),
+    deliveryLongitude: doublePrecision('delivery_longitude'),
+    deliveryVenue: text('delivery_venue'), // display label, snapshotted at Pending-Supplier -> Reserving-Credit
     rewardCredits: integer('reward_credits').notNull(),
     collectionItems: text('collection_items').notNull(), // read-only; never filtered or sorted
     // F2: the supplier and building an edit asked for, held while Revalidating-Supplier.

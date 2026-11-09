@@ -132,6 +132,7 @@ async function resendSupplierRequests(db: Db, cfg: SweepConfig): Promise<number>
     round: number;
     supplier_id: string;
     delivery_building_id: string;
+    delivery_venue_id: string | null;
     attempts: number;
   }>(sql`
     WITH w AS (
@@ -139,17 +140,18 @@ async function resendSupplierRequests(db: Db, cfg: SweepConfig): Promise<number>
         CASE status WHEN 'Pending-Supplier' THEN 0 ELSE last_sequence_number END AS round,
         CASE status WHEN 'Pending-Supplier' THEN created_at ELSE updated_at END AS since,
         coalesce(pending_supplier_id, supplier_id) AS supplier_id,
-        coalesce(pending_delivery_building_id, delivery_building_id) AS delivery_building_id
+        coalesce(pending_delivery_building_id, delivery_building_id) AS delivery_building_id,
+        CASE status WHEN 'Pending-Supplier' THEN delivery_venue_id END AS delivery_venue_id
       FROM errands
       WHERE status IN ('Pending-Supplier', 'Revalidating-Supplier'))
-    SELECT w.id, w.round, w.supplier_id, w.delivery_building_id, coalesce(r.attempts, 0) AS attempts
+    SELECT w.id, w.round, w.supplier_id, w.delivery_building_id, w.delivery_venue_id, coalesce(r.attempts, 0) AS attempts
     FROM w LEFT JOIN supplier_validation_retries r ON r.errand_id = w.id AND r.round = w.round
     WHERE w.since > ${ago(cfg.supplierHoldMs)}
       AND coalesce(r.next_retry_at, w.since + (${cfg.supplierRetryBaseMs}::bigint * interval '1 millisecond')) <= now()
     LIMIT ${BATCH}`);
 
   let resent = 0;
-  for (const { id, round, supplier_id, delivery_building_id, attempts } of due.rows) {
+  for (const { id, round, supplier_id, delivery_building_id, delivery_venue_id, attempts } of due.rows) {
     const sent = Number(attempts);
     const requestId = (n: number) =>
       Number(round) === 0 ? supplierRequestId(id, n) : supplierRevalidationId(id, Number(round), n);
@@ -166,7 +168,7 @@ async function resendSupplierRequests(db: Db, cfg: SweepConfig): Promise<number>
       // Still unpublished: the relay has not sent the last one, so a new one would only queue behind it.
       const send = !last || last.publishedAt !== null;
       if (send) {
-        await enqueueNotice(tx, supplierRequest(id, supplier_id, delivery_building_id), requestId(sent + 1));
+        await enqueueNotice(tx, supplierRequest(id, supplier_id, delivery_building_id, delivery_venue_id), requestId(sent + 1));
         resent++;
       }
       await tx.execute(sql`

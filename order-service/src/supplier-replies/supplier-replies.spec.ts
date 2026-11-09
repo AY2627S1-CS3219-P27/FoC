@@ -32,6 +32,7 @@ function setup(
   result: unknown = { ok: true, sequenceNumber: 2 },
   errandSupplier: string | undefined = supplierId,
   status = 'Pending-Supplier',
+  pin?: { latitude: number; longitude: number },
 ) {
   const lifecycle = {
     transition: vi.fn().mockResolvedValue(result),
@@ -40,6 +41,7 @@ function setup(
     replyErrandOf: vi.fn().mockResolvedValue(
       errandSupplier && { status, supplierId: errandSupplier, deliveryBuildingId: deliveryBuilding.id },
     ),
+    pinOf: vi.fn().mockResolvedValue(pin),
   };
   return { lifecycle, handler: new CreditReplyHandler(SUPPLIER_REPLY_SPECS[0], lifecycle, contracts) };
 }
@@ -65,6 +67,9 @@ describe('supplier validation reply', () => {
         pickupLocation: 'COM2',
         pickupDescription: 'Floor 1 · Next to LT19',
         deliveryLocation: 'COM2',
+        deliveryVenue: 'Around COM2',
+        deliveryLatitude: 1.2939,
+        deliveryLongitude: 103.7742,
       },
       payload: { supplierEventId: body.eventId, supplier: { ...supplierSnapshot, status: 'Active' } },
       actor: SYSTEM,
@@ -98,6 +103,43 @@ describe('supplier validation reply', () => {
         to: 'Cancelled',
         set: { cancellationReason: 'BUILDING_UNAVAILABLE' },
         payload: { supplierEventId: body.eventId, supplierOutcome: 'BUILDING_NOT_FOUND' },
+      }),
+    );
+    expect(lifecycle.releaseCredit).not.toHaveBeenCalled();
+  });
+
+  it('snapshots the venue label and point when the reply carries a venue', async () => {
+    const { lifecycle, handler } = setup();
+    const deliveryVenue = { id: randomUUID(), code: 'LT19', name: null, floor: '3', coordinates: { latitude: 1.2949, longitude: 103.7737 } };
+    const body = envelope({ errandId, supplierId, outcome: 'FOUND', supplier: supplierSnapshot, deliveryBuilding, deliveryVenue });
+    await handler.handle(message(body));
+    expect(lifecycle.transition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        set: expect.objectContaining({ deliveryVenue: 'COM2 · LT19 · Level 3', deliveryLatitude: 1.2949, deliveryLongitude: 103.7737 }),
+      }),
+    );
+  });
+
+  it('keeps the stored pin and labels it Requester Delivery Location', async () => {
+    const { lifecycle, handler } = setup(undefined, supplierId, 'Pending-Supplier', { latitude: 1.3, longitude: 103.77 });
+    await handler.handle(message(found('Active')));
+    expect(lifecycle.transition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        set: expect.objectContaining({ deliveryVenue: 'Requester Delivery Location', deliveryLatitude: 1.3, deliveryLongitude: 103.77 }),
+      }),
+    );
+  });
+
+  it('cancels for a missing venue with VENUE_UNAVAILABLE and releases nothing', async () => {
+    const { lifecycle, handler } = setup();
+    const body = envelope({ errandId, supplierId, outcome: 'VENUE_NOT_FOUND' });
+    expect(await handler.handle(message(body))).toEqual({ outcome: 'ack' });
+    expect(lifecycle.transition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expected: 'Pending-Supplier',
+        to: 'Cancelled',
+        set: { cancellationReason: 'VENUE_UNAVAILABLE' },
+        payload: { supplierEventId: body.eventId, supplierOutcome: 'VENUE_NOT_FOUND' },
       }),
     );
     expect(lifecycle.releaseCredit).not.toHaveBeenCalled();

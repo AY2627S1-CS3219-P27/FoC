@@ -13,6 +13,7 @@ import type {
   RabbitMqMessageHandler,
 } from '../messaging/rabbitmq-message.types.js';
 
+type PinOf = (errandId: string) => Promise<{ latitude: number; longitude: number } | undefined>;
 type Step = Omit<TransitionInput, 'actor' | 'idempotencyKey'> & {
   supplierId?: string; // when set, the errand must reference this supplier
 };
@@ -23,7 +24,7 @@ export interface ReplySpec {
   key: EventContractKey;
   queue: string; // seeded in rabbitmq/definitions.json
   // `errand` is passed only to a spec with `withErrand`; undefined for an unknown errand.
-  plan(event: EventOf<never>, errand?: ReplyErrand): Plan;
+  plan(event: EventOf<never>, pinOf: PinOf, errand?: ReplyErrand): Plan | Promise<Plan>;
   // On a STATE_MISMATCH against a Cancelled errand, send the release again.
   releaseIfCancelled?: true;
   withErrand?: true; // the plan depends on the errand's status (F2 revalidation)
@@ -32,7 +33,7 @@ export interface ReplySpec {
 // Typed per key; the payload and event id feed the event's private payload.
 export const reply = <K extends EventContractKey>(
   key: K,
-  plan: (e: EventOf<K>, errand?: ReplyErrand) => Plan,
+  plan: (e: EventOf<K>, pinOf: PinOf, errand?: ReplyErrand) => Plan | Promise<Plan>,
   releaseIfCancelled?: true,
 ): ReplySpec => ({
   key,
@@ -139,7 +140,7 @@ export class CreditReplyHandler implements RabbitMqMessageHandler {
     private readonly spec: ReplySpec,
     private readonly lifecycle: Pick<
       LifecycleService,
-      'transition' | 'releaseCredit' | 'supplierIdOf' | 'replyErrandOf'
+      'transition' | 'releaseCredit' | 'supplierIdOf' | 'replyErrandOf' | 'pinOf'
     >,
     private readonly contracts: AccountEventContractValidator,
   ) {}
@@ -158,7 +159,7 @@ export class CreditReplyHandler implements RabbitMqMessageHandler {
     const errand = this.spec.withErrand
       ? await this.lifecycle.replyErrandOf((event.payload as { errandId: string }).errandId)
       : undefined;
-    const plan = this.spec.plan(event as EventOf<never>, errand);
+    const plan = await this.spec.plan(event as EventOf<never>, (id) => this.lifecycle.pinOf(id), errand);
 
     if ('log' in plan) {
       this.logger.error(plan.log);

@@ -23,7 +23,8 @@ Reusing the validation round trip adds no new event pair and no synchronous call
 - Changing the v1 contracts in place breaks supplier-service's build and specs until it adopts the new request field and the three outcomes.
 - The create form still sends `deliveryLocation`; the API answers 400 until the frontend sends the new fields.
 - A retired building is indistinguishable from an unknown one (`BUILDING_NOT_FOUND`).
+- **Superseded in part by [ADR 0012](./0012-delivery-venue-and-pin.md):** the building snapshot now carries `coordinates`.
 
 ## Amendment
 
-ADR 0012 lets a requester change the delivery building of an `Open` errand; supplier-service re-checks it before the snapshot is replaced.
+[ADR 0013](./0013-editing-open-errands.md) lets a requester change the delivery building of an `Open` errand; supplier-service re-checks it before the snapshot is replaced.

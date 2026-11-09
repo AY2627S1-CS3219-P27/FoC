@@ -1,4 +1,5 @@
 import type { EventOf } from '@foc/contracts';
+import { deliveryLabel } from '../campus/delivery-label.js';
 import { reply, type ReplySpec } from '../credit-replies/credit-reply.handler.js';
 import type { ReplyErrand } from '../lifecycle/lifecycle.service.js';
 
@@ -47,7 +48,7 @@ function revalidation(e: Completed, errand: ReplyErrand) {
 
 export const SUPPLIER_REPLY_SPECS: ReplySpec[] = [
   {
-    ...reply('supplier.validation-completed.v1', (e, errand) => {
+    ...reply('supplier.validation-completed.v1', async (e, pinOf, errand) => {
       if (errand?.status === 'Revalidating-Supplier') return revalidation(e, errand);
       const p = e.payload;
       // Validation is settled; a redelivery would pick a different edge than it first took.
@@ -55,12 +56,23 @@ export const SUPPLIER_REPLY_SPECS: ReplySpec[] = [
         return { ignore: `late reply for errand ${p.errandId}, now ${errand.status}` };
       }
       if (p.outcome === 'FOUND' && p.supplier.status === 'Active') {
+        // A pin was stored at creation and keeps its point and label; else the venue, else the building.
+        const pin = await pinOf(p.errandId);
+        const { deliveryBuilding: b, deliveryVenue: v } = p;
+        const point = pin ?? v?.coordinates ?? b.coordinates;
         return {
           errandId: p.errandId,
           supplierId: p.supplierId,
           expected: 'Pending-Supplier',
           to: 'Reserving-Credit',
-          set: { supplierValidatedAt: new Date(e.timestamp), ...pickupOf(p.supplier), deliveryLocation: p.deliveryBuilding.shortName }, // supplier's time, stable on redelivery
+          set: {
+            supplierValidatedAt: new Date(e.timestamp),
+            ...pickupOf(p.supplier),
+            deliveryLocation: b.shortName,
+            deliveryVenue: deliveryLabel({ buildingShortName: b.shortName, pin: !!pin, venue: v }),
+            deliveryLatitude: point.latitude,
+            deliveryLongitude: point.longitude,
+          }, // supplier's time, stable on redelivery
           payload: { supplierEventId: e.eventId, supplier: p.supplier },
         };
       }
@@ -71,7 +83,12 @@ export const SUPPLIER_REPLY_SPECS: ReplySpec[] = [
         expected: 'Pending-Supplier',
         to: 'Cancelled',
         set: {
-          cancellationReason: p.outcome === 'BUILDING_NOT_FOUND' ? 'BUILDING_UNAVAILABLE' : 'SUPPLIER_UNAVAILABLE',
+          cancellationReason:
+            p.outcome === 'BUILDING_NOT_FOUND'
+              ? 'BUILDING_UNAVAILABLE'
+              : p.outcome === 'VENUE_NOT_FOUND'
+                ? 'VENUE_UNAVAILABLE'
+                : 'SUPPLIER_UNAVAILABLE',
         },
         payload: {
           supplierEventId: e.eventId,

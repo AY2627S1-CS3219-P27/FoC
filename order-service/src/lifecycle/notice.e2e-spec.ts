@@ -11,6 +11,10 @@ beforeAll(async () => {
   t = await createTestDb();
 });
 afterAll(() => t.close());
+beforeEach(async () => {
+  await t.db.delete(errandEvents);
+  await t.db.delete(errands);
+});
 
 const requester = randomUUID();
 const courier = randomUUID();

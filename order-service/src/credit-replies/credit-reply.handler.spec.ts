@@ -52,6 +52,7 @@ function setup(key: string, result: unknown = { ok: true, sequenceNumber: 2 }) {
     releaseCredit: vi.fn().mockResolvedValue(undefined),
     supplierIdOf: vi.fn(),
     replyErrandOf: vi.fn(),
+    pinOf: vi.fn(),
   };
   return { lifecycle, handler: new CreditReplyHandler(spec(key), lifecycle, contracts) };
 }

@@ -107,10 +107,11 @@ describe('rebuildProjection', () => {
     const next = pending();
     await step(id, 'Open', 'Revalidating-Supplier', { actor: user(requester), set: next, payload: { expiryDurationMinutes: 300 } });
     const validated = supplierValidated();
+    const { deliveryVenue: _v, deliveryLatitude: _a, deliveryLongitude: _o, ...kept } = validated.set;
     await step(id, 'Revalidating-Supplier', 'Open', {
       type: 'SupplierRevalidated',
       payload: validated.payload,
-      set: { ...validated.set, pickupName: 'New Spot', supplierId: next.pendingSupplierId, deliveryBuildingId: next.pendingDeliveryBuildingId },
+      set: { ...kept, pickupName: 'New Spot', supplierId: next.pendingSupplierId, deliveryBuildingId: next.pendingDeliveryBuildingId },
     });
 
     const live = await liveRow(id);

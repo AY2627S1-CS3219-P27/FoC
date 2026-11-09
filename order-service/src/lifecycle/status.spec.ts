@@ -112,11 +112,14 @@ describe('EDGES', () => {
     ).toEqual([]);
   });
 
-  it('lets the supplier validation write the delivery snapshot and cancel for a missing building', () => {
-    expect(findEdge('Pending-Supplier', 'Reserving-Credit')?.sets).toContain('deliveryLocation');
+  it('lets the supplier validation write the delivery snapshot and cancel for a missing building or venue', () => {
+    expect(findEdge('Pending-Supplier', 'Reserving-Credit')?.sets).toEqual(
+      expect.arrayContaining(['deliveryLocation', 'deliveryVenue', 'deliveryLatitude', 'deliveryLongitude']),
+    );
     expect(findEdge('Pending-Supplier', 'Cancelled')?.reasons).toEqual([
       'SUPPLIER_UNAVAILABLE',
       'BUILDING_UNAVAILABLE',
+      'VENUE_UNAVAILABLE',
       'SUPPLIER_VALIDATION_TIMEOUT',
     ]);
   });
@@ -139,6 +142,7 @@ describe('EDGES', () => {
       actorUserId: '44444444-4444-4444-8444-444444444444',
       rewardCredits: 5,
       payload: {},
+      attempt: 1,
     };
 
     expect(findEdge('Open', 'Accepted')?.notice?.(context)).toEqual({
