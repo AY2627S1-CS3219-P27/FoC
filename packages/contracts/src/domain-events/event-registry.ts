@@ -31,6 +31,10 @@ import {
   courierCancelledV1Contract,
 } from './events/courier-cancelled/v1/contract.js';
 import {
+  ORDER_REQUESTER_ERRAND_CANCELLED_V1_ROUTING_KEY,
+  requesterErrandCancelledV1Contract,
+} from './events/requester-errand-cancelled/v1/contract.js';
+import {
   ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY,
   errandAcceptedV1Contract,
 } from './events/errand-accepted/v1/contract.js';
@@ -106,6 +110,8 @@ export const eventRegistry = {
   [ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY]: errandAcceptedV1Contract,
   [ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY]: errandDeliveredV1Contract,
   [ORDER_COURIER_CANCELLED_V1_ROUTING_KEY]: courierCancelledV1Contract,
+  [ORDER_REQUESTER_ERRAND_CANCELLED_V1_ROUTING_KEY]:
+    requesterErrandCancelledV1Contract,
   [ORDER_ERRAND_COMPLETED_V1_ROUTING_KEY]: errandCompletedV1Contract,
   [ORDER_ERRAND_CANCELLED_V1_ROUTING_KEY]: errandCancelledV1Contract,
   [CREDIT_TRANSFER_SUCCEEDED_V1_ROUTING_KEY]: creditTransferSucceededV1Contract,

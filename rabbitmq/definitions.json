@@ -762,6 +762,14 @@
     },
     {
       "arguments": {},
+      "destination": "foc.pubsub",
+      "destination_type": "exchange",
+      "routing_key": "order.requester-errand-cancelled.v1",
+      "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
       "destination": "notification-service.inbox",
       "destination_type": "queue",
       "routing_key": "#",
