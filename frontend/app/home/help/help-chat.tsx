@@ -3,7 +3,7 @@
 import { clsx } from "clsx";
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { ArrowUpIcon, ChevronLeftIcon, QuestionIcon } from "@/components/ui/icons";
+import { ArrowUpIcon, ChevronLeftIcon } from "@/components/ui/icons";
 import { MAX_QUESTION_LENGTH, useHelpChat, type HelpExchange, type HelpSource } from "@/lib/assistant/use-help-chat";
 
 const BOTTOM_THRESHOLD_PX = 48;
@@ -12,10 +12,15 @@ const COUNTER_FROM = MAX_QUESTION_LENGTH * 0.8;
 
 // Written from docs/support/help-bot.md; keep the two in step.
 const INTRODUCTION = [
-  "Hi! I'm the FoC help bot. Ask me how FoC works, like how credits work, what an errand status means, or what to do when something goes wrong. I answer only from FoC's help documents and show where each answer came from.",
-  "I can't see your account or do anything for you, so for your balance or a particular errand, open that page in the app. Each question stands alone, so include the details.",
-  "Your questions are kept for 30 days and sent to an outside AI provider, so please don't include passwords or other sensitive details.",
+  "👋 Hi! I'm the FoC help bot. Ask me how FoC works, like how credits work 💰, what an errand status means 📦, or what to do when something goes wrong 🛠️. I answer only from FoC's help documents 📚 and show where each answer came from.",
+  "🙈 I can't see your account or do anything for you, so for your balance or a particular errand, open that page in the app. 💡 Each question stands alone, so include the details.",
+  "🔒 Your questions are kept for 30 days and sent to an outside AI provider, so please don't include passwords or other sensitive details.",
 ];
+
+// The model sometimes marks words as **bold**. Building elements keeps everything else as plain text, so an answer can never inject HTML.
+function renderAnswer(answer: string): React.ReactNode[] {
+  return answer.split(/\*\*([^*\n]+)\*\*/g).map((part, index) => (index % 2 === 1 ? <strong key={index} className="font-semibold">{part}</strong> : part));
+}
 
 function BotBubble({ children }: { children: React.ReactNode }) {
   return (
@@ -29,7 +34,7 @@ function Sources({ sources }: { sources: HelpSource[] }) {
   if (sources.length === 0) return null;
   return (
     <p className="mt-1 max-w-[80%] px-1 text-xs text-muted sm:max-w-[70%]">
-      {sources.length === 1 ? "Source" : "Sources"}: {sources.map((s) => `${s.title} · ${s.section}`).join("; ")}
+      📚 {sources.length === 1 ? "Source" : "Sources"}: {sources.map((s) => `${s.title} · ${s.section}`).join("; ")}
     </p>
   );
 }
@@ -49,7 +54,7 @@ function Exchange({ exchange, canRetry, onRetry }: { exchange: HelpExchange; can
         </article>
         {failed && (
           <p className="mt-0.5 flex flex-wrap items-center justify-end gap-x-2 px-1 text-[11px] font-medium text-muted">
-            <span className="text-danger">Not sent. {exchange.error}</span>
+            <span className="text-danger">⚠️ Not sent. {exchange.error}</span>
             <button type="button" disabled={!canRetry} onClick={onRetry} className="font-semibold text-nus-orange disabled:opacity-40">
               Retry
             </button>
@@ -59,15 +64,14 @@ function Exchange({ exchange, canRetry, onRetry }: { exchange: HelpExchange; can
       {exchange.status === "waiting" && (
         <div className="mt-3 flex flex-col items-start">
           <BotBubble>
-            <p className="text-[15px] text-muted">Looking through the help documents…</p>
+            <p className="text-[15px] text-muted">🔍 Looking through the help documents…</p>
           </BotBubble>
         </div>
       )}
       {exchange.status === "answered" && (
         <div className="mt-3 flex flex-col items-start">
           <BotBubble>
-            {/* Plain text on purpose: the answer comes from a model, so it is never rendered as HTML. */}
-            <p className="whitespace-pre-wrap break-words text-[15px]">{exchange.answer}</p>
+            <p className="whitespace-pre-wrap break-words text-[15px]">{renderAnswer(exchange.answer)}</p>
           </BotBubble>
           <Sources sources={exchange.sources} />
         </div>
@@ -142,12 +146,12 @@ export function HelpChat() {
           <Link href="/home" aria-label="Home" className="btn-press flex h-10 shrink-0 items-center rounded-full pr-1 pl-1 text-nus-orange md:hidden">
             <ChevronLeftIcon size={24} strokeWidth={2.4} />
           </Link>
-          <span aria-hidden="true" className="flex size-9 shrink-0 items-center justify-center rounded-full bg-nus-orange/12 text-nus-orange">
-            <QuestionIcon size={20} />
+          <span aria-hidden="true" className="flex size-9 shrink-0 items-center justify-center rounded-full bg-nus-orange/12 text-[20px]">
+            🤖
           </span>
           <div className="min-w-0 flex-1">
-            <h1 id="help-heading" className="truncate text-[16px] leading-tight font-semibold">FoC Help</h1>
-            <p className="truncate text-xs text-muted">Answers from FoC&apos;s help documents</p>
+            <h1 id="help-heading" title="FoC AI RAG-based chat assistant" className="truncate text-[16px] leading-tight font-semibold">FoC AI RAG-based chat assistant</h1>
+            <p className="truncate text-xs text-muted">✨ Answers from FoC&apos;s help documents</p>
           </div>
         </div>
       </header>
@@ -183,7 +187,7 @@ export function HelpChat() {
             onKeyDown={handleComposerKeyDown}
             rows={1}
             maxLength={MAX_QUESTION_LENGTH * 2}
-            placeholder="Ask a question about FoC"
+            placeholder="💬 Ask a question about FoC"
             className="max-h-[132px] min-h-10 flex-1 resize-none rounded-[20px] border border-border bg-surface px-4 py-2 text-base leading-6 placeholder:text-muted"
           />
           <button

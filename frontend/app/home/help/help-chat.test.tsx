@@ -57,7 +57,7 @@ describe("HelpChat", () => {
     resolve(success(answered));
 
     expect(await screen.findByText("Credits are FoC's own points.")).toBeInTheDocument();
-    expect(screen.getByText("Source: Credits · What are FoC credits?")).toBeInTheDocument();
+    expect(screen.getByText("📚 Source: Credits · What are FoC credits?")).toBeInTheDocument();
     expect(screen.queryByText(/Looking through the help documents/)).not.toBeInTheDocument();
   });
 
@@ -69,8 +69,28 @@ describe("HelpChat", () => {
     await user.type(composer(), "What's the weather?{Enter}");
 
     expect(await screen.findByText("I couldn't find that.")).toBeInTheDocument();
-    expect(screen.queryByText(/^Sources?:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Sources?:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Not sent/)).not.toBeInTheDocument();
+  });
+
+  it("renders **bold** in an answer and leaves everything else as plain text", async () => {
+    mocks.api.mockResolvedValue(
+      success({
+        answer: "- **Supplier:** where to collect\n<img src=x onerror=alert(1)> and a stray ** marker",
+        answered: true,
+        sources: [],
+      }),
+    );
+    const user = userEvent.setup();
+    const { container } = render(<HelpChat />);
+
+    await user.type(composer(), "What goes on an errand?{Enter}");
+
+    const bold = await screen.findByText("Supplier:");
+    expect(bold.tagName).toBe("STRONG");
+    expect(container.querySelector("img")).toBeNull();
+    expect(bold.parentElement).toHaveTextContent("<img src=x onerror=alert(1)> and a stray ** marker");
+    expect(bold.parentElement).not.toHaveTextContent("**Supplier");
   });
 
   it("offers Retry after a failure and re-sends the same question", async () => {
