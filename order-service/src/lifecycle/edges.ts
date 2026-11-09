@@ -4,7 +4,7 @@ import {
   ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
   ORDER_REQUESTER_ERRAND_CANCELLED_V1_ROUTING_KEY,
 } from '@foc/contracts';
-import type { NoticeBuilder } from './notice.js';
+import type { Notice, NoticeBuilder } from './notice.js';
 import type { Status } from './status.js';
 
 // Projection columns a transition may write; values come from the caller.
@@ -89,7 +89,7 @@ const courierCancelled: NoticeBuilder = (c) => ({
 });
 // Tells the requester why the system cancelled; their own cancel needs no notice.
 const requesterCancelled: NoticeBuilder = (c) =>
-  c.payload.cancellationReason === 'REQUESTER_CANCELLED'
+  USER_REASONS.includes(c.payload.cancellationReason as CancellationReason)
     ? undefined
     : {
         key: ORDER_REQUESTER_ERRAND_CANCELLED_V1_ROUTING_KEY,
@@ -109,7 +109,8 @@ const cancel = (
   clears: [],
   who,
   reasons,
-  notice: (c) => [notice?.(c) ?? [], requesterCancelled(c) ?? []].flat(),
+  notice: (c) =>
+    [notice?.(c), requesterCancelled(c)].flat().filter((n): n is Notice => !!n),
 });
 const plain = (type: string, who: Role[], notice?: NoticeBuilder): Edge => ({
   type,
