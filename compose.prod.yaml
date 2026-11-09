@@ -1,0 +1,95 @@
+# Cloud overlay: docker compose -f compose.yaml -f compose.prod.yaml (see scripts/deploy.sh).
+# Runs CI-built images from ECR against RDS. ECR_REGISTRY and RDS_HOST come from the
+# .env written by scripts/render-env-from-ssm.sh; FOC_IMAGE_TAG comes from scripts/deploy.sh.
+
+x-app: &app
+  build: !reset null
+  command: !reset null
+  restart: unless-stopped
+  stop_grace_period: 15s
+
+services:
+  user-service:
+    <<: *app
+    image: ${ECR_REGISTRY:?}/foc/user-service:${FOC_IMAGE_TAG:?}
+    depends_on: !override
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  supplier-service:
+    <<: *app
+    image: ${ECR_REGISTRY:?}/foc/supplier-service:${FOC_IMAGE_TAG:?}
+    depends_on: !override
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      # supplier-service/compose.yml hardcodes its local database.
+      DB_HOST: ${RDS_HOST:?}
+
+  order-service:
+    <<: *app
+    image: ${ECR_REGISTRY:?}/foc/order-service:${FOC_IMAGE_TAG:?}
+    depends_on: !override
+      rabbitmq:
+        condition: service_healthy
+
+  credit-service:
+    <<: *app
+    image: ${ECR_REGISTRY:?}/foc/credit-service:${FOC_IMAGE_TAG:?}
+    depends_on: !override
+      rabbitmq:
+        condition: service_healthy
+
+  comms-service:
+    <<: *app
+    image: ${ECR_REGISTRY:?}/foc/comms-service:${FOC_IMAGE_TAG:?}
+    # Must exceed the archive drain deadline (comms-service/README.md).
+    stop_grace_period: 75s
+    depends_on: !override
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  notification-service:
+    <<: *app
+    image: ${ECR_REGISTRY:?}/foc/notification-service:${FOC_IMAGE_TAG:?}
+    depends_on: !override
+      rabbitmq:
+        condition: service_healthy
+
+  email-service:
+    <<: *app
+    image: ${ECR_REGISTRY:?}/foc/email-service:${FOC_IMAGE_TAG:?}
+
+  frontend:
+    <<: *app
+    image: ${ECR_REGISTRY:?}/foc/frontend:${FOC_IMAGE_TAG:?}
+
+  rabbitmq:
+    restart: unless-stopped
+    volumes:
+      # Same target as compose.yaml, so this replaces the file with dev password hashes.
+      - ./rabbitmq/definitions.prod.secret:/etc/rabbitmq/definitions.json:ro
+
+  redis:
+    restart: unless-stopped
+
+  papercut:
+    restart: unless-stopped
+
+  # Local databases stay off: the services use RDS.
+  user-db:
+    profiles: [local-db]
+  supplier-db:
+    profiles: [local-db]
+  order-db:
+    profiles: [local-db]
+  credit-db:
+    profiles: [local-db]
+  comms-db:
+    profiles: [local-db]
+  notification-db:
+    profiles: [local-db]
