@@ -324,7 +324,9 @@ a:focus-visible,
 /* --- Alerts: zoom down into place, like system alerts --- */
 
 .dialog-backdrop {
-  background: rgba(0, 0, 0, 0.32);
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   transition: opacity 200ms ease;
 }
 
@@ -334,6 +336,7 @@ a:focus-visible,
 }
 
 .dialog-popup {
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
   transition: transform 240ms var(--ease-ui), opacity 200ms ease;
 }
 
@@ -536,6 +539,12 @@ a:focus-visible,
 }
 
 @media (prefers-reduced-transparency: reduce) {
+  .dialog-backdrop {
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
   .material-bar {
     background: var(--background);
     backdrop-filter: none;

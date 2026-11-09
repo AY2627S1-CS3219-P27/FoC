@@ -33,7 +33,7 @@ export function ConfirmDialog({
   return (
     <AlertDialog.Root open={open} onOpenChange={onOpenChange}>
       <AlertDialog.Portal>
-        <AlertDialog.Backdrop className="dialog-backdrop fixed inset-0 z-[70]" />
+        <AlertDialog.Backdrop forceRender className="dialog-backdrop fixed inset-0 z-[70]" />
         <AlertDialog.Viewport className="fixed inset-0 z-[70] flex items-center justify-center p-6">
           <AlertDialog.Popup className="dialog-popup material-sidebar w-full max-w-[300px] overflow-hidden rounded-[18px] text-center text-foreground shadow-overlay outline-none">
             <div className="px-5 pt-5 pb-4">
