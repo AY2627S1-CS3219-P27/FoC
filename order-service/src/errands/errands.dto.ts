@@ -11,6 +11,7 @@ import {
   MaxLength,
   Min,
   Max,
+  ValidateIf,
 } from 'class-validator';
 import { API_STATUSES, type ApiStatus } from './api-status.js';
 import { MAX_EXPIRY_MINUTES, MIN_EXPIRY_MINUTES } from '../lifecycle/create.js';
@@ -57,42 +58,45 @@ export class CreateErrandDto {
   collectionItems: string;
 }
 
+// @IsOptional also lets null through, which routes an edit like a changed field.
+const OptionalNotNull = () => ValidateIf((_, value) => value !== undefined);
+
 // The body of PATCH /v1/errands/:id (F2.1): any create field, same rules (F2.1.1).
 // Send rewardCredits, supplierId and deliveryBuildingId only to change them: their
 // presence routes the edit through credit or supplier-service.
 export class EditErrandDto {
-  @IsOptional()
+  @OptionalNotNull()
   @IsUUID()
   supplierId?: string;
 
-  @IsOptional()
+  @OptionalNotNull()
   @IsUUID()
   deliveryBuildingId?: string;
 
-  @IsOptional()
+  @OptionalNotNull()
   @IsString()
   @Length(1, MAX_LOCATION_LENGTH)
   @Matches(NOT_BLANK)
   deliveryDetail?: string;
 
-  @IsOptional()
+  @OptionalNotNull()
   @IsInt()
   @Min(1)
   @Max(MAX_CREDITS)
   rewardCredits?: number;
 
-  @IsOptional()
+  @OptionalNotNull()
   @IsString()
   @MaxLength(MAX_DESCRIPTION_LENGTH)
   description?: string;
 
-  @IsOptional()
+  @OptionalNotNull()
   @IsInt()
   @Min(MIN_EXPIRY_MINUTES)
   @Max(MAX_EXPIRY_MINUTES)
   expiryDurationMinutes?: number;
 
-  @IsOptional()
+  @OptionalNotNull()
   @IsString()
   @MaxLength(MAX_DESCRIPTION_LENGTH)
   @Matches(NOT_BLANK)

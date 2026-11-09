@@ -291,6 +291,20 @@ describe('ErrandsController', () => {
       expect(lifecycle.transition).not.toHaveBeenCalled();
     });
 
+    it.each([
+      'supplierId',
+      'deliveryBuildingId',
+      'deliveryDetail',
+      'rewardCredits',
+      'description',
+      'expiryDurationMinutes',
+      'collectionItems',
+    ])('treats a null %s as invalid, not as absent', async (field) => {
+      expect((await patch({ [field]: null }, await requesterToken())).status).toBe(400);
+      expect(lifecycle.replyErrandOf).not.toHaveBeenCalled();
+      expect(lifecycle.transition).not.toHaveBeenCalled();
+    });
+
     it('refuses a caller without the requester role', async () => {
       expect((await patch({ description: 'x' }, await signAccessToken({ roles: [Role.Courier] }))).status).toBe(403);
       expect(lifecycle.transition).not.toHaveBeenCalled();
