@@ -328,6 +328,22 @@
       "arguments": {},
       "auto_delete": false,
       "durable": true,
+      "name": "order-service.credit-settlement-succeeded.v1",
+      "type": "classic",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "auto_delete": false,
+      "durable": true,
+      "name": "order-service.credit-settlement-rejected.v1",
+      "type": "classic",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "auto_delete": false,
+      "durable": true,
       "name": "supplier-service.order-supplier-validation-requested.v1",
       "type": "classic",
       "vhost": "/foc"
@@ -533,6 +549,22 @@
       "destination": "order-service.credit-release-rejected.v1",
       "destination_type": "queue",
       "routing_key": "credit.release-rejected.v1",
+      "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "order-service.credit-settlement-succeeded.v1",
+      "destination_type": "queue",
+      "routing_key": "credit.settlement-succeeded.v1",
+      "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "order-service.credit-settlement-rejected.v1",
+      "destination_type": "queue",
+      "routing_key": "credit.settlement-rejected.v1",
       "source": "foc.events",
       "vhost": "/foc"
     },
@@ -757,6 +789,14 @@
       "destination": "foc.pubsub",
       "destination_type": "exchange",
       "routing_key": "order.courier-cancelled.v1",
+      "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "foc.pubsub",
+      "destination_type": "exchange",
+      "routing_key": "order.requester-errand-cancelled.v1",
       "source": "foc.events",
       "vhost": "/foc"
     },

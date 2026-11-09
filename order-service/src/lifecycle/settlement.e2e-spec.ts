@@ -128,7 +128,11 @@ describe('settlement edges', () => {
       expected: 'Settling-Credit',
       to: 'Resolved',
       actor: SYSTEM,
-      payload: { creditEventId: randomUUID(), creditTransactionId: randomUUID() },
+      payload: {
+        creditEventId: randomUUID(),
+        courierCreditTransactionId: randomUUID(),
+        requesterCreditTransactionId: null,
+      },
     });
     expect(ok).toMatchObject({ ok: true });
     expect(await row(id)).toMatchObject({ status: 'Resolved', settlementAmount: 2 });
@@ -148,7 +152,11 @@ describe('settlement edges', () => {
         expected: 'Settling-Credit',
         to: 'Resolved',
         actor: admin(adminId),
-        payload: { creditEventId: randomUUID(), creditTransactionId: randomUUID() },
+        payload: {
+        creditEventId: randomUUID(),
+        courierCreditTransactionId: randomUUID(),
+        requesterCreditTransactionId: null,
+      },
       }),
     ).toEqual({ ok: false, reason: 'FORBIDDEN' });
 

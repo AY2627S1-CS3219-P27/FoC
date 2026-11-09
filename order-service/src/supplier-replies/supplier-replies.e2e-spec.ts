@@ -116,7 +116,10 @@ describe('supplier validation reply against the database', () => {
       cancellationReason: 'SUPPLIER_UNAVAILABLE',
       supplierValidatedAt: null,
     });
-    expect(await outbox(id)).toEqual(['order.supplier-validation-requested.v1']);
+    expect(await outbox(id)).toEqual([
+      'order.supplier-validation-requested.v1',
+      'order.requester-errand-cancelled.v1',
+    ]);
   });
 
   it('cancels a missing delivery building with BUILDING_UNAVAILABLE and asks credit for nothing', async () => {
@@ -133,7 +136,10 @@ describe('supplier validation reply against the database', () => {
     expect((await events(id)).find((e) => e.sequenceNumber === 2)).toMatchObject({
       payload: { supplierEventId: eventId, supplierOutcome: 'BUILDING_NOT_FOUND' },
     });
-    expect(await outbox(id)).toEqual(['order.supplier-validation-requested.v1']);
+    expect(await outbox(id)).toEqual([
+      'order.supplier-validation-requested.v1',
+      'order.requester-errand-cancelled.v1',
+    ]);
   });
 
   it('cancels a missing venue with VENUE_UNAVAILABLE and asks credit for nothing', async () => {

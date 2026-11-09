@@ -70,6 +70,7 @@ const cancelAll = (db: Db, from: Status, where: SQL, reason: string) =>
 const AWAITING_REPLY = {
   'Transferring-Credit': 'order.errand-completed.v1',
   'Adjusting-Credit': 'credit.reservation-adjustment.v1',
+  'Settling-Credit': 'credit.settlement.v1',
 } as const;
 
 // A timeout never reverts (ADR 0006). Re-queue the original outbox row, same

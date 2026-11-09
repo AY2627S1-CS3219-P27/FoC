@@ -1,6 +1,6 @@
 # order-service architecture
 
-Diagrams are Mermaid (render on GitHub / VS Code). Decisions behind them: ADRs [0001](../docs/adr/order-service/0001-hand-rolled-event-sourcing-on-postgres.md)–[0007](../docs/adr/order-service/0007-expiry-duration-autocomplete-and-supplier-validation.md), [0008](../docs/adr/order-service/0008-transactional-outbox-and-broker-access.md), [0009](../docs/adr/order-service/0009-referenced-data-ids-and-supplier-snapshot.md), [0010](../docs/adr/order-service/0010-role-block-with-ttl.md), [0011](../docs/adr/order-service/0011-delivery-building-snapshot.md). Terms: [`CONTEXT.md`](./CONTEXT.md).
+Diagrams are Mermaid (render on GitHub / VS Code). Decisions behind them: ADRs [0001](../docs/adr/order-service/0001-hand-rolled-event-sourcing-on-postgres.md)–[0007](../docs/adr/order-service/0007-expiry-duration-autocomplete-and-supplier-validation.md), [0008](../docs/adr/order-service/0008-transactional-outbox-and-broker-access.md), [0009](../docs/adr/order-service/0009-referenced-data-ids-and-supplier-snapshot.md), [0010](../docs/adr/order-service/0010-role-block-with-ttl.md), [0011](../docs/adr/order-service/0011-delivery-building-snapshot.md), [0013](../docs/adr/order-service/0013-dispute-resolution-settlement.md). Terms: [`CONTEXT.md`](./CONTEXT.md).
 
 ## 1. Components
 
@@ -320,10 +320,12 @@ Order-service and credit-service never share a transaction. Order changes its ow
 - The one overlap is a timeout release racing its reservation. Credit holds a release that arrives before its reservation and retries it (credit ADR 0008).
 
 **Planned, not built.** These are documented gaps, not current behaviour:
-- **Credits held in `Incomplete` (S3, #584).** Releasing or transferring them is a dispute decision: an admin settles through the dispute routes (edge 18). Credit-service's settlement handling (#661) is not built yet, and there is no aging alert for a stale dispute.
+- **Credits held in `Incomplete` (S3, #584).** Releasing or transferring them is a dispute decision: an admin settles through the dispute routes (edge 18). Settlement is built on both services ([ADR 0013](../docs/adr/order-service/0013-dispute-resolution-settlement.md), credit [ADR 0010](../docs/adr/credit-service/0010-credit-settlement.md)); there is no aging alert for a stale dispute.
 - **Telling the user a credit step failed (S6).** The reason is already in the revert event's payload. A notice will be added on those edges once notification-service defines its event contract.
 - **"You may resubmit" after `SUPPLIER_VALIDATION_TIMEOUT` (F1.5.3).** Today the requester sees `Cancelled` and the reason on the detail endpoint.
 - **The `ADMIN ALERT` repeats every tick.** Windows are counted from `updated_at`, with no stored attempt count.
+
+**Requester cancellation notice.** Every `Cancelled` edge also writes `order.requester-errand-cancelled.v1` (requester id and `cancellationReason`) in the same transaction, except when the requester cancelled themselves. It is separate from `order.errand-cancelled.v1` because that one is credit's release (no recipient, and not sent when nothing was reserved); `Reserving-Credit` → `Cancelled` on `CREDIT_TIMEOUT` writes both. Notification-service pushes the "you can resubmit" copy and the frontend shows the same copy on the errand (`cancellation.ts`). Courier withdrawal (edge 11) is not a cancellation and uses `order.courier-cancelled.v1`; the courier's free-text reason is not shown to the requester.
 
 ## Remaining work before rollout
 

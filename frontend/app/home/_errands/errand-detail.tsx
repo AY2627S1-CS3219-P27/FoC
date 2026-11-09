@@ -9,6 +9,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { FormError, inputClass } from "@/components/ui/field";
 import { Section } from "@/components/ui/layout";
 import { Sheet } from "@/components/ui/sheet";
+import { cancellationText } from "./cancellation";
 import {
   ACTION_LABELS,
   availableActions,
@@ -207,7 +208,9 @@ export function ErrandDetail({
                 <span className="whitespace-pre-wrap">{errand.description}</span>
               </DetailRow>
             )}
-            {errand.cancellationReason && <DetailRow label="Reason">{cancellationText(errand.cancellationReason)}</DetailRow>}
+            {errand.cancellationReason && (
+              <DetailRow label="Reason">{cancellationText(errand.cancellationReason, errand.requesterId === me)}</DetailRow>
+            )}
             <DetailRow label="Created">{formatTime(errand.createdAt)}</DetailRow>
           </Section>
 
