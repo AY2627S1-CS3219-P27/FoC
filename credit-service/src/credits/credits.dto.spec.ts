@@ -23,6 +23,7 @@ describe('CreditTransactionHistoryQueryDto', () => {
   it.each([
     [{ offset: '-1' }, 'offset'],
     [{ offset: '1.5' }, 'offset'],
+    [{ offset: String(Number.MAX_SAFE_INTEGER + 1) }, 'offset'],
     [{ limit: '0' }, 'limit'],
     [{ limit: '1001' }, 'limit'],
     [{ limit: 'not-a-number' }, 'limit'],

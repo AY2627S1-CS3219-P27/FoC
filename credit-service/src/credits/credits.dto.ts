@@ -54,11 +54,13 @@ export class CreditTransactionHistoryQueryDto {
   @ApiPropertyOptional({
     default: DEFAULT_PAGE_OFFSET,
     minimum: 0,
+    maximum: Number.MAX_SAFE_INTEGER,
     description: 'Zero-based offset into the matching transaction history.',
   })
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(Number.MAX_SAFE_INTEGER)
   offset: number = DEFAULT_PAGE_OFFSET;
 
   @ApiPropertyOptional({
