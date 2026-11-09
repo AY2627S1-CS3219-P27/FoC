@@ -42,6 +42,11 @@ const EXPIRY_OPTIONS = [
   { minutes: 1440, label: "1 day" },
 ];
 
+const expiryOptions: ComboboxOption<string>[] = EXPIRY_OPTIONS.map((o) => ({
+  value: String(o.minutes),
+  label: o.label,
+}));
+
 export function CreateErrandForm({
   userId,
   suppliers,
@@ -272,17 +277,13 @@ export function CreateErrandForm({
             </span>
           </Field>
           <Field label="Open for">
-            <select
-              value={expiryDurationMinutes}
-              onChange={(e) => setExpiry(Number(e.target.value))}
-              className={`w-full ${inputClass}`}
-            >
-              {EXPIRY_OPTIONS.map((o) => (
-                <option key={o.minutes} value={o.minutes}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+            <OptionCombobox
+              options={expiryOptions}
+              value={String(expiryDurationMinutes)}
+              onValueChange={(v) => v !== "" && setExpiry(Number(v))}
+              placeholder="Choose a duration…"
+              clearable={false}
+            />
           </Field>
         </div>
       </FormGroup>
