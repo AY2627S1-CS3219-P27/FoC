@@ -72,8 +72,9 @@ export class OrderServiceClient {
   }
 
   /**
-   * Removes any block on the named roles early: on a role re-addition, or
-   * when the role change it was placed for failed.
+   * Removes any block on the named roles early: on a role re-addition, when
+   * the role change it was placed for failed, or when an account is
+   * un-archived.
    *
    * Best effort by design. A missed unblock only lasts the block TTL (the
    * access-token lifetime plus skew), while surfacing the error would fail a

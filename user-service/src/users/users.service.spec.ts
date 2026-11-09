@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import {
+  BadGatewayException,
   ConflictException,
   ForbiddenException,
   NotFoundException,
@@ -296,6 +297,8 @@ describe('UsersService', () => {
       where: { isAdmin: true, isArchived: false },
     });
   });
+
+  const ACCESS_TOKEN = 'test-access-token';
 
   // A full stored row whose hash matches the module-mocked hashValue digest
   // ('ab'.repeat(64) is 64 bytes in hex) and carries a 32-hex-char salt.
@@ -668,8 +671,6 @@ describe('UsersService', () => {
   });
 
   describe('updateRoles', () => {
-    const ACCESS_TOKEN = 'test-access-token';
-
     it('persists the set-replaced roles and returns the stored state', async () => {
       const storedUser = {
         ...registeredUser,
@@ -963,7 +964,12 @@ describe('UsersService', () => {
         .mockResolvedValueOnce({ ...targetUser });
 
       await expect(
-        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: true }),
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { isAdmin: true },
+          ACCESS_TOKEN,
+        ),
       ).resolves.toEqual({ ...targetUser, isAdmin: true });
 
       expect(dataSource.transaction).toHaveBeenCalledTimes(1);
@@ -988,9 +994,14 @@ describe('UsersService', () => {
         .mockResolvedValueOnce({ ...targetUser, isAdmin: true });
       manager.count.mockResolvedValue(2);
 
-      await service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, {
-        isAdmin: false,
-      });
+      await service.adminUpdateUser(
+        ACTOR_UUID,
+        TARGET_UUID,
+        {
+          isAdmin: false,
+        },
+        ACCESS_TOKEN,
+      );
 
       expect(manager.query).toHaveBeenCalledWith(
         'SELECT pg_advisory_xact_lock($1::bigint)',
@@ -1008,7 +1019,12 @@ describe('UsersService', () => {
       manager.count.mockResolvedValue(2);
 
       await expect(
-        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: false }),
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { isAdmin: false },
+          ACCESS_TOKEN,
+        ),
       ).resolves.toEqual({ ...targetUser });
 
       expect(manager.create).toHaveBeenCalledWith(UserUpdateAudit, {
@@ -1025,7 +1041,12 @@ describe('UsersService', () => {
       manager.count.mockResolvedValue(0);
 
       await expect(
-        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: false }),
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { isAdmin: false },
+          ACCESS_TOKEN,
+        ),
       ).rejects.toThrow(ConflictException);
 
       expect(manager.save).not.toHaveBeenCalled();
@@ -1039,7 +1060,12 @@ describe('UsersService', () => {
       });
 
       await expect(
-        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: true }),
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { isAdmin: true },
+          ACCESS_TOKEN,
+        ),
       ).rejects.toThrow(ForbiddenException);
 
       expect(manager.count).not.toHaveBeenCalled();
@@ -1050,7 +1076,12 @@ describe('UsersService', () => {
       manager.findOneBy.mockResolvedValueOnce(null);
 
       await expect(
-        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: true }),
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { isAdmin: true },
+          ACCESS_TOKEN,
+        ),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -1061,7 +1092,12 @@ describe('UsersService', () => {
       });
 
       await expect(
-        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: true }),
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { isAdmin: true },
+          ACCESS_TOKEN,
+        ),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -1072,7 +1108,12 @@ describe('UsersService', () => {
       });
 
       await expect(
-        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: true }),
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { isAdmin: true },
+          ACCESS_TOKEN,
+        ),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -1082,7 +1123,12 @@ describe('UsersService', () => {
         .mockResolvedValueOnce(null);
 
       await expect(
-        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: true }),
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { isAdmin: true },
+          ACCESS_TOKEN,
+        ),
       ).rejects.toThrow(NotFoundException);
 
       expect(manager.save).not.toHaveBeenCalled();
@@ -1094,7 +1140,12 @@ describe('UsersService', () => {
         .mockResolvedValueOnce({ ...targetUser });
 
       await expect(
-        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: false }),
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { isAdmin: false },
+          ACCESS_TOKEN,
+        ),
       ).resolves.toEqual({ ...targetUser });
 
       expect(manager.save).not.toHaveBeenCalled();
@@ -1107,19 +1158,28 @@ describe('UsersService', () => {
         .mockResolvedValueOnce({ ...targetUser });
 
       await expect(
-        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, {}),
+        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, {}, ACCESS_TOKEN),
       ).resolves.toEqual({ ...targetUser });
 
       expect(manager.save).not.toHaveBeenCalled();
     });
 
     it('archives a target account and records the archival in the audit entry (F12.2)', async () => {
+      userRepository.findOneBy.mockResolvedValue({
+        ...targetUser,
+        roles: [Role.Requester],
+      });
       manager.findOneBy
         .mockResolvedValueOnce(adminActor)
         .mockResolvedValueOnce({ ...targetUser });
 
       await expect(
-        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isArchived: true }),
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { isArchived: true },
+          ACCESS_TOKEN,
+        ),
       ).resolves.toEqual({ ...targetUser, isArchived: true });
 
       expect(manager.save).toHaveBeenCalledWith(
@@ -1132,14 +1192,102 @@ describe('UsersService', () => {
       });
     });
 
-    it('un-archives a target account (F12.3)', async () => {
+    it('asks order-service to block the target roles outside the admin lock (F12)', async () => {
+      userRepository.findOneBy.mockResolvedValue({
+        ...targetUser,
+        roles: [Role.Requester, Role.Courier],
+      });
       manager.findOneBy
         .mockResolvedValueOnce(adminActor)
-        .mockResolvedValueOnce({ ...targetUser, isArchived: true });
+        .mockResolvedValueOnce({ ...targetUser });
+
+      await service.adminUpdateUser(
+        ACTOR_UUID,
+        TARGET_UUID,
+        { isArchived: true },
+        ACCESS_TOKEN,
+      );
+
+      expect(orderServiceClient.blockRoles).toHaveBeenCalledTimes(1);
+      expect(orderServiceClient.blockRoles).toHaveBeenCalledWith(
+        TARGET_UUID,
+        [Role.Requester, Role.Courier],
+        ACCESS_TOKEN,
+      );
+      // The network call must happen before the transaction takes the
+      // advisory lock, so a slow order-service never stalls admin mutations.
+      expect(
+        orderServiceClient.blockRoles.mock.invocationCallOrder[0],
+      ).toBeLessThan(dataSource.transaction.mock.invocationCallOrder[0]);
+    });
+
+    it('refuses the archive when order-service reports a role in use', async () => {
+      userRepository.findOneBy.mockResolvedValue({
+        ...targetUser,
+        roles: [Role.Requester],
+      });
+      orderServiceClient.blockRoles.mockResolvedValue(false);
 
       await expect(
-        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isArchived: false }),
-      ).resolves.toEqual({ ...targetUser });
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { isArchived: true },
+          ACCESS_TOKEN,
+        ),
+      ).rejects.toThrow(ConflictException);
+
+      // Nothing is read or written inside the transaction: the archive never
+      // starts.
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(manager.create).not.toHaveBeenCalled();
+    });
+
+    it('fails closed when order-service cannot answer', async () => {
+      userRepository.findOneBy.mockResolvedValue({
+        ...targetUser,
+        roles: [Role.Requester],
+      });
+      orderServiceClient.blockRoles.mockRejectedValue(
+        new BadGatewayException('order-service is unreachable'),
+      );
+
+      await expect(
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { isArchived: true },
+          ACCESS_TOKEN,
+        ),
+      ).rejects.toThrow(BadGatewayException);
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it('un-archives a target account (F12.3)', async () => {
+      userRepository.findOneBy.mockResolvedValue({
+        ...targetUser,
+        roles: [Role.Requester],
+        isArchived: true,
+      });
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({
+          ...targetUser,
+          roles: [Role.Requester],
+          isArchived: true,
+        });
+
+      await expect(
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { isArchived: false },
+          ACCESS_TOKEN,
+        ),
+      ).resolves.toEqual({ ...targetUser, roles: [Role.Requester] });
 
       expect(manager.create).toHaveBeenCalledWith(UserUpdateAudit, {
         actorUuid: ACTOR_UUID,
@@ -1148,15 +1296,71 @@ describe('UsersService', () => {
       });
     });
 
+    it('lifts the order-service block once the un-archive has committed', async () => {
+      userRepository.findOneBy.mockResolvedValue({
+        ...targetUser,
+        roles: [Role.Requester],
+        isArchived: true,
+      });
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({
+          ...targetUser,
+          roles: [Role.Requester],
+          isArchived: true,
+        });
+
+      await service.adminUpdateUser(
+        ACTOR_UUID,
+        TARGET_UUID,
+        { isArchived: false },
+        ACCESS_TOKEN,
+      );
+
+      expect(orderServiceClient.blockRoles).not.toHaveBeenCalled();
+      expect(orderServiceClient.unblockRoles).toHaveBeenCalledTimes(1);
+      expect(orderServiceClient.unblockRoles).toHaveBeenCalledWith(
+        TARGET_UUID,
+        [Role.Requester],
+        ACCESS_TOKEN,
+      );
+      // The block is lifted only after the change has committed.
+      expect(
+        orderServiceClient.unblockRoles.mock.invocationCallOrder[0],
+      ).toBeGreaterThan(manager.save.mock.invocationCallOrder[0]);
+    });
+
+    it('makes no order-service call when only the admin flag changes', async () => {
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser, isAdmin: true });
+      manager.count.mockResolvedValue(2);
+
+      await service.adminUpdateUser(
+        ACTOR_UUID,
+        TARGET_UUID,
+        { isAdmin: false },
+        ACCESS_TOKEN,
+      );
+
+      expect(orderServiceClient.blockRoles).not.toHaveBeenCalled();
+      expect(orderServiceClient.unblockRoles).not.toHaveBeenCalled();
+    });
+
     it('records both changes in a single audit entry when both flags move', async () => {
       manager.findOneBy
         .mockResolvedValueOnce(adminActor)
         .mockResolvedValueOnce({ ...targetUser });
 
-      await service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, {
-        isAdmin: true,
-        isArchived: true,
-      });
+      await service.adminUpdateUser(
+        ACTOR_UUID,
+        TARGET_UUID,
+        {
+          isAdmin: true,
+          isArchived: true,
+        },
+        ACCESS_TOKEN,
+      );
 
       expect(manager.create).toHaveBeenCalledTimes(1);
       expect(manager.create).toHaveBeenCalledWith(UserUpdateAudit, {
@@ -1176,7 +1380,12 @@ describe('UsersService', () => {
       manager.count.mockResolvedValue(0);
 
       await expect(
-        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isArchived: true }),
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { isArchived: true },
+          ACCESS_TOKEN,
+        ),
       ).rejects.toThrow(ConflictException);
 
       expect(manager.save).not.toHaveBeenCalled();
@@ -1190,19 +1399,37 @@ describe('UsersService', () => {
       manager.count.mockResolvedValue(2);
 
       await expect(
-        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isArchived: true }),
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { isArchived: true },
+          ACCESS_TOKEN,
+        ),
       ).resolves.toEqual({ ...targetUser, isAdmin: true, isArchived: true });
     });
 
     it('treats a re-archive as a no-op with no audit entry', async () => {
+      userRepository.findOneBy.mockResolvedValue({
+        ...targetUser,
+        roles: [Role.Requester],
+        isArchived: true,
+      });
       manager.findOneBy
         .mockResolvedValueOnce(adminActor)
         .mockResolvedValueOnce({ ...targetUser, isArchived: true });
 
       await expect(
-        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isArchived: true }),
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { isArchived: true },
+          ACCESS_TOKEN,
+        ),
       ).resolves.toEqual({ ...targetUser, isArchived: true });
 
+      // Nothing changes, so there is nothing to guard.
+      expect(orderServiceClient.blockRoles).not.toHaveBeenCalled();
+      expect(orderServiceClient.unblockRoles).not.toHaveBeenCalled();
       expect(manager.save).not.toHaveBeenCalled();
       expect(manager.create).not.toHaveBeenCalled();
     });
@@ -1213,9 +1440,14 @@ describe('UsersService', () => {
         .mockResolvedValueOnce({ ...targetUser, isAdmin: true });
       manager.count.mockResolvedValue(2);
 
-      await service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, {
-        isAdmin: false,
-      });
+      await service.adminUpdateUser(
+        ACTOR_UUID,
+        TARGET_UUID,
+        {
+          isAdmin: false,
+        },
+        ACCESS_TOKEN,
+      );
 
       expect(authorizationService.createAdminBlock).toHaveBeenCalledTimes(1);
       expect(authorizationService.createAdminBlock).toHaveBeenCalledWith(
@@ -1234,9 +1466,14 @@ describe('UsersService', () => {
         .mockResolvedValueOnce(adminActor)
         .mockResolvedValueOnce({ ...targetUser });
 
-      await service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, {
-        isAdmin: true,
-      });
+      await service.adminUpdateUser(
+        ACTOR_UUID,
+        TARGET_UUID,
+        {
+          isAdmin: true,
+        },
+        ACCESS_TOKEN,
+      );
 
       // A demoted-then-re-promoted admin must not stay blocked, so the
       // block key is removed (a no-op in redis when absent).
@@ -1252,9 +1489,14 @@ describe('UsersService', () => {
         .mockResolvedValueOnce(adminActor)
         .mockResolvedValueOnce({ ...targetUser });
 
-      await service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, {
-        isAdmin: false,
-      });
+      await service.adminUpdateUser(
+        ACTOR_UUID,
+        TARGET_UUID,
+        {
+          isAdmin: false,
+        },
+        ACCESS_TOKEN,
+      );
 
       expect(authorizationService.createAdminBlock).not.toHaveBeenCalled();
     });
@@ -1265,9 +1507,14 @@ describe('UsersService', () => {
         .mockResolvedValueOnce({ ...targetUser, isAdmin: true });
       manager.count.mockResolvedValue(2);
 
-      await service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, {
-        isArchived: true,
-      });
+      await service.adminUpdateUser(
+        ACTOR_UUID,
+        TARGET_UUID,
+        {
+          isArchived: true,
+        },
+        ACCESS_TOKEN,
+      );
 
       expect(authorizationService.createAdminBlock).not.toHaveBeenCalled();
     });
@@ -1279,7 +1526,12 @@ describe('UsersService', () => {
       manager.count.mockResolvedValue(0);
 
       await expect(
-        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: false }),
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { isAdmin: false },
+          ACCESS_TOKEN,
+        ),
       ).rejects.toThrow(ConflictException);
 
       expect(authorizationService.createAdminBlock).not.toHaveBeenCalled();
@@ -1301,7 +1553,12 @@ describe('UsersService', () => {
       );
 
       await expect(
-        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: false }),
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { isAdmin: false },
+          ACCESS_TOKEN,
+        ),
       ).rejects.toThrow('commit failed');
 
       expect(authorizationService.createAdminBlock).not.toHaveBeenCalled();
@@ -1312,9 +1569,14 @@ describe('UsersService', () => {
         .mockResolvedValueOnce(adminActor)
         .mockResolvedValueOnce({ ...targetUser });
 
-      await service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, {
-        isAdmin: true,
-      });
+      await service.adminUpdateUser(
+        ACTOR_UUID,
+        TARGET_UUID,
+        {
+          isAdmin: true,
+        },
+        ACCESS_TOKEN,
+      );
 
       // The block is removed only after the in-transaction writes, i.e.
       // after the promotion has committed.
@@ -1328,9 +1590,14 @@ describe('UsersService', () => {
         .mockResolvedValueOnce(adminActor)
         .mockResolvedValueOnce({ ...targetUser, isAdmin: true });
 
-      await service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, {
-        isAdmin: true,
-      });
+      await service.adminUpdateUser(
+        ACTOR_UUID,
+        TARGET_UUID,
+        {
+          isAdmin: true,
+        },
+        ACCESS_TOKEN,
+      );
 
       expect(authorizationService.removeAdminBlock).not.toHaveBeenCalled();
       expect(authorizationService.createAdminBlock).not.toHaveBeenCalled();
@@ -1342,9 +1609,14 @@ describe('UsersService', () => {
         .mockResolvedValueOnce({ ...targetUser, isAdmin: true });
       manager.count.mockResolvedValue(2);
 
-      await service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, {
-        isArchived: true,
-      });
+      await service.adminUpdateUser(
+        ACTOR_UUID,
+        TARGET_UUID,
+        {
+          isArchived: true,
+        },
+        ACCESS_TOKEN,
+      );
 
       expect(authorizationService.removeAdminBlock).not.toHaveBeenCalled();
       expect(authorizationService.createAdminBlock).not.toHaveBeenCalled();
@@ -1357,7 +1629,12 @@ describe('UsersService', () => {
       });
 
       await expect(
-        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: true }),
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { isAdmin: true },
+          ACCESS_TOKEN,
+        ),
       ).rejects.toThrow(ForbiddenException);
 
       expect(authorizationService.removeAdminBlock).not.toHaveBeenCalled();
@@ -1378,7 +1655,12 @@ describe('UsersService', () => {
       );
 
       await expect(
-        service.adminUpdateUser(ACTOR_UUID, TARGET_UUID, { isAdmin: true }),
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { isAdmin: true },
+          ACCESS_TOKEN,
+        ),
       ).rejects.toThrow('commit failed');
 
       expect(authorizationService.removeAdminBlock).not.toHaveBeenCalled();
@@ -1400,9 +1682,15 @@ describe('UsersService', () => {
     };
 
     it("archives the caller's own account (F12.1)", async () => {
+      userRepository.findOneBy.mockResolvedValue({
+        ...selfUser,
+        roles: [Role.Requester],
+      });
       manager.findOneBy.mockResolvedValueOnce({ ...selfUser });
 
-      await expect(service.archiveSelf(FIXED_UUID)).resolves.toEqual({
+      await expect(
+        service.archiveSelf(FIXED_UUID, ACCESS_TOKEN),
+      ).resolves.toEqual({
         ...selfUser,
         isArchived: true,
       });
@@ -1415,57 +1703,143 @@ describe('UsersService', () => {
       );
     });
 
-    it('writes no audit entry for a self-initiated archive', async () => {
+    it('asks order-service to block every role the account still holds (F12)', async () => {
+      userRepository.findOneBy.mockResolvedValue({
+        ...selfUser,
+        roles: [Role.Requester, Role.Courier],
+      });
       manager.findOneBy.mockResolvedValueOnce({ ...selfUser });
 
-      await service.archiveSelf(FIXED_UUID);
+      await service.archiveSelf(FIXED_UUID, ACCESS_TOKEN);
+
+      // One all-or-nothing call, forwarded with the caller's own token.
+      expect(orderServiceClient.blockRoles).toHaveBeenCalledTimes(1);
+      expect(orderServiceClient.blockRoles).toHaveBeenCalledWith(
+        FIXED_UUID,
+        [Role.Requester, Role.Courier],
+        ACCESS_TOKEN,
+      );
+    });
+
+    it('keeps the account active when order-service reports a role in use', async () => {
+      userRepository.findOneBy.mockResolvedValue({
+        ...selfUser,
+        roles: [Role.Requester],
+      });
+      orderServiceClient.blockRoles.mockResolvedValue(false);
+
+      await expect(
+        service.archiveSelf(FIXED_UUID, ACCESS_TOKEN),
+      ).rejects.toThrow(ConflictException);
+
+      // Nothing is written: the archive never starts.
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it('fails closed when order-service cannot answer', async () => {
+      userRepository.findOneBy.mockResolvedValue({
+        ...selfUser,
+        roles: [Role.Requester],
+      });
+      orderServiceClient.blockRoles.mockRejectedValue(
+        new BadGatewayException('order-service is unreachable'),
+      );
+
+      await expect(
+        service.archiveSelf(FIXED_UUID, ACCESS_TOKEN),
+      ).rejects.toThrow(BadGatewayException);
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it('makes no order-service call when the account holds no roles', async () => {
+      userRepository.findOneBy.mockResolvedValue({ ...selfUser, roles: [] });
+      manager.findOneBy.mockResolvedValueOnce({ ...selfUser });
+
+      await service.archiveSelf(FIXED_UUID, ACCESS_TOKEN);
+
+      expect(orderServiceClient.blockRoles).not.toHaveBeenCalled();
+    });
+
+    it('writes no audit entry for a self-initiated archive', async () => {
+      userRepository.findOneBy.mockResolvedValue({
+        ...selfUser,
+        roles: [Role.Requester],
+      });
+      manager.findOneBy.mockResolvedValueOnce({ ...selfUser });
+
+      await service.archiveSelf(FIXED_UUID, ACCESS_TOKEN);
 
       expect(manager.create).not.toHaveBeenCalled();
     });
 
     it('is a no-op when the account is already archived', async () => {
+      userRepository.findOneBy.mockResolvedValue({
+        ...selfUser,
+        roles: [Role.Requester],
+        isArchived: true,
+      });
       manager.findOneBy.mockResolvedValueOnce({
         ...selfUser,
         isArchived: true,
       });
 
-      await expect(service.archiveSelf(FIXED_UUID)).resolves.toMatchObject({
+      await expect(
+        service.archiveSelf(FIXED_UUID, ACCESS_TOKEN),
+      ).resolves.toMatchObject({
         isArchived: true,
       });
 
+      // An already-archived account has nothing left to guard.
+      expect(orderServiceClient.blockRoles).not.toHaveBeenCalled();
       expect(manager.save).not.toHaveBeenCalled();
     });
 
     it('rejects when the account no longer exists', async () => {
+      userRepository.findOneBy.mockResolvedValue(null);
       manager.findOneBy.mockResolvedValueOnce(null);
 
-      await expect(service.archiveSelf(FIXED_UUID)).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(
+        service.archiveSelf(FIXED_UUID, ACCESS_TOKEN),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(orderServiceClient.blockRoles).not.toHaveBeenCalled();
     });
 
     it('refuses an admin archiving themself as the last active admin', async () => {
+      userRepository.findOneBy.mockResolvedValue({
+        ...selfUser,
+        isAdmin: true,
+        roles: [Role.Requester],
+      });
       manager.findOneBy.mockResolvedValueOnce({
         ...selfUser,
         isAdmin: true,
       });
       manager.count.mockResolvedValue(0);
 
-      await expect(service.archiveSelf(FIXED_UUID)).rejects.toThrow(
-        ConflictException,
-      );
+      await expect(
+        service.archiveSelf(FIXED_UUID, ACCESS_TOKEN),
+      ).rejects.toThrow(ConflictException);
 
       expect(manager.save).not.toHaveBeenCalled();
     });
 
     it('takes the advisory lock before counting admins, serialising the check', async () => {
+      userRepository.findOneBy.mockResolvedValue({
+        ...selfUser,
+        isAdmin: true,
+        roles: [Role.Requester],
+      });
       manager.findOneBy.mockResolvedValueOnce({
         ...selfUser,
         isAdmin: true,
       });
       manager.count.mockResolvedValue(2);
 
-      await service.archiveSelf(FIXED_UUID);
+      await service.archiveSelf(FIXED_UUID, ACCESS_TOKEN);
 
       expect(manager.query).toHaveBeenCalledWith(
         'SELECT pg_advisory_xact_lock($1::bigint)',

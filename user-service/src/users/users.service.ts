@@ -450,13 +450,32 @@ export class UsersService {
    * rather than trusted from the token claims.
    *
    * The transaction first takes a transaction-scoped advisory lock.
+   *
+   * Archiving asks order-service to block every role the target still holds
+   * (and un-archiving lifts that block), so a stale access token cannot keep
+   * starting errands in an archived account.
    */
   async adminUpdateUser(
     actorUuid: string,
     targetUuid: string,
     fields: { isAdmin?: boolean; isArchived?: boolean },
+    accessToken: string,
   ): Promise<User> {
+    // Read the roles outside the transaction: order-service may take up to
+    // its client timeout to answer, and the advisory lock must not be held
+    // across network I/O. The transaction re-reads the row and stays
+    // authoritative for the change itself.
+    const existing = await this.userRepository.findOneBy({ uuid: targetUuid });
+    if (
+      existing != null &&
+      fields.isArchived === true &&
+      !existing.isArchived
+    ) {
+      await this.blockErrands(existing, accessToken);
+    }
+
     let demoted;
+    let unarchived = false;
     const target = await this.dataSource.transaction(async (manager) => {
       await manager.query('SELECT pg_advisory_xact_lock($1::bigint)', [
         ADMIN_MUTATION_LOCK_KEY,
@@ -484,7 +503,10 @@ export class UsersService {
         target,
         fields.isArchived,
       );
-      if (archiveChange !== undefined) changedFields.isArchived = archiveChange;
+      if (archiveChange !== undefined) {
+        changedFields.isArchived = archiveChange;
+        unarchived = !archiveChange.to;
+      }
 
       // No change; return early without saving
       if (Object.keys(changedFields).length === 0) {
@@ -510,15 +532,37 @@ export class UsersService {
       await this.authorizationService.removeAdminBlock(targetUuid);
     }
 
+    // Post-transaction: lift the order-service block once the un-archive has
+    // committed, so the restored account is usable immediately. Best effort,
+    // like a role re-addition: a missed unblock expires with the block TTL.
+    if (unarchived && target.roles.length > 0) {
+      await this.orderServiceClient.unblockRoles(
+        targetUuid,
+        target.roles,
+        accessToken,
+      );
+    }
+
     return target;
   }
 
   /**
    * Archives the caller's own account
    *
-   * Self-initiated, so no audit entry is written.
+   * Self-initiated, so no audit entry is written. Before the archive commits,
+   * order-service checks the account's roles for ongoing errands and blocks
+   * them, so a stale access token cannot keep starting work in the archived
+   * account.
    */
-  async archiveSelf(uuid: string): Promise<User> {
+  async archiveSelf(uuid: string, accessToken: string): Promise<User> {
+    // Read the roles outside the transaction: the order-service call can take
+    // up to the client's timeout, and the advisory lock must not be held
+    // across network I/O.
+    const existing = await this.userRepository.findOneBy({ uuid });
+    if (existing != null && !existing.isArchived) {
+      await this.blockErrands(existing, accessToken);
+    }
+
     return this.dataSource.transaction(async (manager) => {
       await manager.query('SELECT pg_advisory_xact_lock($1::bigint)', [
         ADMIN_MUTATION_LOCK_KEY,
@@ -622,6 +666,10 @@ export class UsersService {
   /**
    * Applies an archival-status change to the target row, returning the audit
    * entry when the value actually changed (and `undefined` otherwise).
+   *
+   * The order-service block that guards the transition is not handled here:
+   * callers do it outside the transaction, before archiving or after
+   * un-archiving commits.
    */
   private async applyArchiveChange(
     manager: EntityManager,
@@ -639,14 +687,36 @@ export class UsersService {
         );
       }
       // TODO: revoke every refresh token tied to this account.
-    } else {
-      // TODO: lift the order-service activity block when the
-      // account is un-archived.
     }
 
     const change = { from: target.isArchived, to: isArchived };
     target.isArchived = isArchived;
     return change;
+  }
+
+  /**
+   * Asks order-service to check every role the account still holds for
+   * ongoing errands and block them, so a stale access token cannot keep
+   * starting work while the account is archived.
+   *
+   * A `409` (`ROLE_IN_USE`) aborts the archive; a gateway failure propagates
+   * because whether archiving is safe is unknown.
+   */
+  private async blockErrands(user: User, accessToken: string): Promise<void> {
+    if (user.roles.length === 0) {
+      return;
+    }
+
+    const canArchive = await this.orderServiceClient.blockRoles(
+      user.uuid,
+      user.roles,
+      accessToken,
+    );
+    if (!canArchive) {
+      throw new ConflictException(
+        'Account cannot be archived while it has active errands.',
+      );
+    }
   }
 
   /**

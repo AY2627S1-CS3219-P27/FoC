@@ -318,7 +318,21 @@ describe('UsersController', () => {
 
       expect(usersService.archiveSelf).toHaveBeenCalledWith(
         '11111111-1111-4111-8111-111111111111',
+        ACCESS_TOKEN,
       );
+    });
+
+    it('rejects when the request carries no access token', async () => {
+      // Unreachable behind JwtAuthGuard; pins the defensive branch so a
+      // tokenless request can never reach order-service unauthenticated.
+      await expect(
+        controller.archiveMe(
+          { user: authenticatedRequest.user } as never,
+          res as never,
+        ),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(usersService.archiveSelf).not.toHaveBeenCalled();
     });
 
     it('clears the access token cookie, ending the session', async () => {
@@ -357,6 +371,7 @@ describe('UsersController', () => {
   describe('adminUpdateUser', () => {
     const adminRequest = {
       user: { ...authenticatedRequest.user, isAdmin: true },
+      cookies: authenticatedRequest.cookies,
     };
 
     it('delegates to the service and projects the admin view of the result', async () => {
@@ -393,7 +408,22 @@ describe('UsersController', () => {
         '11111111-1111-4111-8111-111111111111',
         '22222222-2222-4222-8222-222222222222',
         { isArchived: true },
+        ACCESS_TOKEN,
       );
+    });
+
+    it('rejects when the request carries no access token', async () => {
+      // Unreachable behind JwtAuthGuard; pins the defensive branch so a
+      // tokenless request can never reach order-service unauthenticated.
+      await expect(
+        controller.adminUpdateUser(
+          { user: adminRequest.user } as never,
+          '22222222-2222-4222-8222-222222222222',
+          { isArchived: true } as never,
+        ),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(usersService.adminUpdateUser).not.toHaveBeenCalled();
     });
   });
 
