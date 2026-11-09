@@ -468,6 +468,6 @@ async function apply(
         : 1,
     sequenceNumber: row.seq,
   });
-  if (notice) await enqueueNotice(tx, notice);
+  for (const n of [notice ?? []].flat()) await enqueueNotice(tx, n);
   return { ok: true, sequenceNumber: row.seq };
 }

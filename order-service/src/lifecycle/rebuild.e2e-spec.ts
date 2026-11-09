@@ -182,7 +182,13 @@ describe('rebuildProjection', () => {
     expect(await rebuildProjection(t.db, id)).toEqual(await liveRow(id));
 
     await request(5);
-    await step(id, 'Settling-Credit', 'Resolved', { payload: creditIds() });
+    await step(id, 'Settling-Credit', 'Resolved', {
+      payload: {
+        creditEventId: randomUUID(),
+        courierCreditTransactionId: randomUUID(),
+        requesterCreditTransactionId: null,
+      },
+    });
     expect(await rebuildProjection(t.db, id)).toMatchObject({
       status: 'Resolved',
       settlementAmount: 5,

@@ -21,13 +21,13 @@ export interface NoticeContext {
   sequenceNumber: number; // of the event this edge writes
 }
 
-// `key` is the contract's routing key; builders may return undefined to skip.
+// `key` is the contract's routing key; builders may return undefined to skip, or several notices.
 export interface Notice {
   key: EventContractKey;
   payload: object;
   eventId?: string; // a derived id a sweep can re-create; random when absent
 }
-export type NoticeBuilder = (c: NoticeContext) => Notice | undefined;
+export type NoticeBuilder = (c: NoticeContext) => Notice | Notice[] | undefined;
 
 // Compiles every schema once.
 const validator = new AccountEventContractValidator();

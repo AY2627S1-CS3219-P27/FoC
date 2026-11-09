@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://foc.local/schemas/requester-errand-cancelled.v1.schema.json",
+  "title": "RequesterErrandCancelledV1",
+  "allOf": [
+    {
+      "$ref": "https://foc.local/schemas/event-envelope.v1.schema.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "const": "RequesterErrandCancelled"
+        },
+        "publisher": {
+          "const": "order-service"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "errandId",
+            "requesterUserId",
+            "cancellationReason"
+          ],
+          "properties": {
+            "errandId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "requesterUserId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "cancellationReason": {
+              "type": "string",
+              "enum": [
+                "SUPPLIER_UNAVAILABLE",
+                "BUILDING_UNAVAILABLE",
+                "SUPPLIER_VALIDATION_TIMEOUT",
+                "INSUFFICIENT_CREDITS",
+                "MISSING_BALANCE",
+                "CREDIT_TIMEOUT",
+                "ERRAND_EXPIRED",
+                "PICKUP_TIME_EXCEEDED"
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+}
