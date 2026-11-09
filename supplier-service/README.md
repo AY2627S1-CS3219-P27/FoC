@@ -222,6 +222,8 @@ Rules the database **can't** express are checked in the service, inside the same
 
 **Retire, don't delete:** buildings and categories are *retired* (`retired_at` is set), never deleted. Suppliers that already use them keep working, but they can't be chosen for new data (F1.8, F4.3.1, F11.3).
 
+**Known gap (supplier hard delete):** a supplier must not be hard-deleted while orders reference it (F5.3.1), so the delete needs to ask order-service for a usage check first. That check is not built on either side: there is no supplier delete endpoint, no order-service usage endpoint and no client here. Until it exists, do not add a delete route without it. Buildings, categories and brands need no check because they are only retired. See "Planned, not built" in `order-service/ARCHITECTURE.md`.
+
 **Why UUIDs, not auto-increment ids:**
 
 - F1.1 requires suppliers to have "a unique, system-generated, immutable identifier (UUID)", never reused and not derived from the name or location.
