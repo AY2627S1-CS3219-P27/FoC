@@ -52,7 +52,11 @@ describe('OrderServiceClient', () => {
       fetchMock.mockResolvedValue(new Response(null, { status: 200 }));
 
       await expect(
-        client.blockRoles(USER_ID, [Role.Requester, Role.Courier], ACCESS_TOKEN),
+        client.blockRoles(
+          USER_ID,
+          [Role.Requester, Role.Courier],
+          ACCESS_TOKEN,
+        ),
       ).resolves.toBe(true);
 
       expect(fetchMock).toHaveBeenCalledWith(
@@ -106,6 +110,27 @@ describe('OrderServiceClient', () => {
       expect(loggerError).toHaveBeenCalled();
     });
 
+    it('lifts any block that landed when order-service rejects the block', async () => {
+      fetchMock
+        .mockResolvedValueOnce(new Response(null, { status: 500 }))
+        .mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+      await expect(
+        client.blockRoles(USER_ID, [Role.Courier], ACCESS_TOKEN),
+      ).rejects.toThrow(BadGatewayException);
+
+      // The caller aborts the change, so a block committed before the 5xx
+      // must not be left standing.
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenLastCalledWith(
+        `${DEFAULT_BASE_URL}/v1/role-blocks`,
+        expect.objectContaining({
+          method: 'DELETE',
+          body: JSON.stringify({ userId: USER_ID, roles: [Role.Courier] }),
+        }),
+      );
+    });
+
     it('maps an unreachable order-service to a gateway error', async () => {
       fetchMock.mockRejectedValue(new TypeError('fetch failed'));
 
@@ -117,12 +142,41 @@ describe('OrderServiceClient', () => {
 
     it('maps a timeout to a gateway error', async () => {
       fetchMock.mockRejectedValue(
-        new DOMException('The operation was aborted due to timeout', 'TimeoutError'),
+        new DOMException(
+          'The operation was aborted due to timeout',
+          'TimeoutError',
+        ),
       );
 
       await expect(
         client.blockRoles(USER_ID, [Role.Courier], ACCESS_TOKEN),
       ).rejects.toThrow(BadGatewayException);
+    });
+
+    it('compensates a timed-out block, which order-service may still have applied', async () => {
+      fetchMock
+        .mockRejectedValueOnce(
+          new DOMException(
+            'The operation was aborted due to timeout',
+            'TimeoutError',
+          ),
+        )
+        .mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+      await expect(
+        client.blockRoles(USER_ID, [Role.Courier], ACCESS_TOKEN),
+      ).rejects.toThrow(BadGatewayException);
+
+      // A client-side abort does not cancel the request server-side, so the
+      // block may exist; the compensating delete runs before the 502.
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenLastCalledWith(
+        `${DEFAULT_BASE_URL}/v1/role-blocks`,
+        expect.objectContaining({
+          method: 'DELETE',
+          body: JSON.stringify({ userId: USER_ID, roles: [Role.Courier] }),
+        }),
+      );
     });
   });
 
@@ -132,8 +186,9 @@ describe('OrderServiceClient', () => {
 
       await expect(
         client.unblockRoles(USER_ID, [Role.Requester], ACCESS_TOKEN),
-      ).resolves.toBeUndefined();
+      ).resolves.toBe(true);
 
+      expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(fetchMock).toHaveBeenCalledWith(
         `${DEFAULT_BASE_URL}/v1/role-blocks`,
         {
@@ -149,22 +204,35 @@ describe('OrderServiceClient', () => {
       expect(loggerWarn).not.toHaveBeenCalled();
     });
 
-    it('swallows a refused unblock, since the block expires on its own', async () => {
+    it('retries once, since the delete is idempotent', async () => {
+      fetchMock
+        .mockResolvedValueOnce(new Response(null, { status: 503 }))
+        .mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+      await expect(
+        client.unblockRoles(USER_ID, [Role.Requester], ACCESS_TOKEN),
+      ).resolves.toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(loggerWarn).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports failure instead of throwing, since the block expires on its own', async () => {
       fetchMock.mockResolvedValue(new Response(null, { status: 503 }));
 
       await expect(
         client.unblockRoles(USER_ID, [Role.Requester], ACCESS_TOKEN),
-      ).resolves.toBeUndefined();
-      expect(loggerWarn).toHaveBeenCalled();
+      ).resolves.toBe(false);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(loggerWarn).toHaveBeenCalledTimes(2);
     });
 
-    it('swallows an unreachable order-service', async () => {
+    it('reports failure without throwing when order-service is unreachable', async () => {
       fetchMock.mockRejectedValue(new TypeError('fetch failed'));
 
       await expect(
         client.unblockRoles(USER_ID, [Role.Requester], ACCESS_TOKEN),
-      ).resolves.toBeUndefined();
-      expect(loggerWarn).toHaveBeenCalled();
+      ).resolves.toBe(false);
+      expect(loggerWarn).toHaveBeenCalledTimes(2);
     });
   });
 });

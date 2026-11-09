@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -351,15 +352,33 @@ export class UsersService {
       (role) => !user.roles.includes(role) && roles.includes(role),
     );
 
-    await this.tryRemoveRoles(user, rolesToRemove, accessToken);
-    await this.addRoles(user, rolesToAdd, accessToken);
+    let saved: User;
+    let removalBlockPlaced = false;
+    try {
+      await this.tryRemoveRoles(user, rolesToRemove, accessToken);
+      removalBlockPlaced = rolesToRemove.length > 0;
+      await this.addRoles(user, rolesToAdd, accessToken);
 
-    // Set-replace: the stored roles are exactly the requested set, in the
-    // enum's canonical order, so duplicate and out-of-order input never
-    // survives. The order-service calls above only gate the change.
-    user.roles = roleList.filter((role) => roles.includes(role));
+      // Set-replace: the stored roles are exactly the requested set, in the
+      // enum's canonical order, so duplicate and out-of-order input never
+      // survives. The order-service calls above only gate the change.
+      user.roles = roleList.filter((role) => roles.includes(role));
 
-    const saved = await this.userRepository.save(user);
+      saved = await this.userRepository.save(user);
+    } catch (error) {
+      // A block was placed for the roles leaving the account, but the change
+      // did not commit (a failed save, a rejected re-addition unblock, ...).
+      // Lift it, or the kept role stays unusable until the block TTL expires.
+      // Best effort: a missed compensation still expires on its own.
+      if (removalBlockPlaced) {
+        await this.orderServiceClient.unblockRoles(
+          user.uuid,
+          rolesToRemove,
+          accessToken,
+        );
+      }
+      throw error;
+    }
 
     return this.getPublicUserInfo(saved);
   }
@@ -395,9 +414,13 @@ export class UsersService {
 
   /**
    * Lifts any block still in place on the roles about to be added, so a
-   * re-added role is usable immediately. The unblock is best effort: the
-   * client logs failures and a missed block expires on its own, since the
-   * addition itself is valid either way.
+   * re-added role is usable immediately.
+   *
+   * The unblock must succeed: order-service refuses work in a blocked role,
+   * so a silent failure would return 200 for a role the user cannot actually
+   * use until the block TTL expires. It runs before the roles are saved, so
+   * throwing here leaves nothing persisted and the user's retry re-attempts
+   * the unblock cleanly.
    */
   private async addRoles(
     user: User,
@@ -408,7 +431,16 @@ export class UsersService {
       return;
     }
 
-    await this.orderServiceClient.unblockRoles(user.uuid, roles, accessToken);
+    const unblocked = await this.orderServiceClient.unblockRoles(
+      user.uuid,
+      roles,
+      accessToken,
+    );
+    if (!unblocked) {
+      throw new BadGatewayException(
+        'order-service could not lift the block on the added roles',
+      );
+    }
   }
 
   /**
@@ -466,64 +498,81 @@ export class UsersService {
     // across network I/O. The transaction re-reads the row and stays
     // authoritative for the change itself.
     const existing = await this.userRepository.findOneBy({ uuid: targetUuid });
+    let blockedRoles: Role[] = [];
     if (
       existing != null &&
       fields.isArchived === true &&
       !existing.isArchived
     ) {
       await this.blockErrands(existing, accessToken);
+      blockedRoles = existing.roles;
     }
 
     let demoted;
     let unarchived = false;
-    const target = await this.dataSource.transaction(async (manager) => {
-      await manager.query('SELECT pg_advisory_xact_lock($1::bigint)', [
-        ADMIN_MUTATION_LOCK_KEY,
-      ]);
+    let target: User;
+    try {
+      target = await this.dataSource.transaction(async (manager) => {
+        await manager.query('SELECT pg_advisory_xact_lock($1::bigint)', [
+          ADMIN_MUTATION_LOCK_KEY,
+        ]);
 
-      await this.checkIsAdmin(manager, actorUuid);
+        await this.checkIsAdmin(manager, actorUuid);
 
-      const target = await manager.findOneBy(User, { uuid: targetUuid });
-      if (target === null) {
-        throw new NotFoundException('User not found');
-      }
+        const target = await manager.findOneBy(User, { uuid: targetUuid });
+        if (target === null) {
+          throw new NotFoundException('User not found');
+        }
 
-      // Audit record of changes
-      const changedFields: Record<string, UserUpdateAuditChangedField> = {};
+        // Audit record of changes
+        const changedFields: Record<string, UserUpdateAuditChangedField> = {};
 
-      // Perform admin status change
-      const { change: adminChange, isDemoted } =
-        await this.applyAdminStatusChange(manager, target, fields.isAdmin);
-      if (adminChange !== undefined) changedFields.isAdmin = adminChange;
-      demoted = isDemoted; // update upper-scope demoted variable for post-transaction actions
+        // Perform admin status change
+        const { change: adminChange, isDemoted } =
+          await this.applyAdminStatusChange(manager, target, fields.isAdmin);
+        if (adminChange !== undefined) changedFields.isAdmin = adminChange;
+        demoted = isDemoted; // update upper-scope demoted variable for post-transaction actions
 
-      // Perform archive status change
-      const archiveChange = await this.applyArchiveChange(
-        manager,
-        target,
-        fields.isArchived,
-      );
-      if (archiveChange !== undefined) {
-        changedFields.isArchived = archiveChange;
-        unarchived = !archiveChange.to;
-      }
+        // Perform archive status change
+        const archiveChange = await this.applyArchiveChange(
+          manager,
+          target,
+          fields.isArchived,
+        );
+        if (archiveChange !== undefined) {
+          changedFields.isArchived = archiveChange;
+          unarchived = !archiveChange.to;
+        }
 
-      // No change; return early without saving
-      if (Object.keys(changedFields).length === 0) {
+        // No change; return early without saving
+        if (Object.keys(changedFields).length === 0) {
+          return target;
+        }
+
+        await manager.save(target);
+        await manager.save(
+          manager.create(UserUpdateAudit, {
+            actorUuid,
+            targetUuid,
+            changedFields,
+          }),
+        );
+
         return target;
-      }
-
-      await manager.save(target);
-      await manager.save(
-        manager.create(UserUpdateAudit, {
-          actorUuid,
+      });
+    } catch (error) {
+      // The archive never committed, so lift the block placed above; the
+      // account keeps its roles and must stay usable. Best effort: a missed
+      // unblock expires on its own.
+      if (blockedRoles.length > 0) {
+        await this.orderServiceClient.unblockRoles(
           targetUuid,
-          changedFields,
-        }),
-      );
-
-      return target;
-    });
+          blockedRoles,
+          accessToken,
+        );
+      }
+      throw error;
+    }
 
     // Post-transaction: create/remove admin block (redis)
     if (demoted === true) {
@@ -559,28 +608,48 @@ export class UsersService {
     // up to the client's timeout, and the advisory lock must not be held
     // across network I/O.
     const existing = await this.userRepository.findOneBy({ uuid });
+    let blockedRoles: Role[] = [];
     if (existing != null && !existing.isArchived) {
       await this.blockErrands(existing, accessToken);
+      blockedRoles = existing.roles;
     }
 
-    return this.dataSource.transaction(async (manager) => {
-      await manager.query('SELECT pg_advisory_xact_lock($1::bigint)', [
-        ADMIN_MUTATION_LOCK_KEY,
-      ]);
+    try {
+      return await this.dataSource.transaction(async (manager) => {
+        await manager.query('SELECT pg_advisory_xact_lock($1::bigint)', [
+          ADMIN_MUTATION_LOCK_KEY,
+        ]);
 
-      const user = await manager.findOneBy(User, { uuid });
-      if (user === null) {
-        throw new UnauthorizedException();
-      }
+        const user = await manager.findOneBy(User, { uuid });
+        if (user === null) {
+          throw new UnauthorizedException();
+        }
 
-      const archiveChange = await this.applyArchiveChange(manager, user, true);
-      if (archiveChange === undefined) {
+        const archiveChange = await this.applyArchiveChange(
+          manager,
+          user,
+          true,
+        );
+        if (archiveChange === undefined) {
+          return user;
+        }
+
+        await manager.save(user);
         return user;
+      });
+    } catch (error) {
+      // The archive never committed, so lift the block placed above; the
+      // account keeps its roles and must stay usable. Best effort: a missed
+      // unblock expires on its own.
+      if (blockedRoles.length > 0) {
+        await this.orderServiceClient.unblockRoles(
+          uuid,
+          blockedRoles,
+          accessToken,
+        );
       }
-
-      await manager.save(user);
-      return user;
-    });
+      throw error;
+    }
   }
 
   /**

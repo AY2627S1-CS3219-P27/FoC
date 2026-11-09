@@ -117,7 +117,7 @@ describe('UsersService', () => {
     // successful unblock; individual tests override them.
     orderServiceClient = {
       blockRoles: vi.fn(async () => true),
-      unblockRoles: vi.fn(async () => undefined),
+      unblockRoles: vi.fn(async () => true),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -795,6 +795,79 @@ describe('UsersService', () => {
       );
       // The role change is rejected outright: nothing is written.
       expect(userRepository.save).not.toHaveBeenCalled();
+      // A 409 means order-service blocked nothing, so there is nothing to
+      // compensate.
+      expect(orderServiceClient.unblockRoles).not.toHaveBeenCalled();
+    });
+
+    it('lifts the removal block when the save fails', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue({
+        ...registeredUser,
+        roles: [Role.Requester, Role.Courier],
+      });
+      userRepository.save.mockRejectedValue(new Error('db down'));
+
+      await expect(
+        service.updateRoles(FIXED_UUID, [Role.Courier], ACCESS_TOKEN),
+      ).rejects.toThrow('db down');
+
+      // The account keeps the role, so the block placed for its removal must
+      // not outlive the failed change.
+      expect(orderServiceClient.blockRoles).toHaveBeenCalledWith(
+        FIXED_UUID,
+        [Role.Requester],
+        ACCESS_TOKEN,
+      );
+      expect(orderServiceClient.unblockRoles).toHaveBeenCalledTimes(1);
+      expect(orderServiceClient.unblockRoles).toHaveBeenCalledWith(
+        FIXED_UUID,
+        [Role.Requester],
+        ACCESS_TOKEN,
+      );
+    });
+
+    it('fails the change when a re-added role cannot be unblocked', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue({
+        ...registeredUser,
+        roles: [],
+      });
+      orderServiceClient.unblockRoles.mockResolvedValue(false);
+
+      await expect(
+        service.updateRoles(FIXED_UUID, [Role.Requester], ACCESS_TOKEN),
+      ).rejects.toThrow(BadGatewayException);
+
+      // The unblock runs before the save, so the retry can re-attempt it with
+      // nothing half-written.
+      expect(userRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('lifts the removal block when a re-added role cannot be unblocked', async () => {
+      userRepository.findOneByOrFail.mockResolvedValue({
+        ...registeredUser,
+        roles: [Role.Requester],
+      });
+      orderServiceClient.unblockRoles
+        .mockResolvedValueOnce(false) // the added role's unblock fails
+        .mockResolvedValueOnce(true); // compensation for the removed role
+
+      await expect(
+        service.updateRoles(FIXED_UUID, [Role.Courier], ACCESS_TOKEN),
+      ).rejects.toThrow(BadGatewayException);
+
+      expect(userRepository.save).not.toHaveBeenCalled();
+      expect(orderServiceClient.unblockRoles).toHaveBeenNthCalledWith(
+        1,
+        FIXED_UUID,
+        [Role.Courier],
+        ACCESS_TOKEN,
+      );
+      expect(orderServiceClient.unblockRoles).toHaveBeenNthCalledWith(
+        2,
+        FIXED_UUID,
+        [Role.Requester],
+        ACCESS_TOKEN,
+      );
     });
 
     it('lifts any block on the roles being added', async () => {
@@ -1374,6 +1447,11 @@ describe('UsersService', () => {
     });
 
     it('refuses to archive the last remaining active admin (F12.2)', async () => {
+      userRepository.findOneBy.mockResolvedValue({
+        ...targetUser,
+        roles: [Role.Requester],
+        isAdmin: true,
+      });
       manager.findOneBy
         .mockResolvedValueOnce(adminActor)
         .mockResolvedValueOnce({ ...targetUser, isAdmin: true });
@@ -1390,6 +1468,12 @@ describe('UsersService', () => {
 
       expect(manager.save).not.toHaveBeenCalled();
       expect(manager.create).not.toHaveBeenCalled();
+      // The archive never committed, so the pre-placed block is lifted.
+      expect(orderServiceClient.unblockRoles).toHaveBeenCalledWith(
+        TARGET_UUID,
+        [Role.Requester],
+        ACCESS_TOKEN,
+      );
     });
 
     it('archives an admin while another active admin remains', async () => {
@@ -1825,6 +1909,12 @@ describe('UsersService', () => {
       ).rejects.toThrow(ConflictException);
 
       expect(manager.save).not.toHaveBeenCalled();
+      // The archive never committed, so the pre-placed block is lifted again.
+      expect(orderServiceClient.unblockRoles).toHaveBeenCalledWith(
+        FIXED_UUID,
+        [Role.Requester],
+        ACCESS_TOKEN,
+      );
     });
 
     it('takes the advisory lock before counting admins, serialising the check', async () => {
