@@ -19,12 +19,15 @@ export function ReportButton({ errandId, onFiled }: { errandId: string; onFiled:
     setPending(true);
     const res = await api("POST", `/api/errands/${errandId}/report`, { body: { text: text.trim() } });
     setPending(false);
-    setOpen(false);
     if (res.ok) {
+      setOpen(false);
       setError("");
       toast.success("Report sent", { description: "The admin will read it before settling." });
     } else {
-      setError(errorText(res, "Could not send your report."));
+      // Keep the dialog (and the typed text) open; toast too, since a 409 refetch unmounts this component.
+      const msg = errorText(res, "Could not send your report.");
+      setError(msg);
+      toast.error(msg);
     }
     // Refetch either way: a 409 means the errand moved on, and canReport now says so.
     onFiled();
@@ -35,7 +38,6 @@ export function ReportButton({ errandId, onFiled }: { errandId: string; onFiled:
       <Button size="lg" block intent="outline" onClick={() => setOpen(true)}>
         Tell the admin what happened
       </Button>
-      {error && <FormError>{error}</FormError>}
       <ConfirmDialog
         open={open}
         onOpenChange={setOpen}
@@ -59,6 +61,7 @@ export function ReportButton({ errandId, onFiled }: { errandId: string; onFiled:
         <p className="mt-1 text-xs text-muted">
           {text.length}/{MAX_REPORT_LENGTH}
         </p>
+        {error && <FormError>{error}</FormError>}
       </ConfirmDialog>
     </div>
   );
