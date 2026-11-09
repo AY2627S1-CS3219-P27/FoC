@@ -15,12 +15,17 @@ const DEFAULT_ICON = '/icon.svg';
 // not refresh an expired access token.
 //
 // Only open page clients can receive that message, and the push service usually
-// refreshes a subscription while the browser is closed. So the old endpoint is
+// refreshes a subscription while the browser is closed. So each old endpoint is
 // also written to IndexedDB (the origin-scoped store the app reads on load);
 // the next page load finishes the rotation.
+//
+// Records are keyed by the endpoint itself, so rotations accumulate instead of
+// clobbering each other, and the worker saving one endpoint cannot clobber the
+// page clearing another. The v1 layout kept a single overwritten record under
+// the literal key 'pending'; the app consumes and clears that legacy record
+// like any other.
 const ROTATION_DB = 'foc-push-rotation';
 const ROTATION_STORE = 'rotations';
-const ROTATION_KEY = 'pending';
 
 function saveRotatedEndpoint(endpoint) {
   return new Promise((resolve) => {
@@ -41,7 +46,7 @@ function saveRotatedEndpoint(endpoint) {
           const transaction = db.transaction(ROTATION_STORE, 'readwrite');
           transaction
             .objectStore(ROTATION_STORE)
-            .put({ id: ROTATION_KEY, endpoint, savedAt: Date.now() });
+            .put({ id: endpoint, endpoint, savedAt: Date.now() });
           transaction.oncomplete = () => {
             db.close();
             resolve();
