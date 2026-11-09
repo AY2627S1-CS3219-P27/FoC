@@ -12,3 +12,8 @@ output "github_ci_role_arn" {
   description = "Role GitHub Actions assumes (aws-actions/configure-aws-credentials role-to-assume)."
   value       = aws_iam_role.github_ci.arn
 }
+
+output "github_deploy_role_arn" {
+  description = "Role the release deploy job assumes (repo variable AWS_DEPLOY_ROLE_ARN)."
+  value       = aws_iam_role.github_deploy.arn
+}
