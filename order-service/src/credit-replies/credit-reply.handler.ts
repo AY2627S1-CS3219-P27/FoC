@@ -42,7 +42,7 @@ export const reply = <K extends EventContractKey>(
   releaseIfCancelled,
 });
 
-// The seven credit replies. The event's payload keeps credit's reason and
+// The nine credit replies. The event's payload keeps credit's reason and
 // event id and never a projection column name (ADR 0005).
 export const REPLY_SPECS: ReplySpec[] = [
   reply(
@@ -112,6 +112,23 @@ export const REPLY_SPECS: ReplySpec[] = [
   reply('credit.transfer-rejected.v1', (e) => ({
     errandId: e.payload.errandId,
     expected: 'Transferring-Credit',
+    to: 'Incomplete',
+    payload: { creditEventId: e.eventId, reason: e.payload.rejectionReason },
+  })),
+  // Dispute settlement (#662, ADR 0013). A rejection returns to Incomplete, so the admin can settle again.
+  reply('credit.settlement-succeeded.v1', (e) => ({
+    errandId: e.payload.errandId,
+    expected: 'Settling-Credit',
+    to: 'Resolved',
+    payload: {
+      creditEventId: e.eventId,
+      courierCreditTransactionId: e.payload.courierCreditTransactionId,
+      requesterCreditTransactionId: e.payload.requesterCreditTransactionId,
+    },
+  })),
+  reply('credit.settlement-rejected.v1', (e) => ({
+    errandId: e.payload.errandId,
+    expected: 'Settling-Credit',
     to: 'Incomplete',
     payload: { creditEventId: e.eventId, reason: e.payload.rejectionReason },
   })),

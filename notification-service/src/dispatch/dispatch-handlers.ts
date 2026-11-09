@@ -3,6 +3,7 @@ import {
   ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY,
   ORDER_ERRAND_COMPLETED_V1_ROUTING_KEY,
   ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
+  ORDER_REQUESTER_ERRAND_CANCELLED_V1_ROUTING_KEY,
   type DomainEventHandlers,
 } from '@foc/contracts';
 import type { DispatchService } from './dispatch.service.js';
@@ -10,6 +11,7 @@ import { dispatchCourierCancelled } from './dispatchers/courier-cancelled.dispat
 import { dispatchErrandAccepted } from './dispatchers/errand-accepted.dispatcher.js';
 import { dispatchErrandCompleted } from './dispatchers/errand-completed.dispatcher.js';
 import { dispatchErrandDelivered } from './dispatchers/errand-delivered.dispatcher.js';
+import { dispatchRequesterErrandCancelled } from './dispatchers/requester-errand-cancelled.dispatcher.js';
 
 /**
  * Wires each pushable contract to its dispatcher. The contract's routing-key
@@ -31,5 +33,7 @@ export function createDispatchHandlers(
       dispatchErrandCompleted(event, dispatch),
     [ORDER_COURIER_CANCELLED_V1_ROUTING_KEY]: (event) =>
       dispatchCourierCancelled(event, dispatch),
+    [ORDER_REQUESTER_ERRAND_CANCELLED_V1_ROUTING_KEY]: (event) =>
+      dispatchRequesterErrandCancelled(event, dispatch),
   };
 }
