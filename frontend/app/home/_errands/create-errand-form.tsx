@@ -8,7 +8,7 @@ import { OptionCombobox, type ComboboxOption } from "@/components/ui/combobox";
 import { textareaClass } from "@/components/ui/field";
 import { Field, inputClass } from "./ui";
 
-const MAX_CREDITS = 2_147_483_647;
+export const MAX_CREDITS = 2_147_483_647;
 const SUFFICIENCY_DEBOUNCE_MS = 300;
 
 type SufficiencyStatus =
@@ -24,7 +24,7 @@ interface CreditSufficiencyResponse {
   sufficient: boolean;
 }
 
-function parseCreditAmount(value: string): number | null {
+export function parseCreditAmount(value: string): number | null {
   if (!/^[0-9]+$/.test(value)) return null;
 
   const amount = Number(value);
@@ -33,7 +33,7 @@ function parseCreditAmount(value: string): number | null {
     : null;
 }
 
-const EXPIRY_OPTIONS = [
+export const EXPIRY_OPTIONS = [
   { minutes: 15, label: "15 minutes" },
   { minutes: 30, label: "30 minutes" },
   { minutes: 60, label: "1 hour" },
