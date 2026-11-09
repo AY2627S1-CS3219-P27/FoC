@@ -212,8 +212,10 @@ function Home() {
       body: JSON.stringify({ roles: selectedRoles }),
     });
     if (!res.ok) {
-      // 4xx bodies carry the reason (e.g. a role still in use); 5xx stays on
-      // the friendly fallback.
+      // The save did not commit, so snap the switches back to the roles the
+      // account actually holds (the footer disappears with them), then show
+      // the reason from the 4xx body; 5xx stays on the friendly fallback.
+      setSelectedRoles(user?.roles ?? []);
       toast.error(await errorMessage(res, "Couldn't update your roles. Please try again."));
       return;
     }
