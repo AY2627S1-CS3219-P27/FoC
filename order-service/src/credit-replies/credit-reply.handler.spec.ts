@@ -18,6 +18,8 @@ const payloads: Record<string, object> = {
   'credit.transfer-succeeded.v1': { errandId, requesterUserId, courierUserId, transferredAmount: 5, creditTransactionId: txId },
   'credit.transfer-rejected.v1': { errandId, requesterUserId, courierUserId, rejectionReason: 'DESTINATION_ARCHIVED' },
   'credit.release-rejected.v1': { errandId, requesterUserId, rejectionReason: 'ALREADY_TRANSFERRED' },
+  'credit.settlement-succeeded.v1': { errandId, requesterUserId, courierUserId, courierAmount: 2, requesterAmount: 3, courierCreditTransactionId: txId, requesterCreditTransactionId: txId },
+  'credit.settlement-rejected.v1': { errandId, requesterUserId, courierUserId, rejectionReason: 'ALREADY_TRANSFERRED' },
 };
 
 const eventTypes: Record<string, string> = {
@@ -28,6 +30,8 @@ const eventTypes: Record<string, string> = {
   'credit.transfer-succeeded.v1': 'CreditTransferSucceeded',
   'credit.transfer-rejected.v1': 'CreditTransferRejected',
   'credit.release-rejected.v1': 'CreditReleaseRejected',
+  'credit.settlement-succeeded.v1': 'CreditSettlementSucceeded',
+  'credit.settlement-rejected.v1': 'CreditSettlementRejected',
 };
 
 const envelope = (key: string, payload: object = payloads[key]) => ({
@@ -57,13 +61,15 @@ function setup(key: string, result: unknown = { ok: true, sequenceNumber: 2 }) {
 }
 
 describe('CreditReplyHandler', () => {
-  it('has the seven subscriptions on the seeded queues', () => {
+  it('has the nine subscriptions on the seeded queues', () => {
     expect(REPLY_SPECS.map((s) => s.queue).sort()).toEqual([
       'order-service.credit-release-rejected.v1',
       'order-service.credit-reservation-adjustment-rejected.v1',
       'order-service.credit-reservation-adjustment-success.v1',
       'order-service.credit-reservation-rejected.v1',
       'order-service.credit-reservation-success.v1',
+      'order-service.credit-settlement-rejected.v1',
+      'order-service.credit-settlement-succeeded.v1',
       'order-service.credit-transfer-rejected.v1',
       'order-service.credit-transfer-succeeded.v1',
     ]);
@@ -76,6 +82,8 @@ describe('CreditReplyHandler', () => {
     ['credit.reservation-adjustment-rejected.v1', 'Adjusting-Credit', 'Open'],
     ['credit.transfer-succeeded.v1', 'Transferring-Credit', 'Completed'],
     ['credit.transfer-rejected.v1', 'Transferring-Credit', 'Incomplete'],
+    ['credit.settlement-succeeded.v1', 'Settling-Credit', 'Resolved'],
+    ['credit.settlement-rejected.v1', 'Settling-Credit', 'Incomplete'],
   ])('%s -> one SYSTEM transition keyed by the eventId', async (key, expected, to) => {
     const { handler, lifecycle } = setup(key);
     const body = envelope(key);
