@@ -5,7 +5,7 @@ import { api, errorText } from "@/lib/api";
 import { FilterSelect } from "@/components/ui/field";
 import { BoxIcon } from "@/components/ui/icons";
 import { EmptyState, IconTile, SkeletonList } from "@/components/ui/layout";
-import { ERRAND_STATUSES, formatDelivery, type AdminErrand, type Page } from "./types";
+import { cancellationText, ERRAND_STATUSES, formatDelivery, type AdminErrand, type Page } from "./types";
 import { formatCredits, formatTime, shortId, statusColor, StatusBadge } from "./ui";
 
 // Pushed inside a user's sheet: their errands as requester or courier, with the internal sub-state admins need.
@@ -84,7 +84,7 @@ export function AdminUserErrands({ user }: { user: { uuid: string; displayName: 
                   <span>· {e.requesterId === user.uuid ? "Requester" : "Courier"}</span>
                 </div>
                 {e.cancellationReason && (
-                  <p className="mt-1 text-[13px] break-words text-muted">{e.cancellationReason}</p>
+                  <p className="mt-1 text-[13px] break-words text-muted">{cancellationText(e.cancellationReason)}</p>
                 )}
                 <p className="mt-1 text-xs text-muted">
                   {shortId(e.id)} · updated {formatTime(e.updatedAt)}

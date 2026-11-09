@@ -26,10 +26,10 @@ describe('dispatchErrandAccepted', () => {
     await dispatchErrandAccepted(event, dispatch);
 
     expect(enqueue).toHaveBeenCalledWith(event, {
-      recipients: [REQUESTER, COURIER],
+      recipients: [REQUESTER],
       message: {
-        title: 'Errand accepted',
-        body: 'An errand has been accepted and is now in progress.',
+        title: 'Hang Tight!',
+        body: 'Your errand has been accepted and is now in progress.',
         tag: event.eventId,
         url: '/home',
       },

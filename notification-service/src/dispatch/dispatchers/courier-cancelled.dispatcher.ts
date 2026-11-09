@@ -6,7 +6,7 @@ export function dispatchCourierCancelled(
   dispatch: DispatchService,
 ): Promise<void> {
   return dispatch.enqueue(event, {
-    recipients: [event.payload.requesterUserId, event.payload.courierUserId],
+    recipients: [event.payload.requesterUserId],
     message: {
       title: 'Courier cancelled',
       body: 'The courier cancelled the errand.',

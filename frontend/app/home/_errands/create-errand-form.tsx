@@ -1,14 +1,30 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errorText } from "@/lib/api";
-import type { BuildingOption, SupplierOption } from "./types";
+import { parseCampusBoundary, type CampusBoundary } from "@/lib/campus";
+import type { LatLng } from "./campus-map";
+import type { BuildingOption, SupplierOption, VenueOption } from "./types";
 import { Button } from "@/components/ui/button";
+import { PinIcon } from "@/components/ui/icons";
 import { OptionCombobox, type ComboboxOption } from "@/components/ui/combobox";
 import { textareaClass } from "@/components/ui/field";
 import { Field, inputClass } from "./ui";
 
 export const MAX_CREDITS = 2_147_483_647;
+// Leaflet touches window on import, so the map is client-only.
+const CampusMap = dynamic(() => import("./campus-map"), {
+  ssr: false,
+  loading: () => <div className="h-64 w-full animate-pulse rounded-xl bg-fill" />,
+});
+
+/** Where the errand goes: the building alone, a venue in it, or a map pin (at is null until dropped). */
+type Location =
+  | { kind: "building" }
+  | { kind: "venue"; id: string }
+  | { kind: "pin"; at: LatLng | null };
+
 const SUFFICIENCY_DEBOUNCE_MS = 300;
 
 type SufficiencyStatus =
@@ -55,6 +71,12 @@ export function CreateErrandForm({
 }) {
   const [supplierId, setSupplierId] = useState("");
   const [deliveryBuildingId, setDeliveryBuildingId] = useState("");
+  const [location, setLocation] = useState<Location>({ kind: "building" });
+  // Last real building chosen: where the map starts, even after switching to the pin building.
+  const [anchorBuildingId, setAnchorBuildingId] = useState("");
+  const [venues, setVenues] = useState<{ buildingId: string; items: VenueOption[] } | null>(null);
+  const [campus, setCampus] = useState<{ geojson: unknown; boundary: CampusBoundary } | null>(null);
+  const [mapError, setMapError] = useState("");
   const [deliveryDetail, setDeliveryDetail] = useState("");
   const [collectionItems, setCollectionItems] = useState("");
   const [description, setDescription] = useState("");
@@ -68,16 +90,28 @@ export function CreateErrandForm({
   const sufficiencyRequestVersion = useRef(0);
 
   const supplier = suppliers.find((s) => s.id === supplierId);
+  const building = buildings.find((b) => b.id === deliveryBuildingId);
+  const pinBuilding = buildings.find((b) => b.allowsPin);
+  const showMap = location.kind === "pin";
+  const venueList = venues?.buildingId === deliveryBuildingId ? venues.items : [];
+  const anchor = buildings.find((b) => b.id === anchorBuildingId);
   // Rows lead with the short code; the collapsed input carries the full
   // display name so users never see a bare code or the internal id.
   const buildingOptions = useMemo<ComboboxOption<string>[]>(
     () =>
-      buildings.map((b) => ({
-        value: b.id,
-        label: `${b.shortName} — ${b.canonicalName}`,
-        title: b.shortName,
-        detail: b.canonicalName,
-      })),
+      // "Choose on map" always leads the list.
+      [...buildings]
+        .sort((a, b) => Number(b.allowsPin) - Number(a.allowsPin))
+        .map((b) =>
+          b.allowsPin
+            ? { value: b.id, label: "Pick from map", title: "Pick from map", detail: "Drop a pin on the campus map" }
+            : {
+                value: b.id,
+                label: `${b.shortName} — ${b.canonicalName}`,
+                title: b.shortName,
+                detail: b.canonicalName,
+              },
+        ),
     [buildings],
   );
   const supplierOptions = useMemo<ComboboxOption<string>[]>(
@@ -95,11 +129,57 @@ export function CreateErrandForm({
     !pending &&
     supplierId !== "" &&
     deliveryBuildingId !== "" &&
-    deliveryDetail.trim() !== "" &&
+    (location.kind === "venue" || deliveryDetail.trim() !== "") &&
+    (location.kind !== "pin" || location.at !== null) &&
     collectionItems.trim() !== "" &&
     sufficiencyStatus === "sufficient" &&
     rewardAmount !== null &&
     confirmedAmount === rewardAmount;
+
+  // Venues of the chosen building, only when it has any.
+  useEffect(() => {
+    if (!building || building.venueCount === 0) return;
+    let active = true;
+    void api<VenueOption[]>("GET", `/api/buildings/${building.id}/venues`).then((res) => {
+      if (active) setVenues({ buildingId: building.id, items: res.ok && res.data ? res.data : [] });
+    });
+    return () => {
+      active = false;
+    };
+  }, [building]);
+
+  // The campus outline, fetched once when the map is first needed.
+  useEffect(() => {
+    if (!showMap || campus) return;
+    let active = true;
+    void api<unknown>("GET", "/api/campus-boundary").then((res) => {
+      if (!active) return;
+      const boundary = res.ok ? parseCampusBoundary(res.data) : null;
+      if (boundary) setCampus({ geojson: res.data, boundary });
+      else setMapError("Could not load the campus map. Choose a building instead.");
+    });
+    return () => {
+      active = false;
+    };
+  }, [showMap, campus]);
+
+  function onBuildingChange(id: string) {
+    setDeliveryBuildingId(id);
+    setMapError("");
+    const b = buildings.find((x) => x.id === id);
+    if (b?.allowsPin) setLocation({ kind: "pin", at: null });
+    else {
+      setLocation({ kind: "building" });
+      setAnchorBuildingId(id);
+    }
+  }
+
+  function chooseOnMap() {
+    if (!pinBuilding) return;
+    setDeliveryBuildingId(pinBuilding.id);
+    setMapError("");
+    setLocation({ kind: "pin", at: null });
+  }
 
   useEffect(() => {
     const amount = parseCreditAmount(rewardCredits);
@@ -156,7 +236,10 @@ export function CreateErrandForm({
       body: {
         supplierId,
         deliveryBuildingId,
-        deliveryDetail: deliveryDetail.trim(),
+        ...(location.kind === "venue" && { deliveryVenueId: location.id }),
+        ...(location.kind === "pin" &&
+          location.at && { deliveryPin: { latitude: location.at.latitude, longitude: location.at.longitude } }),
+        deliveryDetail: deliveryDetail.trim() || undefined,
         collectionItems,
         description: description.trim() || undefined,
         rewardCredits: rewardAmount,
@@ -176,7 +259,7 @@ export function CreateErrandForm({
   return (
     <form onSubmit={onSubmit} className="space-y-5">
       <FormGroup footer="Credits are reserved once the supplier is confirmed, then couriers can see the errand.">
-        <Field label="Pickup from">
+        <Field label="Pickup from" required>
           <OptionCombobox
             options={supplierOptions}
             value={supplierId}
@@ -188,18 +271,88 @@ export function CreateErrandForm({
           )}
         </Field>
   
-        <Field label="Deliver to">
+        <Field label="Deliver to" required>
           <OptionCombobox
             options={buildingOptions}
             value={deliveryBuildingId}
-            onValueChange={setDeliveryBuildingId}
+            onValueChange={onBuildingChange}
             placeholder="Choose a building…"
           />
         </Field>
 
-        <Field label="Room or level">
+        {building && building.venueCount > 0 && (
+          <Field label="Venue">
+            <select
+              value={location.kind === "venue" ? location.id : ""}
+              onChange={(e) =>
+                setLocation(e.target.value ? { kind: "venue", id: e.target.value } : { kind: "building" })
+              }
+              className={`w-full ${inputClass}`}
+            >
+              <option value="">No venue (describe below)</option>
+              {venueList.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {[v.code, v.name, `Level ${v.floor}`].filter(Boolean).join(" · ")}
+                </option>
+              ))}
+            </select>
+            {pinBuilding && (
+              <Button type="button" intent="tinted" size="md" block onClick={chooseOnMap} className="mt-2">
+                <PinIcon size={16} />
+                Can&apos;t find it? Pick from map
+              </Button>
+            )}
+          </Field>
+        )}
+
+        {showMap && (
+          <div>
+            {campus ? (
+              <CampusMap
+                boundary={campus.boundary}
+                geojson={campus.geojson}
+                center={anchor?.coordinates ?? null}
+                value={location.kind === "pin" ? location.at : null}
+                onChange={(at) => {
+                  setMapError("");
+                  setLocation({ kind: "pin", at });
+                }}
+                onReject={setMapError}
+              />
+            ) : (
+              !mapError && <div className="h-64 w-full animate-pulse rounded-xl bg-fill" />
+            )}
+            {mapError && (
+              <p aria-live="polite" className="mt-1.5 text-xs text-danger">
+                {mapError}
+              </p>
+            )}
+            <p className="mt-1.5 text-xs text-muted">
+              {location.kind === "pin" && location.at
+                ? `Pin at ${location.at.latitude.toFixed(5)}, ${location.at.longitude.toFixed(5)}`
+                : "Tap the map to drop a pin. Drag it to adjust."}
+              {location.kind === "pin" && location.at && (
+                <>
+                  {" "}
+                  <button
+                    type="button"
+                    onClick={() => setLocation({ kind: "pin", at: null })}
+                    className="font-semibold text-nus-orange underline"
+                  >
+                    change
+                  </button>
+                </>
+              )}
+            </p>
+          </div>
+        )}
+
+        <Field
+          label={location.kind === "venue" ? "Room or level (optional)" : "Room, level or note"}
+          required={location.kind !== "venue"}
+        >
           <input
-            required
+            required={location.kind !== "venue"}
             maxLength={200}
             value={deliveryDetail}
             onChange={(e) => setDeliveryDetail(e.target.value)}
@@ -210,7 +363,7 @@ export function CreateErrandForm({
       </FormGroup>
 
       <FormGroup>
-        <Field label="Items to collect">
+        <Field label="Items to collect" required>
           <textarea
             required
             maxLength={1000}
@@ -237,7 +390,7 @@ export function CreateErrandForm({
 
       <FormGroup>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Credits offered">
+          <Field label="Credits offered" required>
             <input
               type="number"
               required

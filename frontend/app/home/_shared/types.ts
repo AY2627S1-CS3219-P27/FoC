@@ -32,7 +32,9 @@ export interface BuildingItem {
   id: string;
   canonicalName: string;
   shortName: string;
-  coordinates?: { latitude: number; longitude: number };
+  coordinates: { latitude: number; longitude: number };
+  venueCount: number;
+  allowsPin: boolean;
 }
 
 export interface CategoryItem {

@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, errorText } from "@/lib/api";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { PinIcon } from "@/components/ui/icons";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { FormError, inputClass } from "@/components/ui/field";
 import { Section } from "@/components/ui/layout";
@@ -194,7 +195,20 @@ export function ErrandDetail({
                 <span className="mt-0.5 block text-[13px] text-muted">{errand.pickupDescription}</span>
               )}
             </DetailRow>
-            <DetailRow label="Deliver to">{formatDelivery(errand)}</DetailRow>
+            <DetailRow label="Deliver to">
+              {formatDelivery(errand)}
+              {errand.deliveryLatitude != null && errand.deliveryLongitude != null && (
+                <a
+                  href={`https://www.google.com/maps/dir/?api=1&destination=${errand.deliveryLatitude},${errand.deliveryLongitude}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={`${buttonVariants({ intent: "tinted", size: "md" })} mt-2 w-full`}
+                >
+                  <PinIcon size={16} />
+                  Open directions
+                </a>
+              )}
+            </DetailRow>
           </Section>
 
           <Section title="Request">

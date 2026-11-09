@@ -19,13 +19,15 @@ const LONG_REASON =
 
 const BUILDINGS = {
   demo: [
-    { id: "b1", shortName: "COM2", canonicalName: "Computing 2" },
-    { id: "b2", shortName: "UTown", canonicalName: "University Town" },
+    { id: "b1", shortName: "COM2", canonicalName: "Computing 2", coordinates: { latitude: 1.2943, longitude: 103.7738 }, venueCount: 2, allowsPin: false },
+    { id: "b2", shortName: "UTown", canonicalName: "University Town", coordinates: { latitude: 1.3042, longitude: 103.7733 }, venueCount: 0, allowsPin: false },
+    { id: "b3", shortName: "PIN", canonicalName: "Other (map pin)", coordinates: { latitude: 1.295, longitude: 103.765 }, venueCount: 0, allowsPin: true },
   ],
   worst: [
-    { id: "b1", shortName: "Kent Ridge Guild Hse", canonicalName: "Kent Ridge Guild House (Kent Ridge Campus) — Office of Student Affairs and Student Union Annex" },
-    { id: "b2", shortName: "E", canonicalName: "E" },
-    { id: "b3", shortName: "YIH", canonicalName: "Yusof Ishak House" },
+    { id: "b1", shortName: "Kent Ridge Guild Hse", canonicalName: "Kent Ridge Guild House (Kent Ridge Campus) — Office of Student Affairs and Student Union Annex", coordinates: { latitude: 1.2991, longitude: 103.7745 }, venueCount: 0, allowsPin: false },
+    { id: "b2", shortName: "E", canonicalName: "E", coordinates: { latitude: 1.2987, longitude: 103.7712 }, venueCount: 0, allowsPin: false },
+    { id: "b3", shortName: "YIH", canonicalName: "Yusof Ishak House", coordinates: { latitude: 1.2985, longitude: 103.7747 }, venueCount: 0, allowsPin: false },
+    { id: "b4", shortName: "PIN", canonicalName: "Other (map pin)", coordinates: { latitude: 1.295, longitude: 103.765 }, venueCount: 0, allowsPin: true },
   ],
 };
 
@@ -105,6 +107,9 @@ function errand(n: number, over: Record<string, unknown> = {}) {
     pickupDescription: null,
     deliveryLocation: "UTown",
     deliveryDetail: "Level 3, 04-02",
+    deliveryVenue: null,
+    deliveryLatitude: null,
+    deliveryLongitude: null,
     collectionItems: "1 iced latte",
     description: null,
     rewardCredits: 5,
@@ -124,6 +129,22 @@ const ERRANDS = {
     errand(1),
     errand(2, { status: "Accepted", pickupName: "Print Room", collectionItems: "20 pages, double-sided", rewardCredits: 8 }),
     errand(3, { status: "Completed", rewardCredits: 3 }),
+    // The three label shapes: venue, pin, building only.
+    errand(4, {
+      deliveryLocation: "COM2",
+      deliveryVenue: "COM2 · SR1 · Seminar Room 1 · Level 1",
+      deliveryDetail: "",
+      deliveryLatitude: 1.2943,
+      deliveryLongitude: 103.7738,
+    }),
+    errand(5, {
+      deliveryLocation: "PIN",
+      deliveryVenue: "Requester Delivery Location",
+      deliveryDetail: "Bench outside the canteen",
+      deliveryLatitude: 1.2975,
+      deliveryLongitude: 103.7745,
+    }),
+    errand(6, { deliveryVenue: "Around UTown", deliveryDetail: "" }),
   ],
   worst: [
     errand(1, {
@@ -335,6 +356,16 @@ export function fixtureResponse(dataset: Dataset, input: string, init: RequestIn
   if (path === "/api/users") return json(page(d.users, q, 25, 1000));
   if (path === "/api/credits/balance") return json(d.balance);
   if (path === "/api/buildings") return json(d.buildings);
+  if (path.startsWith("/api/buildings/")) {
+    return json([
+      { id: "v1", code: "SR1", name: "Seminar Room 1", floor: "1", coordinates: { latitude: 1.2943, longitude: 103.7738 } },
+      { id: "v2", code: "SR2", name: null, floor: "2", coordinates: { latitude: 1.2944, longitude: 103.7739 } },
+    ]);
+  }
+  if (path === "/api/campus-boundary") {
+    const ring = [[103.7715, 1.29], [103.779, 1.29], [103.779, 1.306], [103.7715, 1.306], [103.7715, 1.29]];
+    return json({ type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [ring] } }] });
+  }
   if (path === "/api/categories") return json(d.categories);
   if (path === "/api/suppliers") return json(page(d.suppliers, q, 25, 1000));
   if (path.startsWith("/api/suppliers/")) {
