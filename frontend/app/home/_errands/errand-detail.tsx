@@ -211,6 +211,11 @@ export function ErrandDetail({
             </Section>
           )}
 
+          {errand.cause === "SYSTEM_FAILURE" && errand.status === "Incomplete" && (
+            <p className="text-center text-[13px] text-muted">
+              There was a payment issue. An admin is reviewing it; no report is needed.
+            </p>
+          )}
           {errand.hasReported && (
             <p className="text-center text-[13px] text-muted">Your report is filed. An admin will settle this errand.</p>
           )}

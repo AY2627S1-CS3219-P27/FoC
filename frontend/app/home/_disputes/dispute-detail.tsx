@@ -118,6 +118,15 @@ export function DisputeDetail({
             {errand.cancellationReason && <Row label="Reason">{errand.cancellationReason}</Row>}
           </Section>
 
+          {errand.cause === "SYSTEM_FAILURE" && (
+            <Section
+              title="Payment failure, not a dispute"
+              footer="Credit service rejected the courier's payout. Neither party did anything wrong. Settle with the full reward to the courier; if the reservation is gone, the settlement may be rejected and credits need a manual fix."
+            >
+              <Row label="Credit service said">{errand.causeReason ?? "—"}</Row>
+            </Section>
+          )}
+
           <Section title="Reports" footer="Reports are optional. You can settle with none, one or both.">
             {(["requester", "courier"] as const).map((role) => {
               const r = data.reports.find((x) => x.role === role);
@@ -158,7 +167,14 @@ export function DisputeDetail({
           {settling ? (
             <p className="text-center text-[13px] text-muted">Settlement is with credit service. This updates on its own.</p>
           ) : (
-            <Button size="lg" block onClick={() => setResolving(true)}>
+            <Button
+              size="lg"
+              block
+              onClick={() => {
+                if (errand.cause === "SYSTEM_FAILURE" && amount === "") setAmount(String(errand.rewardCredits));
+                setResolving(true);
+              }}
+            >
               Settle this dispute
             </Button>
           )}
