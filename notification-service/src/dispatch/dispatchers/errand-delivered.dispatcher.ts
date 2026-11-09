@@ -6,10 +6,10 @@ export function dispatchErrandDelivered(
   dispatch: DispatchService,
 ): Promise<void> {
   return dispatch.enqueue(event, {
-    recipients: [event.payload.requesterUserId, event.payload.courierUserId],
+    recipients: [event.payload.requesterUserId],
     message: {
-      title: 'Errand delivered',
-      body: 'Your errand has been delivered.',
+      title: "It's Here!",
+      body: 'Your errand item(s) have been delivered.',
       tag: event.eventId,
       url: '/home',
     },
