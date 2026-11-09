@@ -2,10 +2,10 @@
 
 Credit Service owns credit accounts and their persistent balance history. It
 consumes account-registration, reservation, reservation-adjustment, errand
-completion, errand-cancellation, and credit-settlement events; persists durable
-processing evidence; executes reserved-credit transfers, releases, and dispute
-splits; publishes transactional outcomes; and serves protected balance and
-advisory sufficiency reads.
+completion, errand-cancellation and credit-settlement events; persists durable 
+processing evidence; executes reserved-credit transfers, releases and dispute
+splits; publishes transactional outcomes; and serves protected balance, and
+advisory sufficiency reads; and provides transaction-history.
 
 The service is built with NestJS and TypeScript, PostgreSQL with TypeORM, and
 RabbitMQ. Event payloads are validated with versioned JSON Schemas and AJV.
@@ -302,9 +302,6 @@ pending outbox row for confirmed publication rather than re-executing the
 settlement. Outcome delivery is at least once, so downstream consumers must
 deduplicate by event ID.
 
-F7 transaction-history APIs and F8 archived-destination behavior remain out of
-scope. `DESTINATION_ARCHIVED` remains reserved and is not emitted.
-
 All inbound delivery and outbound publication is at least once. Duplicate
 event IDs never reapply state. A distinct equivalent reservation command links
 to the established semantic operation and replays its outcome without another
@@ -473,12 +470,13 @@ dependencies can be built and packaged into the service image.
 
 ## Protected read APIs
 
-Credit Service exposes two authenticated, self-only endpoints:
+Credit Service exposes three authenticated, self-only endpoints:
 
-| Method | Path                      | Purpose                                                               |
-| ------ | ------------------------- | --------------------------------------------------------------------- |
-| `GET`  | `/v1/credits/balance`     | Return the authenticated user's available and reserved credit.        |
-| `POST` | `/v1/credits/sufficiency` | Advise whether the current available credit covers a positive amount. |
+| Method | Path                       | Purpose                                                               |
+| ------ | -------------------------- | --------------------------------------------------------------------- |
+| `GET`  | `/v1/credits/balance`      | Return the authenticated user's available and reserved credit.        |
+| `GET`  | `/v1/credits/transactions` | Return the authenticated user's paginated credit transaction history. |
+| `POST` | `/v1/credits/sufficiency`  | Advise whether the current available credit covers a positive amount. |
 
 Both endpoints accept a User Service access token from the `access_token`
 cookie or `Authorization: Bearer <token>`. When both are present, the shared
@@ -511,6 +509,49 @@ curl http://localhost:3003/v1/credits/balance \
 
 `creditBalance` is currently available to spend. `reservedBalance` is already
 held for future work. A user without a Credit account receives
+`404 CREDIT_ACCOUNT_NOT_FOUND`.
+
+### Read transaction history
+
+The user ID is taken only from the verified token. Offset defaults to `0`,
+limit defaults to `25`, and limit cannot exceed `1000`:
+
+```sh
+curl "http://localhost:3003/v1/credits/transactions?offset=0&limit=25" \
+  --header "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+```json
+{
+  "items": [
+    {
+      "transactionId": "55555555-5555-4555-8555-555555555555",
+      "type": "TRANSFER",
+      "datetime": "2026-10-17T08:00:00.000Z",
+      "amount": 25,
+      "errandId": "22222222-2222-4222-8222-222222222222",
+      "origin": {
+        "userId": "11111111-1111-4111-8111-111111111111",
+        "balanceType": "RESERVED_BALANCE"
+      },
+      "destination": {
+        "userId": "33333333-3333-4333-8333-333333333333",
+        "balanceType": "CREDIT_BALANCE"
+      }
+    }
+  ],
+  "total": 1,
+  "offset": 0,
+  "limit": 25,
+  "hasMore": false
+}
+```
+
+The history includes reservation, reservation-adjustment, transfer, and
+release movements whenever the authenticated user is either participant.
+Same-user movements appear once. Results are ordered by transaction datetime
+descending and transaction ID descending. An existing account without ledger
+rows returns an empty page; a missing account returns
 `404 CREDIT_ACCOUNT_NOT_FOUND`.
 
 ### Check point-in-time sufficiency
@@ -547,7 +588,7 @@ Errors use a stable JSON envelope:
 
 | Status | Code                       | When                                                                                                         |
 | ------ | -------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `400`  | `VALIDATION_ERROR`         | The body is malformed, contains unknown fields, or violates field constraints.                               |
+| `400`  | `VALIDATION_ERROR`         | A body or pagination query is malformed, contains unknown fields, or violates field constraints.              |
 | `401`  | `INVALID_ACCESS_TOKEN`     | The access token is missing, malformed, expired, incorrectly signed, or violates the shared claims contract. |
 | `403`  | `SUBJECT_MISMATCH`         | A sufficiency request names a user other than the authenticated subject.                                     |
 | `404`  | `CREDIT_ACCOUNT_NOT_FOUND` | No Credit account exists for the authenticated user.                                                         |
@@ -651,7 +692,7 @@ suite will run next.
 ### HTTP end-to-end tests
 
 The HTTP suite boots the real `AppModule` and verifies that the generated
-OpenAPI document publishes both protected Credit paths:
+OpenAPI document publishes all protected Credit paths:
 
 ```powershell
 npm run db:test:up
