@@ -36,13 +36,14 @@ export function useHomeContext(): HomeContextValue {
   return value;
 }
 
-// Chats and archives live on their own routes but share the app's sidebar and tab bar.
+// Chats, archives and help live on their own routes but share the app's sidebar and tab bar.
 function sectionFor(pathname: string): Section {
+  if (pathname.startsWith("/home/help")) return "help";
   return pathname.startsWith("/home/archives") ? "archives" : "chats";
 }
 
-// An open conversation owns the whole phone screen, like a pushed view.
-const isConversation = (pathname: string) => /^\/home\/chats\/[^/]+$/.test(pathname);
+// An open conversation, with a person or the help bot, owns the whole phone screen, like a pushed view.
+const isConversation = (pathname: string) => /^\/home\/(chats\/[^/]+|help)$/.test(pathname);
 
 // After the sign-in pages in the flow, so arriving from them rolls the cubes forward.
 const HOME_PLACE = 10;
