@@ -1,7 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { ChatCursorCodec } from './chat-cursor.codec.js';
+import {
+  ChatCursorCodec,
+  type MessageHistoryDirection,
+} from './chat-cursor.codec.js';
 import type {
   ArchiveDetailDto,
   ArchiveListItemDto,
@@ -262,10 +265,15 @@ export class ChatQueryService {
     chatId: string,
     cursorValue: string | undefined,
     limit: number,
+    direction: MessageHistoryDirection = 'forward',
   ): Promise<MessageHistoryResponseDto> {
-    const afterSequence = cursorValue
-      ? this.cursors.decodeMessages(cursorValue)
-      : 0;
+    const boundarySequence = cursorValue
+      ? this.cursors.decodeMessages(cursorValue, direction)
+      : direction === 'forward'
+        ? 0
+        : null;
+    const comparison = direction === 'forward' ? '>' : '<';
+    const pageOrder = direction === 'forward' ? 'ASC' : 'DESC';
     const rows = await this.dataSource.query<MessageRow[]>(
       `WITH authorized_chat AS (
          SELECT c.id
@@ -286,12 +294,13 @@ export class ChatQueryService {
            SELECT m.id, m.sequence, m.sender_id, m.content,
                   m.committed_at, m.read_at
              FROM messages m
-            WHERE m.chat_id = chat.id AND m.sequence > $3::bigint
-            ORDER BY m.sequence ASC
+            WHERE m.chat_id = chat.id
+              AND ($3::bigint IS NULL OR m.sequence ${comparison} $3::bigint)
+            ORDER BY m.sequence ${pageOrder}
             LIMIT $4
          ) page ON true
         ORDER BY page.sequence ASC NULLS LAST`,
-      [chatId, callerId, afterSequence, limit + 1],
+      [chatId, callerId, boundarySequence, limit + 1],
     );
 
     if (rows.length === 0) {
@@ -313,14 +322,19 @@ export class ChatQueryService {
       } => row.message_id !== null,
     );
     const hasMore = messageRows.length > limit;
-    const page = messageRows.slice(0, limit);
+    const page =
+      direction === 'backward' && hasMore
+        ? messageRows.slice(1)
+        : messageRows.slice(0, limit);
     const items = page.map(messageView);
+    const cursorSequence =
+      direction === 'backward' ? items.at(0)?.sequence : items.at(-1)?.sequence;
     return {
       items,
       hasMore,
       nextCursor:
-        hasMore && items.length > 0
-          ? this.cursors.encodeMessages(items.at(-1)!.sequence)
+        hasMore && cursorSequence !== undefined
+          ? this.cursors.encodeMessages(cursorSequence, direction)
           : null,
     };
   }

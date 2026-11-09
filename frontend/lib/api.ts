@@ -34,8 +34,11 @@ let refreshing: Promise<boolean> | null = null;
 let onSessionExpired: () => void = () => {};
 
 // The page passes its router, since this module cannot navigate on its own.
-export function setSessionExpiredHandler(handler: () => void) {
+export function setSessionExpiredHandler(handler: () => void): () => void {
   onSessionExpired = handler;
+  return () => {
+    if (onSessionExpired === handler) onSessionExpired = () => {};
+  };
 }
 
 // One refresh at a time; callers that 401 together share it. Not under /api because the cookie's path is /auth/refresh.

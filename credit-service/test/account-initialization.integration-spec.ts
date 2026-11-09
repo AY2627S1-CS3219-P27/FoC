@@ -100,9 +100,9 @@ describe('AccountInitializationService persistence', () => {
 
   afterAll(async () => {
     if (dataSource?.isInitialized) {
-      await dataSource.undoLastMigration({ transaction: 'all' });
-      await dataSource.undoLastMigration({ transaction: 'all' });
-      await dataSource.undoLastMigration({ transaction: 'all' });
+      for (let index = 0; index < dataSource.migrations.length; index += 1) {
+        await dataSource.undoLastMigration({ transaction: 'all' });
+      }
       await dataSource.destroy();
     }
   });

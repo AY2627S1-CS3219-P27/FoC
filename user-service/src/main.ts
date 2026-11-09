@@ -1,12 +1,11 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
-import cookieParser from 'cookie-parser';
 import {
   createMetricsHandler,
   initMetrics,
   initTelemetry,
   registerShutdown,
 } from '@foc/observability';
+import { configureHttp } from './http/configure-http.js';
 
 async function bootstrap() {
   const telemetry = initTelemetry({ serviceName: 'user-service' });
@@ -26,8 +25,7 @@ async function bootstrap() {
   // and stop the telemetry SDK before the process exits.
   registerShutdown(app, telemetry);
   app.useLogger(app.get(Logger));
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-  app.use(cookieParser());
+  configureHttp(app);
   initMetrics();
   app.use('/metrics', createMetricsHandler());
   await app.listen(process.env.PORT ?? 3000);

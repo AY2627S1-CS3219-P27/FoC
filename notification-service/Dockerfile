@@ -44,7 +44,8 @@ COPY notification-service/ .
 RUN npm run build
 RUN npm prune --omit=dev
 RUN npm prune --omit=dev --prefix /usr/src/packages/contracts
-RUN npm prune --omit=dev --prefix /usr/src/packages/observability
+# prune re-symlinks @foc/auth and @foc/observability; re-copy them so they share the app's @nestjs/core
+RUN NPM_CONFIG_OMIT=dev npm run auth:link && NPM_CONFIG_OMIT=dev npm run obs:link
 
 # Minimal production image
 FROM node:22-alpine AS production
@@ -58,14 +59,9 @@ COPY --from=build --chown=node:node /usr/src/app/package.json ./
 COPY --from=build --chown=node:node /usr/src/app/package-lock.json ./
 COPY --from=build --chown=node:node /usr/src/app/node_modules ./node_modules
 COPY --from=build --chown=node:node /usr/src/app/dist ./dist
-# @foc/auth is packed into the app's node_modules by auth:link at build time,
-# so only the symlinked @foc/contracts tree needs copying alongside it.
 COPY --from=build --chown=node:node /usr/src/packages/contracts/package*.json /usr/src/packages/contracts/
 COPY --from=build --chown=node:node /usr/src/packages/contracts/node_modules /usr/src/packages/contracts/node_modules
 COPY --from=build --chown=node:node /usr/src/packages/contracts/dist /usr/src/packages/contracts/dist
-COPY --from=build --chown=node:node /usr/src/packages/observability/package*.json /usr/src/packages/observability/
-COPY --from=build --chown=node:node /usr/src/packages/observability/node_modules /usr/src/packages/observability/node_modules
-COPY --from=build --chown=node:node /usr/src/packages/observability/dist /usr/src/packages/observability/dist
 
 # Run the application without root permissions
 USER node
@@ -77,4 +73,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider "http://127.0.0.1:${PORT:-3000}/health" || exit 1
 
-CMD ["npm", "run", "start:prod"]
+# node as PID 1 receives SIGTERM directly, so shutdown hooks run
+CMD ["node", "dist/main"]

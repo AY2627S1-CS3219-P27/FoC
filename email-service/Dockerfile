@@ -1,18 +1,31 @@
-# Development docker image
+FROM node:lts-alpine AS dependencies
 
-# Use node lts
-FROM node:lts
-
-# Set the working directory inside the container
 WORKDIR /usr/src/app
 
 COPY package*.json ./
 
-# Install the application dependencies
-RUN npm install
+# Development image with all dependencies and source code
+FROM dependencies AS development
 
-# Copy the rest of the application files
+RUN npm ci
+
 COPY . .
 
-# Command to run the application
+CMD ["node", "app.ts"]
+
+# Minimal production image: runtime dependencies and source only (Node runs the .ts directly)
+FROM dependencies AS production
+
+ENV NODE_ENV=production
+
+RUN npm ci --omit=dev && npm cache clean --force
+
+COPY --chown=node:node app.ts ./
+COPY --chown=node:node handlers/ ./handlers/
+COPY --chown=node:node utils/ ./utils/
+RUN find . -path ./node_modules -prune -o -name '*.spec.ts' -exec rm {} +
+
+USER node
+
+# A queue worker with no HTTP port: no HEALTHCHECK; the restart policy handles crashes.
 CMD ["node", "app.ts"]

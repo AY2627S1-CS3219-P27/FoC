@@ -48,6 +48,7 @@ describe('Credit Service (e2e)', () => {
       .expect(200)
       .expect(({ body }) => {
         expect(body.paths['/v1/credits/balance']).toBeDefined();
+        expect(body.paths['/v1/credits/transactions']).toBeDefined();
         expect(body.paths['/v1/credits/sufficiency']).toBeDefined();
       });
   });

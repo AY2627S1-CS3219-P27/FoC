@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  output: "standalone",
+  // Read at `next build`, so the production image bakes in these service URLs.
   async rewrites() {
     const userService = process.env.USER_SERVICE_URL ?? "http://localhost:3000";
     const supplierService =

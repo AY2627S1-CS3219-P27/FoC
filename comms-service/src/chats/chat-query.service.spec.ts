@@ -113,6 +113,56 @@ describe('ChatQueryService', () => {
       hasMore: true,
     });
     expect(result.nextCursor).toEqual(expect.any(String));
+    expect(cursors.decodeMessages(result.nextCursor!, 'forward')).toBe(1);
+  });
+
+  it('returns the latest backward page in ascending order with an older cursor', async () => {
+    query.mockResolvedValue([
+      {
+        authorized: true,
+        message_id: '33333333-3333-4333-8333-333333333333',
+        sequence: '2',
+        sender_id: callerId,
+        content: 'Two',
+        committed_at: new Date('2026-11-04T01:01:00.000Z'),
+        read_at: null,
+      },
+      {
+        authorized: true,
+        message_id: '44444444-4444-4444-8444-444444444444',
+        sequence: '3',
+        sender_id: callerId,
+        content: 'Three',
+        committed_at: new Date('2026-11-04T01:02:00.000Z'),
+        read_at: null,
+      },
+      {
+        authorized: true,
+        message_id: '55555555-5555-4555-8555-555555555555',
+        sequence: '4',
+        sender_id: callerId,
+        content: 'Four',
+        committed_at: new Date('2026-11-04T01:03:00.000Z'),
+        read_at: null,
+      },
+    ]);
+
+    const result = await service.history(
+      callerId,
+      chatId,
+      undefined,
+      2,
+      'backward',
+    );
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining('m.sequence < $3::bigint'),
+      [chatId, callerId, null, 3],
+    );
+    expect(result).toMatchObject({
+      items: [{ sequence: 3 }, { sequence: 4 }],
+      hasMore: true,
+    });
+    expect(cursors.decodeMessages(result.nextCursor!, 'backward')).toBe(3);
   });
 
   it('returns an empty page for an authorized chat with no remaining rows', async () => {
