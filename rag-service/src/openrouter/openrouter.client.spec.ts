@@ -27,6 +27,7 @@ describe('OpenRouterClient.embed', () => {
     const settings: Record<string, string> = {
       OPENROUTER_BASE_URL: 'https://openrouter.test/api/v1',
       OPENROUTER_EMBEDDING_MODEL: 'test/model',
+      OPENROUTER_CHAT_MODEL: 'test/chat',
       OPENROUTER_API_KEY_FILE: keyFile,
     };
     client = new OpenRouterClient({
@@ -155,5 +156,99 @@ describe('OpenRouterClient.embed', () => {
       OpenRouterError,
     );
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('OpenRouterClient.complete', () => {
+  let dir: string;
+  let fetchMock: ReturnType<typeof vi.fn>;
+  let client: OpenRouterClient;
+
+  const request = {
+    system: 'rules',
+    user: 'hi',
+    maxTokens: 50,
+    timeoutMs: 1000,
+  };
+  const reply = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), { status });
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'rag-openrouter-'));
+    const keyFile = join(dir, 'key');
+    writeFileSync(keyFile, 'sk-secret\n');
+    fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const settings: Record<string, string> = {
+      OPENROUTER_BASE_URL: 'https://openrouter.test/api/v1',
+      OPENROUTER_CHAT_MODEL: 'test/chat',
+      OPENROUTER_API_KEY_FILE: keyFile,
+    };
+    client = new OpenRouterClient({
+      get: (key: string) => settings[key],
+    } as unknown as ConfigService<EnvironmentVariables, true>);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('sends the rules and question separately, with its limits', async () => {
+    fetchMock.mockResolvedValue(
+      reply({
+        choices: [{ message: { content: 'Hello.' } }],
+        usage: { prompt_tokens: 12, completion_tokens: 3 },
+      }),
+    );
+
+    await expect(client.complete(request)).resolves.toEqual({
+      text: 'Hello.',
+      promptTokens: 12,
+      completionTokens: 3,
+    });
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://openrouter.test/api/v1/chat/completions');
+    expect(JSON.parse(init.body as string)).toEqual({
+      model: 'test/chat',
+      messages: [
+        { role: 'system', content: 'rules' },
+        { role: 'user', content: 'hi' },
+      ],
+      max_tokens: 50,
+      provider: { data_collection: 'deny' },
+    });
+  });
+
+  it('copes with a reply that has no token counts', async () => {
+    fetchMock.mockResolvedValue(
+      reply({ choices: [{ message: { content: 'Hello.' } }] }),
+    );
+
+    await expect(client.complete(request)).resolves.toMatchObject({
+      promptTokens: null,
+      completionTokens: null,
+    });
+  });
+
+  it.each([
+    ['no choices', {}],
+    ['an empty list', { choices: [] }],
+    ['no text', { choices: [{ message: {} }] }],
+  ])('rejects a reply with %s', async (_case, body) => {
+    fetchMock.mockResolvedValue(reply(body));
+
+    await expect(client.complete(request)).rejects.toMatchObject({
+      kind: 'invalid-response',
+    });
+  });
+
+  it('treats an error inside a 200 reply as a failure', async () => {
+    fetchMock.mockResolvedValue(reply({ error: { code: 429 } }));
+
+    await expect(client.complete(request)).rejects.toBeInstanceOf(
+      OpenRouterError,
+    );
   });
 });
