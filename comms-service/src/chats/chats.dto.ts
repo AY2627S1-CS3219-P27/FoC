@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsEnum,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -12,6 +13,7 @@ import type {
   ChatCloseReason,
   ChatState,
 } from '../database/entities/chat.entity.js';
+import type { MessageHistoryDirection } from './chat-cursor.codec.js';
 
 /**
  * Deliberately deviates from N3.1.2's offset pagination: chat activity can
@@ -32,6 +34,18 @@ export class CursorPageQueryDto {
   @Min(1)
   @Max(50)
   limit = 20;
+}
+
+export class MessageHistoryQueryDto extends CursorPageQueryDto {
+  @ApiPropertyOptional({
+    enum: ['forward', 'backward'],
+    default: 'forward',
+    description:
+      'Forward returns the next chronological page; backward starts at the latest page and continues toward older messages.',
+  })
+  @IsOptional()
+  @IsEnum(['forward', 'backward'])
+  direction: MessageHistoryDirection = 'forward';
 }
 
 export class ApiErrorResponseDto {

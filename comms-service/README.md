@@ -11,7 +11,7 @@ The current HTTP surface exposes:
   both Socket.IO adapter Redis connections;
 - `GET /v1/chats` for the authenticated participant's active/grace chats;
 - `GET /v1/chats/:chatId/messages` for participant-only cursor-paginated
-  history;
+  history, with an optional `direction=forward|backward` query;
 - `GET /v1/chats/archives` for the authenticated participant's immutable
   archives, newest first;
 - `GET /v1/chats/archives/:archiveId` for one participant-owned archive
@@ -56,15 +56,43 @@ compatibility; Communication Service later correlates it by `errandId`.
 
 ## Local commands
 
-Run commands from this directory:
+Run commands from this directory. Build, lint, test, and run the dev server:
 
 ```powershell
 npm install
 npm run build
 npm run lint
 npm test
+npm run test:watch
+npm run test:cov
+npm run format:check
 npm run start:dev
 ```
+
+Migrations (see "Compose and secrets" below for when to run them):
+
+```powershell
+npm run migration:show
+npm run migration:run
+npm run migration:revert
+npm run migration:generate
+npm run migration:create
+```
+
+The three `*:prod` variants (`migration:run:prod`, `migration:show:prod`,
+`migration:revert:prod`) target the production-built `dist/` artifact and
+connection; they are not a different migration behavior, only a different
+build/runtime target.
+
+Operational and fixture tooling, documented in full further down this file
+and in the linked runbooks:
+
+- `npm run dlq:operator` — DLQ inspect/redrive; see
+  [`docs/runbooks/comms-service-lifecycle-operations.md`](../docs/runbooks/comms-service-lifecycle-operations.md).
+- `npm run realtime:fixture` — realtime smoke fixture; see "Realtime smoke
+  fixture" below.
+- `npm run event:fixtures:list` and `npm run event:publish:*` — lifecycle
+  fixture publishing; see "Publish lifecycle fixtures" below.
 
 ## Compose and secrets
 
@@ -193,6 +221,58 @@ no durable data.
 `JWT_PUBLIC_KEY_FILE`, `DB_PASSWORD_FILE`, and `RABBITMQ_PASSWORD_FILE`
 contain container file paths, never secret values. The corresponding secret
 files are mounted read-only under `/run/secrets`.
+
+## Environment variables
+
+`env/comms-service.env.example` names Compose-level variables; `comms-service/compose.yml`
+maps several of them onto the differently-named runtime variables validated
+by `src/config/environment.ts`, the single source of truth for defaults and
+bounds:
+
+| Compose variable (`env/comms-service.env.example`) | Runtime variable  |
+| ---------------------------------------------------- | ------------------ |
+| `COMMS_SERVICE_PORT`                                 | `PORT`              |
+| `COMMS_SERVICE_DB_HOST`                               | `DB_HOST`            |
+| `COMMS_SERVICE_DB_PORT`                               | `DB_PORT`            |
+| `COMMS_SERVICE_DB_USERNAME`                           | `DB_USERNAME`        |
+| `COMMS_SERVICE_DB_DATABASE`                           | `DB_DATABASE`        |
+| `COMMS_SERVICE_RABBITMQ_USER`                         | `RABBITMQ_USER`      |
+| `COMMS_JWT_PUBLIC_KEY_PATH`                            | mounted file backing `JWT_PUBLIC_KEY_FILE` |
+
+`COMMS_SERVICE_HOST_PORT` and `COMMS_SERVICE_DB_HOST_PORT` are consumed only
+by the opt-in `compose.debug.yaml` overlay; the application never reads them.
+
+The remaining runtime variables keep the same name on both sides:
+
+| Variable                              | Default                        | Notes                                             |
+| -------------------------------------- | ------------------------------- | -------------------------------------------------- |
+| `RABBITMQ_PUBSUB_EXCHANGE`             | `foc.pubsub`                    | Fixed; must match the root broker identity.        |
+| `RABBITMQ_EVENTS_QUEUE`                | `comms-service.events`          | Fixed; the service's primary queue name.           |
+| `RABBITMQ_RETRY_EXCHANGE`              | `foc.comms.retry`                | Fixed.                                              |
+| `RABBITMQ_RETRY_RETURN_EXCHANGE`       | `foc.comms.back`                 | Fixed.                                              |
+| `RABBITMQ_DEAD_LETTER_EXCHANGE`        | `foc.comms.dlx`                  | Fixed.                                              |
+| `RABBITMQ_RETRY_DELAYS_MS`             | `1000,2000,4000,8000,16000`      | Fixed; five canonical retry delays.                 |
+| `SOCKET_PATH`                          | `/socket.io`                     | Shared with the frontend's `SOCKET_PATH`.           |
+| `SOCKET_ALLOWED_ORIGINS`               | `http://localhost:3001`          | Comma-separated absolute origins; must be `https:` origins only when `NODE_ENV=production`. |
+| `SOCKET_TRANSPORT`                     | `websocket`                      | Fixed; polling is not supported.                    |
+| `ARCHIVE_POLL_INTERVAL_MS`             | `5000`                           | 250–60000ms.                                        |
+| `ARCHIVE_BATCH_SIZE`                   | `25`                             | 1–100.                                              |
+| `ARCHIVE_CLAIM_TTL_MS`                 | `60000`                          | 5000–600000ms; must exceed `ARCHIVE_POLL_INTERVAL_MS`. |
+| `ARCHIVE_SHUTDOWN_DRAIN_TIMEOUT_MS`    | `10000`                          | 1000–60000ms; must be shorter than `ARCHIVE_CLAIM_TTL_MS`. |
+
+`NODE_ENV`, `LOG_LEVEL`, `OTEL_EXPORTER_OTLP_ENDPOINT`,
+`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, and `REDIS_HOST`/`REDIS_PORT`/
+`REDIS_USERNAME`/`REDIS_DB_INDEX` come from shared `env/shared.env` and are
+not service-specific. `DB_PASSWORD_FILE`, `RABBITMQ_PASSWORD_FILE`, and
+`JWT_PUBLIC_KEY_FILE` are fixed Compose secret-mount paths, not driven by an
+environment file.
+
+The host-side `comms-service/.env.example` additionally defines
+`RABBITMQ_FIXTURE_URL` and the `RABBITMQ_OPERATOR_*` variables used only by
+local CLI tooling (lifecycle fixtures, the DLQ operator) run outside the
+container — see "Publish lifecycle fixtures" and
+[`docs/runbooks/comms-service-lifecycle-operations.md`](../docs/runbooks/comms-service-lifecycle-operations.md)
+for their dedicated-identity rationale.
 
 ## Realtime protocol
 
@@ -371,14 +451,21 @@ All `/v1/chats` routes accept the shared `access_token` cookie or supported
 Bearer token. Live list responses contain only the caller's `ACTIVE` and `GRACE`
 chats, including their latest message and caller-relative unread state. History
 returns messages in ascending per-chat sequence order and derives `UNREAD` or
-`READ` from the persisted read timestamp. Archive lists contain only rows where
-the caller is the persisted requester or courier and are ordered by
-`archivedAt DESC, archiveId DESC`. Archive detail returns schema version 1 and
-ordered `{ role, content, timestamp }` messages. Paginated endpoints accept an
-opaque `cursor` and a `limit` from 1 to 50 (default 20). Cursors are
-endpoint-specific and modified, malformed, or cross-endpoint values return 400. Unknown and unauthorized live-history targets share one sanitized 404;
-unknown and unauthorized archive IDs share another. Archives expose GET only
-and remain immutable at the database boundary.
+`READ` from the persisted read timestamp. The optional
+`direction=forward|backward` query defaults to the existing forward behavior.
+Backward paging without a cursor returns the latest bounded window; its opaque
+continuation cursor retrieves older windows, which are also returned in
+ascending sequence order. Message cursors are direction-scoped, while legacy
+message cursors remain valid only for forward paging. Archive lists contain
+only rows where the caller is the persisted requester or courier and are
+ordered by `archivedAt DESC, archiveId DESC`. Archive detail returns schema
+version 1 and ordered `{ role, content, timestamp }` messages. Paginated
+endpoints accept an opaque `cursor` and a `limit` from 1 to 50 (default 20).
+Cursors are endpoint-specific; modified, malformed, cross-endpoint, or
+cross-direction values return 400. Unknown and unauthorized live-history
+targets share one sanitized 404; unknown and unauthorized archive IDs share
+another. Archives expose GET only and remain immutable at the database
+boundary.
 
 ## Metrics and recovery operations
 
@@ -409,6 +496,11 @@ the runtime Communication Service credentials.
 Realtime readiness, Redis-outage recovery, cross-replica verification, rollout,
 and rollback are documented in
 [`docs/runbooks/comms-service-realtime-operations.md`](../docs/runbooks/comms-service-realtime-operations.md).
+
+Grace-deadline reconciliation, the leased archive worker's claim/signal
+behavior, abandoned-claim recovery, and archive evidence for manual
+demonstration are documented in
+[`docs/runbooks/comms-service-archive-operations.md`](../docs/runbooks/comms-service-archive-operations.md).
 
 ## Publish lifecycle fixtures
 
@@ -496,9 +588,17 @@ npm run fixtures:test:down
 
 The service owns committed grace state, deadline enforcement, leased immutable
 archiving, archive reads, and best-effort lifecycle socket notifications. The
-frontend remains responsible for countdown rendering, handling lifecycle
-events, archive list/detail screens, and navigation between live and archived
-conversations.
+Package 5 frontend (`frontend/app/home/chats/**`, `frontend/app/home/archives/**`,
+`frontend/lib/chat/**`) consumes this boundary end to end: it reaches the HTTP
+surface above through the same-origin `/api/chats/*` rewrite for live-chat
+list/history, archive list, and archive detail, and reaches the `/chat`
+Socket.IO namespace through the same-origin `${SOCKET_PATH}` rewrite for
+`chat:join`, `message:send`, `messages:read`, and the `message:new`/
+`messages:read-receipt`/`chat:closing`/`chat:archived` events. Countdown
+rendering, lifecycle-event handling, archive list/detail screens, and
+navigation between live and archived conversations are implemented in the
+frontend, not here; this service never renders them and never substitutes a
+browser-side authority for the committed state above.
 
 The governing decisions are recorded under
 `docs/adr/comms-service/0001`–`0004`: PostgreSQL authority and message
