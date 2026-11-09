@@ -2,7 +2,7 @@
 
 The FoC help chatbot. It answers general questions from the plain-language documents in `docs/support/` and names the section each answer came from. It cannot see anyone's account or change anything.
 
-This is the scaffold: the service starts, connects to its database and answers `GET /health`. Questions arrive in later steps.
+The service indexes the help documents and answers `GET /health`. Questions arrive in a later step.
 
 ## First-time setup
 
@@ -28,6 +28,15 @@ The service also reads user-service's public key from `user-service/secrets/jwt_
 | `RAG_OPENROUTER_EMBEDDING_MODEL` | `openai/text-embedding-3-small` | The model that turns text into numbers. Changing it means re-indexing. |
 
 The database image is [`pgvector/pgvector:pg18`](https://hub.docker.com/r/pgvector/pgvector), because the plain Postgres image has no pgvector.
+
+## Updating the help documents
+
+The bot answers from an index of `docs/support/`, not from the files directly. After editing a document, do either of these:
+
+- **Restart the service.** On startup it compares the documents with the index and re-indexes if they differ. Checking costs nothing; re-indexing every section costs a tiny fraction of a cent.
+- **Re-index without a restart:** `docker compose exec rag-service npm run index-docs`
+
+Until then the bot keeps answering from the old version. If re-indexing fails, for example because OpenRouter is down or a document breaks the format rules, the old index stays in use. Each document needs `title` and `service` in its front matter, and its `##` headings must be unique.
 
 ## Tests
 
