@@ -13,7 +13,7 @@ const event = (cancellationReason: string): RequesterErrandCancelledEvent => ({
   payload: {
     errandId: '44444444-4444-4444-8444-444444444444',
     requesterUserId: REQUESTER,
-    cancellationReason,
+    cancellationReason: cancellationReason as RequesterErrandCancelledEvent['payload']['cancellationReason'],
   },
 });
 

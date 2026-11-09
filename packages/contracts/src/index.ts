@@ -101,7 +101,7 @@ export {
   ORDER_REQUESTER_ERRAND_CANCELLED_V1_ROUTING_KEY,
   requesterErrandCancelledV1Contract,
 } from './domain-events/events/requester-errand-cancelled/v1/contract.js';
-export type { RequesterErrandCancelledPayload } from './domain-events/events/requester-errand-cancelled/v1/contract.js';
+export type { RequesterErrandCancelledPayload, SystemCancellationReason } from './domain-events/events/requester-errand-cancelled/v1/contract.js';
 export {
   ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY,
   errandAcceptedV1Contract,
