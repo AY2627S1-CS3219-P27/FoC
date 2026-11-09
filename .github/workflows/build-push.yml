@@ -1,0 +1,67 @@
+name: Build and push images
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: build-push-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # lets the job sign in to AWS through GitHub OIDC
+
+env:
+  AWS_REGION: ap-southeast-1
+
+jobs:
+  image:
+    # Skips cleanly until the AWS role is configured (repo variable AWS_CI_ROLE_ARN).
+    if: vars.AWS_CI_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { dir: user-service, context: . }
+          - { dir: supplier-service, context: . }
+          - { dir: order-service, context: . }
+          - { dir: credit-service, context: . }
+          - { dir: comms-service, context: . }
+          - { dir: notification-service, context: . }
+          - { dir: email-service, context: email-service }
+          - { dir: frontend, context: frontend }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read image version from package.json
+        id: meta
+        run: |
+          echo "version=$(node -p "require('./${{ matrix.dir }}/package.json').version")" >> "$GITHUB_OUTPUT"
+          echo "sha=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_CI_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dir }}/Dockerfile
+          target: production
+          push: true
+          # The git SHA pins exactly what a deploy runs; the version tag mirrors build-images.sh.
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/foc/${{ matrix.dir }}:${{ steps.meta.outputs.sha }}
+            ${{ steps.ecr.outputs.registry }}/foc/${{ matrix.dir }}:${{ steps.meta.outputs.version }}
+          cache-from: type=gha,scope=${{ matrix.dir }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.dir }}
