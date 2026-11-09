@@ -13,6 +13,8 @@ import {
   Not,
   type Repository,
 } from 'typeorm';
+import { recordAudit } from '../audit/record-audit.js';
+import { buildingSnapshot } from '../audit/snapshots.js';
 import { ErrorCode } from '../common/errors/error-response.js';
 import { buildingKey } from '../common/normalise/normalise.js';
 import { Building, BuildingNameKey } from '../database/entities/index.js';
@@ -25,6 +27,17 @@ export interface CreateBuildingInput {
   latitude: number;
   longitude: number;
 }
+
+/**
+ * The short name of the map-pin placeholder. Name keys are unique across
+ * in-use buildings, so at most one building can carry it, and it cannot be
+ * changed once the pin exists (see updateNames).
+ */
+export const PIN_SHORT_NAME = 'PIN';
+
+/** True for the "Other (map pin)" placeholder, which stands in for a dropped pin. */
+export const isPinBuilding = (building: Pick<Building, 'shortName'>) =>
+  building.shortName === PIN_SHORT_NAME;
 
 export interface BuildingNameChanges {
   canonicalName?: string;
@@ -126,6 +139,12 @@ export class BuildingsService {
         await this.assertNamesFree(manager, building);
         const saved = await manager.save(building);
         await this.writeNameKeys(manager, saved);
+        await recordAudit(manager, {
+          action: 'building.created',
+          targetType: 'building',
+          targetId: saved.id,
+          after: buildingSnapshot(saved),
+        });
         return saved;
       }),
     );
@@ -139,6 +158,17 @@ export class BuildingsService {
     return this.withDuplicateNamesMapped(() =>
       this.dataSource.transaction(async (manager) => {
         const building = await this.lockActive(manager, id);
+        const before = buildingSnapshot(building);
+        if (
+          isPinBuilding(building) &&
+          changes.shortName !== undefined &&
+          changes.shortName.trim() !== PIN_SHORT_NAME
+        ) {
+          throw new ConflictException({
+            code: ErrorCode.Conflict,
+            message: 'The map-pin building cannot be given another short name.',
+          });
+        }
         if (changes.canonicalName !== undefined) {
           building.canonicalName = changes.canonicalName.trim();
         }
@@ -153,6 +183,13 @@ export class BuildingsService {
         const saved = await manager.save(building);
         await manager.delete(BuildingNameKey, { buildingId: id });
         await this.writeNameKeys(manager, saved);
+        await recordAudit(manager, {
+          action: 'building.updated',
+          targetType: 'building',
+          targetId: id,
+          before,
+          after: buildingSnapshot(saved),
+        });
         return saved;
       }),
     );
@@ -173,13 +210,27 @@ export class BuildingsService {
       if (!building) {
         throw buildingNotFound(id);
       }
+      if (isPinBuilding(building)) {
+        throw new ConflictException({
+          code: ErrorCode.Conflict,
+          message: 'The map-pin building cannot be retired.',
+        });
+      }
       if (building.retiredAt !== null) {
         return building;
       }
 
+      const before = buildingSnapshot(building);
       building.retiredAt = new Date();
       const saved = await manager.save(building);
       await manager.delete(BuildingNameKey, { buildingId: id });
+      await recordAudit(manager, {
+        action: 'building.retired',
+        targetType: 'building',
+        targetId: id,
+        before,
+        after: buildingSnapshot(saved),
+      });
       return saved;
     });
   }

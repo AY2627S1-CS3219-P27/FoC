@@ -34,22 +34,34 @@ export class MessageCommandService {
   async send(command: MessageSendCommand): Promise<MessageSendResult> {
     return this.dataSource.transaction('READ COMMITTED', async (manager) => {
       const chats = await manager.query<LockedChatRow[]>(
-        `SELECT c.id AS chat_id,
-                c.requester_user_id,
-                c.courier_user_id,
-                c.state,
+        `WITH locked AS MATERIALIZED (
+           SELECT c.id AS chat_id,
+                  c.requester_user_id,
+                  c.courier_user_id,
+                  c.state,
+                  c.closes_at,
+                  c.next_sequence::text AS next_sequence
+             FROM chats c
+            WHERE c.id = $1::uuid
+              AND (
+                c.requester_user_id = $2::uuid
+                OR c.courier_user_id = $2::uuid
+              )
+            FOR UPDATE
+         )
+         SELECT chat_id,
+                requester_user_id,
+                courier_user_id,
+                state,
                 (
-                  c.state = 'ACTIVE'
-                  OR (c.state = 'GRACE' AND now() < c.closes_at)
+                  state = 'ACTIVE'
+                  OR (
+                    state = 'GRACE'
+                    AND clock_timestamp() < closes_at
+                  )
                 ) AS writable,
-                c.next_sequence::text AS next_sequence
-           FROM chats c
-          WHERE c.id = $1::uuid
-            AND (
-              c.requester_user_id = $2::uuid
-              OR c.courier_user_id = $2::uuid
-            )
-          FOR UPDATE`,
+                next_sequence
+           FROM locked`,
         [command.chatId, command.senderUserId],
       );
       const chat = chats[0];

@@ -1,141 +1,185 @@
 @import "tailwindcss";
 
+/* Neutrals follow Apple's system grays; NUS orange is the tint and NUS blue the secondary accent. */
 :root {
-  --background: #ffffff;
-  --foreground: #1a1a2e;
+  --background: #f2f2f7; /* grouped background */
+  --surface: #ffffff; /* cells and sections */
+  --foreground: #1d1d1f;
+  --muted: #6e6e73; /* secondary label */
+  --border: #e3e3e8; /* separators */
+  --fill: rgba(118, 118, 128, 0.12); /* controls on a cell */
   --nus-orange: #EF7C00;
   --nus-orange-hover: #d96e00;
   --nus-blue: #003D7C;
   --nus-blue-light: #004f9f;
   --nus-blue-dark: #002a56;
-  --surface: #f8f9fa;
-  --border: #e2e8f0;
-  --muted: #64748b;
-  --danger: #dc2626;
-  --success: #16a34a;
+  /* NUS blue for text and tints; lightened in dark mode so it stays legible. */
+  --nus-blue-ink: #003D7C;
+  --danger: #d70015;
+  --success: #248a3d;
+
+  --ease-ui: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --elev-raised: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 14px -6px rgba(0, 0, 0, 0.12);
+  --elev-overlay: 0 30px 60px -20px rgba(0, 0, 0, 0.35);
+
+  color-scheme: light;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-fill: var(--fill);
   --color-nus-orange: var(--nus-orange);
   --color-nus-orange-hover: var(--nus-orange-hover);
   --color-nus-blue: var(--nus-blue);
   --color-nus-blue-light: var(--nus-blue-light);
   --color-nus-blue-dark: var(--nus-blue-dark);
-  --color-surface: var(--surface);
-  --color-border: var(--border);
-  --color-muted: var(--muted);
+  --color-nus-blue-ink: var(--nus-blue-ink);
   --color-danger: var(--danger);
   --color-success: var(--success);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI", Roboto, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  --shadow-raised: var(--elev-raised);
+  --shadow-overlay: var(--elev-overlay);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --background: #0f172a;
-    --foreground: #e2e8f0;
-    --surface: #1e293b;
-    --border: #334155;
-    --muted: #94a3b8;
+    --background: #000000;
+    --surface: #1c1c1e;
+    --foreground: #f5f5f7;
+    --muted: #98989d;
+    --border: #38383a;
+    --fill: rgba(118, 118, 128, 0.24);
+    --nus-blue-ink: #8ab8ec;
+    --danger: #ff6961;
+    --success: #30d158;
+    --elev-raised: 0 0 0 transparent;
+    --elev-overlay: 0 30px 60px -20px rgba(0, 0, 0, 0.8);
+    color-scheme: dark;
   }
 }
 
 :root[data-theme="dark"] {
-  --background: #0f172a;
-  --foreground: #e2e8f0;
-  --surface: #1e293b;
-  --border: #334155;
-  --muted: #94a3b8;
+  --background: #000000;
+  --surface: #1c1c1e;
+  --foreground: #f5f5f7;
+  --muted: #98989d;
+  --border: #38383a;
+  --fill: rgba(118, 118, 128, 0.24);
+  --nus-blue-ink: #8ab8ec;
+  --danger: #ff6961;
+  --success: #30d158;
+  --elev-raised: 0 0 0 transparent;
+  --elev-overlay: 0 30px 60px -20px rgba(0, 0, 0, 0.8);
+  color-scheme: dark;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
-  font-optical-sizing: auto;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.45;
+  letter-spacing: -0.003em;
   -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
 }
 
-/* --- Typography: size-specific tracking and leading (§15) --- */
+/* --- Typography: tracking tightens as size grows --- */
 
-.display-heading {
-  font-size: clamp(2rem, 5vw, 3.5rem);
-  line-height: 1.05;
-  letter-spacing: -0.025em;
+.large-title {
+  font-size: 2.125rem;
+  line-height: 1.2;
+  letter-spacing: -0.022em;
   font-weight: 700;
 }
 
-h1, .heading-1 {
-  letter-spacing: -0.02em;
-  line-height: 1.15;
-}
-
-h2, .heading-2 {
+h1, h2, h3 {
   letter-spacing: -0.015em;
-  line-height: 1.2;
-}
-
-h3, .heading-3 {
-  letter-spacing: -0.01em;
   line-height: 1.25;
 }
 
-/* Body text: near-zero tracking, comfortable leading */
-body {
+.text-xs {
   letter-spacing: 0;
-  line-height: 1.5;
 }
 
-/* Small text: slightly positive tracking for legibility */
-.text-sm, small {
-  letter-spacing: 0.01em;
+.section-label {
+  font-size: 0.8125rem;
+  letter-spacing: -0.003em;
+  color: var(--muted);
+  text-transform: uppercase;
 }
 
-/* --- Press feedback: respond on pointer-down (§1) --- */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Press feedback on pointer-down --- */
 
 .btn-press {
-  transition: transform 120ms ease-out, opacity 120ms ease-out;
-  will-change: transform;
+  transition-property: transform, background-color, color, opacity;
+  transition-duration: 140ms;
+  transition-timing-function: var(--ease-ui);
 }
 
-.btn-press:active {
+.btn-press:active:not(:disabled) {
   transform: scale(0.97);
 }
 
-.btn-press:disabled {
-  transform: none;
+/* List rows highlight on press, like table cells; the highlight lands instantly and fades on release. */
+.row-press {
+  transition: background-color 220ms ease;
 }
 
-/* Card press */
-.card-press {
-  transition: transform 200ms ease-out, box-shadow 200ms ease-out, border-color 200ms ease-out;
-  will-change: transform;
+.row-press:active {
+  background-color: var(--fill);
+  transition-duration: 0ms;
 }
 
-.card-press:active {
-  transform: scale(0.985);
+@media (hover: hover) and (pointer: fine) {
+  .row-press:hover {
+    background-color: color-mix(in srgb, var(--fill) 55%, transparent);
+  }
 }
 
-/* --- Translucent material (§12) --- */
+/* --- Materials: chrome floats above content as a translucent layer --- */
 
-.glass-heavy {
-  background: rgba(0, 61, 124, 0.82);
+.material-bar {
+  background: color-mix(in srgb, var(--background) 72%, transparent);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
 }
 
-.glass-light {
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
+.material-sidebar {
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .glass-light {
-    background: rgba(30, 41, 59, 0.78);
-  }
+/* Hairline only once content scrolls under the bar. */
+.bar-edge {
+  box-shadow: 0 0.5px 0 transparent;
+  transition: box-shadow 200ms ease;
+}
+
+.bar-edge[data-scrolled] {
+  box-shadow: 0 0.5px 0 var(--border);
+}
+
+.compact-title {
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 200ms var(--ease-ui), transform 200ms var(--ease-ui);
+}
+
+[data-scrolled] .compact-title {
+  opacity: 1;
+  transform: none;
 }
 
 /* --- Focus rings --- */
@@ -144,93 +188,361 @@ input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(239, 124, 0, 0.35);
-  border-color: var(--nus-orange);
-  transition: box-shadow 150ms ease-out, border-color 150ms ease-out;
+  box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--nus-orange) 35%, transparent);
 }
 
-/* --- Drawer / sheet slide (§4, §7: spatial consistency) --- */
-
-.drawer-backdrop {
-  opacity: 0;
-  transition: opacity 280ms ease-out;
+button:focus-visible,
+a:focus-visible,
+[role="tab"]:focus-visible,
+[role="switch"]:focus-visible {
+  outline: 2px solid var(--nus-orange);
+  outline-offset: 2px;
 }
 
-.drawer-backdrop.open {
-  opacity: 1;
-}
-
-.drawer-panel {
-  transform: translateX(100%);
-  transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1);
-  will-change: transform;
-}
-
-.drawer-panel.open {
-  transform: translateX(0);
-}
-
-/* --- Fade transitions for tab/step changes --- */
+/* --- Content entering --- */
 
 .fade-in {
-  animation: fadeIn 250ms ease-out;
+  animation: fadeIn 220ms var(--ease-ui);
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
 }
 
-/* --- Scrim for modals (§12: dim to focus) --- */
+/* Switching sections is a tab change: content swaps with a quick fade, no travel. */
+.tab-enter {
+  animation: fadeOnly 160ms ease-out;
+}
 
-.scrim {
+/* A push inside a sheet slides in from the side it came from. */
+.push-enter {
+  animation: pushIn 320ms var(--ease-drawer);
+}
+
+.pop-enter {
+  animation: popIn 320ms var(--ease-drawer);
+}
+
+@keyframes pushIn {
+  from { transform: translateX(30%); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+@keyframes popIn {
+  from { transform: translateX(-30%); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+/* Chat bubbles grow out of the sender's corner. */
+.bubble-in {
+  animation: bubbleIn 220ms var(--ease-ui);
+}
+
+@keyframes bubbleIn {
+  from { opacity: 0; transform: scale(0.94) translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.stagger > * {
+  animation: fadeIn 240ms var(--ease-ui) backwards;
+}
+.stagger > :nth-child(2) { animation-delay: 25ms; }
+.stagger > :nth-child(3) { animation-delay: 50ms; }
+.stagger > :nth-child(4) { animation-delay: 75ms; }
+.stagger > :nth-child(n + 5) { animation-delay: 100ms; }
+
+.skeleton {
+  background: linear-gradient(90deg, var(--fill) 0%, color-mix(in srgb, var(--fill) 40%, transparent) 50%, var(--fill) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s linear infinite;
+}
+
+@keyframes shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+/* --- Sheets: rise from the bottom edge, swipe down to dismiss --- */
+
+.sheet-backdrop {
   background: rgba(0, 0, 0, 0.32);
+  opacity: calc(1 - var(--drawer-swipe-progress, 0));
+  transition: opacity 400ms var(--ease-drawer);
 }
 
-/* --- Scroll edge: soft gradient instead of hard border --- */
+.sheet-backdrop[data-starting-style],
+.sheet-backdrop[data-ending-style] {
+  opacity: 0;
+}
 
-.scroll-edge-bottom::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
+.sheet-popup {
+  /* Sheets sit one level up: grouped gray behind white cells, lifted grays in dark mode. */
+  --background: #f2f2f7;
+  --surface: #ffffff;
+  background: var(--background);
+  transform: translateY(var(--drawer-swipe-movement-y, 0px));
+  transition: transform 420ms var(--ease-drawer);
+  box-shadow: var(--elev-overlay);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .sheet-popup {
+    --background: #1c1c1e;
+    --surface: #2c2c2e;
+  }
+}
+
+:root[data-theme="dark"] .sheet-popup {
+  --background: #1c1c1e;
+  --surface: #2c2c2e;
+}
+
+.sheet-popup[data-starting-style],
+.sheet-popup[data-ending-style] {
+  transform: translateY(100%);
+}
+
+/* Centred form sheet on wider screens still travels in from the bottom edge. */
+@media (min-width: 768px) {
+  .sheet-popup[data-starting-style],
+  .sheet-popup[data-ending-style] {
+    transform: translateY(calc(50dvh + 50%));
+  }
+}
+
+.sheet-popup[data-ending-style],
+.sheet-backdrop[data-ending-style] {
+  transition-duration: calc(var(--drawer-swipe-strength, 1) * 300ms);
+}
+
+.sheet-popup[data-swiping],
+.sheet-backdrop[data-swiping] {
+  transition-duration: 0ms;
+}
+
+/* --- Alerts: zoom down into place, like system alerts --- */
+
+.dialog-backdrop {
+  background: rgba(0, 0, 0, 0.32);
+  transition: opacity 200ms ease;
+}
+
+.dialog-backdrop[data-starting-style],
+.dialog-backdrop[data-ending-style] {
+  opacity: 0;
+}
+
+.dialog-popup {
+  transition: transform 240ms var(--ease-ui), opacity 200ms ease;
+}
+
+.dialog-popup[data-starting-style] {
+  opacity: 0;
+  transform: scale(1.1);
+}
+
+.dialog-popup[data-ending-style] {
+  opacity: 0;
+  transform: scale(0.97);
+  transition-duration: 150ms;
+}
+
+/* --- Segmented control: the selected pill glides --- */
+
+.tab-indicator {
   left: 0;
-  right: 0;
-  height: 24px;
-  background: linear-gradient(to top, var(--background), transparent);
-  pointer-events: none;
+  width: var(--active-tab-width);
+  translate: var(--active-tab-left);
+  transition: translate 260ms var(--ease-ui), width 260ms var(--ease-ui);
 }
 
-/* --- Accessibility (§14) --- */
+/* --- Rolling cubes on an isometric floor (components/cubes.tsx) --- */
+
+.cubes {
+  --s: 10px; /* cube edge */
+  --pitch: calc(var(--s) * 1.6); /* cube plus gap */
+  position: relative;
+  overflow: hidden;
+  -webkit-mask-image: radial-gradient(closest-side, #000 62%, transparent);
+  mask-image: radial-gradient(closest-side, #000 62%, transparent);
+}
+
+.cubes-world {
+  position: absolute;
+  left: 50%;
+  top: 56%;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  transform: rotateX(58deg) rotateZ(-40deg);
+}
+
+.cubes-pan {
+  position: absolute;
+  transform-style: preserve-3d;
+}
+
+.cubes-floor {
+  position: absolute;
+  width: calc(var(--s) * 16);
+  height: calc(var(--s) * 8);
+  left: calc(var(--s) * -8);
+  top: calc(var(--s) * -4);
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--muted) 30%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--muted) 30%, transparent) 1px, transparent 1px);
+  background-size: var(--s) var(--s);
+  background-position: calc(var(--s) * 0.5) calc(var(--s) * 0.5);
+}
+
+.cube {
+  --lit: color-mix(in srgb, var(--c) 72%, white);
+  --mid: var(--c);
+  --dark: color-mix(in srgb, var(--c) 62%, black);
+  position: absolute;
+  width: var(--s);
+  height: var(--s);
+  top: calc(var(--s) * -0.5);
+  transform-style: preserve-3d;
+  transform: translateZ(calc(var(--s) / 2));
+}
+
+.cube-face {
+  position: absolute;
+  inset: 0;
+  border-radius: calc(var(--s) * 0.12);
+  /* A faint edge keeps each face readable while the cube is mid-roll. */
+  box-shadow: inset 0 0 0 max(0.5px, calc(var(--s) * 0.03)) rgba(0, 0, 0, 0.1);
+  backface-visibility: hidden;
+}
+
+.cube-top { background: var(--lit); transform: translateZ(calc(var(--s) / 2)); }
+.cube-px { background: var(--mid); transform: rotateY(90deg) translateZ(calc(var(--s) / 2)); }
+.cube-nx { background: var(--mid); transform: rotateY(-90deg) translateZ(calc(var(--s) / 2)); }
+.cube-py { background: var(--dark); transform: rotateX(-90deg) translateZ(calc(var(--s) / 2)); }
+.cube-ny { background: var(--dark); transform: rotateX(90deg) translateZ(calc(var(--s) / 2)); }
+
+/* Forward: each cube tips over its leading bottom edge while the camera follows, so the mark rolls in place on a sliding floor. */
+.cubes[data-roll="forward"] .cubes-pan {
+  animation: panForward var(--roll-total) cubic-bezier(0.45, 0, 0.55, 1);
+}
+
+.cubes[data-roll="back"] .cubes-pan {
+  animation: panBack var(--roll-total) cubic-bezier(0.45, 0, 0.55, 1);
+}
+
+.cubes[data-roll="forward"] .cube {
+  transform-origin: 100% 50% calc(var(--s) / -2);
+  animation: rollForward var(--roll) cubic-bezier(0.6, 0, 0.4, 1) var(--delay) both;
+}
+
+.cubes[data-roll="back"] .cube {
+  transform-origin: 0% 50% calc(var(--s) / -2);
+  animation: rollBack var(--roll) cubic-bezier(0.6, 0, 0.4, 1) var(--delay) both;
+}
+
+/* Faces trade light as they turn, so the cube is lit the same way when it lands. */
+.cubes[data-roll="forward"] .cube-top { animation: litToMid var(--roll) cubic-bezier(0.6, 0, 0.4, 1) var(--delay) both; }
+.cubes[data-roll="forward"] .cube-nx { animation: midToLit var(--roll) cubic-bezier(0.6, 0, 0.4, 1) var(--delay) both; }
+.cubes[data-roll="back"] .cube-top { animation: litToMid var(--roll) cubic-bezier(0.6, 0, 0.4, 1) var(--delay) both; }
+.cubes[data-roll="back"] .cube-px { animation: midToLit var(--roll) cubic-bezier(0.6, 0, 0.4, 1) var(--delay) both; }
+
+@keyframes rollForward {
+  from { transform: translateZ(calc(var(--s) / 2)) rotateY(0deg); }
+  to { transform: translateZ(calc(var(--s) / 2)) rotateY(90deg); }
+}
+
+@keyframes rollBack {
+  from { transform: translateZ(calc(var(--s) / 2)) rotateY(0deg); }
+  to { transform: translateZ(calc(var(--s) / 2)) rotateY(-90deg); }
+}
+
+@keyframes panForward {
+  from { transform: translateX(0); }
+  to { transform: translateX(calc(var(--s) * -1)); }
+}
+
+@keyframes panBack {
+  from { transform: translateX(0); }
+  to { transform: translateX(var(--s)); }
+}
+
+@keyframes litToMid {
+  from { background: var(--lit); }
+  to { background: var(--mid); }
+}
+
+@keyframes midToLit {
+  from { background: var(--mid); }
+  to { background: var(--lit); }
+}
+
+/* --- Accessibility --- */
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+  .fade-in, .tab-enter, .push-enter, .pop-enter, .bubble-in, .stagger > * {
+    animation-name: fadeOnly;
   }
 
-  .drawer-panel {
+  .skeleton {
+    animation: none;
+  }
+
+  .btn-press:active:not(:disabled) {
+    transform: none;
+  }
+
+  .sheet-popup,
+  .sheet-popup[data-starting-style],
+  .sheet-popup[data-ending-style] {
+    transform: none;
+    transition: opacity 200ms ease;
+  }
+
+  .sheet-popup[data-starting-style],
+  .sheet-popup[data-ending-style] {
+    opacity: 0;
+  }
+
+  .dialog-popup[data-starting-style],
+  .dialog-popup[data-ending-style] {
+    transform: none;
+  }
+
+  .tab-indicator {
     transition: none;
-    transform: none;
   }
 
-  .btn-press:active {
-    transform: none;
+  /* The cubes acknowledge navigation with a soft fade instead of rolling. */
+  .cubes[data-roll] .cubes-pan,
+  .cubes[data-roll] .cube,
+  .cubes[data-roll] .cube-face {
+    animation: none;
   }
 
-  .card-press:active {
-    transform: none;
+  .cubes[data-roll] .cubes-world {
+    animation: fadePulse var(--roll-total) ease;
   }
+}
+
+@keyframes fadeOnly {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadePulse {
+  50% { opacity: 0.45; }
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  .glass-heavy {
-    background: var(--nus-blue);
+  .material-bar {
+    background: var(--background);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
 
-  .glass-light {
+  .material-sidebar {
     background: var(--surface);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
@@ -238,15 +550,10 @@ textarea:focus-visible {
 }
 
 @media (prefers-contrast: more) {
-  .glass-heavy {
-    background: var(--nus-blue);
-    backdrop-filter: none;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-  }
-
-  .glass-light {
+  .material-bar,
+  .material-sidebar {
     background: var(--surface);
     backdrop-filter: none;
-    border: 1px solid var(--border);
+    box-shadow: 0 1px 0 var(--border);
   }
 }

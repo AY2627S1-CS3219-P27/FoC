@@ -39,6 +39,7 @@
             },
             "rejectionReason": {
               "enum": [
+                "ALREADY_TRANSFERRED",
                 "AMOUNT_MISMATCH",
                 "DESTINATION_ARCHIVED",
                 "RESERVATION_NOT_FOUND",

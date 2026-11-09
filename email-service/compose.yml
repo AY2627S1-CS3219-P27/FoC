@@ -1,7 +1,9 @@
 services:
   email-service:
     restart: on-failure:3
-    build: .
+    build:
+      context: .
+      target: development
     image: ${FOC_IMAGE_PREFIX:-foc}/email-service:${EMAIL_SERVICE_IMAGE_TAG:-dev}
     environment:
       - SMTP_HOST=${SMTP_HOST}

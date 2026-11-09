@@ -22,6 +22,7 @@ import {
   type SocketOperationOutcome,
 } from '../observability/comms-metrics.js';
 import { ChatAdmissionService } from './chat-admission.service.js';
+import { ChatRealtimePublisher, roomName } from './chat-realtime.publisher.js';
 import {
   CHAT_NAMESPACE,
   ChatSocketError,
@@ -30,6 +31,7 @@ import {
   parseMessageSendPayload,
   parseMessagesReadPayload,
   type ChatJoinData,
+  type ChatServerEvents,
   type ChatSocketAcknowledgement,
   type MessageSendData,
 } from './chat-socket.protocol.js';
@@ -58,11 +60,6 @@ interface ChatClientEvents {
   'messages:read': (payload: unknown, ack?: MessagesReadAck) => void;
 }
 
-interface ChatServerEvents {
-  'message:new': (message: CommittedMessageDto) => void;
-  'messages:read-receipt': (receipt: MessagesReadReceipt) => void;
-}
-
 type ChatSocket = Socket<
   ChatClientEvents,
   ChatServerEvents,
@@ -87,6 +84,7 @@ export class ChatGateway
     private readonly admissions: ChatAdmissionService,
     private readonly messages: MessageCommandService,
     private readonly reads: ReadCommandService,
+    private readonly realtime: ChatRealtimePublisher,
   ) {}
 
   afterInit(namespace: Namespace): void {
@@ -96,6 +94,7 @@ export class ChatGateway
       Record<string, never>,
       ChatSocketData
     >;
+    this.realtime.bindNamespace(namespace);
     this.namespace!.use((socket, next) => {
       void this.authenticate(socket as ChatSocket).then(
         () => {
@@ -394,9 +393,7 @@ function metricOutcome(code: string): SocketOperationOutcome {
   }
 }
 
-export function roomName(chatId: string, userId: string): string {
-  return `chat:${chatId}:user:${userId}`;
-}
+export { roomName };
 
 function connectError(): Error & {
   data: ReturnType<typeof chatSocketFailure>['error'];

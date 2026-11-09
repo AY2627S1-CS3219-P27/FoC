@@ -125,6 +125,8 @@ export function initTelemetry(options: TelemetryOptions): Telemetry {
 export function registerShutdown(
   app: { close(signal?: string): Promise<void> },
   telemetry: Telemetry,
+  // Together these bound the whole shutdown below the container's stop grace period.
+  { closeTimeoutMs = 7_000, flushTimeoutMs = 2_000 } = {},
 ): void {
   let stopping = false;
   const onSignal = (signal: NodeJS.Signals) => {
@@ -136,22 +138,40 @@ export function registerShutdown(
     stopping = true;
     void (async () => {
       let exitCode = 0;
-      try {
-        await app.close(signal);
-      } catch (err) {
-        // A lifecycle hook failed: log it, still flush what we have, and let
-        // the container see a failed exit.
+      // A failed or hung lifecycle hook is logged, still flushes what we have,
+      // and gives the container a failed exit.
+      const closing = app.close(signal).catch((err) => {
         console.error('Error during application shutdown', err);
+        exitCode = 1;
+      });
+      if (!(await settlesWithin(closing, closeTimeoutMs))) {
+        console.error(`Application shutdown timed out after ${closeTimeoutMs}ms`);
         exitCode = 1;
       }
       // shutdown() flushes, swallows its own errors and is safe to call
       // repeatedly; the trailing catch only guards against a future
       // implementation that rejects (an unhandled rejection would be fatal
       // during exit).
-      await telemetry.shutdown().catch(() => undefined);
+      await settlesWithin(
+        telemetry.shutdown().catch(() => undefined),
+        flushTimeoutMs,
+      );
       process.exit(exitCode);
     })();
   };
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
+}
+
+/** True when `task` settles within `ms`, false when the time runs out first. */
+async function settlesWithin(task: Promise<unknown>, ms: number): Promise<boolean> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<false>((resolve) => {
+    timer = setTimeout(() => resolve(false), ms);
+  });
+  try {
+    return await Promise.race([task.then(() => true), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }

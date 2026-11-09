@@ -5,6 +5,8 @@ export const CREDIT_SETTLEMENT_REJECTED_V1_ROUTING_KEY =
   'credit.settlement-rejected.v1';
 
 export type CreditSettlementRejectionReason =
+  // The reservation was already consumed by a transfer or earlier settlement.
+  | 'ALREADY_TRANSFERRED'
   // courierAmount + requesterAmount differs from the reserved amount. The
   // schema cannot check the sum; credit-service does.
   | 'AMOUNT_MISMATCH'

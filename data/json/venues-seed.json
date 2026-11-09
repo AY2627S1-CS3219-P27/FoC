@@ -1,0 +1,4231 @@
+{
+  "buildings": [
+    {
+      "shortName": "AS1",
+      "canonicalName": "Arts and Social Sciences 1",
+      "aliases": [],
+      "latitude": 1.295245,
+      "longitude": 103.77222
+    },
+    {
+      "shortName": "AS2",
+      "canonicalName": "Arts and Social Sciences 2",
+      "aliases": [],
+      "latitude": 1.295235,
+      "longitude": 103.771364
+    },
+    {
+      "shortName": "AS3",
+      "canonicalName": "Arts and Social Sciences 3",
+      "aliases": [],
+      "latitude": 1.29472,
+      "longitude": 103.771214
+    },
+    {
+      "shortName": "AS4",
+      "canonicalName": "Arts and Social Sciences 4",
+      "aliases": [],
+      "latitude": 1.294571,
+      "longitude": 103.771819
+    },
+    {
+      "shortName": "AS5",
+      "canonicalName": "Arts and Social Sciences 5",
+      "aliases": [],
+      "latitude": 1.294101,
+      "longitude": 103.771734
+    },
+    {
+      "shortName": "AS6",
+      "canonicalName": "Arts and Social Sciences 6",
+      "aliases": [],
+      "latitude": 1.295567,
+      "longitude": 103.773163
+    },
+    {
+      "shortName": "AS7",
+      "canonicalName": "Arts and Social Sciences 7",
+      "aliases": [],
+      "latitude": 1.294454,
+      "longitude": 103.771045
+    },
+    {
+      "shortName": "AS8",
+      "canonicalName": "Arts and Social Sciences 8",
+      "aliases": [
+        "Blk AS8"
+      ],
+      "latitude": 1.296252,
+      "longitude": 103.772093
+    },
+    {
+      "shortName": "BIZ1",
+      "canonicalName": "Business 1",
+      "aliases": [],
+      "latitude": 1.29264,
+      "longitude": 103.773925
+    },
+    {
+      "shortName": "BIZ2",
+      "canonicalName": "Business 2",
+      "aliases": [],
+      "latitude": 1.293322,
+      "longitude": 103.775128
+    },
+    {
+      "shortName": "CELC",
+      "canonicalName": "Centre for English Language Communication",
+      "aliases": [],
+      "latitude": 1.297105,
+      "longitude": 103.771441
+    },
+    {
+      "shortName": "CELS",
+      "canonicalName": "Centre for Life Sciences",
+      "aliases": [],
+      "latitude": 1.294354,
+      "longitude": 103.780792
+    },
+    {
+      "shortName": "CLB",
+      "canonicalName": "Central Library",
+      "aliases": [],
+      "latitude": 1.296558,
+      "longitude": 103.773111
+    },
+    {
+      "shortName": "COM1",
+      "canonicalName": "Computing 1",
+      "aliases": [],
+      "latitude": 1.294834,
+      "longitude": 103.773965
+    },
+    {
+      "shortName": "COM2",
+      "canonicalName": "Computing 2",
+      "aliases": [],
+      "latitude": 1.293925,
+      "longitude": 103.774152
+    },
+    {
+      "shortName": "COM3",
+      "canonicalName": "Computing 3",
+      "aliases": [
+        "Terrace",
+        "The Terrace"
+      ],
+      "latitude": 1.29436,
+      "longitude": 103.77263
+    },
+    {
+      "shortName": "COM4",
+      "canonicalName": "Computing 4",
+      "aliases": [],
+      "latitude": 1.295145,
+      "longitude": 103.775372
+    },
+    {
+      "shortName": "E1",
+      "canonicalName": "Engineering Block E1",
+      "aliases": [],
+      "latitude": 1.29868,
+      "longitude": 103.771152
+    },
+    {
+      "shortName": "E1A",
+      "canonicalName": "Engineering Block E1A",
+      "aliases": [],
+      "latitude": 1.299293,
+      "longitude": 103.77085
+    },
+    {
+      "shortName": "E2",
+      "canonicalName": "Engineering Block E2",
+      "aliases": [],
+      "latitude": 1.299341,
+      "longitude": 103.771142
+    },
+    {
+      "shortName": "E2A",
+      "canonicalName": "Engineering Block E2A",
+      "aliases": [],
+      "latitude": 1.298806,
+      "longitude": 103.771479
+    },
+    {
+      "shortName": "E3",
+      "canonicalName": "Engineering Block E3",
+      "aliases": [],
+      "latitude": 1.299484,
+      "longitude": 103.771747
+    },
+    {
+      "shortName": "E3A",
+      "canonicalName": "Engineering Block E3A",
+      "aliases": [],
+      "latitude": 1.300406,
+      "longitude": 103.771215
+    },
+    {
+      "shortName": "E4",
+      "canonicalName": "Engineering Block E4",
+      "aliases": [],
+      "latitude": 1.298447,
+      "longitude": 103.772265
+    },
+    {
+      "shortName": "E4A",
+      "canonicalName": "Engineering Block E4A",
+      "aliases": [],
+      "latitude": 1.298615,
+      "longitude": 103.772561
+    },
+    {
+      "shortName": "E5",
+      "canonicalName": "Engineering Block E5",
+      "aliases": [],
+      "latitude": 1.298072,
+      "longitude": 103.772324
+    },
+    {
+      "shortName": "E8",
+      "canonicalName": "Engineering Block E8",
+      "aliases": [],
+      "latitude": 1.296689,
+      "longitude": 103.773288
+    },
+    {
+      "shortName": "EA",
+      "canonicalName": "Engineering Block EA",
+      "aliases": [],
+      "latitude": 1.300567,
+      "longitude": 103.770758
+    },
+    {
+      "shortName": "EC",
+      "canonicalName": "Engineering Block EC",
+      "aliases": [],
+      "latitude": 1.307142,
+      "longitude": 103.772666
+    },
+    {
+      "shortName": "EW1",
+      "canonicalName": "EW1",
+      "aliases": [],
+      "latitude": 1.298644,
+      "longitude": 103.770705
+    },
+    {
+      "shortName": "EW2",
+      "canonicalName": "EW2",
+      "aliases": [],
+      "latitude": 1.299099,
+      "longitude": 103.772601
+    },
+    {
+      "shortName": "HSSML",
+      "canonicalName": "Hon Sui Sen Memorial Library",
+      "aliases": [
+        "HSS"
+      ],
+      "latitude": 1.293126,
+      "longitude": 103.771994
+    },
+    {
+      "shortName": "I3",
+      "canonicalName": "I-Cube",
+      "aliases": [],
+      "latitude": 1.292286,
+      "longitude": 103.775865
+    },
+    {
+      "shortName": "i4.0",
+      "canonicalName": "innovation4.0",
+      "aliases": [
+        "I4"
+      ],
+      "latitude": 1.294298,
+      "longitude": 103.770881
+    },
+    {
+      "shortName": "MD1",
+      "canonicalName": "Medicine 1",
+      "aliases": [],
+      "latitude": 1.295442,
+      "longitude": 103.780586
+    },
+    {
+      "shortName": "MD3",
+      "canonicalName": "Medicine 3",
+      "aliases": [],
+      "latitude": 1.295332,
+      "longitude": 103.781144
+    },
+    {
+      "shortName": "MD4",
+      "canonicalName": "Medicine 4",
+      "aliases": [],
+      "latitude": 1.295626,
+      "longitude": 103.780818
+    },
+    {
+      "shortName": "MD6",
+      "canonicalName": "Medicine 6",
+      "aliases": [],
+      "latitude": 1.295345,
+      "longitude": 103.781819
+    },
+    {
+      "shortName": "MD7",
+      "canonicalName": "Medicine 7",
+      "aliases": [],
+      "latitude": 1.296155,
+      "longitude": 103.781017
+    },
+    {
+      "shortName": "MD9",
+      "canonicalName": "Medicine 9",
+      "aliases": [],
+      "latitude": 1.296696,
+      "longitude": 103.781346
+    },
+    {
+      "shortName": "MD10",
+      "canonicalName": "Medicine 10",
+      "aliases": [],
+      "latitude": 1.296501,
+      "longitude": 103.781703
+    },
+    {
+      "shortName": "MD11",
+      "canonicalName": "Medicine 11",
+      "aliases": [],
+      "latitude": 1.296052,
+      "longitude": 103.781739
+    },
+    {
+      "shortName": "MSL",
+      "canonicalName": "Medicine+Science Library",
+      "aliases": [],
+      "latitude": 1.296799,
+      "longitude": 103.779434
+    },
+    {
+      "shortName": "S1",
+      "canonicalName": "Science 1",
+      "aliases": [],
+      "latitude": 1.29752,
+      "longitude": 103.778143
+    },
+    {
+      "shortName": "S1A",
+      "canonicalName": "Science 1A",
+      "aliases": [],
+      "latitude": 1.295921,
+      "longitude": 103.778166
+    },
+    {
+      "shortName": "S2",
+      "canonicalName": "Science 2",
+      "aliases": [],
+      "latitude": 1.295509,
+      "longitude": 103.778022
+    },
+    {
+      "shortName": "S4A",
+      "canonicalName": "Science 4A",
+      "aliases": [],
+      "latitude": 1.295772,
+      "longitude": 103.779261
+    },
+    {
+      "shortName": "S5",
+      "canonicalName": "Science 5",
+      "aliases": [],
+      "latitude": 1.295614,
+      "longitude": 103.779681
+    },
+    {
+      "shortName": "S6",
+      "canonicalName": "Science 6",
+      "aliases": [],
+      "latitude": 1.295167,
+      "longitude": 103.780101
+    },
+    {
+      "shortName": "S8",
+      "canonicalName": "Science 8",
+      "aliases": [],
+      "latitude": 1.296107,
+      "longitude": 103.779286
+    },
+    {
+      "shortName": "S11",
+      "canonicalName": "Science 11",
+      "aliases": [],
+      "latitude": 1.296661,
+      "longitude": 103.778775
+    },
+    {
+      "shortName": "S12",
+      "canonicalName": "Science 12",
+      "aliases": [],
+      "latitude": 1.296947,
+      "longitude": 103.778779
+    },
+    {
+      "shortName": "S13",
+      "canonicalName": "Science 13",
+      "aliases": [],
+      "latitude": 1.296708,
+      "longitude": 103.77927
+    },
+    {
+      "shortName": "S14",
+      "canonicalName": "Science 14",
+      "aliases": [],
+      "latitude": 1.296786,
+      "longitude": 103.779701
+    },
+    {
+      "shortName": "S16",
+      "canonicalName": "Science 16",
+      "aliases": [],
+      "latitude": 1.296761,
+      "longitude": 103.780477
+    },
+    {
+      "shortName": "S17",
+      "canonicalName": "Science 17",
+      "aliases": [],
+      "latitude": 1.297713,
+      "longitude": 103.780677
+    },
+    {
+      "shortName": "UT22",
+      "canonicalName": "UTown 22",
+      "aliases": [],
+      "latitude": 1.303729,
+      "longitude": 103.773551
+    },
+    {
+      "shortName": "PGP",
+      "canonicalName": "Prince George's Park",
+      "aliases": [],
+      "latitude": 1.290888,
+      "longitude": 103.777828
+    },
+    {
+      "shortName": "The Ridge",
+      "canonicalName": "The Ridge",
+      "aliases": [],
+      "latitude": 1.294678,
+      "longitude": 103.770787
+    },
+    {
+      "shortName": "YIH",
+      "canonicalName": "Yusof Ishak House",
+      "aliases": [],
+      "latitude": 1.298465,
+      "longitude": 103.77234
+    },
+    {
+      "shortName": "Frontier",
+      "canonicalName": "Frontier",
+      "aliases": [],
+      "latitude": 1.294782,
+      "longitude": 103.770443
+    }
+  ],
+  "venues": [
+    {
+      "buildingShortName": "AS1",
+      "code": "AS1-0201",
+      "name": null,
+      "floor": "2",
+      "latitude": 1.295145,
+      "longitude": 103.772134,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS1",
+      "code": "AS1-0203",
+      "name": "Seminar Room",
+      "floor": "2",
+      "latitude": 1.295488,
+      "longitude": 103.772395,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS1",
+      "code": "AS1-0204",
+      "name": "Seminar Room",
+      "floor": "2",
+      "latitude": 1.295425,
+      "longitude": 103.772373,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS1",
+      "code": "AS1-0205",
+      "name": null,
+      "floor": "2",
+      "latitude": 1.295128,
+      "longitude": 103.772121,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS1",
+      "code": "AS1-0207",
+      "name": "Seminar Room",
+      "floor": "2",
+      "latitude": 1.295286,
+      "longitude": 103.772323,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS1",
+      "code": "AS1-0208",
+      "name": "Seminar Room (Active Learning Room)",
+      "floor": "2",
+      "latitude": 1.295245,
+      "longitude": 103.77222,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS1",
+      "code": "AS1-0209",
+      "name": "Seminar Room (Active Learning Room)",
+      "floor": "2",
+      "latitude": 1.295215,
+      "longitude": 103.772156,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS1",
+      "code": "AS1-0210",
+      "name": "Seminar Room (Active Learning Room)",
+      "floor": "2",
+      "latitude": 1.295187,
+      "longitude": 103.772097,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS1",
+      "code": "AS1-0211",
+      "name": "History Honours Room",
+      "floor": "2",
+      "latitude": 1.295159,
+      "longitude": 103.772037,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS1",
+      "code": "AS1-0212",
+      "name": "Sociology Seminar Room",
+      "floor": "2",
+      "latitude": 1.295124,
+      "longitude": 103.771963,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS1",
+      "code": "AS1-0213",
+      "name": "Seminar Room (Active Learning Room)",
+      "floor": "2",
+      "latitude": 1.295089,
+      "longitude": 103.771889,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS1",
+      "code": "AS1-0301",
+      "name": "Seminar Room",
+      "floor": "3",
+      "latitude": 1.295546,
+      "longitude": 103.772425,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS1",
+      "code": "AS1-0302",
+      "name": "Seminar Room",
+      "floor": "3",
+      "latitude": 1.295454,
+      "longitude": 103.772391,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS1",
+      "code": "AS1-0303",
+      "name": "Seminar Room",
+      "floor": "3",
+      "latitude": 1.295392,
+      "longitude": 103.772369,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS1",
+      "code": "AS1-0304",
+      "name": "Seminar Room 7",
+      "floor": "3",
+      "latitude": 1.295547,
+      "longitude": 103.772449,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS1",
+      "code": "AS1-0524",
+      "name": "Meeting/ Thesis",
+      "floor": "5",
+      "latitude": 1.29501,
+      "longitude": 103.771739,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS1",
+      "code": "AS1-0548",
+      "name": "Tutorial Room",
+      "floor": "5",
+      "latitude": 1.295532,
+      "longitude": 103.772466,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS2",
+      "code": "AS2-0201",
+      "name": "GAMELAN Instrument Room (Studio)",
+      "floor": "2",
+      "latitude": 1.295149,
+      "longitude": 103.771357,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS2",
+      "code": "AS2-0203",
+      "name": "Earth Lab",
+      "floor": "2",
+      "latitude": 1.295282,
+      "longitude": 103.771002,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS2",
+      "code": "AS2-0204",
+      "name": "Earth Lab",
+      "floor": "2",
+      "latitude": 1.295313,
+      "longitude": 103.770911,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS2",
+      "code": "AS2-0302",
+      "name": "Honours Room (Geography)",
+      "floor": "3",
+      "latitude": 1.295317,
+      "longitude": 103.771824,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS2",
+      "code": "AS2-0311",
+      "name": "Seminar Room",
+      "floor": "3",
+      "latitude": 1.295167,
+      "longitude": 103.771364,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS2",
+      "code": "AS2-0312",
+      "name": "Economics Dept Seminar Room (Lim Tay Boh Room)",
+      "floor": "3",
+      "latitude": 1.295201,
+      "longitude": 103.771221,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS2",
+      "code": "AS2-0313",
+      "name": "GIS Lab",
+      "floor": "3",
+      "latitude": 1.295235,
+      "longitude": 103.771129,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS2",
+      "code": "AS2-0316",
+      "name": "Dept Meeting Room (Geo)",
+      "floor": "3",
+      "latitude": 1.295151,
+      "longitude": 103.771536,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS2",
+      "code": "AS2-0413",
+      "name": "Seminar Room",
+      "floor": "4",
+      "latitude": 1.295196,
+      "longitude": 103.771526,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS2",
+      "code": "AS2-0509",
+      "name": "Seminar Room",
+      "floor": "5",
+      "latitude": 1.295281,
+      "longitude": 103.771689,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS2",
+      "code": "AS2-0510",
+      "name": "Seminar Room",
+      "floor": "5",
+      "latitude": 1.295254,
+      "longitude": 103.771631,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS3",
+      "code": "AS3-0101",
+      "name": "Theatre Studies Practice Studio",
+      "floor": "1",
+      "latitude": 1.294724,
+      "longitude": 103.771112,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS3",
+      "code": "AS3-0207",
+      "name": "Graduate Room/ Seminar Room",
+      "floor": "2",
+      "latitude": 1.294717,
+      "longitude": 103.771323,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS3",
+      "code": "AS3-0208",
+      "name": "Seminar Room",
+      "floor": "2",
+      "latitude": 1.294681,
+      "longitude": 103.771337,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS3",
+      "code": "AS3-0209",
+      "name": "Seminar Room",
+      "floor": "2",
+      "latitude": 1.294655,
+      "longitude": 103.771287,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS3",
+      "code": "AS3-0212",
+      "name": "Seminar Room",
+      "floor": "2",
+      "latitude": 1.294675,
+      "longitude": 103.77119,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS3",
+      "code": "AS3-0213",
+      "name": "Seminar Room",
+      "floor": "2",
+      "latitude": 1.294695,
+      "longitude": 103.771129,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS3",
+      "code": "AS3-0214",
+      "name": "Seminar Room",
+      "floor": "2",
+      "latitude": 1.294716,
+      "longitude": 103.771067,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS3",
+      "code": "AS3-0215",
+      "name": "Seminar Room",
+      "floor": "2",
+      "latitude": 1.294736,
+      "longitude": 103.771008,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS3",
+      "code": "AS3-0302",
+      "name": "Seminar Room",
+      "floor": "3",
+      "latitude": 1.294785,
+      "longitude": 103.771496,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS3",
+      "code": "AS3-0303",
+      "name": "Seminar Room",
+      "floor": "3",
+      "latitude": 1.294756,
+      "longitude": 103.771438,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS3",
+      "code": "AS3-0304",
+      "name": "Seminar Room",
+      "floor": "3",
+      "latitude": 1.294726,
+      "longitude": 103.771383,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS3",
+      "code": "AS3-0305",
+      "name": "Seminar Room",
+      "floor": "3",
+      "latitude": 1.294682,
+      "longitude": 103.771314,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS3",
+      "code": "AS3-0306",
+      "name": "Seminar Room",
+      "floor": "3",
+      "latitude": 1.294676,
+      "longitude": 103.7712,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS3",
+      "code": "AS3-0307",
+      "name": "Seminar Room",
+      "floor": "3",
+      "latitude": 1.294699,
+      "longitude": 103.771133,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS3",
+      "code": "AS3-0308",
+      "name": "Seminar Room",
+      "floor": "3",
+      "latitude": 1.29472,
+      "longitude": 103.771072,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS3",
+      "code": "AS3-0309",
+      "name": "Seminar Room",
+      "floor": "3",
+      "latitude": 1.294744,
+      "longitude": 103.770999,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS3",
+      "code": "AS3-0312",
+      "name": "0312",
+      "floor": "3",
+      "latitude": 1.294747,
+      "longitude": 103.771419,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS3",
+      "code": "AS3-0314",
+      "name": null,
+      "floor": "3",
+      "latitude": 1.294702,
+      "longitude": 103.77111,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS3",
+      "code": "AS3-0316",
+      "name": "Graduate Room",
+      "floor": "3",
+      "latitude": 1.294741,
+      "longitude": 103.771214,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS3",
+      "code": "AS3-0523",
+      "name": "Philosophy Meeting/Resource Room",
+      "floor": "5",
+      "latitude": 1.294705,
+      "longitude": 103.771202,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS3",
+      "code": "AS3-0610",
+      "name": "Tutorial Room 1",
+      "floor": "6",
+      "latitude": 1.294807,
+      "longitude": 103.771545,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS3",
+      "code": "AS3-0611",
+      "name": "Tutorial Room 2",
+      "floor": "6",
+      "latitude": 1.294742,
+      "longitude": 103.77155,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS3",
+      "code": "AS3-0620",
+      "name": null,
+      "floor": "6",
+      "latitude": 1.294868,
+      "longitude": 103.771622,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS4",
+      "code": "AS4-0109",
+      "name": "Seminar Room",
+      "floor": "1",
+      "latitude": 1.294653,
+      "longitude": 103.771991,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS4",
+      "code": "AS4-0110",
+      "name": "Computer Lab",
+      "floor": "1",
+      "latitude": 1.294625,
+      "longitude": 103.771931,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS4",
+      "code": "AS4-0114",
+      "name": "Seminar Room",
+      "floor": "1",
+      "latitude": 1.294501,
+      "longitude": 103.771709,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS4",
+      "code": "AS4-0115",
+      "name": "Seminar Room",
+      "floor": "1",
+      "latitude": 1.294554,
+      "longitude": 103.771685,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS4",
+      "code": "AS4-0116",
+      "name": "Seminar Room",
+      "floor": "1",
+      "latitude": 1.294481,
+      "longitude": 103.771632,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS4",
+      "code": "AS4-0117",
+      "name": "Seminar Room",
+      "floor": "1",
+      "latitude": 1.294463,
+      "longitude": 103.771582,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS4",
+      "code": "AS4-0118",
+      "name": "Seminar Room",
+      "floor": "1",
+      "latitude": 1.294428,
+      "longitude": 103.771513,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS4",
+      "code": "AS4-0119",
+      "name": "Seminar Room",
+      "floor": "1",
+      "latitude": 1.2944,
+      "longitude": 103.771453,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS4",
+      "code": "AS4-0206",
+      "name": "Seminar Room",
+      "floor": "2",
+      "latitude": 1.294628,
+      "longitude": 103.77198,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS4",
+      "code": "AS4-0208",
+      "name": "Dept Meeting Room (Psychology)",
+      "floor": "2",
+      "latitude": 1.294521,
+      "longitude": 103.771753,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS4",
+      "code": "AS4-0318",
+      "name": "Staff Room",
+      "floor": "3",
+      "latitude": 1.29457,
+      "longitude": 103.771866,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS4",
+      "code": "AS4-0328",
+      "name": "Seminar Room",
+      "floor": "3",
+      "latitude": 1.294748,
+      "longitude": 103.772235,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS4",
+      "code": "AS4-0335",
+      "name": "Seminar Room",
+      "floor": "3",
+      "latitude": 1.294602,
+      "longitude": 103.771772,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS4",
+      "code": "AS4-0513",
+      "name": null,
+      "floor": "5",
+      "latitude": 1.294573,
+      "longitude": 103.771968,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS4",
+      "code": "AS4-0519",
+      "name": "Dept Meeting Room",
+      "floor": "5",
+      "latitude": 1.294684,
+      "longitude": 103.77215,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS4",
+      "code": "AS4-0601",
+      "name": "Seminar Room",
+      "floor": "6",
+      "latitude": 1.294791,
+      "longitude": 103.772153,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS4",
+      "code": "AS4-0602",
+      "name": "Seminar Room",
+      "floor": "6",
+      "latitude": 1.29481,
+      "longitude": 103.772211,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS4",
+      "code": "AS4-0603",
+      "name": "Seminar Room",
+      "floor": "6",
+      "latitude": 1.294748,
+      "longitude": 103.772235,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS4",
+      "code": "AS4-0604",
+      "name": "Seminar Room",
+      "floor": "6",
+      "latitude": 1.294692,
+      "longitude": 103.77214,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS4",
+      "code": "AS4-B107",
+      "name": "Tutorial Room",
+      "floor": "B1",
+      "latitude": 1.294513,
+      "longitude": 103.77161,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS4",
+      "code": "AS4-B109",
+      "name": "Social Innovation (Social Work)",
+      "floor": "B1",
+      "latitude": 1.294411,
+      "longitude": 103.771529,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS4",
+      "code": "AS4-B110",
+      "name": "Tech Experience (Social Work)",
+      "floor": "B1",
+      "latitude": 1.294379,
+      "longitude": 103.771464,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS5",
+      "code": "AS5-0202",
+      "name": "Seminar Room",
+      "floor": "2",
+      "latitude": 1.29396,
+      "longitude": 103.771713,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS5",
+      "code": "AS5-0203",
+      "name": "Semiotic Research Lab (ELL)",
+      "floor": "2",
+      "latitude": 1.294022,
+      "longitude": 103.771734,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS5",
+      "code": "AS5-0204",
+      "name": "Phonetics Lab (ELL)",
+      "floor": "2",
+      "latitude": 1.294101,
+      "longitude": 103.771732,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS5",
+      "code": "AS5-0205",
+      "name": "Seminar Room",
+      "floor": "2",
+      "latitude": 1.294146,
+      "longitude": 103.771778,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS5",
+      "code": "AS5-0309",
+      "name": "Seminar Room",
+      "floor": "3",
+      "latitude": 1.294211,
+      "longitude": 103.771837,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS6",
+      "code": "AS6-0204",
+      "name": "Tutorial Room",
+      "floor": "2",
+      "latitude": 1.295557,
+      "longitude": 103.773226,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS6",
+      "code": "AS6-0208",
+      "name": "Tutorial Room 3",
+      "floor": "2",
+      "latitude": 1.295353,
+      "longitude": 103.773311,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS6",
+      "code": "AS6-0209",
+      "name": "Tutorial Room 6",
+      "floor": "2",
+      "latitude": 1.295357,
+      "longitude": 103.773268,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS6",
+      "code": "AS6-0210",
+      "name": "Tutorial Room 4",
+      "floor": "2",
+      "latitude": 1.295361,
+      "longitude": 103.773262,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS6",
+      "code": "AS6-0211",
+      "name": "Tutorial Room 5",
+      "floor": "2",
+      "latitude": 1.295558,
+      "longitude": 103.773175,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS6",
+      "code": "AS6-0212",
+      "name": "Seminar Room",
+      "floor": "2",
+      "latitude": 1.295567,
+      "longitude": 103.773163,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS6",
+      "code": "AS6-0214",
+      "name": "Seminar Room",
+      "floor": "2",
+      "latitude": 1.295662,
+      "longitude": 103.773099,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS6",
+      "code": "AS6-0215B",
+      "name": null,
+      "floor": "2",
+      "latitude": 1.295847,
+      "longitude": 103.772968,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS6",
+      "code": "AS6-0333",
+      "name": "Dept Meeting Room (CNM)",
+      "floor": "3",
+      "latitude": 1.295747,
+      "longitude": 103.773056,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS6",
+      "code": "AS6-0338",
+      "name": "Play Room (CNM)",
+      "floor": "3",
+      "latitude": 1.295883,
+      "longitude": 103.772947,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS6",
+      "code": "AS6-0421",
+      "name": "Media Teaching Lab 1",
+      "floor": "4",
+      "latitude": 1.295716,
+      "longitude": 103.77307,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS6",
+      "code": "AS6-0426",
+      "name": "Media Teaching Lab 2A",
+      "floor": "4",
+      "latitude": 1.295876,
+      "longitude": 103.772965,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS6",
+      "code": "AS6-020607",
+      "name": "Seminar Room 4",
+      "floor": "2",
+      "latitude": 1.295402,
+      "longitude": 103.773292,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS7",
+      "code": "AS7-0101",
+      "name": "Seminar Room",
+      "floor": "1",
+      "latitude": 1.294509,
+      "longitude": 103.770973,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS7",
+      "code": "AS7-0102",
+      "name": "Seminar Room",
+      "floor": "1",
+      "latitude": 1.29463,
+      "longitude": 103.771038,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS7",
+      "code": "AS7-0106",
+      "name": "Seminar Room",
+      "floor": "1",
+      "latitude": 1.294562,
+      "longitude": 103.771157,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS7",
+      "code": "AS7-0107",
+      "name": null,
+      "floor": "1",
+      "latitude": 1.294399,
+      "longitude": 103.771012,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS7",
+      "code": "AS7-0119",
+      "name": "Seminar Room D",
+      "floor": "1",
+      "latitude": 1.294049,
+      "longitude": 103.771187,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS7",
+      "code": "AS7-0201",
+      "name": "Psychology Computer Lab",
+      "floor": "2",
+      "latitude": 1.294642,
+      "longitude": 103.771021,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS7",
+      "code": "AS7-0201A",
+      "name": "Room 1",
+      "floor": "2",
+      "latitude": 1.29427,
+      "longitude": 103.771053,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS7",
+      "code": "AS7-0214",
+      "name": "Tutorial Room",
+      "floor": "2",
+      "latitude": 1.294372,
+      "longitude": 103.771069,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS8",
+      "code": "AS8-0401",
+      "name": "FASS Seminar Room",
+      "floor": "4",
+      "latitude": 1.296135,
+      "longitude": 103.772079,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS8",
+      "code": "AS8-0402",
+      "name": "FASS Tutorial Room",
+      "floor": "4",
+      "latitude": 1.296246,
+      "longitude": 103.772118,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS8",
+      "code": "AS8-0405",
+      "name": "FASS Computer Teaching Lab",
+      "floor": "4",
+      "latitude": 1.295925,
+      "longitude": 103.772326,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS8",
+      "code": "AS8-0646",
+      "name": "Conference Room",
+      "floor": "6",
+      "latitude": 1.296029,
+      "longitude": 103.772302,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS8",
+      "code": "AS8-0647",
+      "name": "Meeting Room",
+      "floor": "6",
+      "latitude": 1.296082,
+      "longitude": 103.772321,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "AS8",
+      "code": "AS8-0760",
+      "name": null,
+      "floor": "7",
+      "latitude": 1.296082,
+      "longitude": 103.772302,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ1",
+      "code": "BIZ1-0201",
+      "name": "Seminar Room 2-1",
+      "floor": "2",
+      "latitude": 1.29242,
+      "longitude": 103.774051,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ1",
+      "code": "BIZ1-0202",
+      "name": "Seminar Room 2-2",
+      "floor": "2",
+      "latitude": 1.29248,
+      "longitude": 103.773925,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ1",
+      "code": "BIZ1-0203",
+      "name": "Seminar Room 2-3",
+      "floor": "2",
+      "latitude": 1.292649,
+      "longitude": 103.773809,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ1",
+      "code": "BIZ1-0204",
+      "name": "Seminar Room 2-4",
+      "floor": "2",
+      "latitude": 1.292703,
+      "longitude": 103.773912,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ1",
+      "code": "BIZ1-0205",
+      "name": "Seminar Room 2-5",
+      "floor": "2",
+      "latitude": 1.292655,
+      "longitude": 103.774022,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ1",
+      "code": "BIZ1-0206",
+      "name": "Seminar Room 2-6",
+      "floor": "2",
+      "latitude": 1.292624,
+      "longitude": 103.774147,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ1",
+      "code": "BIZ1-0301",
+      "name": "Seminar Room 3-1",
+      "floor": "3",
+      "latitude": 1.292415,
+      "longitude": 103.77405,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ1",
+      "code": "BIZ1-0302",
+      "name": "Seminar Room 3-2",
+      "floor": "3",
+      "latitude": 1.292476,
+      "longitude": 103.773922,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ1",
+      "code": "BIZ1-0303",
+      "name": "Seminar Room 3-3",
+      "floor": "3",
+      "latitude": 1.29264,
+      "longitude": 103.773814,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ1",
+      "code": "BIZ1-0304",
+      "name": "Seminar Room 3-4",
+      "floor": "3",
+      "latitude": 1.292703,
+      "longitude": 103.773912,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ1",
+      "code": "BIZ1-0305",
+      "name": "Seminar Room 3-5",
+      "floor": "3",
+      "latitude": 1.292655,
+      "longitude": 103.774022,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ1",
+      "code": "BIZ1-0307",
+      "name": "EMBA Seminar Room 3-7",
+      "floor": "3",
+      "latitude": 1.292528,
+      "longitude": 103.774369,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ1",
+      "code": "BIZ1-0504",
+      "name": null,
+      "floor": "5",
+      "latitude": 1.293326,
+      "longitude": 103.773658,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0111",
+      "name": "Seminar Room 1-11",
+      "floor": "1",
+      "latitude": 1.293219,
+      "longitude": 103.775557,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0112",
+      "name": "Seminar Room 1-12",
+      "floor": "1",
+      "latitude": 1.293265,
+      "longitude": 103.775326,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0114",
+      "name": "Seminar Room 1-14",
+      "floor": "1",
+      "latitude": 1.293295,
+      "longitude": 103.775242,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0115",
+      "name": "Seminar Room 1-15",
+      "floor": "1",
+      "latitude": 1.29331,
+      "longitude": 103.775201,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0116",
+      "name": "Seminar Room 1-16",
+      "floor": "1",
+      "latitude": 1.293324,
+      "longitude": 103.77516,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0117",
+      "name": "Seminar Room 1-17",
+      "floor": "1",
+      "latitude": 1.293346,
+      "longitude": 103.775098,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0118",
+      "name": "Seminar Room 1-18",
+      "floor": "1",
+      "latitude": 1.293376,
+      "longitude": 103.775015,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0201",
+      "name": "Seminar Room 2-1",
+      "floor": "2",
+      "latitude": 1.293586,
+      "longitude": 103.7748,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0202",
+      "name": "Seminar Room 2-2",
+      "floor": "2",
+      "latitude": 1.293524,
+      "longitude": 103.774829,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0224",
+      "name": "Seminar Room 2-24",
+      "floor": "2",
+      "latitude": 1.29327,
+      "longitude": 103.77528,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0226",
+      "name": "Seminar Room 2-26",
+      "floor": "2",
+      "latitude": 1.293299,
+      "longitude": 103.775198,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0227",
+      "name": "Seminar Room 2-27",
+      "floor": "2",
+      "latitude": 1.293314,
+      "longitude": 103.775157,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0228",
+      "name": "Seminar Room 2-28",
+      "floor": "2",
+      "latitude": 1.293336,
+      "longitude": 103.775095,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0229",
+      "name": "Seminar Room 2-29",
+      "floor": "2",
+      "latitude": 1.293366,
+      "longitude": 103.775011,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0301",
+      "name": "Seminar Room 3-1",
+      "floor": "3",
+      "latitude": 1.293767,
+      "longitude": 103.774722,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0302",
+      "name": "Seminar Room 3-2",
+      "floor": "3",
+      "latitude": 1.293706,
+      "longitude": 103.774751,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0303",
+      "name": "Seminar Room 3-3",
+      "floor": "3",
+      "latitude": 1.293648,
+      "longitude": 103.774778,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0401B",
+      "name": "Centre For Behavioural Economics Lab",
+      "floor": "4",
+      "latitude": 1.293824,
+      "longitude": 103.774497,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0404",
+      "name": "Seminar Room 4-4",
+      "floor": "4",
+      "latitude": 1.293767,
+      "longitude": 103.774722,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0413A",
+      "name": "Seminar Room 04-13A",
+      "floor": "4",
+      "latitude": 1.293256,
+      "longitude": 103.775313,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0413B",
+      "name": "Seminar Room 04-13B",
+      "floor": "4",
+      "latitude": 1.293319,
+      "longitude": 103.775049,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0413C",
+      "name": null,
+      "floor": "4",
+      "latitude": 1.293226,
+      "longitude": 103.775337,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0420",
+      "name": "Seminar Room 4-20",
+      "floor": "4",
+      "latitude": 1.293343,
+      "longitude": 103.775029,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0422",
+      "name": "Seminar Room 4-22",
+      "floor": "4",
+      "latitude": 1.293401,
+      "longitude": 103.774864,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0509",
+      "name": "Seminar Room 5-9",
+      "floor": "5",
+      "latitude": 1.293257,
+      "longitude": 103.775344,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0510",
+      "name": "Seminar Room 5-10",
+      "floor": "5",
+      "latitude": 1.2933,
+      "longitude": 103.775221,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-0511",
+      "name": null,
+      "floor": "5",
+      "latitude": 1.293198,
+      "longitude": 103.77528,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "BIZ2",
+      "code": "BIZ2-B104",
+      "name": "Seminar Room B1-4",
+      "floor": "B1",
+      "latitude": 1.293298,
+      "longitude": 103.775295,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "CELC",
+      "code": "CELC-02-30",
+      "name": null,
+      "floor": "2",
+      "latitude": 1.297048,
+      "longitude": 103.771413,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "CELC",
+      "code": "CELC-03-06",
+      "name": null,
+      "floor": "3",
+      "latitude": 1.297161,
+      "longitude": 103.77147,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "CELS",
+      "code": "CELS-01-06",
+      "name": "Seminar Room 1",
+      "floor": "1",
+      "latitude": 1.294296,
+      "longitude": 103.78082,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "CELS",
+      "code": "CELS-01-08",
+      "name": "NGS Multipurpose Room",
+      "floor": "1",
+      "latitude": 1.294411,
+      "longitude": 103.780764,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "CELS",
+      "code": "CELS-04-01",
+      "name": "Computer Area",
+      "floor": "4",
+      "latitude": 1.294354,
+      "longitude": 103.780792,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "CLB",
+      "code": "CLB-04-01H",
+      "name": "Central Library Seminar Room",
+      "floor": "4",
+      "latitude": 1.296721,
+      "longitude": 103.773232,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM1",
+      "code": "COM1-0113",
+      "name": "Embedded Systems Teaching Lab 2",
+      "floor": "1",
+      "latitude": 1.294826,
+      "longitude": 103.773999,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM1",
+      "code": "COM1-0114",
+      "name": "Embedded Systems Teaching Lab 1",
+      "floor": "1",
+      "latitude": 1.294876,
+      "longitude": 103.773956,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM1",
+      "code": "COM1-0120",
+      "name": "Programming Lab 6",
+      "floor": "1",
+      "latitude": 1.29469,
+      "longitude": 103.773937,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM1",
+      "code": "COM1-0201",
+      "name": "Seminar Room 5 (Active Learning Room)",
+      "floor": "2",
+      "latitude": 1.295399,
+      "longitude": 103.773649,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM1",
+      "code": "COM1-0203",
+      "name": "Seminar Room 6",
+      "floor": "2",
+      "latitude": 1.295245,
+      "longitude": 103.773778,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM1",
+      "code": "COM1-0204",
+      "name": "Seminar Room 2",
+      "floor": "2",
+      "latitude": 1.295072,
+      "longitude": 103.77363,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM1",
+      "code": "COM1-0206",
+      "name": "Seminar Room 1",
+      "floor": "2",
+      "latitude": 1.295028,
+      "longitude": 103.773932,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM1",
+      "code": "COM1-0207",
+      "name": "Seminar Room 7",
+      "floor": "2",
+      "latitude": 1.294943,
+      "longitude": 103.774049,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM1",
+      "code": "COM1-0208",
+      "name": "Seminar Room 8",
+      "floor": "2",
+      "latitude": 1.294875,
+      "longitude": 103.774106,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM1",
+      "code": "COM1-0209",
+      "name": "Seminar Room 9",
+      "floor": "2",
+      "latitude": 1.294808,
+      "longitude": 103.774162,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM1",
+      "code": "COM1-0210",
+      "name": "Seminar Room 10 (Active Learning Room)",
+      "floor": "2",
+      "latitude": 1.294726,
+      "longitude": 103.774231,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM1",
+      "code": "COM1-0212",
+      "name": "Seminar Room 3",
+      "floor": "2",
+      "latitude": 1.294791,
+      "longitude": 103.774008,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM1",
+      "code": "COM1-0214",
+      "name": "Tutorial Room 12",
+      "floor": "2",
+      "latitude": 1.294662,
+      "longitude": 103.773983,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM1",
+      "code": "COM1-0216",
+      "name": "Tutorial Room 11",
+      "floor": "2",
+      "latitude": 1.294718,
+      "longitude": 103.773973,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM1",
+      "code": "COM1-0217",
+      "name": "Tutorial Room 10",
+      "floor": "2",
+      "latitude": 1.29477,
+      "longitude": 103.77393,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM1",
+      "code": "COM1-0218",
+      "name": "Tutorial Room 5",
+      "floor": "2",
+      "latitude": 1.294572,
+      "longitude": 103.774005,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM1",
+      "code": "COM1-B102",
+      "name": "Data Communications & Networking Lab 2",
+      "floor": "B1",
+      "latitude": 1.294782,
+      "longitude": 103.774183,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM1",
+      "code": "COM1-B103",
+      "name": "Active Learning Lab",
+      "floor": "B1",
+      "latitude": 1.294692,
+      "longitude": 103.774152,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM1",
+      "code": "COM1-B108",
+      "name": "Programming Lab 3",
+      "floor": "B1",
+      "latitude": 1.29488,
+      "longitude": 103.773995,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM1",
+      "code": "COM1-B109",
+      "name": "Programming Lab 2",
+      "floor": "B1",
+      "latitude": 1.294842,
+      "longitude": 103.77395,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM1",
+      "code": "COM1-B110",
+      "name": "Programming Lab 5",
+      "floor": "B1",
+      "latitude": 1.294806,
+      "longitude": 103.773899,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM1",
+      "code": "COM1-B111",
+      "name": "Programming Lab 4",
+      "floor": "B1",
+      "latitude": 1.294932,
+      "longitude": 103.773907,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM1",
+      "code": "COM1-B112",
+      "name": "Programming Lab 1",
+      "floor": "B1",
+      "latitude": 1.294958,
+      "longitude": 103.773849,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM1",
+      "code": "COM1-B113",
+      "name": "IT Security & OS Lab",
+      "floor": "B1",
+      "latitude": 1.295034,
+      "longitude": 103.773823,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM2",
+      "code": "COM2-0108",
+      "name": "Tutorial Room 9",
+      "floor": "1",
+      "latitude": 1.293577,
+      "longitude": 103.774159,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM3",
+      "code": "COM3-01-19",
+      "name": "Makers@SoC",
+      "floor": "1",
+      "latitude": 1.29494,
+      "longitude": 103.77438,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM3",
+      "code": "COM3-01-20",
+      "name": "Seminar Room 11 (ALC)",
+      "floor": "1",
+      "latitude": 1.294925,
+      "longitude": 103.774311,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM3",
+      "code": "COM3-01-21",
+      "name": "Seminar Room 12",
+      "floor": "1",
+      "latitude": 1.294925,
+      "longitude": 103.774311,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM3",
+      "code": "COM3-01-22",
+      "name": "Seminar Room 13",
+      "floor": "1",
+      "latitude": 1.29501,
+      "longitude": 103.77473,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM3",
+      "code": "COM3-01-23",
+      "name": "Seminar Room 14",
+      "floor": "1",
+      "latitude": 1.295039,
+      "longitude": 103.774843,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM3",
+      "code": "COM3-01-25",
+      "name": "Seminar Room 15",
+      "floor": "1",
+      "latitude": 1.294852,
+      "longitude": 103.77498,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM3",
+      "code": "COM3-02-60",
+      "name": "Seminar Room 21",
+      "floor": "2",
+      "latitude": 1.29488,
+      "longitude": 103.77464,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM3",
+      "code": "COM3-B1-10",
+      "name": "Seminar Room 91 (ALC)",
+      "floor": "B1",
+      "latitude": 1.29442,
+      "longitude": 103.77452,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM3",
+      "code": "COM3-B1-11",
+      "name": "Metaverse Foundry",
+      "floor": "B1",
+      "latitude": 1.29425,
+      "longitude": 103.77452,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM4",
+      "code": "COM4-02-01",
+      "name": "Information Systems and Analytics Teaching Lab 1 (ISA T-Lab 1)",
+      "floor": "2",
+      "latitude": 1.295145,
+      "longitude": 103.775227,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM4",
+      "code": "COM4-02-02",
+      "name": "Information Systems and Analytics Teaching Lab 2 (ISA T-Lab 2)",
+      "floor": "2",
+      "latitude": 1.295187,
+      "longitude": 103.775372,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM4",
+      "code": "COM4-02-03",
+      "name": "Workstation Lab 1",
+      "floor": "2",
+      "latitude": 1.295164,
+      "longitude": 103.775353,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM4",
+      "code": "COM4-02-04",
+      "name": "Workstation Lab 3",
+      "floor": "2",
+      "latitude": 1.295053,
+      "longitude": 103.775565,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "COM4",
+      "code": "COM4-02-05",
+      "name": "Workstation Lab 2",
+      "floor": "2",
+      "latitude": 1.295016,
+      "longitude": 103.775421,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E1",
+      "code": "E1-02-03",
+      "name": "Dynamics Lab 2",
+      "floor": "2",
+      "latitude": 1.298702,
+      "longitude": 103.77103,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E1",
+      "code": "E1-03-01",
+      "name": "ESP Multidisciplinary Lab",
+      "floor": "3",
+      "latitude": 1.2986,
+      "longitude": 103.771081,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E1",
+      "code": "E1-06-01",
+      "name": "Seminar Room",
+      "floor": "6",
+      "latitude": 1.298478,
+      "longitude": 103.771229,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E1",
+      "code": "E1-06-02",
+      "name": "Seminar Room",
+      "floor": "6",
+      "latitude": 1.29855,
+      "longitude": 103.771195,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E1",
+      "code": "E1-06-03",
+      "name": "Seminar Room",
+      "floor": "6",
+      "latitude": 1.298615,
+      "longitude": 103.771165,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E1",
+      "code": "E1-06-04",
+      "name": "Seminar Room",
+      "floor": "6",
+      "latitude": 1.29868,
+      "longitude": 103.771134,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E1",
+      "code": "E1-06-05",
+      "name": "Seminar Room",
+      "floor": "6",
+      "latitude": 1.298745,
+      "longitude": 103.771103,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E1",
+      "code": "E1-06-06",
+      "name": "Seminar Room",
+      "floor": "6",
+      "latitude": 1.29881,
+      "longitude": 103.771073,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E1",
+      "code": "E1-06-07",
+      "name": "Seminar Room (Active Learning Room)",
+      "floor": "6",
+      "latitude": 1.298887,
+      "longitude": 103.771036,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E1",
+      "code": "E1-06-08",
+      "name": "Seminar Room",
+      "floor": "6",
+      "latitude": 1.298996,
+      "longitude": 103.770985,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E1",
+      "code": "E1-06-09",
+      "name": "Seminar Room",
+      "floor": "6",
+      "latitude": 1.299028,
+      "longitude": 103.771053,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E1",
+      "code": "E1-06-10",
+      "name": "Tutorial Room",
+      "floor": "6",
+      "latitude": 1.298913,
+      "longitude": 103.771121,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E1",
+      "code": "E1-06-11",
+      "name": "Tutorial Room",
+      "floor": "6",
+      "latitude": 1.298848,
+      "longitude": 103.771152,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E1",
+      "code": "E1-06-12",
+      "name": "Tutorial Room",
+      "floor": "6",
+      "latitude": 1.298783,
+      "longitude": 103.771182,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E1",
+      "code": "E1-06-13",
+      "name": "Tutorial Room",
+      "floor": "6",
+      "latitude": 1.298718,
+      "longitude": 103.771213,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E1",
+      "code": "E1-06-14",
+      "name": "Tutorial Room",
+      "floor": "6",
+      "latitude": 1.298653,
+      "longitude": 103.771244,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E1",
+      "code": "E1-06-15",
+      "name": "Tutorial Room",
+      "floor": "6",
+      "latitude": 1.298588,
+      "longitude": 103.771274,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E1",
+      "code": "E1-06-16",
+      "name": "Tutorial Room (Active Learning Room)",
+      "floor": "6",
+      "latitude": 1.298516,
+      "longitude": 103.771308,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E1",
+      "code": "E1-06-0102",
+      "name": null,
+      "floor": "6",
+      "latitude": 1.298486,
+      "longitude": 103.771185,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E1",
+      "code": "E1-06-0304",
+      "name": null,
+      "floor": "6",
+      "latitude": 1.298539,
+      "longitude": 103.771148,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E1",
+      "code": "E1-07-24",
+      "name": "ISE Computing Lab (Cluster)",
+      "floor": "7",
+      "latitude": 1.298577,
+      "longitude": 103.771207,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E1A",
+      "code": "E1A-01-06",
+      "name": null,
+      "floor": "1",
+      "latitude": 1.29929,
+      "longitude": 103.770794,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E1A",
+      "code": "E1A-05-19",
+      "name": "System Modelling & Analysis Laboratory",
+      "floor": "5",
+      "latitude": 1.299296,
+      "longitude": 103.770907,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E2",
+      "code": "E2-01-02",
+      "name": null,
+      "floor": "1",
+      "latitude": 1.297928,
+      "longitude": 103.770896,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E2",
+      "code": "E2-03-02",
+      "name": "Seminar Room (Active Learning Room)",
+      "floor": "3",
+      "latitude": 1.299118,
+      "longitude": 103.771241,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E2",
+      "code": "E2-03-03",
+      "name": "Tutorial Room (Active Learning Room)",
+      "floor": "3",
+      "latitude": 1.299193,
+      "longitude": 103.771206,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E2",
+      "code": "E2-03-06",
+      "name": "PC Cluster 3 (Teaching)",
+      "floor": "3",
+      "latitude": 1.299341,
+      "longitude": 103.771136,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E2",
+      "code": "E2-03-08",
+      "name": "PC Cluster 5 (Teaching)",
+      "floor": "3",
+      "latitude": 1.299535,
+      "longitude": 103.771044,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E2",
+      "code": "E2-03-09",
+      "name": "PC Cluster 6 (Teaching)",
+      "floor": "3",
+      "latitude": 1.299634,
+      "longitude": 103.770997,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E2",
+      "code": "E2-03-32",
+      "name": "Seminar Room",
+      "floor": "3",
+      "latitude": 1.299008,
+      "longitude": 103.771293,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E2",
+      "code": "E2-0306PC3",
+      "name": "PC3",
+      "floor": "3",
+      "latitude": 1.29936,
+      "longitude": 103.771142,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E2",
+      "code": "E2-0307PC4",
+      "name": null,
+      "floor": "3",
+      "latitude": 1.299467,
+      "longitude": 103.771057,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E2",
+      "code": "E2-0308PC5",
+      "name": null,
+      "floor": "3",
+      "latitude": 1.299135,
+      "longitude": 103.77126,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E2",
+      "code": "E2-0309PC6",
+      "name": null,
+      "floor": "3",
+      "latitude": 1.299379,
+      "longitude": 103.771167,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E2A",
+      "code": "E2A-02-01",
+      "name": "Workshop",
+      "floor": "2",
+      "latitude": 1.298849,
+      "longitude": 103.771479,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E2A",
+      "code": "E2A-02-02",
+      "name": "DCP Electronics Workshop",
+      "floor": "2",
+      "latitude": 1.298713,
+      "longitude": 103.771448,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E2A",
+      "code": "E2A-03-01",
+      "name": "DCP Studio 1",
+      "floor": "3",
+      "latitude": 1.298849,
+      "longitude": 103.771479,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E2A",
+      "code": "E2A-03-02",
+      "name": "DCP Studio 2",
+      "floor": "3",
+      "latitude": 1.298727,
+      "longitude": 103.77149,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E2A",
+      "code": "E2A-03-03",
+      "name": "Studio 4",
+      "floor": "3",
+      "latitude": 1.298806,
+      "longitude": 103.771319,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E2A",
+      "code": "E2A-04-02",
+      "name": "DCP Studio 3",
+      "floor": "4",
+      "latitude": 1.298836,
+      "longitude": 103.771484,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E2A",
+      "code": "E2A-04-03",
+      "name": "DCP Studio 4",
+      "floor": "4",
+      "latitude": 1.298727,
+      "longitude": 103.77149,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E3",
+      "code": "E3-03-01",
+      "name": "ESP Lab",
+      "floor": "3",
+      "latitude": 1.299175,
+      "longitude": 103.771914,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E3",
+      "code": "E3-05-21",
+      "name": "Autonomous Robotics Lab",
+      "floor": "5",
+      "latitude": 1.299377,
+      "longitude": 103.771792,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E3",
+      "code": "E3-06-01",
+      "name": "Seminar Room",
+      "floor": "6",
+      "latitude": 1.299324,
+      "longitude": 103.771686,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E3",
+      "code": "E3-06-02",
+      "name": "Tutorial Room",
+      "floor": "6",
+      "latitude": 1.299399,
+      "longitude": 103.771651,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E3",
+      "code": "E3-06-03",
+      "name": "Seminar Room",
+      "floor": "6",
+      "latitude": 1.299462,
+      "longitude": 103.771621,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E3",
+      "code": "E3-06-04",
+      "name": "Tutorial Room",
+      "floor": "6",
+      "latitude": 1.299525,
+      "longitude": 103.771591,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E3",
+      "code": "E3-06-05",
+      "name": "Seminar Room",
+      "floor": "6",
+      "latitude": 1.299589,
+      "longitude": 103.771561,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E3",
+      "code": "E3-06-06",
+      "name": "Tutorial Room",
+      "floor": "6",
+      "latitude": 1.299652,
+      "longitude": 103.771531,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E3",
+      "code": "E3-06-07",
+      "name": "Seminar Room (Active Learning Room)",
+      "floor": "6",
+      "latitude": 1.299727,
+      "longitude": 103.771496,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E3",
+      "code": "E3-06-08",
+      "name": "Seminar Room",
+      "floor": "6",
+      "latitude": 1.299832,
+      "longitude": 103.771445,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E3",
+      "code": "E3-06-09",
+      "name": "Seminar Room",
+      "floor": "6",
+      "latitude": 1.299865,
+      "longitude": 103.771513,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E3",
+      "code": "E3-06-10",
+      "name": "Tutorial Room",
+      "floor": "6",
+      "latitude": 1.299756,
+      "longitude": 103.771582,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E3",
+      "code": "E3-06-11",
+      "name": "Tutorial Room",
+      "floor": "6",
+      "latitude": 1.299691,
+      "longitude": 103.771613,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E3",
+      "code": "E3-06-12",
+      "name": "Tutorial Room",
+      "floor": "6",
+      "latitude": 1.299628,
+      "longitude": 103.771643,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E3",
+      "code": "E3-06-13",
+      "name": "Tutorial Room",
+      "floor": "6",
+      "latitude": 1.299564,
+      "longitude": 103.771672,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E3",
+      "code": "E3-06-14",
+      "name": "Tutorial Room",
+      "floor": "6",
+      "latitude": 1.299501,
+      "longitude": 103.771702,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E3",
+      "code": "E3-06-15",
+      "name": "Tutorial Room (Active Learning Room)",
+      "floor": "6",
+      "latitude": 1.299437,
+      "longitude": 103.771732,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E3",
+      "code": "E3-0601-02",
+      "name": null,
+      "floor": "6",
+      "latitude": 1.300287,
+      "longitude": 103.770677,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E3",
+      "code": "E3-0603-04",
+      "name": "Tutorial Room",
+      "floor": "6",
+      "latitude": 1.299498,
+      "longitude": 103.771606,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E3",
+      "code": "E3-0605-06",
+      "name": "Tutorial Room",
+      "floor": "6",
+      "latitude": 1.299599,
+      "longitude": 103.771561,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E3A",
+      "code": "E3A-05-03",
+      "name": "Magnetic Materials Characterisation Lab",
+      "floor": "5",
+      "latitude": 1.300305,
+      "longitude": 103.771207,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E3A",
+      "code": "E3A-05-04",
+      "name": "Heat Treatment",
+      "floor": "5",
+      "latitude": 1.300436,
+      "longitude": 103.771215,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E3A",
+      "code": "E3A-05-07",
+      "name": "Materials Physics Lab",
+      "floor": "5",
+      "latitude": 1.300377,
+      "longitude": 103.771456,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E3A",
+      "code": "E3A-0504",
+      "name": "Heat Treatment",
+      "floor": "5",
+      "latitude": 1.300436,
+      "longitude": 103.771215,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E4",
+      "code": "E4-02-01",
+      "name": "Freshmen Lab 1-3",
+      "floor": "2",
+      "latitude": 1.29844,
+      "longitude": 103.772228,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E4",
+      "code": "E4-02-06",
+      "name": null,
+      "floor": "2",
+      "latitude": 1.29829,
+      "longitude": 103.772751,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E4",
+      "code": "E4-03-06",
+      "name": "Digital Electronics Lab",
+      "floor": "3",
+      "latitude": 1.298317,
+      "longitude": 103.772592,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E4",
+      "code": "E4-03-07",
+      "name": "DigE Lab",
+      "floor": "3",
+      "latitude": 1.298332,
+      "longitude": 103.772525,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E4",
+      "code": "E4-04-02",
+      "name": null,
+      "floor": "4",
+      "latitude": 1.298714,
+      "longitude": 103.771816,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E4",
+      "code": "E4-04-03",
+      "name": "Advance Control Technology Lab",
+      "floor": "4",
+      "latitude": 1.298852,
+      "longitude": 103.771701,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E4",
+      "code": "E4-04-04",
+      "name": "Active Learning Room",
+      "floor": "4",
+      "latitude": 1.298798,
+      "longitude": 103.771717,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E4",
+      "code": "E4-04-05",
+      "name": null,
+      "floor": "4",
+      "latitude": 1.298447,
+      "longitude": 103.772265,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E4",
+      "code": "E4-07-08",
+      "name": "Staff ROOM1",
+      "floor": "7",
+      "latitude": 1.298645,
+      "longitude": 103.771798,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E4A",
+      "code": "E4A-04-03",
+      "name": null,
+      "floor": "4",
+      "latitude": 1.298612,
+      "longitude": 103.772537,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E4A",
+      "code": "E4A-04-08",
+      "name": "DSA Lab",
+      "floor": "4",
+      "latitude": 1.298604,
+      "longitude": 103.772585,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E4A",
+      "code": "E4A-06-03",
+      "name": "Linear Electronics Laboratory",
+      "floor": "6",
+      "latitude": 1.298618,
+      "longitude": 103.772623,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E4A",
+      "code": "E4A-06-07",
+      "name": "Staff Room",
+      "floor": "6",
+      "latitude": 1.298821,
+      "longitude": 103.771802,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E5",
+      "code": "E5-02-32",
+      "name": "Executive Seminar Room",
+      "floor": "2",
+      "latitude": 1.297812,
+      "longitude": 103.77287,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E5",
+      "code": "E5-03-19",
+      "name": "Seminar Room (Active Learning Room)",
+      "floor": "3",
+      "latitude": 1.298178,
+      "longitude": 103.772033,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E5",
+      "code": "E5-03-20",
+      "name": "Seminar Room",
+      "floor": "3",
+      "latitude": 1.298137,
+      "longitude": 103.772146,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E5",
+      "code": "E5-03-21",
+      "name": "Seminar Room",
+      "floor": "3",
+      "latitude": 1.298108,
+      "longitude": 103.772224,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E5",
+      "code": "E5-03-22",
+      "name": "Seminar Room",
+      "floor": "3",
+      "latitude": 1.298084,
+      "longitude": 103.772291,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E5",
+      "code": "E5-03-23",
+      "name": "Seminar Room",
+      "floor": "3",
+      "latitude": 1.29806,
+      "longitude": 103.772357,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E5",
+      "code": "E5-03-24",
+      "name": "Computer Teaching LAB1",
+      "floor": "3",
+      "latitude": 1.29803,
+      "longitude": 103.77244,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E5",
+      "code": "E5-04-1617",
+      "name": null,
+      "floor": "4",
+      "latitude": 1.297952,
+      "longitude": 103.772545,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "E8",
+      "code": "E8-03-22",
+      "name": null,
+      "floor": "3",
+      "latitude": 1.296689,
+      "longitude": 103.773288,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EA",
+      "code": "EA-02-11",
+      "name": "Seminar Room",
+      "floor": "2",
+      "latitude": 1.300282,
+      "longitude": 103.770485,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EA",
+      "code": "EA-02-14",
+      "name": null,
+      "floor": "2",
+      "latitude": 1.300046,
+      "longitude": 103.770488,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EA",
+      "code": "EA-02-15",
+      "name": "Seminar Room",
+      "floor": "2",
+      "latitude": 1.300325,
+      "longitude": 103.770542,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EA",
+      "code": "EA-04-04",
+      "name": "Control & Mechanics Teaching Lab 1",
+      "floor": "4",
+      "latitude": 1.299907,
+      "longitude": 103.770381,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EA",
+      "code": "EA-04-06",
+      "name": "Control & Mechanics Teaching Lab",
+      "floor": "4",
+      "latitude": 1.30006,
+      "longitude": 103.770399,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EA",
+      "code": "EA-04-07",
+      "name": "Control & Mechanics Teaching Lab",
+      "floor": "4",
+      "latitude": 1.300151,
+      "longitude": 103.770437,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EA",
+      "code": "EA-04-21",
+      "name": null,
+      "floor": "4",
+      "latitude": 1.300142,
+      "longitude": 103.770525,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EA",
+      "code": "EA-06-02",
+      "name": "Seminar Room 2",
+      "floor": "6",
+      "latitude": 1.299893,
+      "longitude": 103.770382,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EA",
+      "code": "EA-06-03",
+      "name": "Seminar Room 3",
+      "floor": "6",
+      "latitude": 1.299983,
+      "longitude": 103.770376,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EA",
+      "code": "EA-06-04",
+      "name": "Seminar Room 4",
+      "floor": "6",
+      "latitude": 1.300061,
+      "longitude": 103.770407,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EA",
+      "code": "EA-06-05",
+      "name": "Seminar Room 5",
+      "floor": "6",
+      "latitude": 1.300129,
+      "longitude": 103.770431,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EA",
+      "code": "EA-06-06",
+      "name": "Seminar Room 6",
+      "floor": "6",
+      "latitude": 1.300196,
+      "longitude": 103.770455,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EA",
+      "code": "EA-06-07",
+      "name": "Seminar Room 7 (Active Learning Room)",
+      "floor": "6",
+      "latitude": 1.300263,
+      "longitude": 103.770478,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EA",
+      "code": "EA-06-20",
+      "name": null,
+      "floor": "6",
+      "latitude": 1.300129,
+      "longitude": 103.770437,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EC",
+      "code": "EC-01-03A",
+      "name": "Library Global Learning Room 1",
+      "floor": "1",
+      "latitude": 1.307142,
+      "longitude": 103.772558,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EC",
+      "code": "EC-01-03B",
+      "name": "Library Global Learning Room 2",
+      "floor": "1",
+      "latitude": 1.307142,
+      "longitude": 103.772558,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EC",
+      "code": "EC-02-06",
+      "name": "Library Seminar Room 3",
+      "floor": "2",
+      "latitude": 1.307038,
+      "longitude": 103.772666,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EC",
+      "code": "EC-02-11",
+      "name": "Library Seminar Room 1",
+      "floor": "2",
+      "latitude": 1.306965,
+      "longitude": 103.772548,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EC",
+      "code": "EC-02-12",
+      "name": "Library Seminar Room 2",
+      "floor": "2",
+      "latitude": 1.306766,
+      "longitude": 103.772505,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EC",
+      "code": "EC-02-17",
+      "name": "Learning Commons Classroom 02-17",
+      "floor": "2",
+      "latitude": 1.307978,
+      "longitude": 103.772671,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EC",
+      "code": "EC-02-18",
+      "name": "Learning Commons Classroom 02-18",
+      "floor": "2",
+      "latitude": 1.30778,
+      "longitude": 103.772682,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EC",
+      "code": "EC-03-15",
+      "name": "Learning Commons Classroom 03-15",
+      "floor": "3",
+      "latitude": 1.307978,
+      "longitude": 103.772669,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EC",
+      "code": "EC-03-16",
+      "name": "Learning Commons Classroom 03-16",
+      "floor": "3",
+      "latitude": 1.307785,
+      "longitude": 103.772685,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EW1",
+      "code": "EW1-01-01",
+      "name": "Concrete Technology Lab",
+      "floor": "1",
+      "latitude": 1.298827,
+      "longitude": 103.7706,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EW1",
+      "code": "EW1-02-03",
+      "name": "Hydraulics Lab",
+      "floor": "2",
+      "latitude": 1.298644,
+      "longitude": 103.770705,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EW1",
+      "code": "EW1-03-02",
+      "name": "GEOTECHNICAL Engineering Lab",
+      "floor": "3",
+      "latitude": 1.298559,
+      "longitude": 103.770852,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EW2",
+      "code": "EW2-03-14",
+      "name": "Lab Classroom 1/2/3 (BSL1)",
+      "floor": "3",
+      "latitude": 1.299379,
+      "longitude": 103.772437,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EW2",
+      "code": "EW2-04-02",
+      "name": "Chemical & Biomolecular Engineering UG Lab",
+      "floor": "4",
+      "latitude": 1.299099,
+      "longitude": 103.772601,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "EW2",
+      "code": "EW2-0402",
+      "name": "Chemical & Biomolecular Engineering UG Lab",
+      "floor": "4",
+      "latitude": 1.299099,
+      "longitude": 103.772601,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "HSSML",
+      "code": "HSS-02-02",
+      "name": null,
+      "floor": "2",
+      "latitude": 1.29303,
+      "longitude": 103.774429,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "HSSML",
+      "code": "HSS-02-06",
+      "name": "Seminar Room 2-6",
+      "floor": "2",
+      "latitude": 1.29303,
+      "longitude": 103.774429,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "HSSML",
+      "code": "HSS-03-01",
+      "name": null,
+      "floor": "3",
+      "latitude": 1.29303,
+      "longitude": 103.774422,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "HSSML",
+      "code": "HSS-03-02",
+      "name": null,
+      "floor": "3",
+      "latitude": 1.293001,
+      "longitude": 103.774436,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "HSSML",
+      "code": "HSS-03-07",
+      "name": "HSS03-07",
+      "floor": "3",
+      "latitude": 1.292956,
+      "longitude": 103.774444,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "HSSML",
+      "code": "HSS-03-17",
+      "name": "BIZ/ HSMLCR",
+      "floor": "3",
+      "latitude": 1.293104,
+      "longitude": 103.774356,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "HSSML",
+      "code": "HSS-04-01",
+      "name": null,
+      "floor": "4",
+      "latitude": 1.293023,
+      "longitude": 103.774436,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "HSSML",
+      "code": "HSS-04-02",
+      "name": null,
+      "floor": "4",
+      "latitude": 1.293012,
+      "longitude": 103.774422,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "HSSML",
+      "code": "HSS-04-03",
+      "name": null,
+      "floor": "4",
+      "latitude": 1.293015,
+      "longitude": 103.77444,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "HSSML",
+      "code": "HSS-04-05",
+      "name": null,
+      "floor": "4",
+      "latitude": 1.293026,
+      "longitude": 103.774429,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "HSSML",
+      "code": "HSS-04-07",
+      "name": null,
+      "floor": "4",
+      "latitude": 1.292957,
+      "longitude": 103.774468,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "HSSML",
+      "code": "HSS-317",
+      "name": null,
+      "floor": "3",
+      "latitude": 1.293284,
+      "longitude": 103.774316,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "I3",
+      "code": "I3-0336",
+      "name": "Graduate Students Lab 2",
+      "floor": "3",
+      "latitude": 1.292238,
+      "longitude": 103.776007,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "I3",
+      "code": "I3-0337",
+      "name": "Graduate Students Lab 1",
+      "floor": "3",
+      "latitude": 1.292265,
+      "longitude": 103.775927,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "I3",
+      "code": "I3-0338",
+      "name": "FYP Lab 3",
+      "floor": "3",
+      "latitude": 1.292286,
+      "longitude": 103.775865,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "I3",
+      "code": "I3-0339",
+      "name": "FYP Lab 2",
+      "floor": "3",
+      "latitude": 1.292307,
+      "longitude": 103.775804,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "I3",
+      "code": "I3-0344",
+      "name": "STMI Executive Training Room",
+      "floor": "3",
+      "latitude": 1.292453,
+      "longitude": 103.775568,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD1",
+      "code": "MD1-03-01B",
+      "name": "Multipurpose Hall 3",
+      "floor": "3",
+      "latitude": 1.295537,
+      "longitude": 103.780438,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD1",
+      "code": "MD1-03-01C",
+      "name": "Multipurpose Hall 2",
+      "floor": "3",
+      "latitude": 1.295477,
+      "longitude": 103.780593,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD1",
+      "code": "MD1-05-01A",
+      "name": "Teaching Lab 3",
+      "floor": "5",
+      "latitude": 1.29547,
+      "longitude": 103.780586,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD1",
+      "code": "MD1-05-03K",
+      "name": "Seminar Room 4",
+      "floor": "5",
+      "latitude": 1.295281,
+      "longitude": 103.78048,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD1",
+      "code": "MD1-06-01A",
+      "name": "Teaching Lab 2",
+      "floor": "6",
+      "latitude": 1.295472,
+      "longitude": 103.780585,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD1",
+      "code": "MD1-06-03M",
+      "name": "Seminar Room 3",
+      "floor": "6",
+      "latitude": 1.295281,
+      "longitude": 103.78048,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD1",
+      "code": "MD1-07-01A",
+      "name": "Teaching Lab 1 & Microbiology Microscope Room",
+      "floor": "7",
+      "latitude": 1.295442,
+      "longitude": 103.780635,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD1",
+      "code": "MD1-08-01A",
+      "name": "Computer Lab 1",
+      "floor": "8",
+      "latitude": 1.295481,
+      "longitude": 103.780559,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD1",
+      "code": "MD1-08-01B",
+      "name": "Computer Lab 2",
+      "floor": "8",
+      "latitude": 1.295534,
+      "longitude": 103.780423,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD1",
+      "code": "MD1-08-01E",
+      "name": "Seminar Room 1",
+      "floor": "8",
+      "latitude": 1.29542,
+      "longitude": 103.780718,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD1",
+      "code": "MD1-08-03E",
+      "name": "Seminar Room 2",
+      "floor": "8",
+      "latitude": 1.295165,
+      "longitude": 103.78067,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD1",
+      "code": "MD1-09-01A",
+      "name": "Tutorial Room 1",
+      "floor": "9",
+      "latitude": 1.295371,
+      "longitude": 103.780757,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD1",
+      "code": "MD1-09-01B",
+      "name": "Tutorial Room 2",
+      "floor": "9",
+      "latitude": 1.295404,
+      "longitude": 103.780672,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD1",
+      "code": "MD1-09-03F",
+      "name": "Tutorial Room 4",
+      "floor": "9",
+      "latitude": 1.295181,
+      "longitude": 103.780641,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD1",
+      "code": "MD1-10-01A",
+      "name": "Conference Room 2",
+      "floor": "10",
+      "latitude": 1.295576,
+      "longitude": 103.780413,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD1",
+      "code": "MD1-0801AB",
+      "name": "Computer Lab 2",
+      "floor": "8",
+      "latitude": 1.295534,
+      "longitude": 103.780423,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD1",
+      "code": "MD1-0903EF",
+      "name": "Tutorial Room 4",
+      "floor": "9",
+      "latitude": 1.295181,
+      "longitude": 103.780641,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD3",
+      "code": "MD3-03-01A",
+      "name": null,
+      "floor": "3",
+      "latitude": 1.295354,
+      "longitude": 103.781166,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD3",
+      "code": "MD3-03-01G",
+      "name": "03-01G",
+      "floor": "3",
+      "latitude": 1.295311,
+      "longitude": 103.781122,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD4",
+      "code": "MD4-02-03E",
+      "name": "Meeting Room/Offices",
+      "floor": "2",
+      "latitude": 1.295626,
+      "longitude": 103.780818,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD6",
+      "code": "MD6-01-01B",
+      "name": null,
+      "floor": "1",
+      "latitude": 1.295345,
+      "longitude": 103.781819,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD6",
+      "code": "MD6-01-02",
+      "name": null,
+      "floor": "1",
+      "latitude": 1.295345,
+      "longitude": 103.781819,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD6",
+      "code": "MD6-03-01E",
+      "name": null,
+      "floor": "3",
+      "latitude": 1.295345,
+      "longitude": 103.781819,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD6",
+      "code": "MD6-04-01A",
+      "name": null,
+      "floor": "4",
+      "latitude": 1.295345,
+      "longitude": 103.781819,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD6",
+      "code": "MD6-05-01A",
+      "name": null,
+      "floor": "5",
+      "latitude": 1.295345,
+      "longitude": 103.781819,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD7",
+      "code": "MD7-02-03",
+      "name": "Seminar Room M9",
+      "floor": "2",
+      "latitude": 1.296155,
+      "longitude": 103.781017,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD9",
+      "code": "MD9-01-02",
+      "name": "Physiology Lab",
+      "floor": "1",
+      "latitude": 1.296696,
+      "longitude": 103.781346,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD10",
+      "code": "MD10-01-01",
+      "name": "Reception Area",
+      "floor": "1",
+      "latitude": 1.296488,
+      "longitude": 103.781681,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD10",
+      "code": "MD10-01-02",
+      "name": null,
+      "floor": "1",
+      "latitude": 1.296501,
+      "longitude": 103.781703,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD10",
+      "code": "MD10-02-01",
+      "name": "Anatomy Teaching Museum",
+      "floor": "2",
+      "latitude": 1.296515,
+      "longitude": 103.781724,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MD11",
+      "code": "MD11-01-03",
+      "name": "Symposium Room",
+      "floor": "1",
+      "latitude": 1.296052,
+      "longitude": 103.781739,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "MSL",
+      "code": "MSL-04-06",
+      "name": "Humility",
+      "floor": "4",
+      "latitude": 1.297038,
+      "longitude": 103.781586,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S1",
+      "code": "S1-0302",
+      "name": null,
+      "floor": "3",
+      "latitude": 1.29752,
+      "longitude": 103.778143,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S1A",
+      "code": "S1A-0217",
+      "name": "Seminar Room",
+      "floor": "2",
+      "latitude": 1.295921,
+      "longitude": 103.778166,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S2",
+      "code": "S2-0414",
+      "name": "Teaching Assistant Room",
+      "floor": "4",
+      "latitude": 1.295498,
+      "longitude": 103.778052,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S2",
+      "code": "S2-0415",
+      "name": "Staff Room",
+      "floor": "4",
+      "latitude": 1.29552,
+      "longitude": 103.777993,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S4A",
+      "code": "S4A-0308",
+      "name": "DIGOXIN Room",
+      "floor": "3",
+      "latitude": 1.295772,
+      "longitude": 103.779261,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S5",
+      "code": "S5-0223",
+      "name": "Chem Tutorial Room 3",
+      "floor": "2",
+      "latitude": 1.295614,
+      "longitude": 103.779681,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S5",
+      "code": "S5-0224",
+      "name": "Chem Tutorial Room 2",
+      "floor": "2",
+      "latitude": 1.29563,
+      "longitude": 103.779637,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S5",
+      "code": "S5-0410",
+      "name": "Experimental Cubicle 5",
+      "floor": "4",
+      "latitude": 1.295504,
+      "longitude": 103.779715,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S6",
+      "code": "S6-04-08",
+      "name": "Science Library",
+      "floor": "4",
+      "latitude": 1.295167,
+      "longitude": 103.780101,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S8",
+      "code": "S8-0310",
+      "name": "S8-0310 Executive Room",
+      "floor": "3",
+      "latitude": 1.296115,
+      "longitude": 103.779286,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S8",
+      "code": "S8-0314",
+      "name": "Executive Classroom",
+      "floor": "3",
+      "latitude": 1.296107,
+      "longitude": 103.779246,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S8",
+      "code": "S8-0402",
+      "name": null,
+      "floor": "4",
+      "latitude": 1.296072,
+      "longitude": 103.779374,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S11",
+      "code": "S11-0204",
+      "name": "Tutorial Room/Lab",
+      "floor": "2",
+      "latitude": 1.29674,
+      "longitude": 103.778863,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S11",
+      "code": "S11-0205",
+      "name": null,
+      "floor": "2",
+      "latitude": 1.296584,
+      "longitude": 103.778768,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S11",
+      "code": "S11-0301",
+      "name": "Lab Instruction Room",
+      "floor": "3",
+      "latitude": 1.296732,
+      "longitude": 103.778863,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S11",
+      "code": "S11-0302",
+      "name": "Physics E-Lab",
+      "floor": "3",
+      "latitude": 1.296656,
+      "longitude": 103.778767,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S11",
+      "code": "S11-0302A",
+      "name": "0302A",
+      "floor": "3",
+      "latitude": 1.296645,
+      "longitude": 103.778775,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S11",
+      "code": "S11-0401",
+      "name": "Physics Laboratory",
+      "floor": "4",
+      "latitude": 1.296661,
+      "longitude": 103.778774,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S11",
+      "code": "S11-0401A",
+      "name": "Physics Level 2000 Laboratory",
+      "floor": "4",
+      "latitude": 1.296737,
+      "longitude": 103.778843,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S12",
+      "code": "S12-0401",
+      "name": "Tutorial Room",
+      "floor": "4",
+      "latitude": 1.29688,
+      "longitude": 103.778802,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S12",
+      "code": "S12-0402",
+      "name": "Physics Teaching Lab",
+      "floor": "4",
+      "latitude": 1.296995,
+      "longitude": 103.778637,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S12",
+      "code": "S12-0402A",
+      "name": "Level 1000 Physics Lab",
+      "floor": "4",
+      "latitude": 1.296947,
+      "longitude": 103.778768,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S12",
+      "code": "S12-0402B",
+      "name": "Level 1000 Physics Lab",
+      "floor": "4",
+      "latitude": 1.296939,
+      "longitude": 103.77876,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S12",
+      "code": "S12-0402C",
+      "name": "Level 1000 Physics Lab",
+      "floor": "4",
+      "latitude": 1.296947,
+      "longitude": 103.778779,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S12",
+      "code": "S12-0402D",
+      "name": "Level 1000 Physics Lab",
+      "floor": "4",
+      "latitude": 1.296936,
+      "longitude": 103.778792,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S12",
+      "code": "S12-0403",
+      "name": "Seminar Room",
+      "floor": "4",
+      "latitude": 1.296958,
+      "longitude": 103.77883,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S13",
+      "code": "S13-0313",
+      "name": "Level 3 Physics Lab",
+      "floor": "3",
+      "latitude": 1.296708,
+      "longitude": 103.77927,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S14",
+      "code": "S14-0503",
+      "name": "Food Science & Technology Programme",
+      "floor": "5",
+      "latitude": 1.296841,
+      "longitude": 103.779724,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S14",
+      "code": "S14-0619",
+      "name": "Seminar Room",
+      "floor": "6",
+      "latitude": 1.296786,
+      "longitude": 103.779701,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S14",
+      "code": "S14-0620",
+      "name": "Seminar Room",
+      "floor": "6",
+      "latitude": 1.296735,
+      "longitude": 103.779592,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-03-0506",
+      "name": null,
+      "floor": "3",
+      "latitude": 1.296709,
+      "longitude": 103.780357,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-0207",
+      "name": "S16-02-07",
+      "floor": "2",
+      "latitude": 1.296791,
+      "longitude": 103.780401,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-0208",
+      "name": null,
+      "floor": "2",
+      "latitude": 1.296812,
+      "longitude": 103.780259,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-0302",
+      "name": "Reading Hall",
+      "floor": "3",
+      "latitude": 1.296779,
+      "longitude": 103.780626,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-0304",
+      "name": "Seminar Room",
+      "floor": "3",
+      "latitude": 1.296662,
+      "longitude": 103.780477,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-0306",
+      "name": "Seminar Room",
+      "floor": "3",
+      "latitude": 1.296693,
+      "longitude": 103.780205,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-0307",
+      "name": "Department Seminar Room (Seminar Room 1)",
+      "floor": "3",
+      "latitude": 1.296811,
+      "longitude": 103.780205,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-0309",
+      "name": "Tutorial Room 3",
+      "floor": "3",
+      "latitude": 1.296878,
+      "longitude": 103.780146,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-0430",
+      "name": "Tutorial Room 10",
+      "floor": "4",
+      "latitude": 1.296666,
+      "longitude": 103.780465,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-0431",
+      "name": "Seminar Room 5",
+      "floor": "4",
+      "latitude": 1.296761,
+      "longitude": 103.78047,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-0435",
+      "name": "Seminar Room 7",
+      "floor": "4",
+      "latitude": 1.296802,
+      "longitude": 103.780556,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-0436",
+      "name": "Tutorial Room 13",
+      "floor": "4",
+      "latitude": 1.296718,
+      "longitude": 103.780574,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-0437",
+      "name": "Seminar Room 8",
+      "floor": "4",
+      "latitude": 1.296829,
+      "longitude": 103.780613,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-0440",
+      "name": "Tutorial Room 16",
+      "floor": "4",
+      "latitude": 1.296769,
+      "longitude": 103.780682,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-0441",
+      "name": null,
+      "floor": "4",
+      "latitude": 1.296998,
+      "longitude": 103.780806,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-0517",
+      "name": null,
+      "floor": "5",
+      "latitude": 1.296732,
+      "longitude": 103.780433,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-0518",
+      "name": null,
+      "floor": "5",
+      "latitude": 1.2967,
+      "longitude": 103.780337,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-0519",
+      "name": "Seminar Room 3",
+      "floor": "5",
+      "latitude": 1.296555,
+      "longitude": 103.780664,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-0520",
+      "name": "Seminar Room 4",
+      "floor": "5",
+      "latitude": 1.296618,
+      "longitude": 103.780667,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-0521",
+      "name": "DSDS ACTIVE LEARNING ROOM (S16-05-21)",
+      "floor": "5",
+      "latitude": 1.296784,
+      "longitude": 103.780398,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-0522",
+      "name": "DSDS ACTIVE LEARNING ROOM",
+      "floor": "5",
+      "latitude": 1.29678,
+      "longitude": 103.780377,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-0598",
+      "name": "Seminar Room (Active Learning)",
+      "floor": "5",
+      "latitude": 1.296698,
+      "longitude": 103.780539,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-05101",
+      "name": "Computer Laboratory 1",
+      "floor": "5",
+      "latitude": 1.29674,
+      "longitude": 103.780629,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-05102",
+      "name": "Computer Laboratory 2",
+      "floor": "5",
+      "latitude": 1.296775,
+      "longitude": 103.780703,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-06118",
+      "name": "Seminar Room",
+      "floor": "6",
+      "latitude": 1.29672,
+      "longitude": 103.780495,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S16",
+      "code": "S16-043041",
+      "name": "S16 04 3031",
+      "floor": "4",
+      "latitude": 1.296761,
+      "longitude": 103.780477,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S17",
+      "code": "S17-0302",
+      "name": "Computer Lab 2",
+      "floor": "3",
+      "latitude": 1.297714,
+      "longitude": 103.780658,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S17",
+      "code": "S17-0304",
+      "name": "Computer Lab 1",
+      "floor": "3",
+      "latitude": 1.29762,
+      "longitude": 103.780464,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S17",
+      "code": "S17-0404",
+      "name": "Seminar Room 3",
+      "floor": "4",
+      "latitude": 1.297722,
+      "longitude": 103.780696,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S17",
+      "code": "S17-0405",
+      "name": "Seminar Room 2",
+      "floor": "4",
+      "latitude": 1.29769,
+      "longitude": 103.78063,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S17",
+      "code": "S17-0406",
+      "name": "Seminar Room 1",
+      "floor": "4",
+      "latitude": 1.297651,
+      "longitude": 103.780548,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S17",
+      "code": "S17-0511",
+      "name": "Seminar Room 5",
+      "floor": "5",
+      "latitude": 1.297787,
+      "longitude": 103.780839,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S17",
+      "code": "S17-0512",
+      "name": "Seminar Room 4",
+      "floor": "5",
+      "latitude": 1.297713,
+      "longitude": 103.780833,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "S17",
+      "code": "S17-0611",
+      "name": "Seminar Room 6",
+      "floor": "6",
+      "latitude": 1.297784,
+      "longitude": 103.780861,
+      "needsReview": false
+    },
+    {
+      "buildingShortName": "UT22",
+      "code": "UT22-07-02",
+      "name": "CREATE SDE studio",
+      "floor": "7",
+      "latitude": 1.303729,
+      "longitude": 103.773551,
+      "needsReview": false
+    }
+  ]
+}

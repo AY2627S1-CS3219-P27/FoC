@@ -26,8 +26,11 @@ import {
 import { ChatQueryService } from './chat-query.service.js';
 import {
   ApiErrorResponseDto,
+  ArchiveDetailDto,
+  ArchiveListResponseDto,
   ChatListResponseDto,
   CursorPageQueryDto,
+  MessageHistoryQueryDto,
   MessageHistoryResponseDto,
 } from './chats.dto.js';
 
@@ -61,11 +64,42 @@ export class ChatsController {
     return this.chats.list(request.user.sub, query.cursor, query.limit);
   }
 
+  @Get('archives')
+  @ApiOperation({
+    summary: 'List the authenticated participant’s archived chats',
+  })
+  @ApiOkResponse({ type: ArchiveListResponseDto })
+  listArchives(
+    @Req() request: AuthenticatedRequest,
+    @Query() query: CursorPageQueryDto,
+  ): Promise<ArchiveListResponseDto> {
+    return this.chats.listArchives(request.user.sub, query.cursor, query.limit);
+  }
+
+  @Get('archives/:archiveId')
+  @ApiOperation({
+    summary: 'Read an immutable archived chat',
+    description:
+      'Unknown and unauthorized archive IDs share the same not-found response.',
+  })
+  @ApiOkResponse({ type: ArchiveDetailDto })
+  @ApiNotFoundResponse({
+    description: 'The archive is absent or the caller is not a participant.',
+    type: ApiErrorResponseDto,
+    example: { code: 'ARCHIVE_NOT_FOUND', message: 'Archive not found' },
+  })
+  archiveDetail(
+    @Req() request: AuthenticatedRequest,
+    @Param('archiveId', new ParseUUIDPipe({ version: '4' })) archiveId: string,
+  ): Promise<ArchiveDetailDto> {
+    return this.chats.archiveDetail(request.user.sub, archiveId);
+  }
+
   @Get(':chatId/messages')
   @ApiOperation({
     summary: 'Read a live chat’s message history',
     description:
-      'Unknown, archived, and unauthorized chat IDs share the same not-found response.',
+      'Forward paging is the backward-compatible default. Backward paging starts with the latest bounded page and continues toward older messages. Every page is returned in ascending sequence order. Unknown, archived, and unauthorized chat IDs share the same not-found response.',
   })
   @ApiOkResponse({ type: MessageHistoryResponseDto })
   @ApiNotFoundResponse({
@@ -76,13 +110,14 @@ export class ChatsController {
   history(
     @Req() request: AuthenticatedRequest,
     @Param('chatId', new ParseUUIDPipe({ version: '4' })) chatId: string,
-    @Query() query: CursorPageQueryDto,
+    @Query() query: MessageHistoryQueryDto,
   ): Promise<MessageHistoryResponseDto> {
     return this.chats.history(
       request.user.sub,
       chatId,
       query.cursor,
       query.limit,
+      query.direction,
     );
   }
 }

@@ -45,7 +45,12 @@ describe('LifecycleFactQueryService', () => {
         courierUserId: accepted.courierUserId,
       },
     );
-    expect(builder.orderBy).toHaveBeenCalledWith('fact.occurred_at', 'ASC');
+    expect(builder.orderBy).toHaveBeenCalledWith(
+      'fact.derived_close_at',
+      'ASC',
+      'NULLS LAST',
+    );
+    expect(builder.addOrderBy).toHaveBeenCalledWith('fact.occurred_at', 'ASC');
     expect(builder.addOrderBy).toHaveBeenCalledWith(
       'fact.source_event_id',
       'ASC',

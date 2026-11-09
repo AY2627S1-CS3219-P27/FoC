@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto';
 import { BadRequestException, Injectable } from '@nestjs/common';
 
 const CHAT_CURSOR_VERSION = 2;
-const MESSAGE_CURSOR_VERSION = 1;
+const LEGACY_MESSAGE_CURSOR_VERSION = 1;
+const MESSAGE_CURSOR_VERSION = 2;
+const ARCHIVE_CURSOR_VERSION = 1;
 const CURSOR_PATTERN = /^[A-Za-z0-9_-]+\.[a-f0-9]{64}$/;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -11,11 +13,34 @@ const EXACT_TIMESTAMP_PATTERN =
 const CURSOR_DOMAIN = 'foc.comms.cursor.v1\0';
 
 type ChatCursorPayload = [typeof CHAT_CURSOR_VERSION, 'chats', string, string];
-type MessageCursorPayload = [typeof MESSAGE_CURSOR_VERSION, 'messages', string];
+export type MessageHistoryDirection = 'forward' | 'backward';
+
+type LegacyMessageCursorPayload = [
+  typeof LEGACY_MESSAGE_CURSOR_VERSION,
+  'messages',
+  string,
+];
+type MessageCursorPayload = [
+  typeof MESSAGE_CURSOR_VERSION,
+  'messages',
+  MessageHistoryDirection,
+  string,
+];
+type ArchiveCursorPayload = [
+  typeof ARCHIVE_CURSOR_VERSION,
+  'archives',
+  string,
+  string,
+];
 
 export interface ChatCursor {
   updatedAt: string;
   chatId: string;
+}
+
+export interface ArchiveCursor {
+  archivedAt: string;
+  archiveId: string;
 }
 
 function invalidCursor(): BadRequestException {
@@ -42,7 +67,13 @@ function isExactTimestamp(value: string): boolean {
   );
 }
 
-function encode(payload: ChatCursorPayload | MessageCursorPayload): string {
+function encode(
+  payload:
+    | ChatCursorPayload
+    | LegacyMessageCursorPayload
+    | MessageCursorPayload
+    | ArchiveCursorPayload,
+): string {
   const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString(
     'base64url',
   );
@@ -96,24 +127,73 @@ export class ChatCursorCodec {
     return { updatedAt: value[2], chatId: value[3] };
   }
 
-  encodeMessages(sequence: number): string {
-    if (!Number.isSafeInteger(sequence) || sequence < 1) throw invalidCursor();
-    return encode([MESSAGE_CURSOR_VERSION, 'messages', String(sequence)]);
+  encodeArchive(archivedAt: string, archiveId: string): string {
+    if (!isExactTimestamp(archivedAt) || !UUID_PATTERN.test(archiveId)) {
+      throw invalidCursor();
+    }
+    return encode([ARCHIVE_CURSOR_VERSION, 'archives', archivedAt, archiveId]);
   }
 
-  decodeMessages(cursor: string): number {
+  decodeArchive(cursor: string): ArchiveCursor {
     const value = decode(cursor);
     if (
       !Array.isArray(value) ||
-      value.length !== 3 ||
-      value[0] !== MESSAGE_CURSOR_VERSION ||
-      value[1] !== 'messages' ||
+      value.length !== 4 ||
+      value[0] !== ARCHIVE_CURSOR_VERSION ||
+      value[1] !== 'archives' ||
       typeof value[2] !== 'string' ||
-      !/^[1-9]\d*$/.test(value[2])
+      typeof value[3] !== 'string' ||
+      !isExactTimestamp(value[2]) ||
+      !UUID_PATTERN.test(value[3])
     ) {
       throw invalidCursor();
     }
-    const sequence = Number(value[2]);
+    return { archivedAt: value[2], archiveId: value[3] };
+  }
+
+  encodeMessages(
+    sequence: number,
+    direction: MessageHistoryDirection = 'forward',
+  ): string {
+    if (!Number.isSafeInteger(sequence) || sequence < 1) throw invalidCursor();
+    return encode([
+      MESSAGE_CURSOR_VERSION,
+      'messages',
+      direction,
+      String(sequence),
+    ]);
+  }
+
+  decodeMessages(
+    cursor: string,
+    expectedDirection: MessageHistoryDirection = 'forward',
+  ): number {
+    const value = decode(cursor);
+    if (
+      Array.isArray(value) &&
+      value.length === 3 &&
+      value[0] === LEGACY_MESSAGE_CURSOR_VERSION &&
+      value[1] === 'messages' &&
+      typeof value[2] === 'string' &&
+      /^[1-9]\d*$/.test(value[2]) &&
+      expectedDirection === 'forward'
+    ) {
+      const sequence = Number(value[2]);
+      if (!Number.isSafeInteger(sequence)) throw invalidCursor();
+      return sequence;
+    }
+    if (
+      !Array.isArray(value) ||
+      value.length !== 4 ||
+      value[0] !== MESSAGE_CURSOR_VERSION ||
+      value[1] !== 'messages' ||
+      value[2] !== expectedDirection ||
+      typeof value[3] !== 'string' ||
+      !/^[1-9]\d*$/.test(value[3])
+    ) {
+      throw invalidCursor();
+    }
+    const sequence = Number(value[3]);
     if (!Number.isSafeInteger(sequence)) throw invalidCursor();
     return sequence;
   }

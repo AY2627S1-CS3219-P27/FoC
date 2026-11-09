@@ -5,6 +5,7 @@ import type { MessageCommandService } from '../chats/message-command.service.js'
 import type { ReadCommandService } from '../chats/read-command.service.js';
 import type { ChatAdmissionService } from './chat-admission.service.js';
 import { ChatGateway, roomName } from './chat.gateway.js';
+import type { ChatRealtimePublisher } from './chat-realtime.publisher.js';
 import { ChatSocketError } from './chat-socket.protocol.js';
 
 const userId = '11111111-1111-4111-8111-111111111111';
@@ -40,6 +41,7 @@ describe('ChatGateway', () => {
   const markRead = vi.fn();
   const namespaceEmit = vi.fn();
   const namespaceTo = vi.fn(() => ({ emit: namespaceEmit }));
+  const bindNamespace = vi.fn();
   let gateway: ChatGateway;
   let middleware: (socket: Socket, next: (error?: Error) => void) => void;
 
@@ -63,9 +65,11 @@ describe('ChatGateway', () => {
       { authorize } as unknown as ChatAdmissionService,
       { send: sendMessage } as unknown as MessageCommandService,
       { markRead } as unknown as ReadCommandService,
+      { bindNamespace } as unknown as ChatRealtimePublisher,
     );
     const use = vi.fn();
     gateway.afterInit({ use, to: namespaceTo } as unknown as Namespace);
+    expect(bindNamespace).toHaveBeenCalledOnce();
     middleware = use.mock.calls[0]![0] as typeof middleware;
   });
 

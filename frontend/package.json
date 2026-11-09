@@ -3,24 +3,46 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node server.mjs",
     "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
+    "start": "node server.mjs --production",
+    "lint": "eslint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:unit": "vitest run lib",
+    "test:component": "vitest run app",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium",
+    "verify": "npm run lint && npm test && npm run build"
   },
   "dependencies": {
+    "@base-ui/react": "1.9.0",
+    "@number-flow/react": "0.6.2",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "http-proxy": "^1.18.1",
+    "input-otp": "1.5.0",
     "next": "16.3.6",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "socket.io-client": "^4.8.1",
+    "sonner": "2.0.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.0",
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.8",
+    "@types/node": "^22.20.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6.2.1",
     "eslint": "^9",
     "eslint-config-next": "16.3.6",
+    "jsdom": "^29.1.1",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^5.1.0"
   }
 }

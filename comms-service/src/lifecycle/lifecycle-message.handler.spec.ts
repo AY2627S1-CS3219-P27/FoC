@@ -6,6 +6,7 @@ import {
   ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
 } from '@foc/contracts';
 import type { IncomingLifecycleMessage } from '../messaging/rabbitmq-message.types.js';
+import type { ChatRealtimePublisher } from '../socket/chat-realtime.publisher.js';
 import { LifecycleIngestionService } from './lifecycle-ingestion.service.js';
 import { LifecycleMessageDispatcher } from './lifecycle-message.handler.js';
 
@@ -41,13 +42,16 @@ function harness() {
   const process = vi.fn().mockResolvedValue({
     status: 'recorded',
     eventId: ids.eventId,
+    deadlineTransitions: [],
   });
   const ingestion = { process } as unknown as LifecycleIngestionService;
+  const publishClosing = vi.fn();
   const dispatcher = new LifecycleMessageDispatcher(
     new AccountEventContractValidator(),
     ingestion,
+    { publishClosing } as unknown as ChatRealtimePublisher,
   );
-  return { dispatcher, process };
+  return { dispatcher, process, publishClosing };
 }
 
 describe('LifecycleMessageDispatcher', () => {
@@ -102,6 +106,71 @@ describe('LifecycleMessageDispatcher', () => {
       eventId: ids.eventId,
     });
     expect(process).not.toHaveBeenCalled();
+  });
+
+  it('publishes only committed deadline transitions after ingestion resolves', async () => {
+    const { dispatcher, process, publishClosing } = harness();
+    const transition = {
+      chatId: '14c5aa75-0499-483c-aaf7-bc20b1ff81ba',
+      requesterUserId: ids.requesterUserId,
+      courierUserId: ids.courierUserId,
+      closesAt: new Date('2026-11-04T03:00:00.000Z'),
+      closeReason: 'ERRAND_DELIVERED' as const,
+    };
+    process.mockResolvedValue({
+      status: 'recorded',
+      eventId: ids.eventId,
+      deadlineTransitions: [transition],
+    });
+    const message = incoming(
+      ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
+      'ErrandDelivered',
+      {
+        errandId: ids.errandId,
+        requesterUserId: ids.requesterUserId,
+        courierUserId: ids.courierUserId,
+      },
+    );
+
+    await expect(dispatcher.handle(message)).resolves.toEqual({
+      outcome: 'processed',
+    });
+    expect(publishClosing).toHaveBeenCalledWith(transition);
+    expect(process.mock.invocationCallOrder[0]).toBeLessThan(
+      publishClosing.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it('does not publish duplicate or non-mutating lifecycle deliveries', async () => {
+    const { dispatcher, process, publishClosing } = harness();
+    process.mockResolvedValue({
+      status: 'recorded',
+      eventId: ids.eventId,
+      deadlineTransitions: [],
+    });
+    const payload = {
+      errandId: ids.errandId,
+      requesterUserId: ids.requesterUserId,
+      courierUserId: ids.courierUserId,
+    };
+
+    await dispatcher.handle(
+      incoming(
+        ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
+        'ErrandDelivered',
+        payload,
+      ),
+    );
+    process.mockResolvedValue({ status: 'duplicate', eventId: ids.eventId });
+    await dispatcher.handle(
+      incoming(
+        ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
+        'ErrandDelivered',
+        payload,
+      ),
+    );
+
+    expect(publishClosing).not.toHaveBeenCalled();
   });
 
   it('rejects a requester who is also the courier as invalid payload', async () => {

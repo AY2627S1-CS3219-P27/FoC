@@ -9,7 +9,7 @@ export interface AcceptedChatIdentity {
   acceptedAt: Date;
 }
 
-/** Query boundary reused by Package 4's monotonic deadline transaction. */
+/** Query boundary reused by the monotonic deadline transaction. */
 @Injectable()
 export class LifecycleFactQueryService {
   constructor(private readonly dataSource: DataSource) {}
@@ -41,7 +41,8 @@ export class LifecycleFactQueryService {
           courierUserId: accepted.courierUserId,
         },
       )
-      .orderBy('fact.occurred_at', 'ASC')
+      .orderBy('fact.derived_close_at', 'ASC', 'NULLS LAST')
+      .addOrderBy('fact.occurred_at', 'ASC')
       .addOrderBy('fact.source_event_id', 'ASC')
       .getMany();
   }

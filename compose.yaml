@@ -209,6 +209,19 @@ services:
   # The only service the browser reaches; it proxies /api/* to the services.
   frontend:
     networks: [public, internal]
+    depends_on:
+      user-service:
+        condition: service_started
+      order-service:
+        condition: service_started
+      credit-service:
+        condition: service_started
+      supplier-service:
+        condition: service_started
+      comms-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
 
   papercut:
     networks: [internal, ops]

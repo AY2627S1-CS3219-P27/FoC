@@ -42,6 +42,11 @@ const chatCreatedCounter = createLabeledCounter(
   'Chats created from committed accepted lifecycle events.',
   ['source'],
 );
+const deadlineTransitionCounter = createLabeledCounter(
+  'comms_deadline_transitions_total',
+  'Committed chat deadline changes by terminal reason.',
+  ['reason'],
+);
 const apiCounter = createLabeledCounter(
   'comms_http_requests_total',
   'Communication chat API requests by normalized route and status class.',
@@ -79,6 +84,43 @@ const socketAdapterErrorCounter = createLabeledCounter(
   'Socket Redis adapter connection errors by connection role.',
   ['role'],
 );
+const socketNotificationCounter = createLabeledCounter(
+  'comms_socket_notifications_total',
+  'Post-commit chat lifecycle socket notifications by bounded event and outcome.',
+  ['event', 'outcome'],
+);
+const archiveClaimCounter = createLabeledCounter(
+  'comms_archive_claims_total',
+  'Archive worker claim outcomes.',
+  ['outcome'],
+);
+const archiveClaimDuration = createLabeledHistogram(
+  'comms_archive_claim_duration_seconds',
+  'Archive due-chat claim transaction latency.',
+  ['outcome'],
+  [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
+);
+const archiveClaimsInFlightGauge = createLabeledGauge(
+  'comms_archive_claims_in_flight',
+  'Claimed chats awaiting or undergoing archive processing in this replica.',
+  [],
+);
+const archiveOperationCounter = createLabeledCounter(
+  'comms_archive_operations_total',
+  'Archive transaction outcomes.',
+  ['outcome'],
+);
+const archiveDuration = createLabeledHistogram(
+  'comms_archive_operation_duration_seconds',
+  'Archive transaction latency by bounded outcome.',
+  ['outcome'],
+  [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+);
+const archiveShutdownCounter = createLabeledCounter(
+  'comms_archive_shutdown_total',
+  'Archive worker shutdown outcomes.',
+  ['outcome'],
+);
 
 export const commsMetrics = {
   lifecycleDelivery(stream: string, outcome: LifecycleDeliveryOutcome): void {
@@ -95,6 +137,12 @@ export const commsMetrics = {
 
   chatCreated(): void {
     chatCreatedCounter.inc({ source: 'errand_accepted' });
+  },
+
+  deadlineTransition(
+    reason: 'ERRAND_DELIVERED' | 'COURIER_CANCELLED' | 'ERRAND_CANCELLED',
+  ): void {
+    deadlineTransitionCounter.inc({ reason });
   },
 
   socketHandshake(outcome: 'accepted' | 'rejected'): void {
@@ -121,10 +169,47 @@ export const commsMetrics = {
   socketAdapterError(role: 'publisher' | 'subscriber'): void {
     socketAdapterErrorCounter.inc({ role });
   },
+
+  socketNotification(
+    event: 'closing' | 'archived',
+    outcome: 'emitted' | 'failed',
+  ): void {
+    socketNotificationCounter.inc({ event, outcome });
+  },
+
+  archiveClaim(outcome: 'claimed' | 'reclaimed' | 'empty' | 'failed'): void {
+    archiveClaimCounter.inc({ outcome });
+  },
+
+  observeArchiveClaim(outcome: 'successful' | 'failed', seconds: number): void {
+    archiveClaimDuration.observe({ outcome }, seconds);
+  },
+
+  archiveClaimsInFlight(count: number): void {
+    archiveClaimsInFlightGauge.set(count);
+  },
+
+  observeArchive(
+    outcome: 'archived' | 'stale' | 'failed',
+    seconds: number,
+  ): void {
+    archiveOperationCounter.inc({ outcome });
+    archiveDuration.observe({ outcome }, seconds);
+  },
+
+  archiveShutdown(outcome: 'idle' | 'drained' | 'timed_out'): void {
+    archiveShutdownCounter.inc({ outcome });
+  },
 };
 
 function normalizedChatRoute(path: string): string | undefined {
   if (path === '/v1/chats' || path === '/v1/chats/') return '/v1/chats';
+  if (path === '/v1/chats/archives' || path === '/v1/chats/archives/') {
+    return '/v1/chats/archives';
+  }
+  if (/^\/v1\/chats\/archives\/[^/]+\/?$/.test(path)) {
+    return '/v1/chats/archives/:archiveId';
+  }
   if (/^\/v1\/chats\/[^/]+\/messages\/?$/.test(path)) {
     return '/v1/chats/:chatId/messages';
   }

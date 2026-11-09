@@ -1,22 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
-import {
-  ERRAND_STATUSES,
-  formatDelivery,
-  type AdminErrand,
-  type Page,
-} from "./types";
-import { formatTime, inputClass, shortId, StatusBadge } from "./ui";
+import { api, errorText } from "@/lib/api";
+import { FilterSelect } from "@/components/ui/field";
+import { BoxIcon } from "@/components/ui/icons";
+import { EmptyState, IconTile, SkeletonList } from "@/components/ui/layout";
+import { ERRAND_STATUSES, formatDelivery, type AdminErrand, type Page } from "./types";
+import { formatCredits, formatTime, shortId, statusColor, StatusBadge } from "./ui";
 
-export function AdminUserErrands({
-  user,
-  onClose,
-}: {
-  user: { uuid: string; displayName: string; email: string };
-  onClose: () => void;
-}) {
+// Pushed inside a user's sheet: their errands as requester or courier, with the internal sub-state admins need.
+export function AdminUserErrands({ user }: { user: { uuid: string; displayName: string; email: string } }) {
   const [role, setRole] = useState("");
   const [status, setStatus] = useState("");
   const [items, setItems] = useState<AdminErrand[]>([]);
@@ -34,7 +27,7 @@ export function AdminUserErrands({
       setError("");
     } else {
       setItems([]);
-      setError(`${res.status} ${res.code ?? ""}: ${res.message ?? "Could not load errands."}`);
+      setError(errorText(res, "Could not load errands."));
     }
   }, [user.uuid, role, status]);
 
@@ -44,87 +37,63 @@ export function AdminUserErrands({
   }, [load]);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 scrim" onClick={onClose} />
-      <div className="relative w-full max-w-3xl bg-background border-l border-border overflow-y-auto p-6 fade-in">
-        <div className="flex items-center justify-between mb-1">
-          <h3 className="text-xl font-bold">Errands of {user.displayName}</h3>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="btn-press flex items-center justify-center w-8 h-8 rounded-full bg-surface text-muted hover:text-foreground"
-          >
-            ✕
-          </button>
-        </div>
-        <p className="text-sm text-muted mb-4">
-          {user.email} · admin view, includes the internal sub-state
-        </p>
-
-        <div className="flex flex-wrap gap-3 mb-4">
-          <select value={role} onChange={(e) => setRole(e.target.value)} className={inputClass}>
-            <option value="">As requester or courier</option>
-            <option value="requester">As requester</option>
-            <option value="courier">As courier</option>
-          </select>
-          <select value={status} onChange={(e) => setStatus(e.target.value)} className={inputClass}>
-            <option value="">Any status</option>
-            {ERRAND_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {loading ? (
-          <p className="text-muted py-8 text-center">Loading…</p>
-        ) : error ? (
-          <p role="alert" className="text-danger text-sm py-8 text-center">
-            {error}
-          </p>
-        ) : items.length === 0 ? (
-          <p className="text-muted py-8 text-center">No errands.</p>
-        ) : (
-          <div className="rounded-2xl border border-border bg-surface overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-muted">
-                  <th className="px-3 py-2 font-medium">Errand</th>
-                  <th className="px-3 py-2 font-medium">As</th>
-                  <th className="px-3 py-2 font-medium">Status</th>
-                  <th className="px-3 py-2 font-medium">Internal</th>
-                  <th className="px-3 py-2 font-medium">Route</th>
-                  <th className="px-3 py-2 font-medium">Credits</th>
-                  <th className="px-3 py-2 font-medium">Updated</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((e) => (
-                  <tr key={e.id} className="border-b border-border last:border-b-0 align-top">
-                    <td className="px-3 py-2 font-mono text-xs">{shortId(e.id)}</td>
-                    <td className="px-3 py-2">{e.requesterId === user.uuid ? "Requester" : "Courier"}</td>
-                    <td className="px-3 py-2">
-                      <StatusBadge status={e.status} />
-                    </td>
-                    <td className="px-3 py-2 font-mono text-xs">
-                      {e.internalStatus}
-                      {e.cancellationReason && (
-                        <span className="block text-muted">{e.cancellationReason}</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2">
-                      {e.pickupLocation ?? "—"} → {formatDelivery(e)}
-                    </td>
-                    <td className="px-3 py-2">{e.rewardCredits}</td>
-                    <td className="px-3 py-2 text-muted whitespace-nowrap">{formatTime(e.updatedAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+    <div>
+      <div className="mb-4 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none]">
+        <FilterSelect label="Role" value={role} onChange={(e) => setRole(e.target.value)}>
+          <option value="">As requester or courier</option>
+          <option value="requester">As requester</option>
+          <option value="courier">As courier</option>
+        </FilterSelect>
+        <FilterSelect label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="">Any status</option>
+          {ERRAND_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </FilterSelect>
       </div>
+
+      {loading ? (
+        <SkeletonList count={3} />
+      ) : error ? (
+        <EmptyState tone="error" title="Couldn't load errands" body={error} />
+      ) : items.length === 0 ? (
+        <EmptyState title="No errands" body="Nothing matches these filters." />
+      ) : (
+        <ul className="overflow-hidden rounded-2xl bg-surface [&>li+li_.row-content]:border-t">
+          {items.map((e) => (
+            <li key={e.id} className="flex items-start pl-4">
+              <span className="pt-3">
+                <IconTile color={statusColor(e.status)}>
+                  <BoxIcon size={17} />
+                </IconTile>
+              </span>
+              <div className="row-content ml-3 min-w-0 flex-1 border-border py-3 pr-4">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="truncate text-[15px] font-semibold">
+                    {e.pickupLocation ?? "—"} → {formatDelivery(e)}
+                  </span>
+                  <span className="tabular shrink-0 text-[15px] font-semibold text-nus-orange">
+                    {formatCredits(e.rewardCredits)}
+                  </span>
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted">
+                  <StatusBadge status={e.status} />
+                  <span className="font-mono text-xs">{e.internalStatus}</span>
+                  <span>· {e.requesterId === user.uuid ? "Requester" : "Courier"}</span>
+                </div>
+                {e.cancellationReason && (
+                  <p className="mt-1 text-[13px] break-words text-muted">{e.cancellationReason}</p>
+                )}
+                <p className="mt-1 text-xs text-muted">
+                  {shortId(e.id)} · updated {formatTime(e.updatedAt)}
+                </p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
