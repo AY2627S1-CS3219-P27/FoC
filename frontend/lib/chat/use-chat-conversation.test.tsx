@@ -116,6 +116,47 @@ describe("useChatConversation", () => {
     unmount();
   });
 
+  it("shows offline instead of reconnecting when the server drops the connection", async () => {
+    const { result } = renderHook(() => useChatConversation(chatId, callerId, "/socket.io"));
+    await waitFor(() => expect(result.current.state.connection).toBe("connected"));
+
+    act(() => socket.trigger("disconnect", "transport close"));
+    expect(result.current.state.connection).toBe("reconnecting");
+
+    act(() => socket.trigger("disconnect", "io server disconnect"));
+    expect(result.current.state.connection).toBe("offline");
+  });
+
+  it("does not re-page already loaded history when resynchronizing", async () => {
+    const message = (sequence: number) => ({
+      ...initialMessage,
+      messageId: `00000000-0000-4000-8000-${String(sequence).padStart(12, "0")}`,
+      sequence,
+    });
+    const range = (from: number, to: number) =>
+      Array.from({ length: to - from + 1 }, (_, index) => message(from + index));
+    mocks.getMessageHistory.mockImplementation(async (_chatId: string, options: { cursor?: string }) => {
+      if (options.cursor === "c70") return { items: range(21, 70), hasMore: true, nextCursor: "c20" };
+      if (options.cursor === "c20") return { items: range(1, 20), hasMore: false, nextCursor: null };
+      return { items: range(71, 120), hasMore: true, nextCursor: "c70" };
+    });
+
+    const { result } = renderHook(() => useChatConversation(chatId, callerId, "/socket.io"));
+    await waitFor(() => expect(result.current.state.connection).toBe("connected"));
+    await act(() => result.current.loadOlder());
+    await act(() => result.current.loadOlder());
+    expect(result.current.state.messages[0]?.sequence).toBe(1);
+
+    mocks.getMessageHistory.mockClear();
+    act(() => socket.trigger("connect"));
+    await waitFor(() => expect(mocks.getMessageHistory).toHaveBeenCalled());
+    await waitFor(() => expect(result.current.state.connection).toBe("connected"));
+
+    const cursorFetches = mocks.getMessageHistory.mock.calls.filter(([, options]) => options.cursor);
+    expect(cursorFetches).toHaveLength(0);
+    expect(result.current.state.messages).toHaveLength(120);
+  });
+
   it("reuses the same clientMessageId when a failed send is retried", async () => {
     vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue(clientMessageId);
     socket.sendResponses.push(

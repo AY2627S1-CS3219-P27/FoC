@@ -97,14 +97,15 @@ export function useChatConversation(chatId: string, callerUserId: string, socket
         page = await getMessageHistory(chatId, { direction: "backward", limit: PAGE_SIZE });
       }
 
-      const existingFirst = stateRef.current.messages[0]?.sequence;
+      // Only page back until the recovered range is contiguous with the newest message already loaded.
+      const existingLast = stateRef.current.messages.at(-1)?.sequence;
       const recovered = [...page.items];
       let cursor = page.nextCursor;
       let hasMore = page.hasMore;
       while (
-        existingFirst !== undefined &&
+        existingLast !== undefined &&
         recovered[0] !== undefined &&
-        recovered[0].sequence > existingFirst + 1 &&
+        recovered[0].sequence > existingLast + 1 &&
         hasMore &&
         cursor
       ) {
@@ -149,7 +150,10 @@ export function useChatConversation(chatId: string, callerUserId: string, socket
     socket.on("connect", () => void synchronize(socket, generation));
     socket.on("disconnect", (reason) => {
       if (generation !== generationRef.current) return;
-      dispatch({ type: "connection", connection: reason === "io client disconnect" ? "offline" : "reconnecting" });
+      // Socket.IO does not auto-reconnect after a client- or server-initiated disconnect, so surface
+      // those as offline (the manual reconnect control) instead of waiting on a retry that never comes.
+      const willAutoReconnect = reason !== "io client disconnect" && reason !== "io server disconnect";
+      dispatch({ type: "connection", connection: willAutoReconnect ? "reconnecting" : "offline" });
     });
     socket.on("connect_error", () => dispatch({ type: "connection", connection: "reconnecting" }));
     socket.on("message:new", (value) => {
