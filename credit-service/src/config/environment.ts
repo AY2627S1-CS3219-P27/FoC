@@ -25,6 +25,7 @@ import {
 } from '@foc/outbox';
 
 const DEFAULT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000];
+const CREDIT_EVENTS_QUEUE = 'credit-service.events';
 const USER_REGISTERED_QUEUE = 'credit-service.user-registered.v1';
 const CREDIT_RESERVATION_QUEUE = 'credit-service.credit-reservation.v1';
 const CREDIT_RESERVATION_ADJUSTMENT_QUEUE =
@@ -51,6 +52,8 @@ export interface EnvironmentVariables extends OutboxEnvironmentVariables {
   RABBITMQ_VHOST: string;
   RABBITMQ_PASSWORD_FILE: string;
   RABBITMQ_EXCHANGE: string;
+  RABBITMQ_PUBSUB_EXCHANGE: string;
+  RABBITMQ_EVENTS_QUEUE: string;
   RABBITMQ_USER_REGISTERED_QUEUE: string;
   RABBITMQ_USER_REGISTERED_ROUTING_KEY: typeof USER_REGISTERED_V1_ROUTING_KEY;
   RABBITMQ_CREDIT_ACCOUNT_INITIALISED_ROUTING_KEY: typeof CREDIT_ACCOUNT_INITIALISED_V1_ROUTING_KEY;
@@ -131,6 +134,14 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
   RABBITMQ_VHOST: Joi.string().min(1).required(),
   RABBITMQ_PASSWORD_FILE: Joi.string().min(1).required(),
   RABBITMQ_EXCHANGE: Joi.string().min(1).default('foc.events'),
+  RABBITMQ_PUBSUB_EXCHANGE: Joi.string().min(1).default('foc.pubsub'),
+  RABBITMQ_EVENTS_QUEUE: Joi.string()
+    .min(1)
+    .default(CREDIT_EVENTS_QUEUE)
+    .when('NODE_ENV', {
+      is: 'test',
+      otherwise: Joi.valid(CREDIT_EVENTS_QUEUE),
+    }),
   RABBITMQ_USER_REGISTERED_QUEUE: Joi.string()
     .min(1)
     .default(USER_REGISTERED_QUEUE)
