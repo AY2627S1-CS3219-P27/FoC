@@ -1,6 +1,6 @@
 {
   "name": "rag-service",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "FoC help chatbot: answers questions from the support documents",
   "author": "",
   "private": true,
