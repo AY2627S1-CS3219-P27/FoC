@@ -212,7 +212,11 @@ function Home() {
       body: JSON.stringify({ roles: selectedRoles }),
     });
     if (!res.ok) {
-      toast.error("Couldn't update your roles.");
+      // The save did not commit, so snap the switches back to the roles the
+      // account actually holds (the footer disappears with them), then show
+      // the reason from the 4xx body; 5xx stays on the friendly fallback.
+      setSelectedRoles(user?.roles ?? []);
+      toast.error(await errorMessage(res, "Couldn't update your roles. Please try again."));
       return;
     }
     // A refreshed token carries the new roles, so no re-login is needed.

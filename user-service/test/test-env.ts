@@ -29,4 +29,5 @@ export function seedTestEnvironment(): void {
   process.env.JWT_PUBLIC_KEY_FILE = '/run/secrets/jwt_public_key';
   process.env.FRONTEND_BASE_URL = 'http://localhost:5173';
   process.env.FRONTEND_PASSWORD_RESET_PATH = '/reset-password';
+  process.env.ORDER_SERVICE_BASE_URL = 'http://localhost:3004';
 }
