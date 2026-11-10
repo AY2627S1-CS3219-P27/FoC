@@ -75,6 +75,28 @@ services:
   frontend:
     <<: *app
     image: ${ECR_REGISTRY:?}/foc/frontend:${FOC_IMAGE_TAG:?}
+    # The proxy below takes port 3001.
+    ports: !reset []
+
+  # Sends chat's WebSockets to comms-service, which the frontend's standalone server can't proxy.
+  proxy:
+    image: nginx:1.27-alpine
+    networks: [public, internal]
+    ports:
+      - '3001:3001'
+    volumes:
+      - ./infra/nginx/prod.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      frontend:
+        condition: service_healthy
+      comms-service:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://127.0.0.1:3001/api/health']
+      interval: 10s
+      timeout: 3s
+      retries: 3
 
   rabbitmq:
     restart: unless-stopped
