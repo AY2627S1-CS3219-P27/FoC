@@ -88,14 +88,20 @@ resource "aws_security_group" "app" {
   vpc_id      = aws_vpc.main.id
 }
 
-# The server has no public address; CloudFront's VPC origin connects from inside the VPC.
+# CloudFront creates this group for its VPC origin connections; a VPC address range doesn't match them.
+data "aws_security_group" "cloudfront_vpc_origin" {
+  name       = "CloudFront-VPCOrigins-Service-SG"
+  vpc_id     = aws_vpc.main.id
+  depends_on = [aws_cloudfront_vpc_origin.server]
+}
+
 resource "aws_vpc_security_group_ingress_rule" "app_frontend" {
-  security_group_id = aws_security_group.app.id
-  description       = "Frontend, from the CloudFront VPC origin"
-  ip_protocol       = "tcp"
-  from_port         = 3001
-  to_port           = 3001
-  cidr_ipv4         = aws_vpc.main.cidr_block
+  security_group_id            = aws_security_group.app.id
+  description                  = "Frontend, from the CloudFront VPC origin"
+  ip_protocol                  = "tcp"
+  from_port                    = 3001
+  to_port                      = 3001
+  referenced_security_group_id = data.aws_security_group.cloudfront_vpc_origin.id
 }
 
 resource "aws_vpc_security_group_egress_rule" "app_all" {
