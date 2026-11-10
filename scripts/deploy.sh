@@ -16,9 +16,11 @@ param() {
 create_database() {
   local name="${1//-/_}" password
   password=$(param "$1/db_password")
-  docker run --rm -i -e PGPASSWORD postgres:18-alpine \
+  # The password goes in through the environment, as arguments show in the process list.
+  ROLE_PASSWORD="$password" docker run --rm -i -e PGPASSWORD -e ROLE_PASSWORD postgres:18-alpine \
     psql -h "$rds_host" -U foc_admin -d postgres -q -v ON_ERROR_STOP=1 \
-    -v role="$name" -v password="$password" <<'SQL'
+    -v role="$name" <<'SQL'
+\getenv password ROLE_PASSWORD
 SELECT format('CREATE ROLE %I LOGIN', :'role')
   WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'role') \gexec
 SELECT format('ALTER ROLE %I PASSWORD %L', :'role', :'password') \gexec
