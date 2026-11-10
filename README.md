@@ -142,3 +142,16 @@ durable ingress queues and bindings before their consumers start; services
 reassert their matching service-owned topology at runtime. Credit Service uses
 the root `/foc` broker in normal development; its local RabbitMQ containers are
 reserved for isolated messaging and recovery tests.
+
+## AI Declaration
+
+Tools: Copilot, Opencode, Codex, Claude Code, Claude Design
+Models: GLM (SoClaas), Big Pickle, GPT 5.6 Sol, GPT 6.1 Sol, Sonnet 5.5
+
+Used for:
+- Maintaining ADRs based on human decisions
+- Maintaining an AGENTS.md for repository context
+- Agentic coding driven by human decisions
+- Designing frontend, with tweaks made.
+
+All code was reviewed by a separate contributor than the implementer.
