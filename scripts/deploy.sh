@@ -53,4 +53,10 @@ aws ecr get-login-password | docker login --username AWS --password-stdin "$acco
 "${compose[@]}" run --rm --no-deps comms-service npm run migration:run:prod
 
 "${compose[@]}" up -d --wait --wait-timeout 300 --no-build --remove-orphans
+
+# Grafana reads its admin password only when it first creates its data, so set it on every deploy.
+"${compose[@]}" exec -T grafana grafana cli admin reset-admin-password --password-from-stdin \
+  <observability/secrets/grafana_admin_password.secret >/dev/null ||
+  echo "Warning: couldn't set Grafana's admin password" >&2
+
 "${compose[@]}" ps

@@ -26,6 +26,11 @@ resource "random_password" "user_service_server_secret" {
   special = false
 }
 
+resource "random_password" "grafana_admin" {
+  length  = 32
+  special = false
+}
+
 resource "tls_private_key" "jwt" {
   algorithm = "RSA"
   rsa_bits  = 2048
@@ -57,6 +62,13 @@ resource "aws_ssm_parameter" "user_service_server_secret" {
   name  = "/foc/user-service/server_secret"
   type  = "SecureString"
   value = random_password.user_service_server_secret.result
+}
+
+# Log in to Grafana as admin with this, through the SSM tunnel to port 3005.
+resource "aws_ssm_parameter" "grafana_admin_password" {
+  name  = "/foc/grafana/admin_password"
+  type  = "SecureString"
+  value = random_password.grafana_admin.result
 }
 
 resource "aws_ssm_parameter" "jwt_private_key" {

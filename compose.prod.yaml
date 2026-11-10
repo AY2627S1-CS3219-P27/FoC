@@ -88,6 +88,13 @@ services:
   papercut:
     restart: unless-stopped
 
+  grafana:
+    environment:
+      # Used when Grafana first creates its database; scripts/deploy.sh re-applies it on every deploy.
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+    secrets:
+      - grafana_admin_password
+
   # Local databases stay off: the services use RDS.
   user-db:
     profiles: [local-db]
@@ -103,3 +110,7 @@ services:
     profiles: [local-db]
   rag-db:
     profiles: [local-db]
+
+secrets:
+  grafana_admin_password:
+    file: ./observability/secrets/grafana_admin_password.secret
