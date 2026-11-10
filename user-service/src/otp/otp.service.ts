@@ -38,6 +38,7 @@ export class OtpService {
   private readonly OtpExpiry = 600; // record TTL (seconds)
   private readonly OtpExpiryMinutes = Math.floor(this.OtpExpiry / 60);
   private readonly TimerExpiry = 3600; // generation counter TTL (seconds)
+  private readonly MaxValidationAttempts = 5; // per issued OTP
 
   private readonly RegistrationTokenBytes = 32;
   private readonly RegistrationTokenExpiry = 600; // record TTL (seconds)
@@ -89,6 +90,9 @@ export class OtpService {
    * The token record is created in the same Redis script that consumes the
    * OTP, so a token is never issued unless the OTP passes every check.
    *
+   * Failed guesses are counted against the OTP currently issued for the
+   * email; the fifth one revokes it.
+   *
    * Returns the issued token with its validity on success, or null for every
    * rejected condition (no match / expired, revoked, already consumed) alike.
    */
@@ -102,23 +106,27 @@ export class OtpService {
     // 1) Hashed OTP
     // 2) Email counter
     // 3) Newly-generated hashed registration token
+    // 4) Failed-attempt counter, one hash field per generation
     const otpRecordKeyValue = otpRecordKey(
       email,
       otp,
       this.secretService.getServerSecret(),
     );
     const counterKey = `${OTP_PREFIX}:count:${email}`;
+    const attemptsKey = `${OTP_PREFIX}:attempts:${email}`;
     const tokenKey = registrationTokenRecordKey(
       token,
       this.secretService.getServerSecret(),
     );
 
     const result = await this.redis.eval(VALIDATE_OTP_SCRIPT, {
-      keys: [otpRecordKeyValue, counterKey, tokenKey],
+      keys: [otpRecordKeyValue, counterKey, tokenKey, attemptsKey],
       arguments: [
         new Date().toISOString(),
         String(this.RegistrationTokenExpiry),
         email,
+        String(this.MaxValidationAttempts),
+        String(this.OtpExpiry),
       ],
     });
 
