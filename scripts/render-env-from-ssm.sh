@@ -82,6 +82,7 @@ put_secret email-service/secrets/rabbitmq_email_password.secret email-service/ra
 put_secret rag-service/secrets/rag_db_password.secret rag-service/db_password
 # Added to SSM by hand, so it never enters Terraform state.
 put_secret rag-service/secrets/openrouter_api_key.secret rag-service/openrouter_api_key
+put_secret observability/secrets/grafana_admin_password.secret grafana/admin_password
 
 # Papercut accepts any login, so this is unused until a real SMTP provider is set up.
 mkdir -p email-service/secrets
