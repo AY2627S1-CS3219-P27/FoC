@@ -16,6 +16,11 @@ variable "aws_profile" {
   default     = "foc"
 }
 
+variable "alert_email" {
+  description = "Address the server and NAT alarms email."
+  type        = string
+}
+
 variable "instance_type" {
   description = "EC2 size for the compose stack: 8 app containers, RabbitMQ, Redis and observability."
   type        = string
