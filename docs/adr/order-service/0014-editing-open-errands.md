@@ -14,8 +14,8 @@ F2.1 (#268) lets a requester edit every field they set at creation, F2.1.1 (#269
   - `supplierId` or `deliveryBuildingId` present: `Open` → `Revalidating-Supplier` (`SupplierRevalidationRequested`). The half not sent is re-checked as it stands.
   - otherwise `rewardCredits` present: `Open` → `Adjusting-Credit` (the existing edge; `POST /:id/adjust` stays).
   - otherwise: `Open` → `Open` (`ErrandEdited`).
-  - A supplier/building change and a reward change in one request: `422 ONE_PENDING_CHANGE`. An errand holds one in-flight status at a time.
-- **Local fields ride on whichever edge is taken.** An edge may list `optional` columns besides its required `sets`. The local changes commit with the transition, before credit or supplier-service answers, and stay if that answer is a refusal.
+  - A supplier/building change and a reward change in one request: `Open` -> `Editing` (see the follow-up).
+- **Local fields ride on whichever edge is taken.** An edge may list `optional` columns besides its required `sets`. The local changes commit with the transition, before credit or supplier-service answers, and are put back if that answer is a refusal (see the follow-up).
 - **Expiry is measured from when the errand opened.** A new `expiryDurationMinutes` sets `expires_at` to the `occurred_at` of the `Reserving-Credit` → `Open` event plus the new duration (ADR 0007's bounds, 15 min to 168 h). An edit never restarts the clock, so a requester cannot keep an errand open past 168 h in total. A result at or before `now()` is refused (`422 EXPIRY_IN_PAST`). The computed `expiresAt` is recorded in the event, so a rebuild gives the same value.
 - **Edits stop at expiry.** The three edit edges refuse an errand past `expires_at` (`EXPIRED`), even before the expiry sweep cancels it.
 - **A new in-flight status, `Revalidating-Supplier`, shown as `Open`.** The requested ids wait in `pending_supplier_id` / `pending_delivery_building_id`; the errand keeps its current supplier, building and pickup snapshot (ADR 0009, 0011) meanwhile, and couriers still see it but cannot accept it. Two system exits back to `Open`:
@@ -31,33 +31,28 @@ One transition per request keeps the single write path (only `transition()` writ
 ## Consequences
 
 - A client should send `rewardCredits`, `supplierId` and `deliveryBuildingId` only to change them. Sending the current reward still goes through credit; sending the current supplier still asks supplier-service.
-- Local changes sent with a reward or supplier change apply even if credit or supplier-service then refuses.
+- Local changes sent with a reward or supplier change are put back if credit or supplier-service then refuses (see the follow-up).
 - The reply contract carries no request id. A late `NOT_FOUND` / `BUILDING_NOT_FOUND` from an earlier re-check of the same supplier can settle the current one. This needs a requester to re-edit to the same supplier within the hold window.
 - The requester is not told that a re-check failed; the event payload holds the outcome. That waits on notification-service, as S6 does.
 - A venue or pin cannot be chosen by an edit, only dropped by a building change. A building change on an errand with a blank `deliveryDetail` (allowed with a venue) must bring a note, or it is 400 `INVALID_FIELDS`.
 - Amends ADR 0011: the delivery building can now change after creation, through this re-check.
 
-## Follow-up: reward and supplier in one edit (design agreed, NOT built)
+## Follow-up: reward and supplier in one edit (built)
 
-Today a reward change together with a supplier/building change is `422 ONE_PENDING_CHANGE` (the frontend's `editProblem` in `edit-errand.ts` blocks it first). Agreed design for allowing both in one PATCH:
+A reward change together with a supplier/building change used to be `422 ONE_PENDING_CHANGE`. It is now one PATCH.
 
 **Rejected**
 - Sync edit (calling credit/supplier inside the request): credit is money; a timeout or a failed local write after credit applied leaves the services disagreeing, which the outbox and in-flight statuses (ADR 0006, 0008) exist to avoid.
 - True parallel in-flight (both at once): needs sub-state flags instead of one status enum; touches every transition, rebuild and sweep.
+- Credit first, then supplier: a supplier refusal would have to reverse an already-applied credit adjustment with a second credit call, which can itself fail or time out and strand the errand.
 
-**Decided**
-- **One edit, two steps in sequence**, like creation: a new internal in-flight status (working name `Editing`) chains the credit and supplier steps. Either step failing rolls the whole edit back and tells the requester.
-- **No new columns.** The tables are already wide, so pending values and previous values live in the event log, not on `errands`:
-  - The edit-request event payload carries the new values (reward, supplier, building) and a snapshot of the previous local-field values (`description`, `deliveryDetail`, `collectionItems`, expiry).
-  - Rollback reads that payload and restores the previous values in the failure transition. Rebuild stays deterministic because the values are in the events.
-  - This also means local fields follow "applied now, restored on failure" (not "held until success") for the combined edit.
-- **Client-facing status `Updating`** for the in-flight edit statuses. This also fixes the visibility gap where `Adjusting-Credit` and `Revalidating-Supplier` both read as `Open`, so a separate `pendingChange` field is not needed.
-- **Failure message is derived, not stored.** The errand detail query reads the latest event; if it is an edit-failure event it returns a computed `lastEditResult` (e.g. `{ step: 'supplier', outcome: 'INACTIVE' }`), else null. It clears itself on the next event (new edit, accept, cancel). Cost: one indexed `ORDER BY seq DESC LIMIT 1` on the detail read. A new `EditFailed` event carries `{ step: 'supplier' | 'credit', outcome }`; existing `CreditAdjustmentFailed` (`reason`, `requestedAmount`) and `SupplierRevalidationFailed` (`supplierOutcome`) already carry what single-service failures need.
+**Decided and built**
+- **Supplier first, then credit, in sequence.** `Open` -> `Editing` (`EditRequested`, asks supplier-service) -> `Adjusting-Credit` (`SupplierConfirmed`, asks credit) -> `Open` (`CreditAdjusted`). No money moves until the supplier is confirmed. The supplier's answer is held in the `SupplierConfirmed` event (`apply`) and written together with the reward by `CreditAdjusted`, so a credit refusal leaves the old supplier in place and needs no compensation. The hold-window sweep covers `Editing` like `Revalidating-Supplier`; credit's step never times out, as before (ADR 0006).
+- **No new errand columns.** `Editing` reuses `pending_supplier_id` / `pending_delivery_building_id`; the new reward waits in the `EditRequested` payload (`newAmount`).
+- **Every refused edit restores the local fields, single-service ones included.** Each edge that starts an edit that can be refused (`Adjusting-Credit`, `Revalidating-Supplier`, `Editing`) records the local fields as they stood (`description`, `deliveryDetail`, `collectionItems`, `expires_at`) in its event as `previous`, read with the row locked. The refusal edges (`CreditAdjustmentFailed`, `SupplierRevalidationFailed`, `EditFailed`) carry `restores`: `transition()` reads the latest `previous` and writes the values back in the same UPDATE and event, so handlers and sweeps change nothing and rebuild stays deterministic. This **amends the decision above**: local changes sent with a reward or supplier change no longer stay when credit or supplier-service refuses. An edit of local fields alone (`Open` -> `Open`) has no refusal, so nothing to restore.
+- **Client-facing status `Updating`** for `Adjusting-Credit`, `Revalidating-Supplier` and `Editing`. Couriers still list and open an `Updating` errand (it cannot be accepted meanwhile).
+- **The failure message is derived, not stored.** The errand detail, for the requester only, returns `lastEditResult` (`{ step: 'supplier' | 'credit', outcome }`) when the latest event is `EditFailed`, `SupplierRevalidationFailed` or `CreditAdjustmentFailed`, else null. It clears itself on the next event.
 
-**Still open (decide before building)**
-1. **Order of the steps.** Stated preference: credit first, then supplier (as creation was described). Recommendation: supplier first. Credit-first means a supplier refusal must reverse an already-applied credit adjustment with a second credit call, which can itself fail or time out and strand the errand. Supplier-first moves no money until the supplier is confirmed, so neither failure needs compensation. With pending values in the event log, supplier-first no longer needs a `pending_reward_credits` column, so the earlier objection to it is gone.
-2. **Do single-service edits also adopt "restore local fields on refusal"?** Today (above) local fields stay even if credit or supplier refuses. Changing this amends the decision above.
-3. **Courier list.** Check how `GET /v1/errands` filters `Open`; errands in `Updating` must not vanish from couriers without explanation (they cannot be accepted meanwhile anyway).
-4. **Push/in-app notice to the requester** through the outbox to notification-service, modelled on `requesterCancelled` in `edges.ts`. Not checked against notification-service's contract. The derived `lastEditResult` is the source of truth; the notice is only a nudge, so it can come later.
-
-**Touches if built:** `edges.ts` and `status.ts` `ALLOWED` (new status and edges), `payloads.ts` (edit-request payload with previous values, `EditFailed`), the credit and supplier reply handlers (route by whether the edit is chained), sweeps (hold window for the new status) and rebuild, the controller's `ONE_PENDING_CHANGE` branch, `api-status.ts` (`Updating`), `errands.query.ts` (`lastEditResult`), frontend `edit-errand.ts` / `types.ts` / `ui.tsx` / the detail sheet, ARCHITECTURE §2 and CONTEXT.md, and specs.
+**Not done**
+- Push/in-app notice to the requester through the outbox (not checked against notification-service's contract); `lastEditResult` is the source of truth, the notice would only be a nudge.
+- Frontend: `editProblem` in `edit-errand.ts` still blocks the combination, and the app does not yet know `Updating` or `lastEditResult`.

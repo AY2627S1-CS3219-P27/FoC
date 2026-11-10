@@ -1,6 +1,6 @@
 # order-service architecture
 
-Diagrams are Mermaid (render on GitHub / VS Code). Decisions behind them: ADRs [0001](../docs/adr/order-service/0001-hand-rolled-event-sourcing-on-postgres.md)–[0007](../docs/adr/order-service/0007-expiry-duration-autocomplete-and-supplier-validation.md), [0008](../docs/adr/order-service/0008-transactional-outbox-and-broker-access.md), [0009](../docs/adr/order-service/0009-referenced-data-ids-and-supplier-snapshot.md), [0010](../docs/adr/order-service/0010-role-block-with-ttl.md), [0011](../docs/adr/order-service/0011-delivery-building-snapshot.md), [0013](../docs/adr/order-service/0013-dispute-resolution-settlement.md). Terms: [`CONTEXT.md`](./CONTEXT.md).
+Diagrams are Mermaid (render on GitHub / VS Code). Decisions behind them: ADRs [0001](../docs/adr/order-service/0001-hand-rolled-event-sourcing-on-postgres.md)–[0007](../docs/adr/order-service/0007-expiry-duration-autocomplete-and-supplier-validation.md), [0008](../docs/adr/order-service/0008-transactional-outbox-and-broker-access.md), [0009](../docs/adr/order-service/0009-referenced-data-ids-and-supplier-snapshot.md), [0010](../docs/adr/order-service/0010-role-block-with-ttl.md), [0011](../docs/adr/order-service/0011-delivery-building-snapshot.md), [0013](../docs/adr/order-service/0013-dispute-resolution-settlement.md), [0014](../docs/adr/order-service/0014-editing-open-errands.md). Terms: [`CONTEXT.md`](./CONTEXT.md).
 
 ## 1. Components
 
@@ -59,33 +59,57 @@ Role blocks (F10, [ADR 0010](../docs/adr/order-service/0010-role-block-with-ttl.
 
 ## 2. State model (F9.4, ADR 0006)
 
-24 edges over 14 statuses. Terminal states: Completed, Cancelled, Resolved (`Incomplete` is not terminal: an admin can settle it). There is no Expired state. `Pending-Supplier`, `Reserving-Credit`, `Transferring-Credit`, `Adjusting-Credit`, `Revalidating-Supplier` and `Settling-Credit` are internal; the read side shows `Pending-Supplier` / `Reserving-Credit` as `Pending`, `Transferring-Credit` as `Processing transfer`, `Adjusting-Credit` / `Revalidating-Supplier` as `Open` and `Settling-Credit` as `Incomplete`. `Resolved` is its own client-facing status.
+27 edges over 15 statuses. Terminal states: Completed, Cancelled, Resolved (`Incomplete` is not terminal: an admin can settle it). There is no Expired state. `Pending-Supplier`, `Reserving-Credit`, `Transferring-Credit`, `Adjusting-Credit`, `Revalidating-Supplier`, `Editing` and `Settling-Credit` are internal; the read side shows `Pending-Supplier` / `Reserving-Credit` as `Pending`, `Transferring-Credit` as `Processing transfer`, `Adjusting-Credit` / `Revalidating-Supplier` / `Editing` as `Updating` and `Settling-Credit` as `Incomplete`. `Resolved` is its own client-facing status.
+Edge numbers are stable ids (the table below and the code use them), so the list is grouped by flow rather than numbered in order.
+
+**Creation**
 1) Pending-Supplier -> Reserving-Credit (supplier validation confirmed)
 2) Pending-Supplier -> Cancelled (supplier validation failed)
 3) Reserving-Credit -> Open (credit reservation confirmed)
 4) Reserving-Credit -> Cancelled (credit reservation failed or timed out)
+
+**Delivery**
 5) Open -> Accepted (courier accepts the errand)
-6) Open -> Cancelled (requester cancels before acceptance, or ERRAND_EXPIRED when the expiry time is reached)
-7) Open -> Adjusting-Credit (requester edits the reward, F2; other edited fields change in the same step)
-8) Adjusting-Credit -> Open, `CreditAdjusted` (adjustment confirmed, new `rewardCredits`)
-9) Adjusting-Credit -> Open, `CreditAdjustmentFailed` (adjustment rejected, amount unchanged)
 10) Accepted -> Picked Up (courier marks picked up)
 11) Accepted -> Open (courier cancels after accepting, before pickup; must give a reason, F7.4)
 12) Picked Up -> Delivered (courier marks delivered)
 13) Picked Up -> Cancelled (PICKUP_TIME_EXCEEDED, system only; the requester cannot cancel once picked up)
-14) Delivered -> Transferring-Credit (requester confirms delivery, or auto-complete after 24h)
-15) Transferring-Credit -> Completed (`CreditTransferSucceeded`)
-16) Transferring-Credit -> Incomplete (`CreditTransferRejected`; credit's rejection is terminal, so the errand waits there for dispute handling, which an admin settles through edge 18; the reserved credits stay held until then)
-17) Delivered -> Incomplete (requester marks delivery as incomplete)
-18) Incomplete -> Settling-Credit (admin settles the dispute: courier's share of the reward, 0 to `rewardCredits`)
-19) Settling-Credit -> Resolved (credit confirmed the settlement)
-20) Settling-Credit -> Incomplete (credit rejected the settlement; the admin may retry)
-21) Open -> Open, `ErrandEdited` (requester edits description, delivery detail, items or expiry in place, F2.1)
+
+**Cancel**
+6) Open -> Cancelled (requester cancels before acceptance, or ERRAND_EXPIRED when the expiry time is reached)
+
+**Edit the reward, credit step (an edit that changes `rewardCredits`)**
+7) Open -> Adjusting-Credit (requester edits the reward, F2; other edited fields change in the same step)
+8) Adjusting-Credit -> Open, `CreditAdjusted` (adjustment confirmed, new `rewardCredits`)
+9) Adjusting-Credit -> Open, `CreditAdjustmentFailed` (adjustment rejected, amount unchanged)
+
+**Edit the supplier or building, supplier step**
 22) Open -> Revalidating-Supplier (requester edits the supplier or delivery building; supplier-service re-checks it, F2.1.1)
 23) Revalidating-Supplier -> Open, `SupplierRevalidated` (new supplier and building confirmed; the errand switches to them)
 24) Revalidating-Supplier -> Open, `SupplierRevalidationFailed` (refused, or no answer in the hold window; the old ones stay)
 
-24 edges over 22 distinct status pairs: the two `Adjusting-Credit` -> `Open` exits (items 8 and 9) share a pair, as do the two `Revalidating-Supplier` -> `Open` exits (23 and 24), so a caller picks between them with `TransitionInput.type`.
+**Edit the reward and the supplier together (supplier first, then credit; either refusing undoes the edit)**
+25) Open -> Editing, `EditRequested` (requester changes the reward and the supplier or building in one edit; supplier-service is asked first)
+26) Editing -> Adjusting-Credit, `SupplierConfirmed` (supplier agreed; its answer is held in the event and credit is asked)
+27) Editing -> Open, `EditFailed` (supplier refused or no answer in the hold window)
+
+**Edit in place (no other service)**
+21) Open -> Open, `ErrandEdited` (requester edits description, delivery detail, items or expiry in place, F2.1)
+
+**Completion**
+14) Delivered -> Transferring-Credit (requester confirms delivery, or auto-complete after 24h)
+15) Transferring-Credit -> Completed (`CreditTransferSucceeded`)
+16) Transferring-Credit -> Incomplete (`CreditTransferRejected`; credit's rejection is terminal, so the errand waits there for dispute handling, which an admin settles through edge 18; the reserved credits stay held until then)
+
+**Dispute**
+17) Delivered -> Incomplete (requester marks delivery as incomplete)
+18) Incomplete -> Settling-Credit (admin settles the dispute: courier's share of the reward, 0 to `rewardCredits`)
+19) Settling-Credit -> Resolved (credit confirmed the settlement)
+20) Settling-Credit -> Incomplete (credit rejected the settlement; the admin may retry)
+
+Edges 9, 24 and 27 are edit refusals: they also put the local fields (description, delivery detail, items, expiry) back to what edge 7, 22 or 25 recorded as `previous`. Credit refusing after edge 26 therefore undoes the whole edit; the supplier columns are written only by edge 8, together with the reward.
+
+27 edges over 25 distinct status pairs: the two `Adjusting-Credit` -> `Open` exits (items 8 and 9) share a pair, as do the two `Revalidating-Supplier` -> `Open` exits (23 and 24), so a caller picks between them with `TransitionInput.type`.
 
 ### Who may take an edge, and guards
 
@@ -93,18 +117,18 @@ Each edge in `edges.ts` lists the actors allowed to take it (`who`); the check i
 
 | Edge(s) | Allowed actors |
 | --- | --- |
-| 1, 2, 3, 4, 8, 9, 15, 16, 23, 24 (supplier and credit replies, timeouts) | system |
+| 1, 2, 3, 4, 8, 9, 15, 16, 23, 24, 26, 27 (supplier and credit replies, timeouts) | system |
 | 5 `Open` -> `Accepted` | any user except the requester; `courierId` must be the actor |
 | 6 `Open` -> `Cancelled` | requester (`REQUESTER_CANCELLED`) or system (`ERRAND_EXPIRED`); a user reason needs a user actor, every other reason the system |
 | 13 `Picked Up` -> `Cancelled` | system only |
-| 7, 21, 22 edit, 17 incomplete | requester |
+| 7, 21, 22, 25 edit, 17 incomplete | requester |
 | 10, 11, 12 (pick up, withdraw, deliver) | the errand's courier |
 | 14 confirm | requester or system (24h auto-complete) |
 
 There is no `Accepted` -> `Cancelled` edge: the requester cannot cancel once accepted; the courier withdraws via edge 11 instead.
 
-Further guards: a courier may hold one active errand (`Accepted` or `Picked Up`), enforced by a partial unique index (`COURIER_BUSY`); items 5, 7, 21 and 22 are refused once `expires_at` has passed (`EXPIRED`), a backstop only: it rejects the accept but does not cancel, and the expiry sweep is what moves the errand `Open` → `Cancelled` (`ERRAND_EXPIRED`); a courier with a live role block cannot accept (`ROLE_BLOCKED`, as create refuses a blocked requester); a cancel's `cancellationReason` must be in that edge's subset of `CANCELLATION_REASONS` (`INVALID_FIELDS`). A refused actor gets `FORBIDDEN`.
-24 edges over 14 statuses. Terminal states: Completed, Cancelled, Resolved (`Incomplete` is not terminal: an admin can settle it). There is no Expired state: expiry is a cancel with reason `ERRAND_EXPIRED`. `Pending-Supplier`, `Reserving-Credit`, `Transferring-Credit`, `Adjusting-Credit`, `Revalidating-Supplier` and `Settling-Credit` are internal; the read side shows `Pending-Supplier` / `Reserving-Credit` as `Pending`, `Transferring-Credit` as `Processing transfer`, `Adjusting-Credit` / `Revalidating-Supplier` as `Open` and `Settling-Credit` as `Incomplete`. `Resolved` is its own client-facing status.
+Further guards: a courier may hold one active errand (`Accepted` or `Picked Up`), enforced by a partial unique index (`COURIER_BUSY`); items 5, 7, 21, 22 and 25 are refused once `expires_at` has passed (`EXPIRED`), a backstop only: it rejects the accept but does not cancel, and the expiry sweep is what moves the errand `Open` → `Cancelled` (`ERRAND_EXPIRED`); a courier with a live role block cannot accept (`ROLE_BLOCKED`, as create refuses a blocked requester); a cancel's `cancellationReason` must be in that edge's subset of `CANCELLATION_REASONS` (`INVALID_FIELDS`). A refused actor gets `FORBIDDEN`.
+27 edges over 15 statuses. Terminal states: Completed, Cancelled, Resolved (`Incomplete` is not terminal: an admin can settle it). There is no Expired state: expiry is a cancel with reason `ERRAND_EXPIRED`. `Pending-Supplier`, `Reserving-Credit`, `Transferring-Credit`, `Adjusting-Credit`, `Revalidating-Supplier`, `Editing` and `Settling-Credit` are internal; the read side shows `Pending-Supplier` / `Reserving-Credit` as `Pending`, `Transferring-Credit` as `Processing transfer`, `Adjusting-Credit` / `Revalidating-Supplier` / `Editing` as `Updating` and `Settling-Credit` as `Incomplete`. `Resolved` is its own client-facing status.
 
 Each row is one database transaction (§3): a conditional `UPDATE … WHERE status = <from> AND <actor check>`, the event insert and, if the edge has one, the outbox notice. Either all three commit or none do. Credit Service owns balances; Communication Service consumes chat-lifecycle notices.
 
@@ -117,8 +141,8 @@ Each row is one database transaction (§3): a conditional `UPDATE … WHERE stat
 | 5 | Open → Accepted | `ErrandAccepted` | courier: `POST /:id/accept` | caller is not the requester; `expires_at` not passed; caller holds no other `Accepted` / `Picked Up` errand | `order.errand-accepted.v1` for Communication Service; credits stay held |
 | 6 | Open → Cancelled | `ErrandCancelled` | requester: `POST /:id/cancel` (`REQUESTER_CANCELLED`), or expiry sweep (`ERRAND_EXPIRED`) | user reason needs the requester, system reason the system | `order.errand-cancelled.v1`: release back to the requester |
 | 7 | Open → Adjusting-Credit | `AdjustmentRequested` | requester: `POST /:id/adjust`, or `PATCH /:id` with `rewardCredits` | `newAmount` a positive integer; not expired | `credit.reservation-adjustment.v1` (old → new amount); other edited fields change now |
-| 8 | Adjusting-Credit → Open | `CreditAdjusted` | system: `credit.reservation-adjustment-success.v1` | — | `rewardCredits` = new amount |
-| 9 | Adjusting-Credit → Open | `CreditAdjustmentFailed` | system: `credit.reservation-adjustment-rejected.v1` | — | amount unchanged |
+| 8 | Adjusting-Credit → Open | `CreditAdjusted` | system: `credit.reservation-adjustment-success.v1` | — | `rewardCredits` = new amount; after edge 26, the held supplier columns too |
+| 9 | Adjusting-Credit → Open | `CreditAdjustmentFailed` | system: `credit.reservation-adjustment-rejected.v1` | — | amount unchanged; local fields restored |
 | 10 | Accepted → Picked Up | `ErrandPickedUp` | assigned courier: `POST /:id/pickup` | — | none; starts the 24h pickup timer |
 | 11 | Accepted → Open | `CourierWithdrew` | assigned courier: `POST /:id/withdraw` | non-blank `reason` (F7.4) | `order.courier-cancelled.v1` for Communication Service using the authorized actor; clears `courierId`, credits stay held |
 | 12 | Picked Up → Delivered | `ErrandDelivered` | assigned courier: `POST /:id/deliver` | — | `order.errand-delivered.v1` for Communication Service; starts the 24h auto-complete timer |
@@ -131,9 +155,12 @@ Each row is one database transaction (§3): a conditional `UPDATE … WHERE stat
 | 19 | Settling-Credit → Resolved | `CreditSettlementSucceeded` | system: credit's settlement success reply | — | credits moved per the settlement |
 | 20 | Settling-Credit → Incomplete | `CreditSettlementRejected` | system: credit's settlement rejection reply | — | none; settlement columns cleared, the admin may retry |
 | 21 | Open → Open | `ErrandEdited` | requester: `PATCH /:id` | at least one change; required text not blank; not expired; an edited expiry still in the future (`EXPIRY_IN_PAST`) | none; `expires_at` = opened-at + new duration (ADR 0013) |
-| 22 | Open → Revalidating-Supplier | `SupplierRevalidationRequested` | requester: `PATCH /:id` with `supplierId` and/or `deliveryBuildingId` | both pending ids; not expired; no reward change in the same edit (`ONE_PENDING_CHANGE`) | `order.supplier-validation-requested.v1` for the pending ids; other edited fields change now; resent with backoff |
+| 22 | Open → Revalidating-Supplier | `SupplierRevalidationRequested` | requester: `PATCH /:id` with `supplierId` and/or `deliveryBuildingId` | both pending ids; not expired | `order.supplier-validation-requested.v1` for the pending ids; other edited fields change now; resent with backoff |
 | 23 | Revalidating-Supplier → Open | `SupplierRevalidated` | system: supplier reply `FOUND` + `Active` for the pending ids | — | supplier, building and pickup snapshot replaced; pending ids cleared |
-| 24 | Revalidating-Supplier → Open | `SupplierRevalidationFailed` | system: supplier reply `NOT_FOUND` / `Inactive` / `BUILDING_NOT_FOUND`, or hold-window sweep (`TIMEOUT`) | — | none; old supplier and building kept, pending ids cleared |
+| 24 | Revalidating-Supplier → Open | `SupplierRevalidationFailed` | system: supplier reply `NOT_FOUND` / `Inactive` / `BUILDING_NOT_FOUND`, or hold-window sweep (`TIMEOUT`) | — | none; old supplier and building kept, pending ids cleared, local fields restored |
+| 25 | Open → Editing | `EditRequested` | requester: `PATCH /:id` with `rewardCredits` and `supplierId` and/or `deliveryBuildingId` | both pending ids; new reward in the payload; not expired | `order.supplier-validation-requested.v1` for the pending ids; local fields change now and their previous values are recorded; resent with backoff |
+| 26 | Editing → Adjusting-Credit | `SupplierConfirmed` | system: supplier reply `FOUND` + `Active` for the pending ids | — | `credit.reservation-adjustment.v1` (old → new amount); the supplier's answer is held in the event, nothing of it is applied yet |
+| 27 | Editing → Open | `EditFailed` | system: supplier reply `NOT_FOUND` / `Inactive` / `BUILDING_NOT_FOUND`, or hold-window sweep (`TIMEOUT`) | — | none; old supplier kept, pending ids cleared, local fields restored |
 
 Edges 8 and 9 share a status pair, as do 23 and 24, so a caller picks between them with `TransitionInput.type`. There is no `Accepted` → `Cancelled` edge: the requester cannot cancel once accepted; the courier withdraws (11) instead. Accept (5) refusing an expired errand is a backstop only: the expiry sweep is what cancels it.
 
@@ -288,7 +315,7 @@ sequenceDiagram
 
 Supplier validation (`src/supplier-replies/`, supplier ADR 0002): an Active supplier moves the errand on, sets `pickup_name` (supplier display name), `pickup_location` (building short name) and `pickup_description` (floor and spot) from the reply's supplier snapshot (ADR 0009), and the `SupplierValidated` event keeps that snapshot verbatim; a missing or Inactive one cancels it (F1.4.4). The same reply validates the delivery building (ADR 0011): `FOUND` also sets `delivery_location` to the building's short name, and `BUILDING_NOT_FOUND` (supplier exists, building does not) cancels with `BUILDING_UNAVAILABLE`; nothing is reserved yet, so no release is sent. The reply also validates an optional delivery venue (ADR 0012): `FOUND` sets `delivery_latitude`, `delivery_longitude` (stored pin, else venue point, else building point) and the `delivery_venue` label, and `VENUE_NOT_FOUND` cancels with `VENUE_UNAVAILABLE`. A pin is checked against the campus boundary at create time and never sent to supplier-service. A reply whose `supplierId` is not the errand's is dead-lettered, and the errand stays in `Pending-Supplier`. If no reply comes (F1.5), a sweep sends a new request with its own `eventId` (derived from the errand and attempt number). Supplier Service answers each `eventId` only once, so reusing the original would never recover a lost reply. Extra replies hit the `Pending-Supplier` guard and are acked. The sweep skips a resend while the relay has not yet published the previous request, and uses exponential backoff and jitter (`SUPPLIER_RETRY_BASE_MS`, `SUPPLIER_RETRY_MAX_MS`), tracking attempts in `supplier_validation_retries`. After `SUPPLIER_VALIDATION_HOLD_MS` from creation it cancels with `SUPPLIER_VALIDATION_TIMEOUT`; a reply arriving after that is acked and dropped.
 
-Supplier and building edits (F2.1.1, [ADR 0013](../docs/adr/order-service/0013-editing-open-errands.md)) reuse this path. Edge 22 stores the requested ids in `pending_supplier_id` / `pending_delivery_building_id` and asks under an id derived from the errand, the edit's sequence number and the attempt, so each re-check is a new question to Supplier Service. While the errand is `Revalidating-Supplier`, the reply handler reads its status: a reply for the pending ids takes edge 23 (Active; a changed building also drops any venue or pin and resets the delivery point and label to the building's) or 24 (anything else), and a reply naming another supplier, or a `FOUND` for another building, is a stale answer to an earlier request and is acked and logged. In any status other than the two validating ones a supplier reply is late and acked. The same sweep resends, timed from `updated_at` (the moment the errand entered the status); `supplier_validation_retries.round` holds the edit's sequence number (0 for the first validation), so a later edit counts its attempts from zero. After `SUPPLIER_VALIDATION_HOLD_MS` the sweep takes edge 24 with `TIMEOUT`: the old supplier is still valid, so nothing is cancelled.
+Supplier and building edits (F2.1.1, [ADR 0014](../docs/adr/order-service/0014-editing-open-errands.md)) reuse this path. Edge 22 stores the requested ids in `pending_supplier_id` / `pending_delivery_building_id` and asks under an id derived from the errand, the edit's sequence number and the attempt, so each re-check is a new question to Supplier Service. While the errand is `Revalidating-Supplier`, the reply handler reads its status: a reply for the pending ids takes edge 23 (Active; a changed building also drops any venue or pin and resets the delivery point and label to the building's) or 24 (anything else), and a reply naming another supplier, or a `FOUND` for another building, is a stale answer to an earlier request and is acked and logged. In any status other than the two validating ones a supplier reply is late and acked. The same sweep resends, timed from `updated_at` (the moment the errand entered the status); `supplier_validation_retries.round` holds the edit's sequence number (0 for the first validation), so a later edit counts its attempts from zero. After `SUPPLIER_VALIDATION_HOLD_MS` the sweep takes edge 24 with `TIMEOUT`: the old supplier is still valid, so nothing is cancelled.
 
 
 ## 5. Read side
