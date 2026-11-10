@@ -317,11 +317,14 @@ export function SupplierForm({
         <p className="mt-1.5 px-4 text-[13px] text-muted">Pick at least one.</p>
       </fieldset>
 
-      <div className="rounded-2xl bg-surface p-4">
-        <Field label="Photo URL (optional)">
-          <input type="url" value={values.photoUrl} onChange={(e) => set("photoUrl", e.target.value)} className={input} />
-        </Field>
-      </div>
+      {/* Admins only: a basic user's request never carries a photo. */}
+      {!mode.startsWith("request") && (
+        <div className="rounded-2xl bg-surface p-4">
+          <Field label="Photo URL (optional)">
+            <input type="url" value={values.photoUrl} onChange={(e) => set("photoUrl", e.target.value)} className={input} />
+          </Field>
+        </div>
+      )}
 
       {error && <FormError>{error}</FormError>}
 
