@@ -35,9 +35,12 @@ scripts/render-env-from-ssm.sh
 rds_host=$(param rds/host)
 PGPASSWORD=$(param rds/master_password)
 export PGPASSWORD
-for service in user-service supplier-service order-service credit-service comms-service notification-service; do
+for service in user-service supplier-service order-service credit-service comms-service notification-service rag-service; do
   create_database "$service"
 done
+# rag-service's first migration enables pgvector, which RDS allows only for the admin login.
+docker run --rm -e PGPASSWORD postgres:18-alpine \
+  psql -h "$rds_host" -U foc_admin -d rag_service -q -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector'
 unset PGPASSWORD
 
 account_id=$(aws sts get-caller-identity --query Account --output text)

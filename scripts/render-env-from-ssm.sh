@@ -43,6 +43,9 @@ EOF
 for f in env/*.env.example; do cp "$f" "${f%.example}"; done
 
 set_env env/shared.env NODE_ENV production
+# These two examples set NODE_ENV again, which would override shared.env.
+set_env env/supplier-service.env NODE_ENV production
+set_env env/rag-service.env NODE_ENV production
 
 set_env env/user-service.env USER_SERVICE_DB_HOST "$rds_host"
 set_env env/user-service.env USER_SERVICE_DB_USERNAME user_service
@@ -76,6 +79,9 @@ put_secret notification-service/secrets/notification_db_password.secret notifica
 put_secret notification-service/secrets/rabbitmq_notification_password.secret notification-service/rabbitmq_password
 put_secret notification-service/secrets/vapid_private_key.secret notification-service/vapid_private_key
 put_secret email-service/secrets/rabbitmq_email_password.secret email-service/rabbitmq_password
+put_secret rag-service/secrets/rag_db_password.secret rag-service/db_password
+# Added to SSM by hand, so it never enters Terraform state.
+put_secret rag-service/secrets/openrouter_api_key.secret rag-service/openrouter_api_key
 
 # Papercut accepts any login, so this is unused until a real SMTP provider is set up.
 mkdir -p email-service/secrets
