@@ -26,13 +26,10 @@ import {
 
 const DEFAULT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000];
 const CREDIT_EVENTS_QUEUE = 'credit-service.events';
-const USER_REGISTERED_QUEUE = 'credit-service.user-registered.v1';
 const CREDIT_RESERVATION_QUEUE = 'credit-service.credit-reservation.v1';
 const CREDIT_RESERVATION_ADJUSTMENT_QUEUE =
   'credit-service.credit-reservation-adjustment.v1';
 const CREDIT_SETTLEMENT_QUEUE = 'credit-service.credit-settlement.v1';
-const ORDER_ERRAND_COMPLETED_QUEUE = 'credit-service.order-errand-completed.v1';
-const ORDER_ERRAND_CANCELLED_QUEUE = 'credit-service.order-errand-cancelled.v1';
 
 export interface EnvironmentVariables extends OutboxEnvironmentVariables {
   NODE_ENV: 'development' | 'test' | 'production';
@@ -54,7 +51,6 @@ export interface EnvironmentVariables extends OutboxEnvironmentVariables {
   RABBITMQ_EXCHANGE: string;
   RABBITMQ_PUBSUB_EXCHANGE: string;
   RABBITMQ_EVENTS_QUEUE: string;
-  RABBITMQ_USER_REGISTERED_QUEUE: string;
   RABBITMQ_USER_REGISTERED_ROUTING_KEY: typeof USER_REGISTERED_V1_ROUTING_KEY;
   RABBITMQ_CREDIT_ACCOUNT_INITIALISED_ROUTING_KEY: typeof CREDIT_ACCOUNT_INITIALISED_V1_ROUTING_KEY;
   RABBITMQ_CREDIT_RESERVATION_QUEUE: string;
@@ -69,9 +65,7 @@ export interface EnvironmentVariables extends OutboxEnvironmentVariables {
   RABBITMQ_CREDIT_SETTLEMENT_ROUTING_KEY: typeof CREDIT_SETTLEMENT_V1_ROUTING_KEY;
   RABBITMQ_CREDIT_SETTLEMENT_SUCCEEDED_ROUTING_KEY: typeof CREDIT_SETTLEMENT_SUCCEEDED_V1_ROUTING_KEY;
   RABBITMQ_CREDIT_SETTLEMENT_REJECTED_ROUTING_KEY: typeof CREDIT_SETTLEMENT_REJECTED_V1_ROUTING_KEY;
-  RABBITMQ_ORDER_ERRAND_COMPLETED_QUEUE: string;
   RABBITMQ_ORDER_ERRAND_COMPLETED_ROUTING_KEY: typeof ORDER_ERRAND_COMPLETED_V1_ROUTING_KEY;
-  RABBITMQ_ORDER_ERRAND_CANCELLED_QUEUE: string;
   RABBITMQ_ORDER_ERRAND_CANCELLED_ROUTING_KEY: typeof ORDER_ERRAND_CANCELLED_V1_ROUTING_KEY;
   RABBITMQ_CREDIT_TRANSFER_SUCCEEDED_ROUTING_KEY: typeof CREDIT_TRANSFER_SUCCEEDED_V1_ROUTING_KEY;
   RABBITMQ_CREDIT_TRANSFER_REJECTED_ROUTING_KEY: typeof CREDIT_TRANSFER_REJECTED_V1_ROUTING_KEY;
@@ -142,13 +136,6 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
       is: 'test',
       otherwise: Joi.valid(CREDIT_EVENTS_QUEUE),
     }),
-  RABBITMQ_USER_REGISTERED_QUEUE: Joi.string()
-    .min(1)
-    .default(USER_REGISTERED_QUEUE)
-    .when('NODE_ENV', {
-      is: 'test',
-      otherwise: Joi.valid(USER_REGISTERED_QUEUE),
-    }),
   RABBITMQ_USER_REGISTERED_ROUTING_KEY: Joi.string()
     .valid(USER_REGISTERED_V1_ROUTING_KEY)
     .default(USER_REGISTERED_V1_ROUTING_KEY),
@@ -203,23 +190,9 @@ export const environmentSchema = Joi.object<EnvironmentVariables>({
   RABBITMQ_CREDIT_SETTLEMENT_REJECTED_ROUTING_KEY: Joi.string()
     .valid(CREDIT_SETTLEMENT_REJECTED_V1_ROUTING_KEY)
     .default(CREDIT_SETTLEMENT_REJECTED_V1_ROUTING_KEY),
-  RABBITMQ_ORDER_ERRAND_COMPLETED_QUEUE: Joi.string()
-    .min(1)
-    .default(ORDER_ERRAND_COMPLETED_QUEUE)
-    .when('NODE_ENV', {
-      is: 'test',
-      otherwise: Joi.valid(ORDER_ERRAND_COMPLETED_QUEUE),
-    }),
   RABBITMQ_ORDER_ERRAND_COMPLETED_ROUTING_KEY: Joi.string()
     .valid(ORDER_ERRAND_COMPLETED_V1_ROUTING_KEY)
     .default(ORDER_ERRAND_COMPLETED_V1_ROUTING_KEY),
-  RABBITMQ_ORDER_ERRAND_CANCELLED_QUEUE: Joi.string()
-    .min(1)
-    .default(ORDER_ERRAND_CANCELLED_QUEUE)
-    .when('NODE_ENV', {
-      is: 'test',
-      otherwise: Joi.valid(ORDER_ERRAND_CANCELLED_QUEUE),
-    }),
   RABBITMQ_ORDER_ERRAND_CANCELLED_ROUTING_KEY: Joi.string()
     .valid(ORDER_ERRAND_CANCELLED_V1_ROUTING_KEY)
     .default(ORDER_ERRAND_CANCELLED_V1_ROUTING_KEY),

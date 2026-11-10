@@ -31,7 +31,6 @@ const configuration: EnvironmentVariables = {
   RABBITMQ_VHOST: '/foc',
   RABBITMQ_PASSWORD_FILE: '/run/secrets/rabbitmq_password_credit_service',
   RABBITMQ_EXCHANGE: 'foc.events',
-  RABBITMQ_USER_REGISTERED_QUEUE: 'credit-service.user-registered.v1',
   RABBITMQ_USER_REGISTERED_ROUTING_KEY: 'user.registered.v1',
   RABBITMQ_CREDIT_ACCOUNT_INITIALISED_ROUTING_KEY:
     'credit.account-initialised.v1',

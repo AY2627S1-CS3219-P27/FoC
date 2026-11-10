@@ -2,25 +2,28 @@ import { Injectable, type OnApplicationBootstrap } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { EnvironmentVariables } from '../config/environment.js';
 import { RabbitMqConsumerTransport } from '../messaging/rabbitmq-consumer.transport.js';
-import { UserRegisteredMessageHandler } from './user-registered-message.handler.js';
+import {
+  CREDIT_EVENT_ROUTING_KEYS,
+  CreditEventsMessageHandler,
+} from './credit-events-message.handler.js';
 
 /**
- * Starts the consumer only after Nest has constructed the complete handler.
- * */
+ * Subscribes one queue to the fact events Credit Service cares about on the
+ * pub/sub exchange. Point-to-point messages keep their own queues.
+ */
 @Injectable()
-export class UserRegisteredConsumerLifecycle implements OnApplicationBootstrap {
+export class CreditEventsConsumerLifecycle implements OnApplicationBootstrap {
   constructor(
     private readonly transport: RabbitMqConsumerTransport,
-    private readonly handler: UserRegisteredMessageHandler,
+    private readonly handler: CreditEventsMessageHandler,
     private readonly config: ConfigService<EnvironmentVariables, true>,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
     await this.transport.subscribe({
-      queue: this.config.getOrThrow('RABBITMQ_USER_REGISTERED_QUEUE'),
-      routingKey: this.config.getOrThrow(
-        'RABBITMQ_USER_REGISTERED_ROUTING_KEY',
-      ),
+      queue: this.config.getOrThrow('RABBITMQ_EVENTS_QUEUE'),
+      exchange: this.config.getOrThrow('RABBITMQ_PUBSUB_EXCHANGE'),
+      routingKey: CREDIT_EVENT_ROUTING_KEYS,
       handler: this.handler,
     });
   }
