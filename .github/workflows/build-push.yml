@@ -32,6 +32,7 @@ jobs:
           - { dir: credit-service, context: . }
           - { dir: comms-service, context: . }
           - { dir: notification-service, context: . }
+          - { dir: rag-service, context: . }
           - { dir: email-service, context: email-service }
           - { dir: frontend, context: frontend }
     steps:

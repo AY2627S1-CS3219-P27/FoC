@@ -60,6 +60,14 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  rag-service:
+    <<: *app
+    image: ${ECR_REGISTRY:?}/foc/rag-service:${FOC_IMAGE_TAG:?}
+    depends_on: !reset null
+    environment:
+      # rag-service/compose.yml hardcodes its local database.
+      DB_HOST: ${RDS_HOST:?}
+
   email-service:
     <<: *app
     image: ${ECR_REGISTRY:?}/foc/email-service:${FOC_IMAGE_TAG:?}
@@ -92,4 +100,6 @@ services:
   comms-db:
     profiles: [local-db]
   notification-db:
+    profiles: [local-db]
+  rag-db:
     profiles: [local-db]

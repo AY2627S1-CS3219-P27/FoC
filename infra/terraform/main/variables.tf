@@ -38,6 +38,7 @@ variable "db_services" {
     "credit-service",
     "comms-service",
     "notification-service",
+    "rag-service",
   ]
 }
 

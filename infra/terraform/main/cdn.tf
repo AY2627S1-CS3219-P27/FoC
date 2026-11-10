@@ -12,7 +12,7 @@ data "aws_cloudfront_origin_request_policy" "all_viewer" {
 # Lets CloudFront reach the server privately inside the VPC, so the server needs no public address.
 resource "aws_cloudfront_vpc_origin" "server" {
   vpc_origin_endpoint_config {
-    name                   = "foc-server"
+    name                   = "foc-server-${aws_instance.server.id}"
     arn                    = aws_instance.server.arn
     http_port              = 3001
     https_port             = 443
@@ -22,6 +22,12 @@ resource "aws_cloudfront_vpc_origin" "server" {
       items    = ["TLSv1.2"]
       quantity = 1
     }
+  }
+
+  # CloudFront can't change a VPC origin a distribution uses, so a new server gets a new origin first.
+  lifecycle {
+    create_before_destroy = true
+    replace_triggered_by  = [aws_instance.server.id]
   }
 }
 

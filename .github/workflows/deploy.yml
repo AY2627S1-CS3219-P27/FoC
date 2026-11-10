@@ -44,7 +44,7 @@ jobs:
         env:
           SHA: ${{ steps.release.outputs.sha }}
         run: |
-          for service in user-service supplier-service order-service credit-service comms-service notification-service email-service frontend; do
+          for service in user-service supplier-service order-service credit-service comms-service notification-service rag-service email-service frontend; do
             aws ecr describe-images --repository-name "foc/$service" --image-ids "imageTag=${SHA::12}" >/dev/null || {
               echo "::error::No foc/$service image for ${SHA::12}. Is that commit on main with a finished build?"
               exit 1
