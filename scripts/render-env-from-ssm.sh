@@ -32,12 +32,8 @@ set_env() {
 rds_host=$(value rds/host)
 account_id=$(aws sts get-caller-identity --query Account --output text)
 
-# Step 9 sets /foc/public_url to the HTTPS address; until then use the server's own IP.
-public_url=$(jq -r '.[] | select(.name == "/foc/public_url") | .value' <<<"$params")
-if [ -z "$public_url" ]; then
-  token=$(curl -fsS -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' http://169.254.169.254/latest/api/token)
-  public_url="http://$(curl -fsS -H "X-aws-ec2-metadata-token: $token" http://169.254.169.254/latest/meta-data/public-ipv4):3001"
-fi
+# The CloudFront HTTPS address (cdn.tf); the server has no public address of its own.
+public_url=$(value public_url)
 
 cat >.env <<EOF
 ECR_REGISTRY=$account_id.dkr.ecr.$AWS_REGION.amazonaws.com

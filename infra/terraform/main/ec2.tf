@@ -49,10 +49,12 @@ resource "aws_iam_instance_profile" "server" {
 resource "aws_instance" "server" {
   ami                    = data.aws_ssm_parameter.al2023_ami.value
   instance_type          = var.instance_type
-  subnet_id              = aws_subnet.public.id
+  subnet_id              = aws_subnet.app.id
   vpc_security_group_ids = [aws_security_group.app.id]
   iam_instance_profile   = aws_iam_instance_profile.server.name
   user_data              = file("${path.module}/user-data.sh")
+  # First boot downloads packages and the repo, which needs the NAT route in place.
+  depends_on = [aws_route_table_association.app]
 
   root_block_device {
     volume_type = "gp3"
@@ -72,14 +74,4 @@ resource "aws_instance" "server" {
     # A newer Amazon Linux release must not replace the running server.
     ignore_changes = [ami, user_data]
   }
-}
-
-# A public address that survives stopping and starting the server.
-resource "aws_eip" "server" {
-  domain   = "vpc"
-  instance = aws_instance.server.id
-
-  tags = { Name = "foc-server" }
-
-  depends_on = [aws_internet_gateway.main]
 }

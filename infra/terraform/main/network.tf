@@ -9,7 +9,7 @@ locals {
 
 resource "aws_vpc" "main" {
   cidr_block = "10.0.0.0/16"
-  # CloudFront (step 9) needs the server's public DNS name as its origin.
+  # CloudFront's VPC origin addresses the server by its DNS name.
   enable_dns_hostnames = true
 
   tags = { Name = "foc" }
@@ -88,17 +88,14 @@ resource "aws_security_group" "app" {
   vpc_id      = aws_vpc.main.id
 }
 
-data "aws_ec2_managed_prefix_list" "cloudfront" {
-  name = "com.amazonaws.global.cloudfront.origin-facing"
-}
-
+# The server has no public address; CloudFront's VPC origin connects from inside the VPC.
 resource "aws_vpc_security_group_ingress_rule" "app_frontend" {
   security_group_id = aws_security_group.app.id
-  description       = "Frontend, from CloudFront only"
+  description       = "Frontend, from CloudFront's VPC origin"
   ip_protocol       = "tcp"
   from_port         = 3001
   to_port           = 3001
-  prefix_list_id    = data.aws_ec2_managed_prefix_list.cloudfront.id
+  cidr_ipv4         = aws_vpc.main.cidr_block
 }
 
 resource "aws_vpc_security_group_egress_rule" "app_all" {
