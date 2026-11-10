@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { SupplierForm } from "./supplier-form";
+import { SupplierForm, type SupplierFormMode } from "./supplier-form";
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/lib/api")>();
@@ -14,13 +14,8 @@ const props = {
 };
 
 describe("SupplierForm photo URL", () => {
-  it("is offered to admins creating a supplier", () => {
-    render(<SupplierForm mode="admin-create" {...props} />);
-    expect(screen.getByText("Photo URL (optional)")).toBeTruthy();
-  });
-
-  it("is not offered when a basic user suggests a new supplier", () => {
-    render(<SupplierForm mode="request-create" {...props} />);
+  it.each<SupplierFormMode>(["admin-create", "request-create"])("is not offered in %s mode", (mode) => {
+    render(<SupplierForm mode={mode} {...props} />);
     expect(screen.queryByText("Photo URL (optional)")).toBeNull();
   });
 });
