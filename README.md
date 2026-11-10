@@ -148,13 +148,16 @@ reserved for isolated messaging and recovery tests.
 Tools: Copilot, Opencode, Codex, Claude Code, Claude Design
 Models: GLM (SoClaas), Big Pickle, GPT 5.6 Sol, GPT 6.1 Sol, Sonnet 5.5
 
+All code was reviewed & approved by a separate contributor than the implementer.
+
+### Usage Scenarios
+
 Used for:
 - Maintaining ADRs based on human decisions
 - Maintaining an AGENTS.md for repository context
 - Agentic coding driven by human decisions
 - Designing frontend, with tweaks made.
 
-All code was reviewed & approved by a separate contributor than the implementer.
 
 ### Skills
 
