@@ -53,6 +53,7 @@ describe('OpenRouterClient.embed', () => {
     expect(JSON.parse(init.body as string)).toMatchObject({
       model: 'test/model',
       input: ['hello'],
+      provider: { data_collection: 'deny' },
     });
   });
 

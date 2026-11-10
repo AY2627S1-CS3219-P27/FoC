@@ -4,6 +4,9 @@ import { ConfigService } from '@nestjs/config';
 import type { EnvironmentVariables } from '../config/environment.schema.js';
 import { EMBEDDING_DIMENSIONS } from '../database/entities/index.js';
 
+/** Students' questions reach both endpoints; no provider may store them. */
+const PROVIDER_ROUTING = { data_collection: 'deny' } as const;
+
 /** A model call that gave no usable answer. Never carries the API key. */
 export class OpenRouterError extends Error {
   constructor(
@@ -64,7 +67,12 @@ export class OpenRouterClient {
   async embed(texts: string[], timeoutMs: number): Promise<number[][]> {
     const reply = await this.post<EmbeddingsReply>(
       '/embeddings',
-      { model: this.embeddingModel, input: texts, encoding_format: 'float' },
+      {
+        model: this.embeddingModel,
+        input: texts,
+        encoding_format: 'float',
+        provider: PROVIDER_ROUTING,
+      },
       timeoutMs,
     );
 
@@ -104,8 +112,7 @@ export class OpenRouterClient {
           { role: 'user', content: request.user },
         ],
         max_tokens: request.maxTokens,
-        // Students' questions must not go to providers that may store them.
-        provider: { data_collection: 'deny' },
+        provider: PROVIDER_ROUTING,
       },
       request.timeoutMs,
     );
