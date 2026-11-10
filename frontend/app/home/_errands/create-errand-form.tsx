@@ -58,6 +58,11 @@ export const EXPIRY_OPTIONS = [
   { minutes: 1440, label: "1 day" },
 ];
 
+const expiryOptions: ComboboxOption<string>[] = EXPIRY_OPTIONS.map((o) => ({
+  value: String(o.minutes),
+  label: o.label,
+}));
+
 export function CreateErrandForm({
   userId,
   suppliers,
@@ -84,7 +89,7 @@ export function CreateErrandForm({
   const [sufficiencyStatus, setSufficiencyStatus] =
     useState<SufficiencyStatus>("unchecked");
   const [confirmedAmount, setConfirmedAmount] = useState<number | null>(null);
-  const [expiryDurationMinutes, setExpiry] = useState(60);
+  const [expiryDurationMinutes, setExpiry] = useState<number | null>(60);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const sufficiencyRequestVersion = useRef(0);
@@ -124,6 +129,14 @@ export function CreateErrandForm({
       })),
     [suppliers],
   );
+  const venueOptions = useMemo<ComboboxOption<string>[]>(
+    () =>
+      venueList.map((v) => ({
+        value: v.id,
+        label: [v.code, v.name, `Level ${v.floor}`].filter(Boolean).join(" · "),
+      })),
+    [venueList],
+  );
   const rewardAmount = parseCreditAmount(rewardCredits);
   const canSubmit =
     !pending &&
@@ -132,6 +145,7 @@ export function CreateErrandForm({
     (location.kind === "venue" || deliveryDetail.trim() !== "") &&
     (location.kind !== "pin" || location.at !== null) &&
     collectionItems.trim() !== "" &&
+    expiryDurationMinutes !== null &&
     sufficiencyStatus === "sufficient" &&
     rewardAmount !== null &&
     confirmedAmount === rewardAmount;
@@ -224,7 +238,7 @@ export function CreateErrandForm({
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!canSubmit || rewardAmount === null) {
+    if (!canSubmit || rewardAmount === null || expiryDurationMinutes === null) {
       setError("Fill in every required field and wait for the credit check.");
       return;
     }
@@ -282,20 +296,12 @@ export function CreateErrandForm({
 
         {building && building.venueCount > 0 && (
           <Field label="Venue">
-            <select
+            <OptionCombobox
+              options={venueOptions}
               value={location.kind === "venue" ? location.id : ""}
-              onChange={(e) =>
-                setLocation(e.target.value ? { kind: "venue", id: e.target.value } : { kind: "building" })
-              }
-              className={`w-full ${inputClass}`}
-            >
-              <option value="">No venue (describe below)</option>
-              {venueList.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {[v.code, v.name, `Level ${v.floor}`].filter(Boolean).join(" · ")}
-                </option>
-              ))}
-            </select>
+              onValueChange={(id) => setLocation(id ? { kind: "venue", id } : { kind: "building" })}
+              placeholder="No venue (describe below)"
+            />
             {pinBuilding && (
               <Button type="button" intent="tinted" size="md" block onClick={chooseOnMap} className="mt-2">
                 <PinIcon size={16} />
@@ -425,17 +431,13 @@ export function CreateErrandForm({
             </span>
           </Field>
           <Field label="Open for">
-            <select
-              value={expiryDurationMinutes}
-              onChange={(e) => setExpiry(Number(e.target.value))}
-              className={`w-full ${inputClass}`}
-            >
-              {EXPIRY_OPTIONS.map((o) => (
-                <option key={o.minutes} value={o.minutes}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+            <OptionCombobox
+              options={expiryOptions}
+              value={expiryDurationMinutes === null ? "" : String(expiryDurationMinutes)}
+              onValueChange={(v) => setExpiry(v === "" ? null : Number(v))}
+              placeholder="Choose a duration…"
+              clearable={false}
+            />
           </Field>
         </div>
       </FormGroup>

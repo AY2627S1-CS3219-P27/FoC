@@ -185,7 +185,7 @@ export function ChatConversation({ chatId }: { chatId: string }) {
   return (
     <section
       aria-labelledby="conversation-heading"
-      className="fade-in mx-auto flex h-dvh min-h-0 max-w-3xl flex-col overflow-hidden bg-background md:h-[calc(100dvh-2rem)] md:rounded-2xl md:bg-surface"
+      className="fade-in mx-auto flex h-dvh min-h-0 max-w-3xl flex-col overflow-hidden bg-background md:h-[calc(100dvh-5rem)] md:rounded-2xl md:border md:border-border md:bg-surface"
     >
       <header className="material-bar bar-edge shrink-0 border-b border-border pt-[env(safe-area-inset-top)]" data-scrolled>
         <div className="flex items-center gap-2 px-2 py-2 md:px-3">

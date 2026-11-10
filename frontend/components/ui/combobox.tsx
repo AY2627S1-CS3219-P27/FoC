@@ -52,6 +52,7 @@ export function OptionCombobox<V extends string>({
   placeholder,
   disabled,
   className,
+  clearable = true,
 }: {
   options: readonly ComboboxOption<V>[];
   /** "" when nothing is chosen yet. */
@@ -60,6 +61,8 @@ export function OptionCombobox<V extends string>({
   placeholder: string;
   disabled?: boolean;
   className?: string;
+  /** Show the clear button. Turn off for fields that must always have a value. */
+  clearable?: boolean;
 }) {
   const [query, setQuery] = React.useState("");
   const hasValue = value !== "";
@@ -87,7 +90,7 @@ export function OptionCombobox<V extends string>({
           placeholder={placeholder}
           autoComplete="off"
         />
-        {hasValue && (
+        {hasValue && clearable && (
           <BaseCombobox.Clear
             aria-label="Clear selection"
             className="absolute top-1/2 right-2 -translate-y-1/2 cursor-pointer rounded-md p-1 text-muted hover:text-foreground"
@@ -95,7 +98,7 @@ export function OptionCombobox<V extends string>({
             <CloseIcon size={15} />
           </BaseCombobox.Clear>
         )}
-        {!hasValue && (
+        {(!hasValue || !clearable) && (
           <ChevronDownIcon
             size={15}
             className="pointer-events-none absolute top-1/2 right-3.5 -translate-y-1/2 text-muted"

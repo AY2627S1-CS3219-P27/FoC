@@ -37,7 +37,7 @@ export function AuthShell({
 
 export function AuthCard({ className, children, ...props }: React.ComponentProps<"form">) {
   return (
-    <form className={clsx("flex flex-col gap-4", className)} {...props}>
+    <form method="post" className={clsx("flex flex-col gap-4", className)} {...props}>
       {children}
     </form>
   );

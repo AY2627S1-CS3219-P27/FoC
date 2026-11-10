@@ -76,11 +76,21 @@ export default function RegisterPage() {
         if (res.ok) goTo("details");
         else setError("That code didn't work. Check it and try again.");
       } else {
+        const password = form.get("password");
         const res = await post("/api/auth/register", {
           displayName: form.get("displayName"),
-          password: form.get("password"),
+          password,
         });
-        if (res.ok) return router.push("/login");
+        if (res.ok) {
+          // Register issues no session, so sign in with the same credentials.
+          // If that fails the account still exists; fall back to the login page.
+          try {
+            const login = await post("/api/auth/login", { email, password });
+            return router.push(login.ok ? "/home" : "/login");
+          } catch {
+            return router.push("/login");
+          }
+        }
         setError(
           res.status === 409
             ? "Email is already registered."

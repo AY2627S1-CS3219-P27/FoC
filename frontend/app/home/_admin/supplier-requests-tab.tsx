@@ -116,18 +116,15 @@ export function SupplierRequestsTab({
         <FilterSelect
           label="Request type"
           value={type}
-          onChange={(e) => {
+          onValueChange={(v) => {
             setLoading(true);
-            setType(e.target.value as "" | RequestType);
+            setType(v as "" | RequestType);
           }}
-        >
-          <option value="">All types</option>
-          {(Object.keys(TYPE_LABELS) as RequestType[]).map((t) => (
-            <option key={t} value={t}>
-              {TYPE_LABELS[t]}
-            </option>
-          ))}
-        </FilterSelect>
+          options={[
+            { value: "", label: "All types" },
+            ...(Object.keys(TYPE_LABELS) as RequestType[]).map((t) => ({ value: t, label: TYPE_LABELS[t] })),
+          ]}
+        />
       </div>
 
       {loading ? (
