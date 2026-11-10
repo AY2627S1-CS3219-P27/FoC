@@ -1,8 +1,8 @@
 import {
   ORDER_COURIER_CANCELLED_V1_ROUTING_KEY,
   ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY,
-  ORDER_ERRAND_COMPLETED_V1_ROUTING_KEY,
   ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
+  ORDER_ERRAND_UPDATE_V1_ROUTING_KEY,
   ORDER_REQUESTER_EDIT_FAILED_V1_ROUTING_KEY,
   ORDER_REQUESTER_ERRAND_CANCELLED_V1_ROUTING_KEY,
   type DomainEventHandlers,
@@ -10,8 +10,8 @@ import {
 import type { DispatchService } from './dispatch.service.js';
 import { dispatchCourierCancelled } from './dispatchers/courier-cancelled.dispatcher.js';
 import { dispatchErrandAccepted } from './dispatchers/errand-accepted.dispatcher.js';
-import { dispatchErrandCompleted } from './dispatchers/errand-completed.dispatcher.js';
 import { dispatchErrandDelivered } from './dispatchers/errand-delivered.dispatcher.js';
+import { dispatchErrandUpdate } from './dispatchers/errand-update.dispatcher.js';
 import { dispatchRequesterEditFailed } from './dispatchers/requester-edit-failed.dispatcher.js';
 import { dispatchRequesterErrandCancelled } from './dispatchers/requester-errand-cancelled.dispatcher.js';
 
@@ -32,8 +32,9 @@ export function createDispatchHandlers(
       dispatchErrandAccepted(event, dispatch),
     [ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY]: (event) =>
       dispatchErrandDelivered(event, dispatch),
-    [ORDER_ERRAND_COMPLETED_V1_ROUTING_KEY]: (event) =>
-      dispatchErrandCompleted(event, dispatch),
+    // order.errand-completed.v1 is credit's transfer request; the "settled" push comes from the update on CreditTransferSucceeded.
+    [ORDER_ERRAND_UPDATE_V1_ROUTING_KEY]: (event) =>
+      dispatchErrandUpdate(event, dispatch),
     [ORDER_COURIER_CANCELLED_V1_ROUTING_KEY]: (event) =>
       dispatchCourierCancelled(event, dispatch),
     [ORDER_REQUESTER_ERRAND_CANCELLED_V1_ROUTING_KEY]: (event) =>
