@@ -10,6 +10,8 @@ The current HTTP surface exposes:
 - `GET /health/ready` for PostgreSQL, RabbitMQ, the command Redis client, and
   both Socket.IO adapter Redis connections;
 - `GET /v1/chats` for the authenticated participant's active/grace chats;
+- `GET /v1/chats/:chatId` for one participant-owned active/grace chat (404
+  `CHAT_NOT_FOUND` for absent, archived, or unauthorized IDs);
 - `GET /v1/chats/:chatId/messages` for participant-only cursor-paginated
   history, with an optional `direction=forward|backward` query;
 - `GET /v1/chats/archives` for the authenticated participant's immutable

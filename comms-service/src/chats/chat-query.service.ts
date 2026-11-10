@@ -168,23 +168,7 @@ function validatedSnapshot(row: ArchiveDetailRow): ChatArchiveSnapshot {
   return snapshot as unknown as ChatArchiveSnapshot;
 }
 
-@Injectable()
-export class ChatQueryService {
-  constructor(
-    @InjectDataSource() private readonly dataSource: DataSource,
-    private readonly cursors: ChatCursorCodec,
-  ) {}
-
-  async list(
-    callerId: string,
-    cursorValue: string | undefined,
-    limit: number,
-  ): Promise<ChatListResponseDto> {
-    const cursor = cursorValue
-      ? this.cursors.decodeChat(cursorValue)
-      : undefined;
-    const rows = await this.dataSource.query<ChatRow[]>(
-      `SELECT c.id AS chat_id,
+const CHAT_VIEW_SELECT = `SELECT c.id AS chat_id,
               c.errand_id,
               c.requester_user_id,
               c.courier_user_id,
@@ -216,7 +200,50 @@ export class ChatQueryService {
             WHERE m.chat_id = c.id
             ORDER BY m.sequence DESC
             LIMIT 1
-         ) latest ON true
+         ) latest ON true`;
+
+function chatView(row: ChatRow): ChatViewDto {
+  return {
+    chatId: row.chat_id,
+    errandId: row.errand_id,
+    requesterUserId: row.requester_user_id,
+    courierUserId: row.courier_user_id,
+    state: row.state,
+    closesAt: row.closes_at === null ? null : iso(row.closes_at),
+    closeReason: row.close_reason,
+    updatedAt: iso(row.updated_at),
+    lastMessage:
+      row.message_id === null
+        ? null
+        : messageView({
+            message_id: row.message_id,
+            sequence: row.sequence!,
+            sender_id: row.sender_id!,
+            content: row.content!,
+            committed_at: row.committed_at!,
+            read_at: row.read_at,
+          }),
+    unread: row.unread,
+  };
+}
+
+@Injectable()
+export class ChatQueryService {
+  constructor(
+    @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly cursors: ChatCursorCodec,
+  ) {}
+
+  async list(
+    callerId: string,
+    cursorValue: string | undefined,
+    limit: number,
+  ): Promise<ChatListResponseDto> {
+    const cursor = cursorValue
+      ? this.cursors.decodeChat(cursorValue)
+      : undefined;
+    const rows = await this.dataSource.query<ChatRow[]>(
+      `${CHAT_VIEW_SELECT}
         WHERE (c.requester_user_id = $1::uuid OR c.courier_user_id = $1::uuid)
           AND c.state IN ('ACTIVE', 'GRACE')
           AND ($2::timestamptz IS NULL OR (c.updated_at, c.id) < ($2::timestamptz, $3::uuid))
@@ -227,28 +254,7 @@ export class ChatQueryService {
 
     const hasMore = rows.length > limit;
     const page = rows.slice(0, limit);
-    const items = page.map((row): ChatViewDto => ({
-      chatId: row.chat_id,
-      errandId: row.errand_id,
-      requesterUserId: row.requester_user_id,
-      courierUserId: row.courier_user_id,
-      state: row.state,
-      closesAt: row.closes_at === null ? null : iso(row.closes_at),
-      closeReason: row.close_reason,
-      updatedAt: iso(row.updated_at),
-      lastMessage:
-        row.message_id === null
-          ? null
-          : messageView({
-              message_id: row.message_id,
-              sequence: row.sequence!,
-              sender_id: row.sender_id!,
-              content: row.content!,
-              committed_at: row.committed_at!,
-              read_at: row.read_at,
-            }),
-      unread: row.unread,
-    }));
+    const items = page.map(chatView);
     const last = page.at(-1);
     return {
       items,
@@ -258,6 +264,24 @@ export class ChatQueryService {
           ? this.cursors.encodeChat(last.cursor_updated_at, last.chat_id)
           : null,
     };
+  }
+
+  async get(callerId: string, chatId: string): Promise<ChatViewDto> {
+    const rows = await this.dataSource.query<ChatRow[]>(
+      `${CHAT_VIEW_SELECT}
+        WHERE c.id = $2::uuid
+          AND (c.requester_user_id = $1::uuid OR c.courier_user_id = $1::uuid)
+          AND c.state IN ('ACTIVE', 'GRACE')`,
+      [callerId, chatId],
+    );
+    const row = rows[0];
+    if (!row) {
+      throw new NotFoundException({
+        code: 'CHAT_NOT_FOUND',
+        message: 'Chat not found',
+      });
+    }
+    return chatView(row);
   }
 
   async history(

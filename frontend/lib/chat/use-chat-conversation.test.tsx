@@ -1,4 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { StrictMode, useEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useChatConversation } from "./use-chat-conversation";
 
@@ -114,6 +115,34 @@ describe("useChatConversation", () => {
     expect(result.current.state.archived?.archiveId).toBe("55555555-5555-4555-8555-555555555555");
     expect(socket.connected).toBe(false);
     unmount();
+  });
+
+  it("loads participant details after a StrictMode remount without waiting for a later trigger", async () => {
+    const errandId = "66666666-6666-4666-8666-666666666666";
+    const counterpart = "77777777-7777-4777-8777-777777777777";
+    mocks.findLiveChatById.mockResolvedValue({
+      chatId,
+      errandId,
+      requesterUserId: callerId,
+      courierUserId: counterpart,
+      state: "ACTIVE",
+      closesAt: null,
+      closeReason: null,
+    });
+    const { result } = renderHook(
+      () => {
+        const conversation = useChatConversation(chatId, callerId, "/socket.io");
+        const { recoverArchive } = conversation;
+        useEffect(() => {
+          void recoverArchive();
+        }, [recoverArchive]);
+        return conversation;
+      },
+      { wrapper: StrictMode },
+    );
+    await waitFor(() => expect(result.current.state.errandId).toBe(errandId));
+    expect(result.current.state.counterpartUserId).toBe(counterpart);
+    expect(result.current.state.participantRole).toBe("REQUESTER");
   });
 
   it("shows offline instead of reconnecting when the server drops the connection", async () => {

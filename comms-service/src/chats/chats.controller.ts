@@ -29,6 +29,7 @@ import {
   ArchiveDetailDto,
   ArchiveListResponseDto,
   ChatListResponseDto,
+  ChatViewDto,
   CursorPageQueryDto,
   MessageHistoryQueryDto,
   MessageHistoryResponseDto,
@@ -93,6 +94,26 @@ export class ChatsController {
     @Param('archiveId', new ParseUUIDPipe({ version: '4' })) archiveId: string,
   ): Promise<ArchiveDetailDto> {
     return this.chats.archiveDetail(request.user.sub, archiveId);
+  }
+
+  // Declared after the literal `archives` routes so `archives` is never read as a chat ID.
+  @Get(':chatId')
+  @ApiOperation({
+    summary: 'Read one of the authenticated participant’s live chats',
+    description:
+      'Unknown, archived, and unauthorized chat IDs share the same not-found response.',
+  })
+  @ApiOkResponse({ type: ChatViewDto })
+  @ApiNotFoundResponse({
+    description: 'The live chat is absent or the caller is not a participant.',
+    type: ApiErrorResponseDto,
+    example: { code: 'CHAT_NOT_FOUND', message: 'Chat not found' },
+  })
+  get(
+    @Req() request: AuthenticatedRequest,
+    @Param('chatId', new ParseUUIDPipe({ version: '4' })) chatId: string,
+  ): Promise<ChatViewDto> {
+    return this.chats.get(request.user.sub, chatId);
   }
 
   @Get(':chatId/messages')
