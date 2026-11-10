@@ -87,6 +87,8 @@ chmod 700 email-service/secrets
 printf unused >email-service/secrets/smtp_password.secret
 
 # Plaintext passwords are hashed by RabbitMQ on import; guest and its admin rights are dropped.
+mkdir -p rabbitmq/secrets
+chmod 700 rabbitmq/secrets
 jq --argjson params "$params" '
   ($params | map({key: .name, value: .value}) | from_entries) as $ssm
   | .permissions |= map(select(.user != "guest"))
@@ -98,7 +100,7 @@ jq --argjson params "$params" '
       | del(.password_hash, .hashing_algorithm)
       | .password = $password
     )
-' rabbitmq/definitions.json >rabbitmq/definitions.prod.secret
-chmod 644 rabbitmq/definitions.prod.secret
+' rabbitmq/definitions.json >rabbitmq/secrets/definitions.prod.secret
+chmod 644 rabbitmq/secrets/definitions.prod.secret
 
 echo "Rendered config for $public_url"

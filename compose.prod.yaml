@@ -72,7 +72,7 @@ services:
     restart: unless-stopped
     volumes:
       # Same target as compose.yaml, so this replaces the file with dev password hashes.
-      - ./rabbitmq/definitions.prod.secret:/etc/rabbitmq/definitions.json:ro
+      - ./rabbitmq/secrets/definitions.prod.secret:/etc/rabbitmq/definitions.json:ro
 
   redis:
     restart: unless-stopped
