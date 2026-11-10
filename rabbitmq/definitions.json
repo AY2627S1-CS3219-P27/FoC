@@ -30,7 +30,7 @@
     },
     {
       "configure": "^(foc\\.credit\\.(retry|back|dlx)|credit-service\\..+)$",
-      "read": "^(foc\\.events|foc\\.credit\\.(retry|back|dlx)|credit-service\\..+)$",
+      "read": "^(foc\\.(events|pubsub)|foc\\.credit\\.(retry|back|dlx)|credit-service\\..+)$",
       "user": "credit-service",
       "vhost": "/foc",
       "write": "^(foc\\.events|foc\\.credit\\.(retry|back|dlx)|credit-service\\..+)$"
@@ -224,14 +224,6 @@
       "arguments": { "x-queue-type": "quorum" },
       "auto_delete": false,
       "durable": true,
-      "name": "credit-service.user-registered.v1",
-      "type": "quorum",
-      "vhost": "/foc"
-    },
-    {
-      "arguments": { "x-queue-type": "quorum" },
-      "auto_delete": false,
-      "durable": true,
       "name": "credit-service.credit-reservation.v1",
       "type": "quorum",
       "vhost": "/foc"
@@ -256,15 +248,7 @@
       "arguments": { "x-queue-type": "quorum" },
       "auto_delete": false,
       "durable": true,
-      "name": "credit-service.order-errand-completed.v1",
-      "type": "quorum",
-      "vhost": "/foc"
-    },
-    {
-      "arguments": { "x-queue-type": "quorum" },
-      "auto_delete": false,
-      "durable": true,
-      "name": "credit-service.order-errand-cancelled.v1",
+      "name": "credit-service.events",
       "type": "quorum",
       "vhost": "/foc"
     },
@@ -450,14 +434,6 @@
     },
     {
       "arguments": {},
-      "destination": "credit-service.user-registered.v1",
-      "destination_type": "queue",
-      "routing_key": "user.registered.v1",
-      "source": "foc.events",
-      "vhost": "/foc"
-    },
-    {
-      "arguments": {},
       "destination": "credit-service.credit-reservation.v1",
       "destination_type": "queue",
       "routing_key": "credit.reservation.v1",
@@ -477,22 +453,6 @@
       "destination": "credit-service.credit-settlement.v1",
       "destination_type": "queue",
       "routing_key": "credit.settlement.v1",
-      "source": "foc.events",
-      "vhost": "/foc"
-    },
-    {
-      "arguments": {},
-      "destination": "credit-service.order-errand-completed.v1",
-      "destination_type": "queue",
-      "routing_key": "order.errand-completed.v1",
-      "source": "foc.events",
-      "vhost": "/foc"
-    },
-    {
-      "arguments": {},
-      "destination": "credit-service.order-errand-cancelled.v1",
-      "destination_type": "queue",
-      "routing_key": "order.errand-cancelled.v1",
       "source": "foc.events",
       "vhost": "/foc"
     },
@@ -798,6 +758,30 @@
       "destination_type": "exchange",
       "routing_key": "order.requester-errand-cancelled.v1",
       "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "credit-service.events",
+      "destination_type": "queue",
+      "routing_key": "user.registered.v1",
+      "source": "foc.pubsub",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "credit-service.events",
+      "destination_type": "queue",
+      "routing_key": "order.errand-completed.v1",
+      "source": "foc.pubsub",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "credit-service.events",
+      "destination_type": "queue",
+      "routing_key": "order.errand-cancelled.v1",
+      "source": "foc.pubsub",
       "vhost": "/foc"
     },
     {
