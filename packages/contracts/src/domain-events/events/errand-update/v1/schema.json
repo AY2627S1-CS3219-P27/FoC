@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://foc.local/schemas/errand-update.v1.schema.json",
+  "title": "ErrandUpdateV1",
+  "allOf": [
+    {
+      "$ref": "https://foc.local/schemas/event-envelope.v1.schema.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "const": "ErrandUpdate"
+        },
+        "publisher": {
+          "const": "order-service"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "errandId",
+            "requesterUserId",
+            "courierUserId",
+            "kind"
+          ],
+          "properties": {
+            "errandId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "requesterUserId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "courierUserId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "PICKED_UP",
+                "CANCELLED",
+                "MARKED_INCOMPLETE",
+                "TRANSFER_SETTLED",
+                "TRANSFER_FAILED",
+                "DISPUTE_RESOLVED"
+              ]
+            },
+            "courierAmount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "requesterAmount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "note": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

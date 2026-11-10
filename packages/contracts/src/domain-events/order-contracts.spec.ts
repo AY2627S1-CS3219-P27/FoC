@@ -10,6 +10,7 @@ import { CREDIT_RELEASE_SUCCESS_V1_ROUTING_KEY } from './events/credit-release-s
 import type { CreditTransferRejectionReason } from './events/credit-transfer-rejected/v1/contract.js';
 import { ORDER_COURIER_CANCELLED_V1_ROUTING_KEY } from './events/courier-cancelled/v1/contract.js';
 import { ORDER_REQUESTER_ERRAND_CANCELLED_V1_ROUTING_KEY } from './events/requester-errand-cancelled/v1/contract.js';
+import { ORDER_ERRAND_UPDATE_V1_ROUTING_KEY } from './events/errand-update/v1/contract.js';
 import { ORDER_REQUESTER_EDIT_FAILED_V1_ROUTING_KEY } from './events/requester-edit-failed/v1/contract.js';
 import { ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY } from './events/errand-accepted/v1/contract.js';
 import { ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY } from './events/errand-delivered/v1/contract.js';
@@ -116,6 +117,18 @@ const validContracts = [
       requesterUserId: id(),
       step: 'supplier',
       reason: 'INACTIVE',
+    }),
+  ],
+  [
+    ORDER_ERRAND_UPDATE_V1_ROUTING_KEY,
+    envelope('ErrandUpdate', 'order-service', {
+      errandId: id(),
+      requesterUserId: id(),
+      courierUserId: id(),
+      kind: 'DISPUTE_RESOLVED',
+      courierAmount: 3,
+      requesterAmount: 7,
+      note: 'Split',
     }),
   ],
 ] as const satisfies ReadonlyArray<readonly [EventContractKey, object]>;
