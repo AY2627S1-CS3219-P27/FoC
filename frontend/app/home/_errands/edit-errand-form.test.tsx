@@ -125,13 +125,13 @@ describe("EditErrandForm", () => {
     expect(screen.getByText(/removes any venue or pin/)).toBeInTheDocument();
   });
 
-  it("explains and blocks a reward and supplier change together", async () => {
+  it("allows a reward and supplier change together", async () => {
     const { user } = setup();
     await user.selectOptions(screen.getByLabelText("Pickup from"), "s2");
     await user.clear(screen.getByLabelText(/Credits offered/));
     await user.type(screen.getByLabelText(/Credits offered/), "9");
-    expect(screen.getByText(/separate edits/)).toBeInTheDocument();
-    expect(save()).toBeDisabled();
+    expect(screen.queryByText(/separate edits/)).not.toBeInTheDocument();
+    expect(save()).toBeEnabled();
   });
 
   it("shows the server's refusal and stays open", async () => {

@@ -72,9 +72,6 @@ export function editProblem(initial: EditValues, values: EditValues): string | n
   if (body.deliveryBuildingId && noDetail) {
     return "Add a room or level, since changing the building removes the venue.";
   }
-  if (body.rewardCredits !== undefined && (body.supplierId || body.deliveryBuildingId)) {
-    return "Change the reward and the supplier or building in separate edits.";
-  }
   return Object.keys(body).length === 0 ? NOTHING_CHANGED : null;
 }
 
