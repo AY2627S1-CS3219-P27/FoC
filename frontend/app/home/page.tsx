@@ -179,14 +179,20 @@ function Home() {
     setCategories(Array.isArray(c) ? c : []);
   }, []);
 
-  useEffect(() => {
-    authFetch("/api/buildings")
+  const loadBuildings = useCallback(async () => {
+    const b = await authFetch("/api/buildings")
       .then((r) => r.json())
-      .catch(() => [])
-      .then((b) => setBuildings(Array.isArray(b) ? b : []));
-    const timer = setTimeout(() => void loadCategories(), 0);
+      .catch(() => []);
+    setBuildings(Array.isArray(b) ? b : []);
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void loadBuildings();
+      void loadCategories();
+    }, 0);
     return () => clearTimeout(timer);
-  }, [loadCategories]);
+  }, [loadBuildings, loadCategories]);
 
   async function saveProfile(displayName: string, pictureUrl: string): Promise<boolean> {
     const trimmedUrl = pictureUrl.trim();
@@ -332,6 +338,7 @@ function Home() {
             setFilterKind={setFilterKind}
             isAdmin={isAdmin}
             onSuppliersChanged={loadSuppliers}
+            onBuildingsChanged={loadBuildings}
             onCategoriesChanged={loadCategories}
             footer={
               <LoadMore

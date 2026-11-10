@@ -9,6 +9,7 @@ import { FilterSelect } from "@/components/ui/field";
 import { BuildingIcon, FlagIcon, PlusIcon, SearchIcon, StoreIcon } from "@/components/ui/icons";
 import { EmptyState, IconTile, List, ListRow, PageHeader, Pill, Section, SkeletonList } from "@/components/ui/layout";
 import { Sheet } from "@/components/ui/sheet";
+import { BuildingsPanel } from "../_admin/buildings-panel";
 import { CategoriesPanel } from "../_admin/categories-panel";
 import { SupplierStatusControl } from "../_admin/supplier-status-control";
 import type { BuildingItem, CategoryItem, SupplierItem } from "../_shared/types";
@@ -32,10 +33,11 @@ function KindTile({ kind, size = 30 }: { kind: string; size?: number }) {
   );
 }
 
-type Panel = "add" | "categories" | "suggest" | "mine";
+type Panel = "add" | "buildings" | "categories" | "suggest" | "mine";
 
 const PANEL_TITLES: Record<Panel, string> = {
   add: "Add supplier",
+  buildings: "Buildings",
   categories: "Categories",
   suggest: "Suggest a supplier",
   mine: "My requests",
@@ -54,6 +56,7 @@ export function SuppliersTab({
   setFilterKind,
   isAdmin,
   onSuppliersChanged,
+  onBuildingsChanged,
   onCategoriesChanged,
   footer,
 }: {
@@ -69,6 +72,7 @@ export function SuppliersTab({
   setFilterKind: (v: string) => void;
   isAdmin: boolean;
   onSuppliersChanged: () => void;
+  onBuildingsChanged: () => void;
   onCategoriesChanged: () => void;
   footer: React.ReactNode;
 }) {
@@ -88,6 +92,9 @@ export function SuppliersTab({
             <>
               <Button intent="outline" size="sm" onClick={() => setPanel("categories")}>
                 Categories
+              </Button>
+              <Button intent="outline" size="sm" onClick={() => setPanel("buildings")}>
+                Buildings
               </Button>
               <Button size="sm" onClick={() => setPanel("add")}>
                 <PlusIcon size={15} strokeWidth={2.5} />
@@ -216,10 +223,16 @@ export function SuppliersTab({
       )}
 
       {panel && (
-        <Sheet title={PANEL_TITLES[panel]} wide={panel === "categories"} onClose={() => setPanel(null)}>
+        <Sheet
+          title={PANEL_TITLES[panel]}
+          wide={panel === "categories" || panel === "buildings"}
+          onClose={() => setPanel(null)}
+        >
           {(close) =>
             panel === "categories" ? (
               <CategoriesPanel categories={categories} onAdded={onCategoriesChanged} />
+            ) : panel === "buildings" ? (
+              <BuildingsPanel buildings={buildings} onChanged={onBuildingsChanged} />
             ) : panel === "mine" ? (
               <MyRequests
                 reloadKey={requestsVersion}
