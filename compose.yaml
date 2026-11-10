@@ -222,6 +222,8 @@ services:
         condition: service_started
       notification-service:
         condition: service_started
+      rag-service:
+        condition: service_started
 
   papercut:
     networks: [internal, ops]

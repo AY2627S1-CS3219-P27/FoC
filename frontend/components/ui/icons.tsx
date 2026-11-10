@@ -168,6 +168,13 @@ export const ChatIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const QuestionIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M9.5 9.5a2.5 2.5 0 1 1 3.9 2.1c-.9.6-1.4 1.1-1.4 2.1M12 17h.01" />
+  </Icon>
+);
+
 export const ArchiveBoxIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M4 7h16v3H4zM5.5 10v8a1.5 1.5 0 0 0 1.5 1.5h10a1.5 1.5 0 0 0 1.5-1.5v-8M10 14h4" />
