@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://foc.local/schemas/requester-edit-failed.v1.schema.json",
+  "title": "RequesterEditFailedV1",
+  "allOf": [
+    {
+      "$ref": "https://foc.local/schemas/event-envelope.v1.schema.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "const": "RequesterEditFailed"
+        },
+        "publisher": {
+          "const": "order-service"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "errandId",
+            "requesterUserId",
+            "step",
+            "reason"
+          ],
+          "properties": {
+            "errandId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "requesterUserId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "step": {
+              "type": "string",
+              "enum": [
+                "supplier",
+                "credit"
+              ]
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "NOT_FOUND",
+                "INACTIVE",
+                "BUILDING_NOT_FOUND",
+                "VENUE_NOT_FOUND",
+                "TIMEOUT",
+                "INSUFFICIENT_CREDITS",
+                "RESERVATION_NOT_FOUND",
+                "STALE_RESERVATION_AMOUNT"
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+}

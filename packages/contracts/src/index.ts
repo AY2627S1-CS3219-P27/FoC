@@ -34,6 +34,7 @@ export type {
   CreditTransferSucceededEvent,
   CourierCancelledEvent,
   RequesterErrandCancelledEvent,
+  RequesterEditFailedEvent,
   ErrandAcceptedEvent,
   ErrandCancelledEvent,
   ErrandCompletedEvent,
@@ -102,6 +103,11 @@ export {
   requesterErrandCancelledV1Contract,
 } from './domain-events/events/requester-errand-cancelled/v1/contract.js';
 export type { RequesterErrandCancelledPayload, SystemCancellationReason } from './domain-events/events/requester-errand-cancelled/v1/contract.js';
+export {
+  ORDER_REQUESTER_EDIT_FAILED_V1_ROUTING_KEY,
+  requesterEditFailedV1Contract,
+} from './domain-events/events/requester-edit-failed/v1/contract.js';
+export type { EditFailedReason, EditFailedStep, RequesterEditFailedPayload } from './domain-events/events/requester-edit-failed/v1/contract.js';
 export {
   ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY,
   errandAcceptedV1Contract,
