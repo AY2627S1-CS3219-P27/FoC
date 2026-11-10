@@ -1,5 +1,8 @@
 # FoC — AI Usage Log
 
+Here contains the explict and summarized verisons of Group 27 members AI usage across the project.
+
+# Arjun
 OpenCode conversations run in `/home/arjun/Documents/Projects/FoC`, in
 chronological order. **Participant:** Arjun (sole human user).
 
@@ -3641,3 +3644,41 @@ _Session `ses_e39f1e322ffeNzVAbcz4mJIuNU` · started 23:22_
 ### 23:34 · Arjun
 
 > go
+
+
+# Thaddaeus
+
+Codex conversations run in `C:\Users\razerblade\Documents\NUS\Y3S1\CS3219\Project-related\FoC`.
+
+**Participant:** Thaddaeus (sole human user).
+
+**Sessions:** 23 · **Prompts:** 334 · **Unique files touched:** 443
+
+Chat summaries are condensed from the prompts. Prompt counts include only messages typed by the user; injected context, system messages and Codex's automatic "Guardian review" approval sessions are omitted, as are miscellaneous chats unrelated to implementation work. Files touched are those added, edited or deleted through Codex's recorded file-change events, counted once even if several chats changed them. Timestamps are UTC and show the last activity recorded in each session.
+
+|Summarized chat title|Chat convo summary|Timestamp of last message (UTC)|Usage scenario|
+|---|---|---|---|
+|Implement credit-service Sprint 1|Directed Codex to implement the user's Sprint 1 plan for credit-service step by step, showing the code before writing it.|2026-09-21 12:50| Implementation, Documentation|
+|Package event contract schemas|After merging main (PR #596), updated ADR 0001 and moved the domain-event contracts into `@foc/contracts`. Then implemented a follow-up refactor into a typed registry.|2026-09-26 15:11|Refactor, ADR update|
+|Implement credit-service HTTP and OpenAPI infrastructure|Implemented the HTTP and OpenAPI infrastructure with no commit so the work could be reviewed.|2026-10-07 15:39|Implementation, Documentation|
+|Implement protected credit APIs|Implemented the "document API and auth decisions" step of the protected read APIs plan, without committing so the work could be reviewed first.|2026-10-07 16:25|Implementation, Documentation|
+|Implement errand events|Implemented consuming ErrandCancelled and the transactional outbox. Ended with a fix for a stale `credit-service/package-lock.json` that broke CI. About 36 prompts.|2026-10-14 08:52|Implementation, CI fix, Documentation|
+|Check frontend balance usage|Checked whether the frontend uses the credit-service GET balance endpoint and worked on adding it if not.|2026-10-20 13:18|Implementation, debugging|
+|Implement credit release|Implemented credit release (`features/563-credit-release`). Further fixes were left for later.|2026-10-20 13:18|Implementation, Documentation|
+|Add credit transfer failure state|Added a failure state to credit transfer, which only had success and rejected. Ended with implementing reservation as the first use of a reusable durable credit-operation workflow.|2026-10-21 01:59|Implementation, Documentation|
+|Implement credit reservation and adjustment|Implemented credit reservation and adjustment. Ended with making the integration tests more realistic and deterministic. About 49 prompts.|2026-10-21 02:00|Implementation, tests, Documentation|
+|Implement credit sufficiency validation|Connected `POST /api/credits/sufficiency` to errand creation, so the create button is disabled when credits are insufficient.|2026-10-21 06:42|Implementation, frontend, Documentation|
+|Check credit adjustment refund bug|Verified a bug report: cancelling or expiring an errand whose reward was adjusted does not refund correctly. Ended with a fix for the release amount.|2026-10-21 10:27|Bug triage, fix|
+|Explain credit service transactions|How serializable transactions work in credit-service.|2026-10-22 03:19|Learning|
+|Investigate RabbitMQ connection bug|Diagnosed why `event:publish:user-registered` failed. Concluded the branch should restore the exposed port for credit fixtures.|2026-10-22 04:05|Debugging|
+|Fix RabbitMQ access refusal|Asked for the updated command to bypass the access refusal on `event:publish:user-registered`.|2026-10-22 09:07|Debugging|
+|Write comms-service implementation roadmap|Fed Codex the pre-planned comms-service requirements & tech stack, and had it write them into a roadmap document by ordering the tasks into delivery stages. its contribution was the task ordering. About 45 prompts.|2026-11-04 02:38|Documentation, implementation|
+|Fix stack CI startup error|Fixed a CI failure from a pasted docker compose log. The cause was `SOCKET_PATH` validation in comms-service.|2026-11-03 09:00|CI debugging|
+|Review credit service contracts|Quick review of only the new contracts added and their schemas.|2026-11-03 11:18|Code review|
+|Implement comms-service conversation creation and authenticated APIs|Implemented conversation creation and authenticated APIs. About 45 prompts.|2026-11-05 13:04|Implementation, Documentation|
+|Implement comms-service realtime messaging and read receipts|Implemented realtime messaging and read receipts. About 27 prompts.|2026-11-05 17:37|Implementation, Documentation|
+|Implement credit transaction history|Implemented the credit transaction history endpoint (issues #580-582, pagination NFRs).|2026-11-05 18:59|Implementation, Documentation|
+|Implement comms-service grace periods and immutable archiving|Implemented grace periods and immutable archiving.|2026-11-06 06:48|Implementation, Documentation|
+|Implement credit settlement handling|Made credit-service consume `credit-settlement` events, with the business logic flow documented.|2026-11-06 18:01|Implementation, Documentation|
+|Implement comms-service frontend, verification and documentation|Implemented the comms-service frontend, verification and documentation.|2026-11-07 04:56|Implementation, frontend, Documentation|
+|Updating AI usage logs|Updated AI Logs with summarized details of entire codex history|2026-11-10 18:24|Documentation|
