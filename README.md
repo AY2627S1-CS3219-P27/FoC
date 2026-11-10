@@ -14,11 +14,11 @@ money, and only circulate within the platform.
 
 | Name      | Role           |
 | --------- | -------------- |
-| Your Name | Your ownership |
-| Your Name | Your ownership |
-| Your Name | Your ownership |
-| Your Name | Your ownership |
-| Your Name | Your ownership |
+| Arjun | Implemented User Service, Email Service, and Notification Service. Set up Observability. |
+| Anthony| Implemented Supplier Service, and the RAG Chatbot Service.|
+| Zhen Ting| Implemented Order Service, as well as Order Service Enhancements|
+| Jiong Rui | Implemented Order Service, and did Cloud Deployment.|
+| Thaddaeus | Implemented Credit Service and Real Time Chat.|
 
 ---
 
