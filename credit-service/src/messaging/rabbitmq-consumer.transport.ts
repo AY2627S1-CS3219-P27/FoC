@@ -29,7 +29,10 @@ const MAX_RETRY_COUNT = 5;
 const MAX_FAILURE_REASON_LENGTH = 512;
 const MAX_AMQP_SHORT_STRING_BYTES = 255;
 
+const ORIGINAL_ROUTING_KEY_HEADER = 'x-original-routing-key';
+
 const TRANSPORT_HEADERS = new Set([
+  ORIGINAL_ROUTING_KEY_HEADER,
   'x-retry-count',
   'x-event-id',
   'x-failure-category',
@@ -53,7 +56,9 @@ interface SharedTopology {
   prefetch: number;
 }
 
-interface ResolvedSubscription extends Subscription {
+interface ResolvedSubscription extends Omit<Subscription, 'routingKey'> {
+  routingKeys: readonly string[];
+  bindExchange: string;
   deadLetterQueue: string;
 }
 
@@ -263,7 +268,19 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
     subscription: Subscription,
   ): ResolvedSubscription {
     this.assertNonEmptyName(subscription.queue, 'queue');
-    this.assertNonEmptyName(subscription.routingKey, 'routing key');
+    const routingKeys =
+      typeof subscription.routingKey === 'string'
+        ? [subscription.routingKey]
+        : [...subscription.routingKey];
+    if (routingKeys.length === 0) {
+      throw new Error('RabbitMQ subscription routing key must be non-empty');
+    }
+    for (const routingKey of routingKeys) {
+      this.assertNonEmptyName(routingKey, 'routing key');
+    }
+    if (subscription.exchange !== undefined) {
+      this.assertNonEmptyName(subscription.exchange, 'exchange');
+    }
     if (subscription.deadLetterQueue !== undefined) {
       this.assertNonEmptyName(
         subscription.deadLetterQueue,
@@ -276,8 +293,11 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       );
     }
 
+    const { routingKey: _routingKey, ...rest } = subscription;
     return Object.freeze({
-      ...subscription,
+      ...rest,
+      routingKeys: Object.freeze([...new Set(routingKeys)]),
+      bindExchange: subscription.exchange ?? this.topology.domainExchange,
       deadLetterQueue:
         subscription.deadLetterQueue ?? `${subscription.queue}.dlq`,
     });
@@ -496,12 +516,22 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
     channel: Channel,
     subscription: ResolvedSubscription,
   ): Promise<void> {
-    await channel.assertQueue(subscription.queue, { durable: true, arguments: { 'x-queue-type': 'quorum' } });
-    await channel.bindQueue(
-      subscription.queue,
-      this.topology.domainExchange,
-      subscription.routingKey,
-    );
+    await channel.assertQueue(subscription.queue, {
+      durable: true,
+      arguments: { 'x-queue-type': 'quorum' },
+    });
+    if (subscription.bindExchange !== this.topology.domainExchange) {
+      // Like the domain exchange, other source exchanges belong to the root
+      // broker definitions. A passive check fails fast without creating one.
+      await channel.checkExchange(subscription.bindExchange);
+    }
+    for (const routingKey of subscription.routingKeys) {
+      await channel.bindQueue(
+        subscription.queue,
+        subscription.bindExchange,
+        routingKey,
+      );
+    }
     // Returned retries use queue identity, not the shared domain key. This
     // guarantees that one stream's retry cannot fan out to sibling queues.
     await channel.bindQueue(
@@ -528,7 +558,10 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
       );
     }
 
-    await channel.assertQueue(subscription.deadLetterQueue, { durable: true, arguments: { 'x-queue-type': 'quorum' } });
+    await channel.assertQueue(subscription.deadLetterQueue, {
+      durable: true,
+      arguments: { 'x-queue-type': 'quorum' },
+    });
     await channel.bindQueue(
       subscription.deadLetterQueue,
       this.topology.deadLetterExchange,
@@ -591,14 +624,22 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
 
     // RabbitMQ exposes the exchange and routing key used for the latest route.
     // The retry header selects which physical route is valid for this attempt.
+    // Exchange-to-exchange routing keeps the exchange of the original publish,
+    // so a delivery that reached a pub/sub queue via foc.events still reports
+    // the domain exchange; the queue's own bindings enforce the pub/sub hop.
+    const initialRoutingKey = message.fields.routingKey;
+    const retryRoutingKey = this.retryRoutingKey(message, subscription);
     const validInitialRoute =
       retryCount === 0 &&
-      message.fields.exchange === this.topology.domainExchange &&
-      message.fields.routingKey === subscription.routingKey;
+      (message.fields.exchange === this.topology.domainExchange ||
+        message.fields.exchange === subscription.bindExchange) &&
+      subscription.routingKeys.includes(initialRoutingKey);
     const validRetryRoute =
       retryCount > 0 &&
       message.fields.exchange === this.topology.retryReturnExchange &&
-      message.fields.routingKey === subscription.queue;
+      message.fields.routingKey === subscription.queue &&
+      retryRoutingKey !== undefined;
+    const routingKey = validRetryRoute ? retryRoutingKey : initialRoutingKey;
 
     if (!validInitialRoute && !validRetryRoute) {
       await this.deadLetterOrRequeue(
@@ -623,7 +664,7 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
         rawBody: Buffer.from(message.content),
         // Application handlers always see the logical domain route, regardless
         // of whether RabbitMQ delivered an initial attempt or a returned retry.
-        routingKey: subscription.routingKey,
+        routingKey,
         eventId,
         retryCount,
       });
@@ -754,6 +795,31 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
     }
   }
 
+  /** Logical route of a returned retry, which RabbitMQ reports as the queue. */
+  private retryRoutingKey(
+    message: ConsumeMessage,
+    subscription: ResolvedSubscription,
+  ): string | undefined {
+    const carried = message.properties.headers?.[ORIGINAL_ROUTING_KEY_HEADER];
+    if (carried === undefined && subscription.routingKeys.length === 1) {
+      // Retries published before the header existed had a single logical route.
+      return subscription.routingKeys[0];
+    }
+    return typeof carried === 'string' &&
+      subscription.routingKeys.includes(carried)
+      ? carried
+      : undefined;
+  }
+
+  private carriedRoutingKey(message: ConsumeMessage): string | undefined {
+    const carried = message.properties.headers?.[ORIGINAL_ROUTING_KEY_HEADER];
+    const value =
+      message.fields.exchange === this.topology.retryReturnExchange
+        ? carried
+        : message.fields.routingKey;
+    return safeAmqpShortString(value);
+  }
+
   private publishOptions(
     message: ConsumeMessage,
     failure: FailureMetadata,
@@ -776,6 +842,12 @@ export class RabbitMqConsumerTransport implements OnApplicationShutdown {
     };
     if (failure.eventId) {
       headers['x-event-id'] = failure.eventId;
+    }
+    // A returned retry arrives on the queue-named route, so carry the logical
+    // key forward for the next attempt and for operators reading the DLQ.
+    const logicalRoutingKey = this.carriedRoutingKey(message);
+    if (logicalRoutingKey !== undefined) {
+      headers[ORIGINAL_ROUTING_KEY_HEADER] = logicalRoutingKey;
     }
 
     return {

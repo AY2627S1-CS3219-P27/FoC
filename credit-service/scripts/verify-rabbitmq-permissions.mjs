@@ -63,6 +63,7 @@ try {
   // Root owns foc.events. Credit Service may check and use it, while standard
   // resource permissions keep configuration ownership outside the service.
   await channel.checkExchange('foc.events');
+  await channel.checkExchange('foc.pubsub');
   await channel.assertExchange('foc.credit.retry', 'direct', { durable: true });
   await channel.assertExchange('foc.credit.back', 'direct', { durable: true });
   await channel.assertExchange('foc.credit.dlx', 'direct', { durable: true });
@@ -72,6 +73,7 @@ try {
     exclusive: true,
   });
   await channel.bindQueue(queue, 'foc.events', 'user.registered.v1');
+  await channel.bindQueue(queue, 'foc.pubsub', 'user.registered.v1');
 
   const { consumerTag } = await channel.consume(queue, () => undefined, {
     noAck: false,
@@ -81,8 +83,8 @@ try {
   for (const ingressQueue of [
     'credit-service.credit-reservation.v1',
     'credit-service.credit-reservation-adjustment.v1',
-    'credit-service.order-errand-completed.v1',
-    'credit-service.order-errand-cancelled.v1',
+    'credit-service.credit-settlement.v1',
+    'credit-service.events',
   ]) {
     await channel.checkQueue(ingressQueue);
     const { consumerTag: ingressConsumerTag } = await channel.consume(
@@ -117,6 +119,9 @@ try {
 
   await expectDenied('configure foc.events', (candidate) =>
     candidate.assertExchange('foc.events', 'direct', { durable: true }),
+  );
+  await expectDenied('configure foc.pubsub', (candidate) =>
+    candidate.assertExchange('foc.pubsub', 'topic', { durable: true }),
   );
   await expectDenied('declare an Email Service queue', (candidate) =>
     candidate.assertQueue(`email-service.permission-test.${randomUUID()}`),

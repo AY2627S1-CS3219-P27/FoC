@@ -50,11 +50,10 @@ const dockerServices = ['credit-db-recovery', 'credit-rabbitmq-recovery'];
 const suffix = randomUUID().replaceAll('-', '');
 const topology = {
   domainExchange: `foc.events.recovery.${suffix}`,
-  incomingQueue: `credit-service.user-registered.recovery.${suffix}`,
+  pubsubExchange: `foc.pubsub.recovery.${suffix}`,
+  eventsQueue: `credit-service.events.recovery.${suffix}`,
   reservationQueue: `credit-service.credit-reservation.recovery.${suffix}`,
   adjustmentQueue: `credit-service.credit-reservation-adjustment.recovery.${suffix}`,
-  completionQueue: `credit-service.order-errand-completed.recovery.${suffix}`,
-  cancellationQueue: `credit-service.order-errand-cancelled.recovery.${suffix}`,
   retryExchange: `foc.credit.retry.recovery.${suffix}`,
   retryReturnExchange: `foc.credit.back.recovery.${suffix}`,
   deadLetterExchange: `foc.credit.dlx.recovery.${suffix}`,
@@ -264,6 +263,22 @@ describe.sequential('credit messaging recovery', () => {
     await adminChannel.assertExchange(topology.domainExchange, 'direct', {
       durable: true,
     });
+    // Mirrors root definitions: fact events are forwarded to the pub/sub
+    // exchange, where Credit Service binds its single events queue.
+    await adminChannel.assertExchange(topology.pubsubExchange, 'topic', {
+      durable: true,
+    });
+    for (const routingKey of [
+      incomingRoutingKey,
+      completionRoutingKey,
+      cancellationRoutingKey,
+    ]) {
+      await adminChannel.bindExchange(
+        topology.pubsubExchange,
+        topology.domainExchange,
+        routingKey,
+      );
+    }
     await adminChannel.assertQueue(topology.observationQueue, {
       durable: true,
     });
@@ -719,7 +734,7 @@ describe.sequential('credit messaging recovery', () => {
     return row ?? null;
   }
 
-  async function queueMetrics(queue = topology.incomingQueue): Promise<{
+  async function queueMetrics(queue = topology.eventsQueue): Promise<{
     messages_unacknowledged: number;
   }> {
     const response = await fetch(
@@ -750,16 +765,15 @@ describe.sequential('credit messaging recovery', () => {
       RABBITMQ_PORT: process.env.RABBITMQ_RECOVERY_HOST_PORT ?? '5676',
       RABBITMQ_VHOST: '/',
       RABBITMQ_PASSWORD_FILE: './secrets/rabbitmq_password.secret',
-      RABBITMQ_USER_REGISTERED_QUEUE: topology.incomingQueue,
+      RABBITMQ_PUBSUB_EXCHANGE: topology.pubsubExchange,
+      RABBITMQ_EVENTS_QUEUE: topology.eventsQueue,
       RABBITMQ_USER_REGISTERED_ROUTING_KEY: incomingRoutingKey,
       RABBITMQ_CREDIT_ACCOUNT_INITIALISED_ROUTING_KEY: outgoingRoutingKey,
       RABBITMQ_CREDIT_RESERVATION_QUEUE: topology.reservationQueue,
       RABBITMQ_CREDIT_RESERVATION_ROUTING_KEY: reservationRoutingKey,
       RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_QUEUE: topology.adjustmentQueue,
       RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_ROUTING_KEY: adjustmentRoutingKey,
-      RABBITMQ_ORDER_ERRAND_COMPLETED_QUEUE: topology.completionQueue,
       RABBITMQ_ORDER_ERRAND_COMPLETED_ROUTING_KEY: completionRoutingKey,
-      RABBITMQ_ORDER_ERRAND_CANCELLED_QUEUE: topology.cancellationQueue,
       RABBITMQ_ORDER_ERRAND_CANCELLED_ROUTING_KEY: cancellationRoutingKey,
       RABBITMQ_CREDIT_RESERVATION_SUCCESS_ROUTING_KEY:
         CREDIT_RESERVATION_SUCCESS_V1_ROUTING_KEY,
@@ -813,11 +827,9 @@ describe.sequential('credit messaging recovery', () => {
     // event was confirmed but before that event was consumed by the test.
     await adminChannel.purgeQueue(topology.observationQueue);
     await adminChannel.purgeQueue(topology.reservationObservationQueue);
-    await adminChannel.purgeQueue(`${topology.incomingQueue}.dlq`);
+    await adminChannel.purgeQueue(`${topology.eventsQueue}.dlq`);
     await adminChannel.purgeQueue(`${topology.reservationQueue}.dlq`);
     await adminChannel.purgeQueue(`${topology.adjustmentQueue}.dlq`);
-    await adminChannel.purgeQueue(`${topology.completionQueue}.dlq`);
-    await adminChannel.purgeQueue(`${topology.cancellationQueue}.dlq`);
   });
 
   afterAll(async () => {
@@ -837,11 +849,9 @@ describe.sequential('credit messaging recovery', () => {
         .deleteQueue(topology.reservationObservationQueue)
         .catch(() => undefined);
       for (const queue of [
-        topology.incomingQueue,
+        topology.eventsQueue,
         topology.reservationQueue,
         topology.adjustmentQueue,
-        topology.completionQueue,
-        topology.cancellationQueue,
       ]) {
         await adminChannel.deleteQueue(queue).catch(() => undefined);
         await adminChannel.deleteQueue(`${queue}.dlq`).catch(() => undefined);
@@ -859,6 +869,9 @@ describe.sequential('credit messaging recovery', () => {
         .catch(() => undefined);
       await adminChannel
         .deleteExchange(topology.deadLetterExchange)
+        .catch(() => undefined);
+      await adminChannel
+        .deleteExchange(topology.pubsubExchange)
         .catch(() => undefined);
       await adminChannel
         .deleteExchange(topology.domainExchange)
@@ -998,7 +1011,7 @@ describe.sequential('credit messaging recovery', () => {
     try {
       await publishEvent(event);
       const deadLetter = await takeMessage(
-        `${topology.incomingQueue}.dlq`,
+        `${topology.eventsQueue}.dlq`,
         20_000,
       );
       expect(deadLetter.properties.headers).toMatchObject({
@@ -1026,7 +1039,7 @@ describe.sequential('credit messaging recovery', () => {
       'SELECT COUNT(*)::int AS count FROM inbox_events',
     )) as Array<{ count: number }>;
     await publish(Buffer.from('{malformed-json'));
-    const deadLetter = await takeMessage(`${topology.incomingQueue}.dlq`);
+    const deadLetter = await takeMessage(`${topology.eventsQueue}.dlq`);
     const [after] = (await dataSource.query(
       'SELECT COUNT(*)::int AS count FROM inbox_events',
     )) as Array<{ count: number }>;
@@ -1395,7 +1408,7 @@ describe.sequential('credit messaging recovery', () => {
       inboxCount: 1,
     });
     await waitFor(async () =>
-      (await queueMetrics(topology.completionQueue)).messages_unacknowledged ===
+      (await queueMetrics(topology.eventsQueue)).messages_unacknowledged ===
       0
         ? true
         : undefined,
@@ -1534,7 +1547,7 @@ describe.sequential('credit messaging recovery', () => {
     )) as Array<{ count: number }>;
 
     await publish(Buffer.from(JSON.stringify(invalid)), cancellationRoutingKey);
-    const deadLetter = await takeMessage(`${topology.cancellationQueue}.dlq`);
+    const deadLetter = await takeMessage(`${topology.eventsQueue}.dlq`);
     const [after] = (await dataSource.query(
       'SELECT COUNT(*)::int AS count FROM inbox_events',
     )) as Array<{ count: number }>;
@@ -1544,7 +1557,7 @@ describe.sequential('credit messaging recovery', () => {
     });
     expect(after.count).toBe(before.count);
     expect(
-      await adminChannel.get(`${topology.completionQueue}.dlq`, {
+      await adminChannel.get(`${topology.eventsQueue}.dlq`, {
         noAck: true,
       }),
     ).toBe(false);
@@ -1577,7 +1590,7 @@ describe.sequential('credit messaging recovery', () => {
       inboxCount: 1,
     });
     await waitFor(async () =>
-      (await queueMetrics(topology.cancellationQueue))
+      (await queueMetrics(topology.eventsQueue))
         .messages_unacknowledged === 0
         ? true
         : undefined,

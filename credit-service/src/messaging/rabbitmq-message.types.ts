@@ -33,7 +33,10 @@ export interface RabbitMqMessageHandler {
 /** One independently consumed event stream and its permanent-failure queue. */
 export interface Subscription {
   queue: string;
-  routingKey: string;
+  /** One key, or several keys that all feed this queue and its handler. */
+  routingKey: string | readonly string[];
+  /** Exchange to bind on; defaults to the shared domain exchange. */
+  exchange?: string;
   handler: RabbitMqMessageHandler;
   deadLetterQueue?: string;
 }

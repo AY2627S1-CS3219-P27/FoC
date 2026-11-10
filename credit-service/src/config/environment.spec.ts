@@ -35,9 +35,8 @@ describe('environmentSchema', () => {
 
     expect(environment.INITIAL_CREDIT_BALANCE).toBe(100);
     expect(environment.RABBITMQ_EXCHANGE).toBe('foc.events');
-    expect(environment.RABBITMQ_USER_REGISTERED_QUEUE).toBe(
-      'credit-service.user-registered.v1',
-    );
+    expect(environment.RABBITMQ_PUBSUB_EXCHANGE).toBe('foc.pubsub');
+    expect(environment.RABBITMQ_EVENTS_QUEUE).toBe('credit-service.events');
     expect(environment.RABBITMQ_USER_REGISTERED_ROUTING_KEY).toBe(
       'user.registered.v1',
     );
@@ -80,14 +79,8 @@ describe('environmentSchema', () => {
     expect(environment.RABBITMQ_CREDIT_SETTLEMENT_REJECTED_ROUTING_KEY).toBe(
       'credit.settlement-rejected.v1',
     );
-    expect(environment.RABBITMQ_ORDER_ERRAND_COMPLETED_QUEUE).toBe(
-      'credit-service.order-errand-completed.v1',
-    );
     expect(environment.RABBITMQ_ORDER_ERRAND_COMPLETED_ROUTING_KEY).toBe(
       'order.errand-completed.v1',
-    );
-    expect(environment.RABBITMQ_ORDER_ERRAND_CANCELLED_QUEUE).toBe(
-      'credit-service.order-errand-cancelled.v1',
     );
     expect(environment.RABBITMQ_ORDER_ERRAND_CANCELLED_ROUTING_KEY).toBe(
       'order.errand-cancelled.v1',
@@ -131,28 +124,6 @@ describe('environmentSchema', () => {
     ).toBe('foc.credit.return.v2');
   });
 
-  it.each(['development', 'production'] as const)(
-    'rejects a noncanonical UserRegistered queue in %s',
-    (nodeEnvironment) => {
-      expect(() =>
-        validate({
-          NODE_ENV: nodeEnvironment,
-          RABBITMQ_USER_REGISTERED_QUEUE: 'credit-service.alternate.v1',
-        }),
-      ).toThrow();
-    },
-  );
-
-  it('accepts an isolated UserRegistered queue in tests', () => {
-    expect(
-      validate({
-        NODE_ENV: 'test',
-        RABBITMQ_USER_REGISTERED_QUEUE:
-          'credit-service.user-registered.v1.test.1234',
-      }).RABBITMQ_USER_REGISTERED_QUEUE,
-    ).toBe('credit-service.user-registered.v1.test.1234');
-  });
-
   it.each([
     [
       'RABBITMQ_CREDIT_RESERVATION_QUEUE',
@@ -162,15 +133,8 @@ describe('environmentSchema', () => {
       'RABBITMQ_CREDIT_RESERVATION_ADJUSTMENT_QUEUE',
       'credit-service.credit-reservation-adjustment.v1',
     ],
-    [
-      'RABBITMQ_ORDER_ERRAND_COMPLETED_QUEUE',
-      'credit-service.order-errand-completed.v1',
-    ],
     ['RABBITMQ_CREDIT_SETTLEMENT_QUEUE', 'credit-service.credit-settlement.v1'],
-    [
-      'RABBITMQ_ORDER_ERRAND_CANCELLED_QUEUE',
-      'credit-service.order-errand-cancelled.v1',
-    ],
+    ['RABBITMQ_EVENTS_QUEUE', 'credit-service.events'],
   ])('restricts %s to its canonical production name', (name, canonical) => {
     expect(() =>
       validate({ NODE_ENV: 'production', [name]: `${canonical}.alternate` }),

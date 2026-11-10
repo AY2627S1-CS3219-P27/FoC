@@ -37,7 +37,7 @@ const definitions = JSON.parse(
 ) as BrokerDefinitions;
 
 describe('Credit Service predeclared RabbitMQ topology', () => {
-  it('predeclares every critical Credit Service ingress queue and binding', () => {
+  it('predeclares the Credit Service message queues and one pub/sub events queue', () => {
     const creditQueues = definitions.queues.filter(({ name }) =>
       name.startsWith('credit-service.'),
     );
@@ -49,14 +49,6 @@ describe('Credit Service predeclared RabbitMQ topology', () => {
     );
 
     expect(creditQueues).toEqual([
-      {
-        arguments: { 'x-queue-type': 'quorum' },
-        auto_delete: false,
-        durable: true,
-        name: 'credit-service.user-registered.v1',
-        type: 'quorum',
-        vhost: '/foc',
-      },
       {
         arguments: { 'x-queue-type': 'quorum' },
         auto_delete: false,
@@ -85,29 +77,13 @@ describe('Credit Service predeclared RabbitMQ topology', () => {
         arguments: { 'x-queue-type': 'quorum' },
         auto_delete: false,
         durable: true,
-        name: 'credit-service.order-errand-completed.v1',
-        type: 'quorum',
-        vhost: '/foc',
-      },
-      {
-        arguments: { 'x-queue-type': 'quorum' },
-        auto_delete: false,
-        durable: true,
-        name: 'credit-service.order-errand-cancelled.v1',
+        name: 'credit-service.events',
         type: 'quorum',
         vhost: '/foc',
       },
     ]);
     expect(creditExchanges).toEqual([]);
     expect(creditBindings).toEqual([
-      {
-        arguments: {},
-        destination: 'credit-service.user-registered.v1',
-        destination_type: 'queue',
-        routing_key: 'user.registered.v1',
-        source: 'foc.events',
-        vhost: '/foc',
-      },
       {
         arguments: {},
         destination: 'credit-service.credit-reservation.v1',
@@ -134,18 +110,26 @@ describe('Credit Service predeclared RabbitMQ topology', () => {
       },
       {
         arguments: {},
-        destination: 'credit-service.order-errand-completed.v1',
+        destination: 'credit-service.events',
         destination_type: 'queue',
-        routing_key: 'order.errand-completed.v1',
-        source: 'foc.events',
+        routing_key: 'user.registered.v1',
+        source: 'foc.pubsub',
         vhost: '/foc',
       },
       {
         arguments: {},
-        destination: 'credit-service.order-errand-cancelled.v1',
+        destination: 'credit-service.events',
+        destination_type: 'queue',
+        routing_key: 'order.errand-completed.v1',
+        source: 'foc.pubsub',
+        vhost: '/foc',
+      },
+      {
+        arguments: {},
+        destination: 'credit-service.events',
         destination_type: 'queue',
         routing_key: 'order.errand-cancelled.v1',
-        source: 'foc.events',
+        source: 'foc.pubsub',
         vhost: '/foc',
       },
     ]);

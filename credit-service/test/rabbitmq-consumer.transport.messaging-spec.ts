@@ -105,7 +105,6 @@ describe('RabbitMqConsumerTransport messaging integration', () => {
   beforeAll(async () => {
     const values = {
       RABBITMQ_EXCHANGE: names.domainExchange,
-      RABBITMQ_USER_REGISTERED_QUEUE: names.mainQueue,
       RABBITMQ_USER_REGISTERED_ROUTING_KEY: 'user.registered.v1',
       RABBITMQ_RETRY_EXCHANGE: names.retryExchange,
       RABBITMQ_RETRY_RETURN_EXCHANGE: names.retryReturnExchange,

@@ -12,9 +12,10 @@ RabbitMQ. Event payloads are validated with versioned JSON Schemas and AJV.
 
 ## How account initialization works
 
-1. Root broker definitions create the durable Credit Service subscription and
-   bind `user.registered.v1` from the shared `foc.events` direct exchange, so
-   RabbitMQ can buffer registrations before Credit Service starts.
+1. Root broker definitions create the durable `credit-service.events` queue and
+   bind `user.registered.v1` (with the other fact events Credit consumes) from
+   the `foc.pubsub` topic exchange, so RabbitMQ can buffer registrations before
+   Credit Service starts.
 2. The transport validates the JSON transport metadata, and the handler
    validates the event envelope and payload contract.
 3. A PostgreSQL `SERIALIZABLE` transaction deduplicates the event, creates or
@@ -326,8 +327,8 @@ synchronous correctness dependency.
 | --------- | ------------------------------------- | ------------------------------------------- | ------------------------------------------------- |
 | Consume   | `CreditReservation`                   | `credit.reservation.v1`                     | `credit-service.credit-reservation.v1`            |
 | Consume   | `CreditReservationAdjustment`         | `credit.reservation-adjustment.v1`          | `credit-service.credit-reservation-adjustment.v1` |
-| Consume   | `ErrandCompleted`                     | `order.errand-completed.v1`                 | `credit-service.order-errand-completed.v1`        |
-| Consume   | `ErrandCancelled`                     | `order.errand-cancelled.v1`                 | `credit-service.order-errand-cancelled.v1`        |
+| Consume   | `ErrandCompleted`                     | `order.errand-completed.v1`                 | `credit-service.events` (via `foc.pubsub`)        |
+| Consume   | `ErrandCancelled`                     | `order.errand-cancelled.v1`                 | `credit-service.events` (via `foc.pubsub`)        |
 | Consume   | `CreditSettlementRequested`           | `credit.settlement.v1`                      | `credit-service.credit-settlement.v1`             |
 | Publish   | `CreditReservationSuccess`            | `credit.reservation-success.v1`             | Subscriber-owned                                  |
 | Publish   | `CreditReservationRejected`           | `credit.reservation-rejected.v1`            | Subscriber-owned                                  |
@@ -803,16 +804,25 @@ and unit tests do not replace the PostgreSQL, RabbitMQ, or recovery suites.
 
 ## RabbitMQ subscriptions and retries
 
-The root broker owns the shared `foc.events` direct exchange and predeclares
-the six durable Credit queues for `user.registered.v1`,
-`credit.reservation.v1`, `credit.reservation-adjustment.v1`,
-`order.errand-completed.v1`, `order.errand-cancelled.v1`, and
-`credit.settlement.v1` with exact bindings. Commands therefore have durable
-landing points before Credit Service starts. Credit Service checks the shared
-exchange passively, then idempotently reasserts each main queue and binding
-together with its service-owned retry and DLQ topology during startup and
-connection recovery. Its credential cannot create, delete, or alter
-`foc.events`.
+The root broker owns the shared `foc.events` direct exchange and the
+`foc.pubsub` topic exchange, and predeclares four durable Credit queues:
+
+- three point-to-point **message** queues bound exactly on `foc.events`:
+  `credit.reservation.v1`, `credit.reservation-adjustment.v1`, and
+  `credit.settlement.v1`;
+- one **event** queue, `credit-service.events`, bound on `foc.pubsub` with
+  `user.registered.v1`, `order.errand-completed.v1`, and
+  `order.errand-cancelled.v1`.
+
+Messages are never forwarded to `foc.pubsub` (ADR 0002), so commands stay
+point-to-point while fact events share one queue
+([ADR 0011](../docs/adr/credit-service/0011-consume-events-from-pubsub.md)).
+Both destinations have durable landing points before Credit Service starts.
+Credit Service checks the shared exchanges passively, then idempotently
+reasserts each main queue and binding together with its service-owned retry and
+DLQ topology during startup and connection recovery. Its credential cannot
+create, delete, or alter `foc.events` or `foc.pubsub`, and may only read
+`foc.pubsub`.
 
 Typed configuration fixes those six consumed routing keys and the eleven
 published keys: `credit.account-initialised.v1`, the four reservation and
@@ -831,8 +841,12 @@ matching, but multiple queues can deliberately bind the same exact key and all
 receive the original publication.
 
 Credit Service uses one recovering consumer connection while giving every
-incoming event stream its own durable queue, handler, and consumer channel. A
-stream queue named `<queue>` owns:
+incoming stream its own durable queue, handler, and consumer channel. There are
+four streams: one per command queue and the shared `credit-service.events`
+queue, whose single handler routes each delivery by routing key to the
+`UserRegistered`, `ErrandCompleted`, or `ErrandCancelled` use case. A returned
+retry carries the delivered routing key in the `x-original-routing-key` header.
+A stream queue named `<queue>` owns:
 
 - retry queues `<queue>.retry.1` through `<queue>.retry.5`;
 - a dead-letter queue `<queue>.dlq`, unless explicitly overridden;
@@ -840,7 +854,8 @@ stream queue named `<queue>` owns:
 
 The domain exchange, direct retry exchange, direct retry-return exchange,
 direct dead-letter exchange, and confirm-publisher channel are shared within
-the transport. New domain events arrive through `foc.events`. Failures enter
+the transport. Commands arrive through `foc.events` and fact events through
+`foc.pubsub`. Failures enter
 the TTL queues through `foc.credit.retry`, then expire through
 `foc.credit.back` using the main queue name as the routing key. That
 queue-identity return route sends a retry only to the stream that failed; it
@@ -857,8 +872,9 @@ not match `<queue>.dlq`.
 
 ### Hybrid topology ownership and rollout
 
-The root definitions seed all six Credit main queues and their exact
-`foc.events` bindings. Credit Service remains the owner of subscription
+The root definitions seed all four Credit main queues and their bindings (exact
+keys on `foc.events` for commands; the three event keys on `foc.pubsub` for
+`credit-service.events`). Credit Service remains the owner of subscription
 behavior and declares the same resources at runtime. Its retry, retry-return,
 and dead-letter exchanges, five retry queues per subscription, returned-retry
 bindings, and DLQs remain runtime-created resources.

@@ -34,7 +34,8 @@ permissions enforce the namespace boundary, while validated configuration and
 explicit bindings restrict the current application keys.
 
 The initial seeded subscription is `credit-service.user-registered.v1`, bound
-to `foc.events` with `user.registered.v1`. Retry exchanges, retry queues, the
+to `foc.events` with `user.registered.v1`. (Fact events moved to
+`credit-service.events` on `foc.pubsub` in [ADR 0011](0011-consume-events-from-pubsub.md).) Retry exchanges, retry queues, the
 retry-return binding, and the DLQ are not predeclared because no retry can exist
 before Credit Service has consumed an initial delivery.
 
