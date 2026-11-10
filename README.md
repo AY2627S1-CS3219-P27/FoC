@@ -154,4 +154,10 @@ Used for:
 - Agentic coding driven by human decisions
 - Designing frontend, with tweaks made.
 
-All code was reviewed by a separate contributor than the implementer.
+All code was reviewed & approved by a separate contributor than the implementer.
+
+### Skills
+
+The apple-design skill was used in designing the frontend - see `.github/skills/apple-design/SKILL.md`.
+
+Other than that, other tool in-built skills (such as code-review) were used.
