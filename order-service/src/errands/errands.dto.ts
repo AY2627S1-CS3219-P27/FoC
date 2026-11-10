@@ -12,6 +12,7 @@ import {
   MaxLength,
   Min,
   Max,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { API_STATUSES, type ApiStatus } from './api-status.js';
@@ -81,6 +82,51 @@ export class CreateErrandDto {
   @MaxLength(MAX_DESCRIPTION_LENGTH)
   @Matches(NOT_BLANK)
   collectionItems: string;
+}
+
+// @IsOptional also lets null through, which routes an edit like a changed field.
+const OptionalNotNull = () => ValidateIf((_, value) => value !== undefined);
+
+// The body of PATCH /v1/errands/:id (F2.1): any create field, same rules (F2.1.1).
+// Send rewardCredits, supplierId and deliveryBuildingId only to change them: their
+// presence routes the edit through credit or supplier-service.
+export class EditErrandDto {
+  @OptionalNotNull()
+  @IsUUID()
+  supplierId?: string;
+
+  @OptionalNotNull()
+  @IsUUID()
+  deliveryBuildingId?: string;
+
+  @OptionalNotNull()
+  @IsString()
+  @Length(1, MAX_LOCATION_LENGTH)
+  @Matches(NOT_BLANK)
+  deliveryDetail?: string;
+
+  @OptionalNotNull()
+  @IsInt()
+  @Min(1)
+  @Max(MAX_CREDITS)
+  rewardCredits?: number;
+
+  @OptionalNotNull()
+  @IsString()
+  @MaxLength(MAX_DESCRIPTION_LENGTH)
+  description?: string;
+
+  @OptionalNotNull()
+  @IsInt()
+  @Min(MIN_EXPIRY_MINUTES)
+  @Max(MAX_EXPIRY_MINUTES)
+  expiryDurationMinutes?: number;
+
+  @OptionalNotNull()
+  @IsString()
+  @MaxLength(MAX_DESCRIPTION_LENGTH)
+  @Matches(NOT_BLANK)
+  collectionItems?: string;
 }
 
 // F7.4: the courier must say why. Same limits as the CourierWithdrew payload.

@@ -33,6 +33,9 @@ jobs:
           - module: credit-service
             lint: npm run lint
             test: npm test
+          - module: rag-service
+            lint: npm run lint
+            test: npm test
           - module: email-service
             lint: echo "no lint script"
             test: npm test

@@ -9,39 +9,43 @@ import {
   ArchiveBoxIcon,
   BoxIcon,
   ChatIcon,
+  FlagIcon,
   PeopleIcon,
   PersonIcon,
+  QuestionIcon,
   SignOutIcon,
   StoreIcon,
   TrayIcon,
 } from "@/components/ui/icons";
-import { TAB_TITLES, type Tab, type UserProfile } from "../_shared/types";
+import { ADMIN_TABS, TAB_TITLES, type Tab, type UserProfile } from "../_shared/types";
 
 // Sections that live on their own routes rather than behind /home?tab=.
-export type RouteSection = "chats" | "archives";
+export type RouteSection = "chats" | "archives" | "help";
 export type Section = Tab | RouteSection;
 
-const ROUTE_HREF: Record<RouteSection, string> = { chats: "/home/chats", archives: "/home/archives" };
+const ROUTE_HREF: Record<RouteSection, string> = { chats: "/home/chats", archives: "/home/archives", help: "/home/help" };
 
 const ICONS: Record<Section, typeof BoxIcon> = {
   errands: BoxIcon,
   chats: ChatIcon,
   archives: ArchiveBoxIcon,
+  help: QuestionIcon,
   suppliers: StoreIcon,
   profile: PersonIcon,
   users: PeopleIcon,
   requests: TrayIcon,
+  disputes: FlagIcon,
 };
 
-const TITLES: Record<Section, string> = { ...TAB_TITLES, chats: "Chats", archives: "Archives" };
+const TITLES: Record<Section, string> = { ...TAB_TITLES, chats: "Chats", archives: "Archives", help: "Help" };
 
-const isRoute = (section: Section): section is RouteSection => section === "chats" || section === "archives";
+const isRoute = (section: Section): section is RouteSection => section in ROUTE_HREF;
 
-// Errands first, then the conversations about them; the rest follow the order of the tabs.
+// Errands first, then the conversations about them; the rest follow the order of the tabs, with Help last.
 function mainSections(tabs: Tab[]): Section[] {
-  const rest = tabs.filter((t) => t !== "users" && t !== "requests");
+  const rest = tabs.filter((t) => !ADMIN_TABS.includes(t));
   const [first, ...others] = rest;
-  return first === undefined ? ["chats", "archives"] : [first, "chats", "archives", ...others];
+  return first === undefined ? ["chats", "archives", "help"] : [first, "chats", "archives", ...others, "help"];
 }
 
 // Sidebar on wide screens, tab bar on phones; a translucent top bar shows the section name once its large title scrolls away.
@@ -75,9 +79,9 @@ export function AppShell({
   }, []);
 
   const mainTabs = mainSections(tabs);
-  // The phone tab bar keeps Archives one tap inside Chats, so seven items never crowd it.
-  const barSections = [...mainTabs.filter((s) => s !== "archives"), ...tabs.filter((t) => t === "users" || t === "requests")];
-  const adminTabs = tabs.filter((t) => t === "users" || t === "requests");
+  const adminTabs = tabs.filter((t) => ADMIN_TABS.includes(t));
+  // The phone tab bar keeps Archives one tap inside Chats, so the items never crowd it.
+  const barSections = [...mainTabs.filter((s) => s !== "archives"), ...adminTabs];
 
   return (
     <div className="min-h-dvh md:pl-[264px]">

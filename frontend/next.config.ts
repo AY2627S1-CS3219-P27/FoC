@@ -15,6 +15,7 @@ const nextConfig: NextConfig = {
       process.env.COMMS_SERVICE_URL ?? "http://localhost:3006";
     const notificationService =
       process.env.NOTIFICATION_SERVICE_URL ?? "http://localhost:3007";
+    const ragService = process.env.RAG_SERVICE_URL ?? "http://localhost:3008";
     const socketPath = process.env.SOCKET_PATH ?? "/socket.io";
     return [
       // Matches the refresh cookie's Path=/auth/refresh, so the browser sends it.
@@ -64,6 +65,10 @@ const nextConfig: NextConfig = {
       {
         source: "/api/notifications/:path*",
         destination: `${notificationService}/v1/:path*`,
+      },
+      {
+        source: "/api/assistant/:path*",
+        destination: `${ragService}/assistant/:path*`,
       },
       {
         source: `${socketPath}/:path*`,

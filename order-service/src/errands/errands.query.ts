@@ -3,7 +3,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { type AnyColumn, and, asc, count, desc, eq, gt, inArray, ne, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module.js';
 import { disputeReports, errandEvents, errands } from '../db/schema.js';
-import { CREDIT_SETTLEMENT_REJECTED } from '../lifecycle/edges.js';
+import { CREDIT_SETTLEMENT_REJECTED, CREDIT_TRANSFER_REJECTED, SETTLEMENT_REQUESTED } from '../lifecycle/edges.js';
 import type { Db } from '../lifecycle/transition.js';
 import { INTERNAL_STATUSES_OF, toApiStatus } from './api-status.js';
 import type { ListErrandsQuery, ListSort, MineErrandsQuery, PageQuery } from './errands.dto.js';
@@ -73,6 +73,14 @@ const toReportView = (r: typeof disputeReports.$inferSelect) => ({
   createdAt: r.createdAt,
 });
 
+// Why an errand entered Incomplete: a rejected credit transfer is a system fault (nobody
+// to blame, nothing to report); ErrandIncomplete is the requester disputing a delivery.
+type EnteredIncomplete = { type: string; payload: unknown };
+const causeOf = (e?: EnteredIncomplete) =>
+  e?.type === CREDIT_TRANSFER_REJECTED
+    ? { cause: 'SYSTEM_FAILURE' as const, causeReason: ((e.payload as { reason?: string } | null)?.reason ?? null) }
+    : { cause: 'REQUESTER_DISPUTE' as const, causeReason: null };
+
 // The read side. Owns every errand SELECT; never writes (Lifecycle stays the
 // only writer) and never calls transition().
 @Injectable()
@@ -105,7 +113,60 @@ export class ErrandsQueryService {
   // The caller's errands, as requester or courier, newest first.
   async mine(callerId: string, q: MineErrandsQuery) {
     const rows = await this.partyRows(callerId, q);
-    return { items: rows.map((r) => toView(r, callerId)), limit: q.limit, offset: q.offset };
+    const flags = await this.reportFlags(callerId, rows);
+    return {
+      items: rows.map((r) => ({ ...toView(r, callerId), ...flags.get(r.id) })),
+      limit: q.limit,
+      offset: q.offset,
+    };
+  }
+
+  // Report state for the caller's Incomplete errands (Settling-Credit included, which the
+  // API shows as Incomplete): hasReported is the caller's own report only, never the other
+  // side's; canReport mirrors ReportsService.submit, so the app can hide a form that would 409.
+  private async reportFlags(callerId: string, rows: (typeof errands.$inferSelect)[]) {
+    const inDispute = rows.filter((r) => (INTERNAL_STATUSES_OF.Incomplete as readonly string[]).includes(r.status));
+    const flags = new Map<string, { hasReported: boolean; canReport: boolean; cause: 'SYSTEM_FAILURE' | 'REQUESTER_DISPUTE' }>();
+    if (inDispute.length === 0) return flags;
+    const ids = inDispute.map((r) => r.id);
+    const reported = await this.db
+      .select({ id: disputeReports.errandId })
+      .from(disputeReports)
+      .where(and(inArray(disputeReports.errandId, ids), eq(disputeReports.authorId, callerId)));
+    const requested = await this.db
+      .selectDistinct({ id: errandEvents.errandId })
+      .from(errandEvents)
+      .where(and(inArray(errandEvents.errandId, ids), eq(errandEvents.type, SETTLEMENT_REQUESTED)));
+    const reportedIds = new Set(reported.map((x) => x.id));
+    const requestedIds = new Set(requested.map((x) => x.id));
+    const causes = await this.causes(ids);
+    for (const r of inDispute) {
+      const hasReported = reportedIds.has(r.id);
+      const c = causes.get(r.id)!;
+      flags.set(r.id, {
+        hasReported,
+        canReport:
+          r.status === 'Incomplete' && !hasReported && !requestedIds.has(r.id) && c.cause !== 'SYSTEM_FAILURE',
+        cause: c.cause,
+      });
+    }
+    return flags;
+  }
+
+  // The event of each errand's first entry into Incomplete (a rejected settlement re-enters later).
+  private async causes(ids: string[]) {
+    const rows = await this.db
+      .selectDistinctOn([errandEvents.errandId], {
+        id: errandEvents.errandId,
+        type: errandEvents.type,
+        payload: errandEvents.payload,
+      })
+      .from(errandEvents)
+      .where(and(inArray(errandEvents.errandId, ids), eq(errandEvents.toStatus, 'Incomplete')))
+      .orderBy(errandEvents.errandId, asc(errandEvents.sequenceNumber));
+    const map = new Map(rows.map((x) => [x.id, causeOf(x)]));
+    for (const id of ids) if (!map.has(id)) map.set(id, causeOf());
+    return map;
   }
 
   async ofUserForAdmin(userId: string, q: MineErrandsQuery) {
@@ -131,9 +192,11 @@ export class ErrandsQueryService {
       )
       .limit(q.limit)
       .offset(q.offset);
+    const causes = await this.causes(rows.map((r) => r.errand.id));
     return {
       items: rows.map(({ errand, reporters }) => ({
         ...toAdminView(errand),
+        ...causes.get(errand.id),
         reports: { requester: reporters.includes('requester'), courier: reporters.includes('courier') },
       })),
       limit: q.limit,
@@ -155,7 +218,7 @@ export class ErrandsQueryService {
         const events = await tx.select().from(errandEvents).where(eq(errandEvents.errandId, id)).orderBy(asc(errandEvents.sequenceNumber));
         const latestRejection = events.findLast((e) => e.type === CREDIT_SETTLEMENT_REJECTED) ?? null;
         return {
-          errand: toAdminView(errand),
+          errand: { ...toAdminView(errand), ...causeOf(events.find((e) => e.toStatus === 'Incomplete')) },
           reports: reports.map(toReportView),
           events: events.map(toEventView),
           latestRejection: latestRejection && toEventView(latestRejection),
@@ -217,6 +280,7 @@ export class ErrandsQueryService {
       (INTERNAL_STATUSES_OF.Open as readonly string[]).includes(row.status) &&
       row.expiresAt !== null &&
       row.expiresAt > new Date();
-    return party || open ? toView(row, callerId) : null;
+    if (!party && !open) return null;
+    return { ...toView(row, callerId), ...(party ? (await this.reportFlags(callerId, [row])).get(row.id) : {}) };
   }
 }

@@ -23,6 +23,7 @@ ARG CREDIT_SERVICE_URL=http://credit-service:3000
 ARG ORDER_SERVICE_URL=http://order-service:3000
 ARG NOTIFICATION_SERVICE_URL=http://notification-service:3000
 ARG COMMS_SERVICE_URL=http://comms-service:3000
+ARG RAG_SERVICE_URL=http://rag-service:3000
 ARG SOCKET_PATH=/socket.io
 
 COPY . .

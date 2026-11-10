@@ -1,6 +1,6 @@
 # FoC (Friend on Campus)
 
-Peer-to-peer campus errand platform: four microservices (`user-service`, `supplier-service`, `order-service`, `credit-service`), one top-level folder each, wired by `compose.yaml`. Glossary: `CONTEXT.md`. Every env var a service reads must appear in that service's `env/<service>.env.example` (shared ones in `env/shared.env.example`).
+Peer-to-peer campus errand platform: four microservices (`user-service`, `supplier-service`, `order-service`, `credit-service`), plus `rag-service` (the help chatbot), one top-level folder each, wired by `compose.yaml`. Glossary: `CONTEXT.md`. Every env var a service reads must appear in that service's `env/<service>.env.example` (shared ones in `env/shared.env.example`).
 
 ## Conventions
 
@@ -18,7 +18,7 @@ Single-context; one folder per microservice. Read a service's `AGENTS.md` (and R
 
 ### Image versions
 
-Service images are tagged from each app's `package.json` version: `./scripts/build-images.sh` builds all seven, and `./scripts/build-images.sh up -d --wait` runs that versioned stack. Plain `docker compose` uses the `dev` tag.
+Service images are tagged from each app's `package.json` version: `./scripts/build-images.sh` builds them all, and `./scripts/build-images.sh up -d --wait` runs that versioned stack. Plain `docker compose` uses the `dev` tag.
 
 ### Networks and host ports
 

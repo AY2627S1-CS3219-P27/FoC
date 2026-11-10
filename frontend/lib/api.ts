@@ -7,6 +7,8 @@ export interface ApiResult<T = unknown> {
   code: string | null;
   message: string | null;
   etag: string | null;
+  /** From a Retry-After header, when the service sent one. */
+  retryAfterSeconds?: number;
 }
 
 // Nest errors are { code, message } from order-service, or { message: string | string[] } from pipes and guards.
@@ -81,6 +83,7 @@ export async function api<T = unknown>(
   let status = 0;
   let body: unknown = null;
   let etag: string | null = null;
+  let retryAfterSeconds: number | undefined;
   try {
     const res = await authFetch(path, {
       method,
@@ -89,6 +92,8 @@ export async function api<T = unknown>(
     });
     status = res.status;
     etag = res.headers.get("ETag");
+    const retryAfter = Number(res.headers.get("Retry-After"));
+    if (retryAfter > 0) retryAfterSeconds = retryAfter;
     body = await res.json().catch(() => null);
   } catch {
     body = { code: "NETWORK_ERROR", message: "Could not reach the server." };
@@ -96,7 +101,7 @@ export async function api<T = unknown>(
 
   const ok = status >= 200 && status < 300;
   const { code, message } = ok ? { code: null, message: null } : readError(body);
-  return { ok, status, data: ok ? (body as T) : null, code, message, etag };
+  return { ok, status, data: ok ? (body as T) : null, code, message, etag, retryAfterSeconds };
 }
 
 // A plain sentence for a failed call: no status codes. Validation and conflict messages are written for people, so they pass through.

@@ -11,6 +11,7 @@ services:
       - ORDER_SERVICE_URL=${ORDER_SERVICE_URL-http://order-service:3000}
       - NOTIFICATION_SERVICE_URL=${NOTIFICATION_SERVICE_URL-http://notification-service:3000}
       - COMMS_SERVICE_URL=${COMMS_SERVICE_URL-http://comms-service:3000}
+      - RAG_SERVICE_URL=${RAG_SERVICE_URL-http://rag-service:3000}
       - SOCKET_PATH=${SOCKET_PATH-/socket.io}
       - CAMPUS_BOUNDARY_PATH=/campus-data/campus-boundary.geojson
     volumes:

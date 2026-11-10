@@ -10,15 +10,19 @@ import { FormError, inputClass } from "@/components/ui/field";
 import { Section } from "@/components/ui/layout";
 import { Sheet } from "@/components/ui/sheet";
 import { cancellationText } from "./cancellation";
+import { EditErrandForm } from "./edit-errand-form";
 import {
   ACTION_LABELS,
   availableActions,
+  canEdit,
   formatDelivery,
   type ActionName,
+  type BuildingOption,
   type Errand,
   type SupplierOption,
 } from "./types";
-import { formatTime, shortId, StatusBadge, timeLeft } from "./ui";
+import { ReportButton } from "../_disputes/report-form";
+import { formatCredits, formatTime, shortId, StatusBadge, timeLeft } from "./ui";
 
 const POLL_MS = 3000;
 
@@ -38,10 +42,6 @@ const CONFIRM: Partial<Record<ActionName, { title: string; description: string }
     title: "Withdraw from this errand?",
     description: "It goes back to other couriers. Tell the requester why.",
   },
-  adjust: {
-    title: "Change the reward",
-    description: "Your reserved credits are updated to the new amount.",
-  },
 };
 
 const DONE: Record<ActionName, string> = {
@@ -51,7 +51,6 @@ const DONE: Record<ActionName, string> = {
   withdraw: "You withdrew from this errand",
   confirm: "Delivery confirmed",
   incomplete: "Reported as incomplete",
-  adjust: "Reward updated",
   cancel: "Errand cancelled",
 };
 
@@ -65,19 +64,21 @@ export function ErrandDetail({
   errandId,
   me,
   suppliers,
+  buildings,
   onChanged,
   onClose,
 }: {
   errandId: string;
   me: string;
   suppliers: SupplierOption[];
+  buildings: BuildingOption[];
   onChanged: () => void;
   onClose: () => void;
 }) {
   const [errand, setErrand] = useState<Errand | null>(null);
   const [loadError, setLoadError] = useState("");
   const [reason, setReason] = useState("");
-  const [newAmount, setNewAmount] = useState(0);
+  const [editing, setEditing] = useState(false);
   const [pending, setPending] = useState(false);
   const [actionError, setActionError] = useState("");
   const [confirming, setConfirming] = useState<ActionName | null>(null);
@@ -121,8 +122,7 @@ export function ErrandDetail({
   }
 
   function run(action: ActionName) {
-    const body =
-      action === "withdraw" ? { reason } : action === "adjust" ? { newAmount } : undefined;
+    const body = action === "withdraw" ? { reason } : undefined;
     void send({ action, key: crypto.randomUUID(), body });
   }
 
@@ -139,8 +139,9 @@ export function ErrandDetail({
 
   return (
     <Sheet
-      title={errand?.pickupName ?? supplier?.displayName ?? `Errand ${shortId(errandId)}`}
-      description={errand ? role : undefined}
+      title={editing ? "Edit errand" : (errand?.pickupName ?? supplier?.displayName ?? `Errand ${shortId(errandId)}`)}
+      description={errand && !editing ? role : undefined}
+      onBack={editing ? () => setEditing(false) : undefined}
       onClose={onClose}
     >
       {loadError && !errand && (
@@ -157,7 +158,20 @@ export function ErrandDetail({
         </div>
       )}
 
-      {errand && (
+      {errand && editing && (
+        <EditErrandForm
+          errand={errand}
+          suppliers={suppliers}
+          buildings={buildings}
+          onSaved={() => {
+            setEditing(false);
+            void load();
+            onChanged();
+          }}
+        />
+      )}
+
+      {errand && !editing && (
         <div className="fade-in space-y-6">
           <div className="flex flex-col items-center pt-2 text-center">
             <StatusBadge status={errand.status} />
@@ -213,10 +227,47 @@ export function ErrandDetail({
             <DetailRow label="Created">{formatTime(errand.createdAt)}</DetailRow>
           </Section>
 
+          {errand.status === "Resolved" && errand.settlementAmount != null && (
+            <Section title="Settlement">
+              <DetailRow label="Courier received">{formatCredits(errand.settlementAmount)}</DetailRow>
+              <DetailRow label="Requester refunded">
+                {formatCredits(errand.rewardCredits - errand.settlementAmount)}
+              </DetailRow>
+              {errand.settlementNote && (
+                <DetailRow label="Admin's note">
+                  <span className="whitespace-pre-wrap">{errand.settlementNote}</span>
+                </DetailRow>
+              )}
+            </Section>
+          )}
+
+          {errand.cause === "SYSTEM_FAILURE" && errand.status === "Incomplete" && (
+            <p className="text-center text-[13px] text-muted">
+              There was a payment issue. An admin is reviewing it; no report is needed.
+            </p>
+          )}
+          {errand.hasReported && (
+            <p className="text-center text-[13px] text-muted">Your report is filed. An admin will settle this errand.</p>
+          )}
+          {errand.canReport && <ReportButton errandId={errandId} onFiled={load} />}
+
           {actions.length === 0 ? (
             <p className="text-center text-[13px] text-muted">Nothing for you to do at this stage.</p>
           ) : (
             <div className="grid gap-2">
+              {canEdit(errand, me) && (
+                <Button
+                  size="lg"
+                  block
+                  disabled={pending}
+                  onClick={() => {
+                    setActionError("");
+                    setEditing(true);
+                  }}
+                >
+                  Edit errand
+                </Button>
+              )}
               {actions.map((a) => (
                 <Button
                   key={a}
@@ -226,7 +277,6 @@ export function ErrandDetail({
                   onClick={() => {
                     if (CONFIRM[a]) {
                       setReason("");
-                      setNewAmount(errand.rewardCredits);
                       setConfirming(a);
                       setConfirmOpen(true);
                     } else run(a);
@@ -249,10 +299,7 @@ export function ErrandDetail({
         description={(confirming && CONFIRM[confirming]?.description) ?? ""}
         confirmLabel={confirming ? ACTION_LABELS[confirming] : ""}
         intent={confirming && DESTRUCTIVE.includes(confirming) ? "danger" : "primary"}
-        confirmDisabled={
-          (confirming === "withdraw" && reason.trim() === "") ||
-          (confirming === "adjust" && !(Number.isInteger(newAmount) && newAmount >= 1))
-        }
+        confirmDisabled={confirming === "withdraw" && reason.trim() === ""}
         onConfirm={() => {
           setConfirmOpen(false);
           if (confirming) run(confirming);
@@ -266,20 +313,6 @@ export function ErrandDetail({
             onChange={(e) => setReason(e.target.value)}
             placeholder="Reason (required)"
             aria-label="Withdraw reason"
-            className={`w-full ${inputClass}`}
-          />
-        )}
-        {confirming === "adjust" && (
-          <input
-            autoFocus
-            type="number"
-            inputMode="numeric"
-            min={1}
-            step={1}
-            value={newAmount || ""}
-            onChange={(e) => setNewAmount(Number(e.target.value))}
-            placeholder="New reward in credits"
-            aria-label="New reward amount"
             className={`w-full ${inputClass}`}
           />
         )}

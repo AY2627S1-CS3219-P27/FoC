@@ -156,7 +156,7 @@ h1, h2, h3 {
 }
 
 .material-sidebar {
-  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  background: color-mix(in srgb, var(--surface) 100%, transparent);
   backdrop-filter: blur(30px) saturate(180%);
   -webkit-backdrop-filter: blur(30px) saturate(180%);
 }
@@ -324,7 +324,7 @@ a:focus-visible,
 /* --- Alerts: zoom down into place, like system alerts --- */
 
 .dialog-backdrop {
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   transition: opacity 200ms ease;

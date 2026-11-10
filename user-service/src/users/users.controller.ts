@@ -32,7 +32,7 @@ import {
 } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
-import { AdminGuard, JwtAuthGuard } from '@foc/auth';
+import { AdminGuard, JwtAuthGuard, extractAccessToken } from '@foc/auth';
 import type { AuthenticatedRequest } from '@foc/auth';
 import type { Paginated } from '@foc/contracts';
 import { ACCESS_TOKEN_COOKIE } from '@foc/contracts';
@@ -333,6 +333,9 @@ export class UsersController {
    * Set-replaces the authenticated user's participant roles. The
    * current access token is cleared so the client re-authenticates
    * and obtains a new access token with current claims.
+   *
+   * The token is forwarded to order-service, which checks the roles for
+   * ongoing errands and blocks them before they leave the account.
    */
   @Patch('me/roles')
   @ApiOperation({
@@ -358,9 +361,16 @@ export class UsersController {
     @Body() updateRolesDto: UpdateRolesDto,
     @Res({ passthrough: true }) res: Response,
   ) {
+    const accessToken = extractAccessToken(request);
+    if (accessToken === null) {
+      // Unreachable behind JwtAuthGuard, which rejects tokenless requests.
+      throw new UnauthorizedException();
+    }
+
     const updated = await this.usersService.updateRoles(
       request.user.sub,
       updateRolesDto.roles,
+      accessToken,
     );
 
     res.clearCookie(ACCESS_TOKEN_COOKIE, {
@@ -375,6 +385,9 @@ export class UsersController {
 
   /**
    * Archives the authenticated user's own account.
+   *
+   * The token is forwarded to order-service, which checks the account's
+   * roles for ongoing errands and blocks them before the archive commits.
    */
   @Post('me/archive')
   @ApiOperation({
@@ -393,7 +406,16 @@ export class UsersController {
     @Req() request: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const archived = await this.usersService.archiveSelf(request.user.sub);
+    const accessToken = extractAccessToken(request);
+    if (accessToken === null) {
+      // Unreachable behind JwtAuthGuard, which rejects tokenless requests.
+      throw new UnauthorizedException();
+    }
+
+    const archived = await this.usersService.archiveSelf(
+      request.user.sub,
+      accessToken,
+    );
 
     res.clearCookie(ACCESS_TOKEN_COOKIE, {
       httpOnly: true,
@@ -409,6 +431,10 @@ export class UsersController {
    * Admin-only user update: admin status and archival state
    * Returns the stored account projected as the admin view, so
    * the caller can read back the flags their change produced.
+   *
+   * The admin's token is forwarded to order-service, which checks the
+   * target's roles for ongoing errands and blocks them before an archive
+   * commits.
    */
   @Patch(':uuid')
   @UseGuards(AdminGuard, AdminBlockGuard)
@@ -454,10 +480,17 @@ export class UsersController {
     @Param('uuid', new ParseUUIDPipe()) uuid: string,
     @Body() adminUpdateUserDto: AdminUpdateUserDto,
   ) {
+    const accessToken = extractAccessToken(request);
+    if (accessToken === null) {
+      // Unreachable behind JwtAuthGuard, which rejects tokenless requests.
+      throw new UnauthorizedException();
+    }
+
     const updated = await this.usersService.adminUpdateUser(
       request.user.sub,
       uuid,
       adminUpdateUserDto,
+      accessToken,
     );
 
     return toUserInfoView(updated, { includeAdminFlags: true });
