@@ -3,6 +3,7 @@ import {
   ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY,
   ORDER_ERRAND_COMPLETED_V1_ROUTING_KEY,
   ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
+  ORDER_REQUESTER_EDIT_FAILED_V1_ROUTING_KEY,
   ORDER_REQUESTER_ERRAND_CANCELLED_V1_ROUTING_KEY,
   type DomainEventHandlers,
 } from '@foc/contracts';
@@ -11,6 +12,7 @@ import { dispatchCourierCancelled } from './dispatchers/courier-cancelled.dispat
 import { dispatchErrandAccepted } from './dispatchers/errand-accepted.dispatcher.js';
 import { dispatchErrandCompleted } from './dispatchers/errand-completed.dispatcher.js';
 import { dispatchErrandDelivered } from './dispatchers/errand-delivered.dispatcher.js';
+import { dispatchRequesterEditFailed } from './dispatchers/requester-edit-failed.dispatcher.js';
 import { dispatchRequesterErrandCancelled } from './dispatchers/requester-errand-cancelled.dispatcher.js';
 
 /**
@@ -36,5 +38,7 @@ export function createDispatchHandlers(
       dispatchCourierCancelled(event, dispatch),
     [ORDER_REQUESTER_ERRAND_CANCELLED_V1_ROUTING_KEY]: (event) =>
       dispatchRequesterErrandCancelled(event, dispatch),
+    [ORDER_REQUESTER_EDIT_FAILED_V1_ROUTING_KEY]: (event) =>
+      dispatchRequesterEditFailed(event, dispatch),
   };
 }

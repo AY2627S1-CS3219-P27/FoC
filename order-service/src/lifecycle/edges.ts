@@ -2,6 +2,7 @@ import {
   ORDER_COURIER_CANCELLED_V1_ROUTING_KEY,
   ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY,
   ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
+  ORDER_REQUESTER_EDIT_FAILED_V1_ROUTING_KEY,
   ORDER_REQUESTER_ERRAND_CANCELLED_V1_ROUTING_KEY,
 } from '@foc/contracts';
 import { supplierRequest, supplierRevalidationId, type NoticeBuilder, type Notice } from './notice.js';
@@ -120,6 +121,18 @@ const requesterCancelled: NoticeBuilder = (c) =>
           cancellationReason: c.payload.cancellationReason,
         },
       };
+// Tells the requester which step refused their edit; the fields are already back (`restores`).
+const editFailed =
+  (step: 'supplier' | 'credit'): NoticeBuilder =>
+  (c) => ({
+    key: ORDER_REQUESTER_EDIT_FAILED_V1_ROUTING_KEY,
+    payload: {
+      errandId: c.errandId,
+      requesterUserId: c.requesterId,
+      step,
+      reason: step === 'credit' ? c.payload.reason : c.payload.supplierOutcome,
+    },
+  });
 const cancel = (
   who: Role[],
   reasons: CancellationReason[],
@@ -263,13 +276,13 @@ export const EDGES: Partial<
       clears: PENDING,
     },
     // Supplier refused or did not answer: the old supplier stays and the local fields go back.
-    Open: { ...plain('EditFailed', sys), clears: PENDING, restores: true },
+    Open: { ...plain('EditFailed', sys, editFailed('supplier')), clears: PENDING, restores: true },
   },
   'Adjusting-Credit': {
     Open: [
       // After SupplierConfirmed the supplier columns land together with the reward.
       { type: 'CreditAdjusted', sets: ['rewardCredits'], optional: CONFIRMED, clears: [], who: sys },
-      { ...plain('CreditAdjustmentFailed', sys), restores: true },
+      { ...plain('CreditAdjustmentFailed', sys, editFailed('credit')), restores: true },
     ],
   },
   // Supplier-service's answer (or the hold sweep) settles the edit; a refusal keeps the old supplier.
@@ -291,7 +304,7 @@ export const EDGES: Partial<
         clears: PENDING,
         who: sys,
       },
-      { type: 'SupplierRevalidationFailed', sets: [], clears: PENDING, who: sys, restores: true },
+      { type: 'SupplierRevalidationFailed', sets: [], clears: PENDING, who: sys, restores: true, notice: editFailed('supplier') },
     ],
   },
   Accepted: {

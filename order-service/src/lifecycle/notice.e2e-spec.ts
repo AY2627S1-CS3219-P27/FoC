@@ -320,4 +320,20 @@ describe('transition notices', () => {
     ).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
     expect(await outbox(id)).toHaveLength(0);
   });
+
+  // A refused edit is undone and the requester is told which step refused it.
+  it.each([
+    ['credit', 'Adjusting-Credit', 'CreditAdjustmentFailed', { creditEventId: randomUUID(), reason: 'INSUFFICIENT_CREDITS', requestedAmount: 9 }, 'INSUFFICIENT_CREDITS'],
+    ['supplier', 'Revalidating-Supplier', 'SupplierRevalidationFailed', { supplierOutcome: 'TIMEOUT' }, 'TIMEOUT'],
+    ['supplier', 'Editing', 'EditFailed', { step: 'supplier', supplierEventId: randomUUID(), supplierOutcome: 'INACTIVE' }, 'INACTIVE'],
+  ] as const)('tells the requester which %s step refused the edit (%s -> Open)', async (step, from, type, payload, reason) => {
+    const id = await seed(from);
+    expect(await transition(t.db, { errandId: id, expected: from, to: 'Open', type, actor: SYSTEM, payload })).toMatchObject({ ok: true });
+    expect(await outbox(id)).toMatchObject([
+      {
+        routingKey: 'order.requester-edit-failed.v1',
+        envelope: { payload: { errandId: id, requesterUserId: requester, step, reason } },
+      },
+    ]);
+  });
 });
