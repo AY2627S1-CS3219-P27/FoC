@@ -14,6 +14,9 @@ export interface ReplyErrand {
   deliveryBuildingId: string; // the pending one while revalidating
   storedDeliveryBuildingId: string;
   deliveryDetail: string;
+  // Editing: the new reward waiting for credit. Adjusting-Credit after SupplierConfirmed: the supplier columns waiting for it.
+  pendingAmount: number | null;
+  confirmed: Record<string, unknown> | null;
 }
 
 
@@ -62,9 +65,18 @@ export class LifecycleService {
         deliveryBuildingId: sql<string>`coalesce(${errands.pendingDeliveryBuildingId}, ${errands.deliveryBuildingId})`,
         storedDeliveryBuildingId: errands.deliveryBuildingId,
         deliveryDetail: errands.deliveryDetail,
+        pendingAmount: sql<number | null>`(SELECT (e.payload->>'newAmount')::int FROM errand_events e
+          WHERE e.errand_id = ${errands.id} AND e.type = 'EditRequested' ORDER BY e.sequence_number DESC LIMIT 1)`,
+        // Only the event that entered Adjusting-Credit counts: an older chained edit must not leak into a later one.
+        confirmed: sql<Record<string, unknown> | null>`(SELECT e.payload->'apply' FROM errand_events e
+          WHERE e.errand_id = ${errands.id} AND e.type = 'SupplierConfirmed'
+            AND e.sequence_number = ${errands.lastSequenceNumber})`,
       })
       .from(errands)
       .where(eq(errands.id, errandId));
+    if (row?.confirmed?.supplierValidatedAt) {
+      row.confirmed = { ...row.confirmed, supplierValidatedAt: new Date(row.confirmed.supplierValidatedAt as string) };
+    }
     return row;
   }
 

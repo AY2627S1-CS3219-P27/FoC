@@ -31,35 +31,44 @@ function revalidation(e: Completed, errand: ReplyErrand) {
   ) {
     return { ignore: `stale reply for errand ${p.errandId}: not the pending supplier and building` };
   }
-  const base = { errandId: p.errandId, expected: 'Revalidating-Supplier', to: 'Open' } as const;
+  // Editing is the supplier step of a reward + supplier edit: the answer is held, and credit is asked next.
+  const chained = errand.status === 'Editing';
+  const base = { errandId: p.errandId, expected: errand.status } as const;
   if (found && p.supplier.status === 'Active') {
-    return {
-      ...base,
-      type: 'SupplierRevalidated',
-      set: {
-        supplierId: p.supplierId,
-        deliveryBuildingId: p.deliveryBuilding.id,
-        supplierValidatedAt: new Date(e.timestamp),
-        ...pickupOf(p.supplier),
-        deliveryLocation: p.deliveryBuilding.shortName,
-        ...(p.deliveryBuilding.id.toLowerCase() !== errand.storedDeliveryBuildingId.toLowerCase() &&
-          deliveryPointOf(p.deliveryBuilding)),
-      },
-      payload: { supplierEventId: e.eventId, supplier: p.supplier },
+    const columns = {
+      supplierId: p.supplierId,
+      deliveryBuildingId: p.deliveryBuilding.id,
+      supplierValidatedAt: new Date(e.timestamp),
+      ...pickupOf(p.supplier),
+      deliveryLocation: p.deliveryBuilding.shortName,
+      ...(p.deliveryBuilding.id.toLowerCase() !== errand.storedDeliveryBuildingId.toLowerCase() &&
+        deliveryPointOf(p.deliveryBuilding)),
     };
+    const confirmed = { supplierEventId: e.eventId, supplier: p.supplier };
+    return chained
+      ? {
+          ...base,
+          to: 'Adjusting-Credit' as const,
+          type: 'SupplierConfirmed',
+          payload: {
+            ...confirmed,
+            newAmount: errand.pendingAmount,
+            apply: { ...columns, supplierValidatedAt: columns.supplierValidatedAt.toISOString() },
+          },
+        }
+      : { ...base, to: 'Open' as const, type: 'SupplierRevalidated', set: columns, payload: confirmed };
   }
   // The old supplier stays; nothing is cancelled.
-  return {
-    ...base,
-    type: 'SupplierRevalidationFailed',
-    payload: { supplierEventId: e.eventId, supplierOutcome: found ? 'INACTIVE' : p.outcome },
-  };
+  const supplierOutcome = found ? 'INACTIVE' : p.outcome;
+  return chained
+    ? { ...base, to: 'Open' as const, type: 'EditFailed', payload: { step: 'supplier', supplierEventId: e.eventId, supplierOutcome } }
+    : { ...base, to: 'Open' as const, type: 'SupplierRevalidationFailed', payload: { supplierEventId: e.eventId, supplierOutcome } };
 }
 
 export const SUPPLIER_REPLY_SPECS: ReplySpec[] = [
   {
     ...reply('supplier.validation-completed.v1', async (e, pinOf, errand) => {
-      if (errand?.status === 'Revalidating-Supplier') return revalidation(e, errand);
+      if (errand?.status === 'Revalidating-Supplier' || errand?.status === 'Editing') return revalidation(e, errand);
       const p = e.payload;
       // Validation is settled; a redelivery would pick a different edge than it first took.
       if (errand && errand.status !== 'Pending-Supplier') {

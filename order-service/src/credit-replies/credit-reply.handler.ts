@@ -76,17 +76,21 @@ export const REPLY_SPECS: ReplySpec[] = [
       },
     };
   }),
-  reply('credit.reservation-adjustment-success.v1', (e) => ({
-    errandId: e.payload.errandId,
-    expected: 'Adjusting-Credit',
-    to: 'Open',
-    type: 'CreditAdjusted',
-    set: { rewardCredits: e.payload.newReservedAmount },
-    payload: {
-      creditEventId: e.eventId,
-      creditTransactionId: e.payload.creditTransactionId,
-    },
-  })),
+  {
+    ...reply('credit.reservation-adjustment-success.v1', (e, _pinOf, errand) => ({
+      errandId: e.payload.errandId,
+      expected: 'Adjusting-Credit',
+      to: 'Open',
+      type: 'CreditAdjusted',
+      // After a chained edit's supplier step, the supplier switches together with the reward.
+      set: { rewardCredits: e.payload.newReservedAmount, ...errand?.confirmed },
+      payload: {
+        creditEventId: e.eventId,
+        creditTransactionId: e.payload.creditTransactionId,
+      },
+    })),
+    withErrand: true,
+  },
   reply('credit.reservation-adjustment-rejected.v1', (e) => ({
     errandId: e.payload.errandId,
     expected: 'Adjusting-Credit',

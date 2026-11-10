@@ -144,7 +144,7 @@ async function resendSupplierRequests(db: Db, cfg: SweepConfig): Promise<number>
         coalesce(pending_delivery_building_id, delivery_building_id) AS delivery_building_id,
         CASE status WHEN 'Pending-Supplier' THEN delivery_venue_id END AS delivery_venue_id
       FROM errands
-      WHERE status IN ('Pending-Supplier', 'Revalidating-Supplier'))
+      WHERE status IN ('Pending-Supplier', 'Revalidating-Supplier', 'Editing'))
     SELECT w.id, w.round, w.supplier_id, w.delivery_building_id, w.delivery_venue_id, coalesce(r.attempts, 0) AS attempts
     FROM w LEFT JOIN supplier_validation_retries r ON r.errand_id = w.id AND r.round = w.round
     WHERE w.since > ${ago(cfg.supplierHoldMs)}
@@ -185,7 +185,7 @@ async function resendSupplierRequests(db: Db, cfg: SweepConfig): Promise<number>
     WHERE errand_id IN (
       SELECT r.errand_id FROM supplier_validation_retries r
       JOIN errands e ON e.id = r.errand_id
-      WHERE e.status NOT IN ('Pending-Supplier', 'Revalidating-Supplier')
+      WHERE e.status NOT IN ('Pending-Supplier', 'Revalidating-Supplier', 'Editing')
       LIMIT ${BATCH})`);
   return resent;
 }
@@ -227,6 +227,17 @@ export async function runSweeps(db: Db, cfg: SweepConfig) {
         to: 'Open',
         type: 'SupplierRevalidationFailed',
         payload: { supplierOutcome: 'TIMEOUT' },
+      },
+    )),
+    // The same hold for the supplier step of a reward + supplier edit; the edit is dropped and nothing moved in credit.
+    editTimedOut: await safe('edit hold', () => move(
+      db,
+      and(eq(errands.status, 'Editing'), lte(errands.updatedAt, ago(cfg.supplierHoldMs))),
+      {
+        expected: 'Editing',
+        to: 'Open',
+        type: 'EditFailed',
+        payload: { step: 'supplier', supplierOutcome: 'TIMEOUT' },
       },
     )),
     supplierResent: await safe('supplier resend', () => resendSupplierRequests(db, cfg)),
