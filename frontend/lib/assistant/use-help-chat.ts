@@ -18,7 +18,7 @@ interface AssistantAnswer {
 
 export type HelpExchange = { id: number; question: string } & (
   | { status: "waiting" }
-  | { status: "failed"; error: string }
+  | { status: "failed"; error: string; retryAt?: number }
   | { status: "answered"; answer: string; sources: HelpSource[] }
 );
 
@@ -33,10 +33,14 @@ export function useHelpChat() {
     inFlight.current = true;
     const res = await api<AssistantAnswer>("POST", "/api/assistant/questions", { body: { question } });
     inFlight.current = false;
+    // Over the rate limit an immediate retry can only fail again, so remember when it can work.
+    const waitSeconds = res.status === 429 ? res.retryAfterSeconds : undefined;
     const settled: HelpExchange =
       res.ok && res.data
         ? { id, question, status: "answered", answer: res.data.answer, sources: res.data.sources }
-        : { id, question, status: "failed", error: errorText(res, "We couldn't get an answer. Try again.") };
+        : waitSeconds
+          ? { id, question, status: "failed", error: "Too many questions in a short time.", retryAt: Date.now() + waitSeconds * 1000 }
+          : { id, question, status: "failed", error: errorText(res, "We couldn't get an answer. Try again.") };
     setExchanges((current) => current.map((exchange) => (exchange.id === id ? settled : exchange)));
   }, []);
 

@@ -45,6 +45,38 @@ function Sources({ sources }: { sources: HelpSource[] }) {
   );
 }
 
+function FailureNote({ error, retryAt, canRetry, onRetry }: { error: string; retryAt?: number; canRetry: boolean; onRetry: () => void }) {
+  // Mounted only once the question has failed, so the first reading is current.
+  const [now, setNow] = useState(() => Date.now());
+  const secondsLeft = retryAt === undefined ? 0 : Math.max(0, Math.ceil((retryAt - now) / 1000));
+  const counting = secondsLeft > 0;
+
+  useEffect(() => {
+    if (!counting) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [counting]);
+
+  return (
+    <p className="mt-0.5 flex flex-wrap items-center justify-end gap-x-2 px-1 text-[11px] font-medium text-muted">
+      <span className="text-danger">
+        ⚠️ Couldn&apos;t get an answer. {error}
+        {counting && (
+          <>
+            {/* The transcript is a live region, so a changing number would be read out every second. */}
+            <span aria-hidden="true"> Try again in {secondsLeft}s.</span>
+            <span className="sr-only"> Retry will be available shortly.</span>
+          </>
+        )}
+        {retryAt !== undefined && !counting && " You can try again now."}
+      </span>
+      <button type="button" disabled={!canRetry || counting} onClick={onRetry} className="font-semibold text-nus-orange disabled:opacity-40">
+        Retry
+      </button>
+    </p>
+  );
+}
+
 function Exchange({ exchange, canRetry, onRetry }: { exchange: HelpExchange; canRetry: boolean; onRetry: () => void }) {
   const failed = exchange.status === "failed";
   return (
@@ -58,14 +90,7 @@ function Exchange({ exchange, canRetry, onRetry }: { exchange: HelpExchange; can
         >
           <p className={clsx("whitespace-pre-wrap break-words text-[15px]", failed && "text-foreground")}>{exchange.question}</p>
         </article>
-        {failed && (
-          <p className="mt-0.5 flex flex-wrap items-center justify-end gap-x-2 px-1 text-[11px] font-medium text-muted">
-            <span className="text-danger">⚠️ Couldn&apos;t get an answer. {exchange.error}</span>
-            <button type="button" disabled={!canRetry} onClick={onRetry} className="font-semibold text-nus-orange disabled:opacity-40">
-              Retry
-            </button>
-          </p>
-        )}
+        {exchange.status === "failed" && <FailureNote error={exchange.error} retryAt={exchange.retryAt} canRetry={canRetry} onRetry={onRetry} />}
       </div>
       {exchange.status === "waiting" && (
         <div className="mt-3 flex flex-col items-start">

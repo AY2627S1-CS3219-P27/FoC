@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApiResult } from "@/lib/api";
@@ -126,6 +126,32 @@ describe("HelpChat", () => {
     expect(screen.getAllByText("How do credits work?")).toHaveLength(1);
     expect(mocks.api).toHaveBeenCalledTimes(2);
     expect(mocks.api.mock.calls[1]?.[2]).toEqual({ body: { question: "How do credits work?" } });
+  });
+
+  it("holds Retry back until the rate limit ends and says how long", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mocks.api.mockResolvedValueOnce({ ...failure(429), retryAfterSeconds: 30 }).mockResolvedValueOnce(success(answered));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(<HelpChat />);
+
+      await user.type(composer(), "How do credits work?{Enter}");
+
+      expect(await screen.findByText(/Try again in \d+s/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Retry" })).toBeDisabled();
+
+      await act(() => vi.advanceTimersByTimeAsync(31_000));
+
+      expect(screen.getByText(/You can try again now/)).toBeInTheDocument();
+      expect(screen.queryByText(/Try again in \d+s/)).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Retry" }));
+
+      expect(await screen.findByText("Credits are FoC's own points.")).toBeInTheDocument();
+      expect(mocks.api).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not send a second question while one is waiting", async () => {
