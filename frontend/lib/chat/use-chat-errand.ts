@@ -6,7 +6,10 @@ import type { Errand } from "@/app/home/_errands/types";
 
 export interface ChatErrandSummary {
   pickupName: string | null;
+  pickupLocation: string | null;
   deliveryLocation: string | null;
+  deliveryDetail: string;
+  deliveryVenue: string | null;
   collectionItems: string;
 }
 
@@ -42,7 +45,10 @@ export function useChatErrand(errandId: string | null): ChatErrandSummary | null
         errandId,
         summary: {
           pickupName,
+          pickupLocation: errand.pickupLocation,
           deliveryLocation: errand.deliveryLocation,
+          deliveryDetail: errand.deliveryDetail,
+          deliveryVenue: errand.deliveryVenue,
           collectionItems: errand.collectionItems,
         },
       });
