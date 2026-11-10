@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { EmptyState, List, ListRow, Pill, SkeletonList } from "@/components/ui/layout";
 import { api } from "@/lib/api";
+import { formatErrandTitle, useChatErrand } from "@/lib/chat/use-chat-errand";
+import { useDisplayName } from "@/lib/users/names";
 
 const PAGE_LIMIT = 25;
 
@@ -128,6 +130,11 @@ function TransactionRow({
         ? transaction.origin.userId
         : transaction.destination.userId
       : null;
+  const errand = useChatErrand(transaction.errandId);
+  const errandTitle = formatErrandTitle(errand, `Errand #${shortId(transaction.errandId)}`);
+  const counterpartyName = useDisplayName(counterparty);
+  const counterpartyLabel =
+    counterpartyName ?? (counterparty ? `user ${shortId(counterparty)}` : "");
 
   return (
     <ListRow
@@ -144,13 +151,12 @@ function TransactionRow({
             {balanceLabel(transaction.destination.balanceType)}
           </span>
           <span className="mt-0.5 flex flex-wrap gap-x-3">
-            <span title={transaction.errandId} aria-label={`Errand ${transaction.errandId}`}>
-              Errand <span className="font-mono">#{shortId(transaction.errandId)}</span>
+            <span title={transaction.errandId} aria-label={`Errand ${errandTitle}`}>
+              {errandTitle}
             </span>
             {counterparty && (
-              <span title={counterparty} aria-label={`Counterparty ${counterparty}`}>
-                {transaction.destination.userId === userId ? "From" : "To"} user{" "}
-                <span className="font-mono">{shortId(counterparty)}</span>
+              <span title={counterparty} aria-label={`Counterparty ${counterpartyLabel}`}>
+                {transaction.destination.userId === userId ? "From" : "To"} {counterpartyLabel}
               </span>
             )}
           </span>
