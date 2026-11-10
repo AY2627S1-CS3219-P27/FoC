@@ -80,8 +80,9 @@ export function AppShell({
 
   const mainTabs = mainSections(tabs);
   const adminTabs = tabs.filter((t) => ADMIN_TABS.includes(t));
-  // The phone tab bar keeps Archives one tap inside Chats, so the items never crowd it.
-  const barSections = [...mainTabs.filter((s) => s !== "archives"), ...adminTabs];
+  // Archives sit one tap inside Chats (the Active/Archived switch), on the sidebar and the phone tab bar alike.
+  const navSections = mainTabs.filter((s) => s !== "archives");
+  const barSections = [...navSections, ...adminTabs];
 
   return (
     <div className="min-h-dvh md:pl-[264px]">
@@ -95,7 +96,7 @@ export function AppShell({
         </div>
 
         <nav aria-label="Sections" className="flex-1 overflow-y-auto px-3 pb-3">
-          <SidebarGroup tabs={mainTabs} tab={tab} onTab={onTab} />
+          <SidebarGroup tabs={navSections} tab={tab} onTab={onTab} />
           {adminTabs.length > 0 && (
             <>
               <p className="mt-5 mb-1 px-2.5 text-xs font-semibold text-muted">Admin</p>
@@ -173,7 +174,7 @@ export function AppShell({
         <div className="mx-auto grid max-w-lg" style={{ gridTemplateColumns: `repeat(${barSections.length}, minmax(0, 1fr))` }}>
           {barSections.map((t) => {
             const Icon = ICONS[t];
-            // Archives sit under Chats on a phone, so Chats stays lit on both.
+            // Archives sit under Chats, so Chats stays lit on both.
             const active = t === tab || (t === "chats" && tab === "archives");
             const className = clsx(
               "btn-press flex min-w-0 flex-col items-center gap-0.5 pt-2 pb-1.5 text-[10px] font-medium transition-colors duration-150",
@@ -206,7 +207,7 @@ function SidebarGroup({ tabs, tab, onTab }: { tabs: Section[]; tab: Section; onT
     <ul className="space-y-0.5">
       {tabs.map((t) => {
         const Icon = ICONS[t];
-        const active = t === tab;
+        const active = t === tab || (t === "chats" && tab === "archives");
         const className = clsx(
           "flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[15px] transition-colors duration-150",
           active ? "bg-fill font-semibold text-foreground" : "text-foreground/85 hover:bg-fill/60",
