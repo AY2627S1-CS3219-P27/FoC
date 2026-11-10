@@ -9,6 +9,7 @@ const STATUS_TONES: Record<ErrandStatus, React.ComponentProps<typeof Pill>["tone
   Accepted: "blue",
   "Picked Up": "blue",
   Delivered: "blue",
+  "Processing transfer": "blue",
   Completed: "success",
   Cancelled: "danger",
   Incomplete: "danger",

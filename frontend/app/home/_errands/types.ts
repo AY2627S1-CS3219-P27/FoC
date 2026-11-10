@@ -4,6 +4,7 @@ export type ErrandStatus =
   | "Accepted"
   | "Picked Up"
   | "Delivered"
+  | "Processing transfer"
   | "Completed"
   | "Cancelled"
   | "Incomplete"
@@ -15,6 +16,7 @@ export const ERRAND_STATUSES: ErrandStatus[] = [
   "Accepted",
   "Picked Up",
   "Delivered",
+  "Processing transfer",
   "Completed",
   "Cancelled",
   "Incomplete",
