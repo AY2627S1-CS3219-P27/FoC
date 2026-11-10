@@ -11,6 +11,7 @@ flowchart LR
   Supplier[supplier-service]
   Credit[credit-service]
   Comms[comms-service]
+  Notify[notification-service]
 
   subgraph OS[order-service NestJS]
     API[HTTP controllers<br/>create, edit, cancel, list, accept,<br/>pickup, deliver, confirm, role-block]
@@ -33,7 +34,7 @@ flowchart LR
 
   Client --> API
   User -- "role check + block / unblock (F10, ADR 0010)" --> API
-  Supplier -- "hard-delete usage query (F5.3.1)" --> API
+  Supplier -. "hard-delete usage query (F5.3.1), not built yet" .-> API
   API --> Life
   API --> Read
   Read --> Errands
@@ -51,6 +52,7 @@ flowchart LR
   MQ <--> Supplier
   MQ <--> Credit
   MQ --> Comms
+  MQ --> Notify
 ```
 
 Only the Lifecycle module writes errands. Every write, from a request, a notice reply or a sweep, goes through the same transition function.
@@ -142,7 +144,7 @@ Each row is one database transaction (§3): a conditional `UPDATE … WHERE stat
 | 6 | Open → Cancelled | `ErrandCancelled` | requester: `POST /:id/cancel` (`REQUESTER_CANCELLED`), or expiry sweep (`ERRAND_EXPIRED`) | user reason needs the requester, system reason the system | `order.errand-cancelled.v1`: release back to the requester |
 | 7 | Open → Adjusting-Credit | `AdjustmentRequested` | requester: `POST /:id/adjust`, or `PATCH /:id` with `rewardCredits` | `newAmount` a positive integer; not expired | `credit.reservation-adjustment.v1` (old → new amount); other edited fields change now |
 | 8 | Adjusting-Credit → Open | `CreditAdjusted` | system: `credit.reservation-adjustment-success.v1` | — | `rewardCredits` = new amount; after edge 26, the held supplier columns too |
-| 9 | Adjusting-Credit → Open | `CreditAdjustmentFailed` | system: `credit.reservation-adjustment-rejected.v1` | — | amount unchanged; local fields restored |
+| 9 | Adjusting-Credit → Open | `CreditAdjustmentFailed` | system: `credit.reservation-adjustment-rejected.v1` | — | `order.requester-edit-failed.v1` for notification-service (`step: credit`); amount unchanged, local fields restored |
 | 10 | Accepted → Picked Up | `ErrandPickedUp` | assigned courier: `POST /:id/pickup` | — | none; starts the 24h pickup timer |
 | 11 | Accepted → Open | `CourierWithdrew` | assigned courier: `POST /:id/withdraw` | non-blank `reason` (F7.4) | `order.courier-cancelled.v1` for Communication Service using the authorized actor; clears `courierId`, credits stay held |
 | 12 | Picked Up → Delivered | `ErrandDelivered` | assigned courier: `POST /:id/deliver` | — | `order.errand-delivered.v1` for Communication Service; starts the 24h auto-complete timer |
@@ -154,13 +156,13 @@ Each row is one database transaction (§3): a conditional `UPDATE … WHERE stat
 | 18 | Incomplete → Settling-Credit | `SettlementRequested` | admin: resolve | `0 <= settlementAmount <= rewardCredits`, non-blank note | `credit.settlement.v1`: courier gets the amount, requester the rest |
 | 19 | Settling-Credit → Resolved | `CreditSettlementSucceeded` | system: credit's settlement success reply | — | credits moved per the settlement |
 | 20 | Settling-Credit → Incomplete | `CreditSettlementRejected` | system: credit's settlement rejection reply | — | none; settlement columns cleared, the admin may retry |
-| 21 | Open → Open | `ErrandEdited` | requester: `PATCH /:id` | at least one change; required text not blank; not expired; an edited expiry still in the future (`EXPIRY_IN_PAST`) | none; `expires_at` = opened-at + new duration (ADR 0013) |
+| 21 | Open → Open | `ErrandEdited` | requester: `PATCH /:id` | at least one change; required text not blank; not expired; an edited expiry still in the future (`EXPIRY_IN_PAST`) | none; `expires_at` = opened-at + new duration (ADR 0014) |
 | 22 | Open → Revalidating-Supplier | `SupplierRevalidationRequested` | requester: `PATCH /:id` with `supplierId` and/or `deliveryBuildingId` | both pending ids; not expired | `order.supplier-validation-requested.v1` for the pending ids; other edited fields change now; resent with backoff |
 | 23 | Revalidating-Supplier → Open | `SupplierRevalidated` | system: supplier reply `FOUND` + `Active` for the pending ids | — | supplier, building and pickup snapshot replaced; pending ids cleared |
-| 24 | Revalidating-Supplier → Open | `SupplierRevalidationFailed` | system: supplier reply `NOT_FOUND` / `Inactive` / `BUILDING_NOT_FOUND`, or hold-window sweep (`TIMEOUT`) | — | none; old supplier and building kept, pending ids cleared, local fields restored |
+| 24 | Revalidating-Supplier → Open | `SupplierRevalidationFailed` | system: supplier reply `NOT_FOUND` / `Inactive` / `BUILDING_NOT_FOUND`, or hold-window sweep (`TIMEOUT`) | — | `order.requester-edit-failed.v1` for notification-service (`step: supplier`); old supplier and building kept, pending ids cleared, local fields restored |
 | 25 | Open → Editing | `EditRequested` | requester: `PATCH /:id` with `rewardCredits` and `supplierId` and/or `deliveryBuildingId` | both pending ids; new reward in the payload; not expired | `order.supplier-validation-requested.v1` for the pending ids; local fields change now and their previous values are recorded; resent with backoff |
 | 26 | Editing → Adjusting-Credit | `SupplierConfirmed` | system: supplier reply `FOUND` + `Active` for the pending ids | — | `credit.reservation-adjustment.v1` (old → new amount); the supplier's answer is held in the event, nothing of it is applied yet |
-| 27 | Editing → Open | `EditFailed` | system: supplier reply `NOT_FOUND` / `Inactive` / `BUILDING_NOT_FOUND`, or hold-window sweep (`TIMEOUT`) | — | none; old supplier kept, pending ids cleared, local fields restored |
+| 27 | Editing → Open | `EditFailed` | system: supplier reply `NOT_FOUND` / `Inactive` / `BUILDING_NOT_FOUND`, or hold-window sweep (`TIMEOUT`) | — | `order.requester-edit-failed.v1` for notification-service (`step: supplier`); old supplier kept, pending ids cleared, local fields restored |
 
 Edges 8 and 9 share a status pair, as do 23 and 24, so a caller picks between them with `TransitionInput.type`. There is no `Accepted` → `Cancelled` edge: the requester cannot cancel once accepted; the courier withdraws (11) instead. Accept (5) refusing an expired errand is a backstop only: the expiry sweep is what cancels it.
 
@@ -337,9 +339,9 @@ Supplier and building edits (F2.1.1, [ADR 0014](../docs/adr/order-service/0014-e
 
 | Route | Who | Returns |
 |---|---|---|
-| `GET /v1/errands` | Courier | `Open` / `Adjusting-Credit` errands with `expires_at > now()`, minus the caller's own. Filters `pickupBuilding`, `deliveryBuilding`, `minCredits`; `sort=expiring\|newest\|credits` (default `expiring`, `id` tie-break) |
+| `GET /v1/errands` | Courier | `Open` and `Updating` errands (an errand being edited stays on the list; it cannot be accepted meanwhile) with `expires_at > now()`, minus the caller's own. Filters `pickupBuilding`, `deliveryBuilding`, `minCredits`; `sort=expiring\|newest\|credits` (default `expiring`, `id` tie-break) |
 | `GET /v1/errands/mine` | Requester or Courier | Errands where the caller is requester or courier, newest first. Optional `role=requester\|courier` keeps one side; optional `status` (API name) |
-| `GET /v1/errands/:id` | Requester or Courier | The requester and assigned courier see it in any status; anyone else only while it is `Open` and unexpired, else 404. A party still sees an expired errand, with `expiresAt` (the sweep, not the read, cancels). `requesterId`, `courierId` and `cancellationReason` appear only for the two parties |
+| `GET /v1/errands/:id` | Requester or Courier | The requester and assigned courier see it in any status; anyone else only while it is `Open` and unexpired, else 404. A party still sees an expired errand, with `expiresAt` (the sweep, not the read, cancels). `requesterId`, `courierId` and `cancellationReason` appear only for the two parties; the requester also gets `lastEditResult` (`{ step: 'supplier' \| 'credit', outcome }` when the latest event is a refused edit, else null; read from the event log, so it clears on the next event) |
 | `GET /v1/admin/users/:userId/errands` | Admin (`AdminGuard`, the token's `isAdmin`) | The same list as `mine` for any user, same `role` / `status` / paging. Each item also carries `internalStatus` (the sub-state, labelled internal per F9.3.3), the party ids, `cancellationReason`, `pickedUpAt`, `deliveredAt` and `updatedAt` (`toAdminView`) |
 
 Dispute routes (`/v1/admin/disputes`, admin only) read through `disputeQueue` / `disputeDetail` (explicit allowlists, one `REPEATABLE READ` snapshot for the detail) and are listed in the README. Party visibility: `toView` adds `settlementAmount` and `settlementNote` for the two parties (and, through `toAdminView`, admins) only while the errand is `Resolved`; `Settling-Credit` and a rejected `Incomplete` carry none (a rejection clears the columns).
@@ -365,7 +367,7 @@ Order-service and credit-service never share a transaction. Order changes its ow
 | Credit rejects a release | `credit.release-rejected.v1` | Logged as an error only: the errand is already `Cancelled` |
 | Credit rejects a transfer (e.g. `DESTINATION_ARCHIVED`) | `credit.transfer-rejected.v1` | Edge 16 to `Incomplete`. The credits stay held (see "Planned" below) |
 | Supplier-service down during validation | Errand stays in `Pending-Supplier` | Re-sent with backoff by the sweep, then cancelled with `SUPPLIER_VALIDATION_TIMEOUT` after the hold window. A late reply is dropped. Nothing is reserved yet, so nothing is released |
-| Supplier-service down while an edit is re-checked | Errand stays in `Revalidating-Supplier` (shown as `Open`) | Re-sent with backoff, then edge 24 (`TIMEOUT`) after the hold window: the edit is dropped and the old supplier kept. Credits are untouched throughout |
+| Supplier-service down while an edit is re-checked | Errand stays in `Revalidating-Supplier` (shown as `Updating`) | Re-sent with backoff, then edge 24 (`TIMEOUT`) after the hold window: the edit is dropped and the old supplier kept. Credits are untouched throughout |
 | Order DB down | `/health` answers 503; requests fail | Nothing is lost: writes and notices share that DB, so neither happened |
 
 **Ordering.** Global message order is not needed:
@@ -375,11 +377,13 @@ Order-service and credit-service never share a transaction. Order changes its ow
 
 **Planned, not built.** These are documented gaps, not current behaviour:
 - **Credits held in `Incomplete` (S3, #584).** Releasing or transferring them is a dispute decision: an admin settles through the dispute routes (edge 18). Settlement is built on both services ([ADR 0013](../docs/adr/order-service/0013-dispute-resolution-settlement.md), credit [ADR 0010](../docs/adr/credit-service/0010-credit-settlement.md)); there is no aging alert for a stale dispute.
-- **Telling the user a credit step failed (S6).** The reason is already in the revert event's payload. A notice will be added on those edges once notification-service defines its event contract.
+- **Telling the user a credit step failed (S6), outside edits.** For an edit, the requester is told through `order.requester-edit-failed.v1` (below). The other credit steps (confirm, settlement) still send no notice.
 - **"You may resubmit" after `SUPPLIER_VALIDATION_TIMEOUT` (F1.5.3).** Today the requester sees `Cancelled` and the reason on the detail endpoint.
 - **The `ADMIN ALERT` repeats every tick.** Windows are counted from `updated_at`, with no stored attempt count.
 
 **Requester cancellation notice.** Every `Cancelled` edge also writes `order.requester-errand-cancelled.v1` (requester id and `cancellationReason`) in the same transaction, except when the requester cancelled themselves. It is separate from `order.errand-cancelled.v1` because that one is credit's release (no recipient, and not sent when nothing was reserved); `Reserving-Credit` → `Cancelled` on `CREDIT_TIMEOUT` writes both. Notification-service pushes the "you can resubmit" copy and the frontend shows the same copy on the errand (`cancellation.ts`). Courier withdrawal (edge 11) is not a cancellation and uses `order.courier-cancelled.v1`; the courier's free-text reason is not shown to the requester.
+
+**Edit-failed notice.** Every edge that refuses an edit (9, 24, 27) writes `order.requester-edit-failed.v1` in the same transaction: the requester id, the `step` that refused (`supplier` or `credit`) and its `reason` (supplier outcome incl. `TIMEOUT`, or credit's rejection reason). The local fields are already back by then. Notification-service pushes "Edit not saved" with the reason; the same facts are on the errand detail as `lastEditResult`, which is the source of truth if the push is missed.
 
 ## Remaining work before rollout
 

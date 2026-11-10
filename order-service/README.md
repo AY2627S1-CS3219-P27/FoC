@@ -6,11 +6,11 @@ Errand lifecycle, state model and expiry. See `AGENTS.md` and `ARCHITECTURE.md`.
 
 | Route | Role | Purpose |
 |---|---|---|
-| `GET /` | Courier | Browse open errands (`pickupBuilding`, `deliveryBuilding`, `minCredits`, `sort`, `limit`, `offset`) |
+| `GET /` | Courier | Browse open errands, including ones being edited (`Updating`) (`pickupBuilding`, `deliveryBuilding`, `minCredits`, `sort`, `limit`, `offset`) |
 | `GET /mine` | Requester or Courier | The caller's errands as requester or courier (`role`, `status`, `limit`, `offset`) |
-| `GET /:id` | Requester or Courier | One errand; 404 unless a party or the errand is open and unexpired |
+| `GET /:id` | Requester or Courier | One errand; 404 unless a party or the errand is open (or `Updating`) and unexpired. The requester also gets `lastEditResult` (`{ step, outcome }` after a refused edit, else null) |
 | `POST /` | Requester | Create. `deliveryBuildingId` plus at most one of `deliveryVenueId` or `deliveryPin { latitude, longitude }` (both: 400; a pin outside the campus boundary: 400). `deliveryDetail` is required unless a venue is given |
-| `PATCH /:id` | Requester | Edit an `Open` errand (F2, ADR 0014): any create field except `deliveryVenueId` and `deliveryPin`. A new building drops any venue or pin, and needs a `deliveryDetail` if none is stored. `supplierId` / `deliveryBuildingId` are re-checked by supplier-service first, `rewardCredits` goes through credit, the rest change at once. Send those three only to change them; a reward and a supplier change together is 422 `ONE_PENDING_CHANGE`. 409 `NOT_EDITABLE` once past `Open`; 422 `EXPIRY_IN_PAST` if the new duration has already run out from when the errand opened |
+| `PATCH /:id` | Requester | Edit an `Open` errand (F2, ADR 0014): any create field except `deliveryVenueId` and `deliveryPin`. A new building drops any venue or pin, and needs a `deliveryDetail` if none is stored. `supplierId` / `deliveryBuildingId` are re-checked by supplier-service first, `rewardCredits` goes through credit, the rest change at once. Send those three only to change them. A reward and a supplier change together go supplier first, then credit; if either refuses, every change in the request is undone and the requester is notified. 409 `NOT_EDITABLE` once past `Open` (an edit still waiting on credit or supplier-service shows as `Updating` and cannot be edited again); 422 `EXPIRY_IN_PAST` if the new duration has already run out from when the errand opened |
 | `POST /:id/accept`, `pickup`, `deliver`, `withdraw` | Courier | Courier actions |
 | `POST /:id/confirm`, `incomplete`, `adjust`, `cancel` | Requester | Requester actions |
 | `POST /:id/report` | Requester or assigned Courier | File one immutable text report (max 2,000 characters) on an `Incomplete` errand. 201 `{ filed: true }`; 404 for a non-party; 409 if not `Incomplete`, already reported, or settlement was requested. No attachments yet |
