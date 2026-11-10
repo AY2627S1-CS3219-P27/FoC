@@ -1,14 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { toast } from "sonner";
 import { api, errorText } from "@/lib/api";
 import { parseCampusBoundary, type CampusBoundary } from "@/lib/campus";
 import { Button } from "@/components/ui/button";
 import { Field, FormError, inputClass } from "@/components/ui/field";
 import { List, ListRow, Section } from "@/components/ui/layout";
-import CampusMap, { type LatLng } from "../_errands/campus-map";
+import type { LatLng } from "../_errands/campus-map";
 import type { BuildingItem } from "../_shared/types";
+
+// Leaflet touches window at import time, so the picker is loaded client-only.
+const CampusMap = dynamic(() => import("../_errands/campus-map"), { ssr: false });
 
 // Admins add a building by naming it and dropping a pin on the campus map (F4.3).
 export function BuildingsPanel({
