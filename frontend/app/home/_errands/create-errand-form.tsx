@@ -89,7 +89,7 @@ export function CreateErrandForm({
   const [sufficiencyStatus, setSufficiencyStatus] =
     useState<SufficiencyStatus>("unchecked");
   const [confirmedAmount, setConfirmedAmount] = useState<number | null>(null);
-  const [expiryDurationMinutes, setExpiry] = useState(60);
+  const [expiryDurationMinutes, setExpiry] = useState<number | null>(60);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const sufficiencyRequestVersion = useRef(0);
@@ -137,6 +137,7 @@ export function CreateErrandForm({
     (location.kind === "venue" || deliveryDetail.trim() !== "") &&
     (location.kind !== "pin" || location.at !== null) &&
     collectionItems.trim() !== "" &&
+    expiryDurationMinutes !== null &&
     sufficiencyStatus === "sufficient" &&
     rewardAmount !== null &&
     confirmedAmount === rewardAmount;
@@ -229,7 +230,7 @@ export function CreateErrandForm({
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!canSubmit || rewardAmount === null) {
+    if (!canSubmit || rewardAmount === null || expiryDurationMinutes === null) {
       setError("Fill in every required field and wait for the credit check.");
       return;
     }
@@ -432,8 +433,8 @@ export function CreateErrandForm({
           <Field label="Open for">
             <OptionCombobox
               options={expiryOptions}
-              value={String(expiryDurationMinutes)}
-              onValueChange={(v) => v !== "" && setExpiry(Number(v))}
+              value={expiryDurationMinutes === null ? "" : String(expiryDurationMinutes)}
+              onValueChange={(v) => setExpiry(v === "" ? null : Number(v))}
               placeholder="Choose a duration…"
               clearable={false}
             />
