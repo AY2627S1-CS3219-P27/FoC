@@ -14,6 +14,7 @@ export interface FormBuilding {
   shortName: string;
   canonicalName: string;
   coordinates?: { latitude: number; longitude: number };
+  allowsPin?: boolean; // the map-pin pseudo building: errands use it, a supplier cannot be in it
 }
 
 interface Values {
@@ -155,7 +156,7 @@ export function SupplierForm({
   // display name so users never see a bare code or the internal id.
   const buildingOptions = useMemo<ComboboxOption<string>[]>(
     () =>
-      buildings.map((b) => ({
+      buildings.filter((b) => !b.allowsPin).map((b) => ({
         value: b.id,
         label: `${b.shortName} — ${b.canonicalName}`,
         title: b.shortName,

@@ -68,7 +68,7 @@ const refused = (status: number, message: string) => ({ ok: false, status, data:
 function setup(over: Partial<Errand> = {}) {
   const onSaved = vi.fn();
   const view = render(
-    <EditErrandForm errand={{ ...errand, ...over }} suppliers={suppliers} buildings={buildings} onSaved={onSaved} />,
+    <EditErrandForm errand={{ ...errand, ...over }} userId="u1" suppliers={suppliers} buildings={buildings} onSaved={onSaved} />,
   );
   return { onSaved, user: userEvent.setup(), ...view };
 }
@@ -125,13 +125,39 @@ describe("EditErrandForm", () => {
     expect(screen.getByText(/removes any venue or pin/)).toBeInTheDocument();
   });
 
-  it("allows a reward and supplier change together", async () => {
-    const { user } = setup();
-    await user.selectOptions(screen.getByLabelText("Pickup from"), "s2");
+  // The credit check answers for the raise only: 5 -> 9 asks about 4 more.
+  const sufficiency = (sufficient: boolean) =>
+    mocks.api.mockResolvedValue({ ...ok, data: { userId: "u1", amount: 4, sufficient } });
+  const raiseTo9 = async (user: ReturnType<typeof userEvent.setup>) => {
     await user.clear(screen.getByLabelText(/Credits offered/));
     await user.type(screen.getByLabelText(/Credits offered/), "9");
+  };
+
+  it("allows a reward and supplier change together", async () => {
+    sufficiency(true);
+    const { user } = setup();
+    await user.selectOptions(screen.getByLabelText("Pickup from"), "s2");
+    await raiseTo9(user);
+    expect(await screen.findByText(/4 extra credits available/)).toBeInTheDocument();
     expect(screen.queryByText(/separate edits/)).not.toBeInTheDocument();
     expect(save()).toBeEnabled();
+    expect(mocks.api).toHaveBeenCalledWith("POST", "/api/credits/sufficiency", { body: { userId: "u1", amount: 4 } });
+  });
+
+  it("blocks Save when the raise is more than the available credits", async () => {
+    sufficiency(false);
+    const { user } = setup();
+    await raiseTo9(user);
+    expect(await screen.findByText(/do not have 4 more credits/)).toBeInTheDocument();
+    expect(save()).toBeDisabled();
+  });
+
+  it("does not check credits for a lower reward", async () => {
+    const { user } = setup();
+    await user.clear(screen.getByLabelText(/Credits offered/));
+    await user.type(screen.getByLabelText(/Credits offered/), "3");
+    expect(save()).toBeEnabled();
+    expect(mocks.api).not.toHaveBeenCalled();
   });
 
   it("shows the server's refusal and stays open", async () => {
@@ -165,7 +191,7 @@ describe("EditErrandForm", () => {
     const { user, rerender } = setup();
     await user.type(items(), " and milo");
     rerender(
-      <EditErrandForm errand={{ ...errand, collectionItems: "polled" }} suppliers={suppliers} buildings={buildings} onSaved={vi.fn()} />,
+      <EditErrandForm errand={{ ...errand, collectionItems: "polled" }} userId="u1" suppliers={suppliers} buildings={buildings} onSaved={vi.fn()} />,
     );
     expect(items()).toHaveValue("tea and milo");
   });

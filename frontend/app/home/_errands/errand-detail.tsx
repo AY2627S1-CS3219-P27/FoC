@@ -161,6 +161,7 @@ export function ErrandDetail({
       {errand && editing && (
         <EditErrandForm
           errand={errand}
+          userId={me}
           suppliers={suppliers}
           buildings={buildings}
           onSaved={() => {

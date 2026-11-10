@@ -6,7 +6,7 @@ import { api, errorText } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { OptionCombobox, type ComboboxOption } from "@/components/ui/combobox";
 import { FormError, textareaClass } from "@/components/ui/field";
-import { EXPIRY_OPTIONS, MAX_CREDITS } from "./create-errand-form";
+import { EXPIRY_OPTIONS, MAX_CREDITS, parseCreditAmount } from "./create-errand-form";
 import {
   buildEditBody,
   editableBuildings,
@@ -18,14 +18,17 @@ import {
 } from "./edit-errand";
 import { formatDelivery, type BuildingOption, type Errand, type SupplierOption } from "./types";
 import { Field, inputClass } from "./ui";
+import { useCreditSufficiency } from "./use-credit-sufficiency";
 
 export function EditErrandForm({
   errand,
+  userId,
   suppliers,
   buildings,
   onSaved,
 }: {
   errand: Errand;
+  userId: string;
   suppliers: SupplierOption[];
   buildings: BuildingOption[];
   onSaved: () => void;
@@ -64,9 +67,16 @@ export function EditErrandForm({
   const body = buildEditBody(initial, values);
   const problem = editProblem(initial, values);
 
+  // The credits already reserved for this errand stay reserved, so only a raise needs more available credits.
+  const reward = parseCreditAmount(values.rewardCredits);
+  const before = parseCreditAmount(initial.rewardCredits);
+  const extra = reward !== null && before !== null && reward > before ? reward - before : null;
+  const sufficiency = useCreditSufficiency(userId, extra);
+  const short = extra !== null && sufficiency !== "sufficient";
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (problem) return;
+    if (problem || short) return;
 
     const sent = JSON.stringify(body);
     // The same key only for a request that may not have arrived; a refusal is stored under its key.
@@ -158,6 +168,17 @@ export function EditErrandForm({
               onChange={(e) => set("rewardCredits", e.target.value)}
               className={`w-full ${inputClass}`}
             />
+            {extra !== null && (
+              <span aria-live="polite" className={`mt-1.5 block text-xs ${sufficiency === "sufficient" ? "text-muted" : sufficiency === "checking" ? "text-muted" : "text-danger"}`}>
+                {sufficiency === "checking"
+                  ? "Checking available credits…"
+                  : sufficiency === "sufficient"
+                    ? `You have the ${extra.toLocaleString()} extra credits available.`
+                    : sufficiency === "insufficient"
+                      ? `You do not have ${extra.toLocaleString()} more credits available.`
+                      : "Could not check your available credits. Edit the amount to try again."}
+              </span>
+            )}
           </Field>
           <Field label="Open for" hint="Counted from when the errand opened, not from now.">
             <select
@@ -181,7 +202,7 @@ export function EditErrandForm({
         {problem && problem !== NOTHING_CHANGED && <p className="text-[13px] break-words text-muted">{problem}</p>}
         {error && <FormError>{error}</FormError>}
 
-        <Button type="submit" size="lg" block disabled={pending || problem !== null}>
+        <Button type="submit" size="lg" block disabled={pending || problem !== null || short}>
           {pending ? "Saving…" : "Save changes"}
         </Button>
       </div>
