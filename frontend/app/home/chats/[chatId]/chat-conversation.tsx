@@ -10,6 +10,7 @@ import { useChatConversation } from "@/lib/chat/use-chat-conversation";
 import { formatErrandTitle, useChatErrand } from "@/lib/chat/use-chat-errand";
 import { useDisplayName } from "@/lib/users/names";
 import { useHomeContext } from "../../_shell/home-shell";
+import { ErrandDetailsSheet } from "./errand-details-sheet";
 
 const MAX_MESSAGE_LENGTH = 4_000;
 const ARCHIVE_RECOVERY_INTERVAL_MS = 5_000;
@@ -69,6 +70,7 @@ export function ChatConversation({ chatId }: { chatId: string }) {
   const counterpartStatusLine = counterpartName
     ? `${counterpartName} is your ${(counterpartRoleLabel ?? "chat partner").toLowerCase()}.`
     : counterpartRoleLabel ?? "Participant";
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const transcriptRef = useRef<HTMLDivElement | null>(null);
@@ -198,9 +200,19 @@ export function ChatConversation({ chatId }: { chatId: string }) {
             <span className="text-[15px] max-sm:sr-only">Chats</span>
           </Link>
           <Avatar url={null} name={counterpartName ?? counterpartRoleLabel ?? "Chat"} size={36} />
-          <div className="min-w-0 flex-1">
+          <div className="btn-press relative min-w-0 flex-1 rounded-lg">
             <h1 id="conversation-heading" title={counterpartName ?? heading} className="truncate text-[16px] leading-tight font-semibold">
-              {counterpartName ?? heading}
+              {/* The button's ::after stretches over the subtitle too, so the whole title block is the tap target. */}
+              <button
+                type="button"
+                disabled={!errand}
+                aria-haspopup="dialog"
+                aria-label={`${counterpartName ?? heading}, show errand details`}
+                onClick={() => setDetailsOpen(true)}
+                className="max-w-full truncate text-left after:absolute after:inset-0 after:content-[''] disabled:pointer-events-none"
+              >
+                {counterpartName ?? heading}
+              </button>
             </h1>
             <p title={subtitle} className="truncate text-xs text-muted">
               {subtitle}
@@ -225,6 +237,15 @@ export function ChatConversation({ chatId }: { chatId: string }) {
           </p>
         )}
       </header>
+
+      {detailsOpen && errand && (
+        <ErrandDetailsSheet
+          counterpartName={counterpartName}
+          counterpartRole={counterpartRoleLabel}
+          errand={errand}
+          onClose={() => setDetailsOpen(false)}
+        />
+      )}
 
       {state.error && <p role="alert" className="shrink-0 bg-danger/10 px-4 py-2.5 text-[13px] text-danger">{state.error}</p>}
       {state.archived && (
