@@ -40,7 +40,7 @@ variable "services" {
 variable "budget_limit_usd" {
   description = "Monthly spend that triggers the budget alarm."
   type        = number
-  default     = 50
+  default     = 200
 }
 
 variable "budget_email" {
