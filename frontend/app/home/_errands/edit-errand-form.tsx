@@ -72,7 +72,9 @@ export function EditErrandForm({
   const before = parseCreditAmount(initial.rewardCredits);
   const extra = reward !== null && before !== null && reward > before ? reward - before : null;
   const sufficiency = useCreditSufficiency(userId, extra);
-  const short = extra !== null && sufficiency !== "sufficient";
+  // Only a definitive refusal (or the check still in flight) blocks the save. A failed check is
+  // advisory: the save goes through and the server's refusal is the answer (ADR 0014).
+  const short = extra !== null && (sufficiency === "insufficient" || sufficiency === "checking");
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -169,14 +171,14 @@ export function EditErrandForm({
               className={`w-full ${inputClass}`}
             />
             {extra !== null && (
-              <span aria-live="polite" className={`mt-1.5 block text-xs ${sufficiency === "sufficient" ? "text-muted" : sufficiency === "checking" ? "text-muted" : "text-danger"}`}>
+              <span aria-live="polite" className={`mt-1.5 block text-xs ${sufficiency === "insufficient" ? "text-danger" : "text-muted"}`}>
                 {sufficiency === "checking"
                   ? "Checking available credits…"
                   : sufficiency === "sufficient"
                     ? `You have the ${extra.toLocaleString()} extra credits available.`
                     : sufficiency === "insufficient"
                       ? `You do not have ${extra.toLocaleString()} more credits available.`
-                      : "Could not check your available credits. Edit the amount to try again."}
+                      : "Could not check your available credits. We'll confirm the amount when you save."}
               </span>
             )}
           </Field>

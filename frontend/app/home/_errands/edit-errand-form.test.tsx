@@ -152,6 +152,23 @@ describe("EditErrandForm", () => {
     expect(save()).toBeDisabled();
   });
 
+  it("keeps Save available when the credit check fails; the server refuses on save instead", async () => {
+    const unreachable = { ok: false, status: 503, data: null, code: null, message: null, etag: null };
+    mocks.api.mockImplementation((_method: string, path: string) =>
+      Promise.resolve(path === "/api/credits/sufficiency" ? unreachable : ok),
+    );
+    const { user } = setup();
+    await raiseTo9(user);
+    expect(await screen.findByText(/confirm the amount when you save/)).toBeInTheDocument();
+    expect(save()).toBeEnabled();
+    await user.click(save());
+
+    expect(mocks.api).toHaveBeenCalledWith("PATCH", "/api/errands/e1", {
+      idempotencyKey: expect.any(String),
+      body: { rewardCredits: 9 },
+    });
+  });
+
   it("does not check credits for a lower reward", async () => {
     const { user } = setup();
     await user.clear(screen.getByLabelText(/Credits offered/));
