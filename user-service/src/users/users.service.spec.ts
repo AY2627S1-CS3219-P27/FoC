@@ -18,6 +18,7 @@ import { Role, USER_REGISTERED_V1_ROUTING_KEY } from '@foc/contracts';
 import { OutboxEvent } from '@foc/outbox';
 import { User } from './user.entity.js';
 import { UserUpdateAudit } from './user-update-audit.entity.js';
+import { RefreshToken } from '../auth/refresh-token.entity.js';
 import { EmailAlreadyRegisteredError, UsersService } from './users.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { OrderServiceClient } from '../order/order-service.client.js';
@@ -97,6 +98,7 @@ describe('UsersService', () => {
       count: vi.fn(),
       save: vi.fn(async (_entity, data) => data),
       create: vi.fn((_entity, data) => data),
+      update: vi.fn(async () => ({ affected: 0 })),
       getRepository: vi.fn((entity: unknown) =>
         entity === User ? userRepo : outboxRepo,
       ),
@@ -662,9 +664,14 @@ describe('UsersService', () => {
 
   describe('getActiveUserByUuid', () => {
     it('returns an active account', async () => {
-      userRepository.findOneBy.mockResolvedValue({ ...registeredUser, roles: [] });
+      userRepository.findOneBy.mockResolvedValue({
+        ...registeredUser,
+        roles: [],
+      });
 
-      await expect(service.getActiveUserByUuid(FIXED_UUID)).resolves.toMatchObject({
+      await expect(
+        service.getActiveUserByUuid(FIXED_UUID),
+      ).resolves.toMatchObject({
         uuid: FIXED_UUID,
       });
     });
@@ -1830,6 +1837,241 @@ describe('UsersService', () => {
       ).rejects.toThrow('commit failed');
 
       expect(authorizationService.removeAdminBlock).not.toHaveBeenCalled();
+    });
+
+    it('updates the particulars and audits each changed field (F11.1)', async () => {
+      userRepository.findOneBy.mockResolvedValue({ ...targetUser });
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser });
+
+      await expect(
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          {
+            displayName: 'Eve Newman',
+            profilePictureUrl: 'https://example.com/eve.png',
+          },
+          ACCESS_TOKEN,
+        ),
+      ).resolves.toEqual({
+        ...targetUser,
+        displayName: 'Eve Newman',
+        profilePictureUrl: 'https://example.com/eve.png',
+      });
+
+      expect(manager.create).toHaveBeenCalledWith(UserUpdateAudit, {
+        actorUuid: ACTOR_UUID,
+        targetUuid: TARGET_UUID,
+        changedFields: {
+          displayName: { from: 'Eve', to: 'Eve Newman' },
+          profilePictureUrl: {
+            from: null,
+            to: 'https://example.com/eve.png',
+          },
+        },
+      });
+    });
+
+    it('locks the account when the email changes, pending reset verification (F11.1)', async () => {
+      userRepository.findOneBy.mockResolvedValue({ ...targetUser });
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser });
+
+      await expect(
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { email: 'eve.new@example.com' },
+          ACCESS_TOKEN,
+        ),
+      ).resolves.toEqual({
+        ...targetUser,
+        email: 'eve.new@example.com',
+        isLocked: true,
+      });
+
+      expect(manager.create).toHaveBeenCalledWith(UserUpdateAudit, {
+        actorUuid: ACTOR_UUID,
+        targetUuid: TARGET_UUID,
+        changedFields: {
+          email: { from: 'eve@example.com', to: 'eve.new@example.com' },
+          isLocked: { from: false, to: true },
+        },
+      });
+    });
+
+    it('neither locks nor audits when the email is unchanged', async () => {
+      userRepository.findOneBy.mockResolvedValue({ ...targetUser });
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser });
+
+      await service.adminUpdateUser(
+        ACTOR_UUID,
+        TARGET_UUID,
+        { email: 'eve@example.com' },
+        ACCESS_TOKEN,
+      );
+
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(manager.create).not.toHaveBeenCalled();
+    });
+
+    it('maps an email unique-constraint violation to a conflict', async () => {
+      userRepository.findOneBy.mockResolvedValue({ ...targetUser });
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser });
+      const driverError = Object.assign(new Error('duplicate key value'), {
+        code: '23505',
+      });
+      manager.save.mockRejectedValue(
+        new QueryFailedError('UPDATE users', [], driverError),
+      );
+
+      await expect(
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { email: 'taken@example.com' },
+          ACCESS_TOKEN,
+        ),
+      ).rejects.toThrow('Email is already registered.');
+    });
+
+    it('set-replaces roles, blocking the roles that leave the account (F11.3)', async () => {
+      userRepository.findOneBy.mockResolvedValue({
+        ...targetUser,
+        roles: [Role.Requester, Role.Courier],
+      });
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({
+          ...targetUser,
+          roles: [Role.Requester, Role.Courier],
+        });
+
+      await expect(
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { roles: [Role.Courier] },
+          ACCESS_TOKEN,
+        ),
+      ).resolves.toEqual({ ...targetUser, roles: [Role.Courier] });
+
+      expect(orderServiceClient.blockRoles).toHaveBeenCalledWith(
+        TARGET_UUID,
+        [Role.Requester],
+        ACCESS_TOKEN,
+      );
+      expect(manager.create).toHaveBeenCalledWith(UserUpdateAudit, {
+        actorUuid: ACTOR_UUID,
+        targetUuid: TARGET_UUID,
+        changedFields: {
+          roles: {
+            from: [Role.Requester, Role.Courier],
+            to: [Role.Courier],
+          },
+        },
+      });
+    });
+
+    it('unblocks a role added by an admin update (F11.3)', async () => {
+      userRepository.findOneBy.mockResolvedValue({ ...targetUser, roles: [] });
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser, roles: [] });
+
+      await service.adminUpdateUser(
+        ACTOR_UUID,
+        TARGET_UUID,
+        { roles: [Role.Courier] },
+        ACCESS_TOKEN,
+      );
+
+      expect(orderServiceClient.blockRoles).not.toHaveBeenCalled();
+      expect(orderServiceClient.unblockRoles).toHaveBeenCalledWith(
+        TARGET_UUID,
+        [Role.Courier],
+        ACCESS_TOKEN,
+      );
+    });
+
+    it('rejects a role removal while the role has ongoing errands (F11.3.2)', async () => {
+      userRepository.findOneBy.mockResolvedValue({
+        ...targetUser,
+        roles: [Role.Requester],
+      });
+      orderServiceClient.blockRoles.mockResolvedValue(false);
+
+      await expect(
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { roles: [] },
+          ACCESS_TOKEN,
+        ),
+      ).rejects.toThrow(ConflictException);
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(manager.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects the role change when the roles moved after the block was placed', async () => {
+      userRepository.findOneBy.mockResolvedValue({
+        ...targetUser,
+        roles: [Role.Requester],
+      });
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser, roles: [Role.Courier] });
+
+      await expect(
+        service.adminUpdateUser(
+          ACTOR_UUID,
+          TARGET_UUID,
+          { roles: [] },
+          ACCESS_TOKEN,
+        ),
+      ).rejects.toThrow(ConflictException);
+
+      expect(manager.save).not.toHaveBeenCalled();
+      // The account was not changed, so the block is lifted again.
+      expect(orderServiceClient.unblockRoles).toHaveBeenCalledWith(
+        TARGET_UUID,
+        [Role.Requester],
+        ACCESS_TOKEN,
+      );
+    });
+
+    it('revokes every refresh token in the archive transaction (F12.4)', async () => {
+      userRepository.findOneBy.mockResolvedValue({ ...targetUser });
+      manager.findOneBy
+        .mockResolvedValueOnce(adminActor)
+        .mockResolvedValueOnce({ ...targetUser });
+
+      await service.adminUpdateUser(
+        ACTOR_UUID,
+        TARGET_UUID,
+        { isArchived: true },
+        ACCESS_TOKEN,
+      );
+
+      expect(manager.update).toHaveBeenCalledTimes(1);
+      expect(manager.update).toHaveBeenCalledWith(
+        RefreshToken,
+        { userId: TARGET_UUID },
+        { expiresAt: expect.any(Date) },
+      );
+      // Revocation happens in the same transaction, before the archive saves.
+      expect(manager.update.mock.invocationCallOrder[0]).toBeLessThan(
+        manager.save.mock.invocationCallOrder[0],
+      );
     });
   });
 
