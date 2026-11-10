@@ -326,9 +326,9 @@ describe('GET /v1/errands/:id', () => {
     expect((await detail(randomUUID(), courier)).res.status).toBe(404);
   });
 
-  it('maps Transferring-Credit to Completed', async () => {
+  it('maps Transferring-Credit to Processing transfer', async () => {
     const e = await seed({ status: 'Transferring-Credit', courierId: courier });
-    expect((await detail(e.id, courier, [Role.Courier])).body.status).toBe('Completed');
+    expect((await detail(e.id, courier, [Role.Courier])).body.status).toBe('Processing transfer');
   });
 });
 
@@ -463,7 +463,7 @@ describe('GET /v1/admin/users/:userId/errands', () => {
     expect(res.status).toBe(200);
     expect(ids(body)).toEqual([asCourier.id, asRequester.id]);
     expect(body.items[0]).toMatchObject({
-      status: 'Completed',
+      status: 'Processing transfer',
       internalStatus: 'Transferring-Credit',
       requesterId: asCourier.requesterId,
       courierId: target,
