@@ -326,8 +326,8 @@ synchronous correctness dependency.
 | --------- | ------------------------------------- | ------------------------------------------- | ------------------------------------------------- |
 | Consume   | `CreditReservation`                   | `credit.reservation.v1`                     | `credit-service.credit-reservation.v1`            |
 | Consume   | `CreditReservationAdjustment`         | `credit.reservation-adjustment.v1`          | `credit-service.credit-reservation-adjustment.v1` |
-| Consume   | `ErrandCompleted`                     | `order.errand-completed.v1`                 | `credit-service.order-errand-completed.v1`        |
-| Consume   | `ErrandCancelled`                     | `order.errand-cancelled.v1`                 | `credit-service.order-errand-cancelled.v1`        |
+| Consume   | `ErrandCompleted`                     | `order.errand-completed.v1`                 | `credit-service.events` (via `foc.pubsub`)        |
+| Consume   | `ErrandCancelled`                     | `order.errand-cancelled.v1`                 | `credit-service.events` (via `foc.pubsub`)        |
 | Consume   | `CreditSettlementRequested`           | `credit.settlement.v1`                      | `credit-service.credit-settlement.v1`             |
 | Publish   | `CreditReservationSuccess`            | `credit.reservation-success.v1`             | Subscriber-owned                                  |
 | Publish   | `CreditReservationRejected`           | `credit.reservation-rejected.v1`            | Subscriber-owned                                  |
