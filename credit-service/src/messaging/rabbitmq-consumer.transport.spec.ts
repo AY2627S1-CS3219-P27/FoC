@@ -321,7 +321,10 @@ describe('RabbitMqConsumerTransport', () => {
     ]);
     expect(model.publisher.checkedExchanges).toEqual(['foc.events']);
     expect(model.consumer.assertedQueues).toEqual([
-      ['credit-service.user-registered.v1', { durable: true, arguments: { 'x-queue-type': 'quorum' } }],
+      [
+        'credit-service.user-registered.v1',
+        { durable: true, arguments: { 'x-queue-type': 'quorum' } },
+      ],
       ...configuration.RABBITMQ_RETRY_DELAYS_MS.map((delay, index) => [
         `credit-service.user-registered.v1.retry.${index + 1}`,
         {
@@ -332,7 +335,10 @@ describe('RabbitMqConsumerTransport', () => {
           deadLetterRoutingKey: 'credit-service.user-registered.v1',
         },
       ]),
-      ['credit-service.user-registered.v1.dlq', { durable: true, arguments: { 'x-queue-type': 'quorum' } }],
+      [
+        'credit-service.user-registered.v1.dlq',
+        { durable: true, arguments: { 'x-queue-type': 'quorum' } },
+      ],
     ]);
     expect(model.consumer.bindings).toEqual([
       ['credit-service.user-registered.v1', 'foc.events', 'user.registered.v1'],
@@ -888,5 +894,130 @@ describe('RabbitMqConsumerTransport', () => {
     expect(model.publisher.closed).toBe(true);
     expect(model.closed).toBe(true);
     await expect(transport.close()).resolves.toBeUndefined();
+  });
+
+  describe('multi-key subscription on a pub/sub exchange', () => {
+    const eventsQueue = 'credit-service.events';
+    const eventKeys = ['user.registered.v1', 'order.errand-completed.v1'];
+
+    function eventsSubscription(handler: RabbitMqMessageHandler): Subscription {
+      return {
+        queue: eventsQueue,
+        exchange: 'foc.pubsub',
+        routingKey: eventKeys,
+        handler,
+      };
+    }
+
+    it('binds every key on the named exchange after a passive check', async () => {
+      const handler = { handle: vi.fn() } satisfies RabbitMqMessageHandler;
+      const { model, transport } = createHarness(handler);
+
+      await transport.subscribe(eventsSubscription(handler));
+
+      expect(model.consumer.checkedExchanges).toEqual(['foc.pubsub']);
+      expect(model.consumer.bindings.slice(0, 3)).toEqual([
+        [eventsQueue, 'foc.pubsub', 'user.registered.v1'],
+        [eventsQueue, 'foc.pubsub', 'order.errand-completed.v1'],
+        [eventsQueue, 'foc.credit.back', eventsQueue],
+      ]);
+    });
+
+    it('hands the handler the delivered key and rejects unsubscribed keys', async () => {
+      const handler = {
+        handle: vi.fn().mockResolvedValue({ outcome: 'ack' }),
+      } satisfies RabbitMqMessageHandler;
+      const { model, transport } = createHarness(handler);
+      await transport.subscribe(eventsSubscription(handler));
+
+      await deliver(
+        model,
+        message(undefined, { routingKey: 'order.errand-completed.v1' }),
+      );
+      await deliver(
+        model,
+        message(undefined, { routingKey: 'order.errand-accepted.v1' }),
+      );
+
+      expect(handler.handle).toHaveBeenCalledTimes(1);
+      expect(handler.handle).toHaveBeenCalledWith(
+        expect.objectContaining({ routingKey: 'order.errand-completed.v1' }),
+      );
+      expect(model.publisher.published[0]).toMatchObject({
+        exchange: 'foc.credit.dlx',
+        options: {
+          headers: { 'x-failure-category': 'ROUTING_KEY_MISMATCH' },
+        },
+      });
+    });
+
+    it('carries the delivered key through a retry and back to the handler', async () => {
+      const handle = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('temporary'))
+        .mockResolvedValue({ outcome: 'ack' });
+      const handler = { handle } satisfies RabbitMqMessageHandler;
+      const { model, transport } = createHarness(handler);
+      await transport.subscribe(eventsSubscription(handler));
+
+      await deliver(
+        model,
+        message(undefined, { routingKey: 'order.errand-completed.v1' }),
+      );
+      const retried = model.publisher.published[0];
+      expect(retried.options.headers).toMatchObject({
+        'x-retry-count': 1,
+        'x-original-routing-key': 'order.errand-completed.v1',
+      });
+
+      await deliver(
+        model,
+        message(retried.content, {
+          exchange: 'foc.credit.back',
+          routingKey: eventsQueue,
+          headers: retried.options.headers,
+        }),
+      );
+
+      expect(handle).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          routingKey: 'order.errand-completed.v1',
+          retryCount: 1,
+        }),
+      );
+    });
+
+    it('rejects a returned retry whose carried key is unsubscribed', async () => {
+      const handler = { handle: vi.fn() } satisfies RabbitMqMessageHandler;
+      const { model, transport } = createHarness(handler);
+      await transport.subscribe(eventsSubscription(handler));
+
+      await deliver(
+        model,
+        message(undefined, {
+          exchange: 'foc.credit.back',
+          routingKey: eventsQueue,
+          headers: {
+            'x-retry-count': 1,
+            'x-original-routing-key': 'order.errand-accepted.v1',
+          },
+        }),
+      );
+      await deliver(
+        model,
+        message(undefined, {
+          exchange: 'foc.credit.back',
+          routingKey: eventsQueue,
+          headers: { 'x-retry-count': 1 },
+        }),
+      );
+
+      expect(handler.handle).not.toHaveBeenCalled();
+      expect(
+        model.publisher.published.map(
+          ({ options }) => options.headers?.['x-failure-category'],
+        ),
+      ).toEqual(['ROUTING_KEY_MISMATCH', 'ROUTING_KEY_MISMATCH']);
+    });
   });
 });
