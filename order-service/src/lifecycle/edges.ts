@@ -2,10 +2,12 @@ import {
   ORDER_COURIER_CANCELLED_V1_ROUTING_KEY,
   ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY,
   ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
+  ORDER_ERRAND_UPDATE_V1_ROUTING_KEY,
+  type ErrandUpdateKind,
   ORDER_REQUESTER_EDIT_FAILED_V1_ROUTING_KEY,
   ORDER_REQUESTER_ERRAND_CANCELLED_V1_ROUTING_KEY,
 } from '@foc/contracts';
-import { supplierRequest, supplierRevalidationId, type NoticeBuilder, type Notice } from './notice.js';
+import { supplierRequest, supplierRevalidationId, type NoticeBuilder, type Notice, type NoticeContext } from './notice.js';
 import type { Status } from './status.js';
 
 // Projection columns a transition may write; values come from the caller.
@@ -109,6 +111,25 @@ const courierCancelled: NoticeBuilder = (c) => ({
     courierUserId: c.actorUserId,
   },
 });
+// Push-only note to the requester and/or courier (notification-service picks who from `kind`).
+const update =
+  (kind: ErrandUpdateKind, extra?: (c: NoticeContext) => object): NoticeBuilder =>
+  (c) => ({
+    key: ORDER_ERRAND_UPDATE_V1_ROUTING_KEY,
+    payload: {
+      errandId: c.errandId,
+      requesterUserId: c.requesterId,
+      courierUserId: c.courierId,
+      kind,
+      ...extra?.(c),
+    },
+  });
+// Dispute outcome: the admin's split and note, read from the row.
+const resolved = (c: NoticeContext) => ({
+  courierAmount: c.settlementAmount,
+  requesterAmount: c.rewardCredits - (c.settlementAmount ?? 0),
+  ...(c.settlementNote && { note: c.settlementNote }),
+});
 // Tells the requester why the system cancelled; their own cancel needs no notice.
 const requesterCancelled: NoticeBuilder = (c) =>
   USER_REASONS.includes(c.payload.cancellationReason as CancellationReason)
@@ -137,6 +158,7 @@ const cancel = (
   who: Role[],
   reasons: CancellationReason[],
   notice: NoticeBuilder | null = release,
+  tellCourier = false,
 ): Edge => ({
   type: 'ErrandCancelled',
   sets: ['cancellationReason'],
@@ -144,7 +166,7 @@ const cancel = (
   who,
   reasons,
   notice: (c) =>
-    [notice?.(c), requesterCancelled(c)].flat().filter((n): n is Notice => !!n),
+    [notice?.(c), requesterCancelled(c), tellCourier ? update('CANCELLED')(c) : undefined].flat().filter((n): n is Notice => !!n),
 });
 const plain = (type: string, who: Role[], notice?: NoticeBuilder): Edge => ({
   type,
@@ -308,14 +330,14 @@ export const EDGES: Partial<
     ],
   },
   Accepted: {
-    'Picked Up': { type: 'ErrandPickedUp', sets: ['pickedUpAt'], clears: [], who: ['courier'] },
+    'Picked Up': { type: 'ErrandPickedUp', sets: ['pickedUpAt'], clears: [], who: ['courier'], notice: update('PICKED_UP') },
     // No Cancelled edge: the requester cannot cancel once accepted; the courier withdraws instead.
     Open: { type: 'CourierWithdrew', sets: [], clears: ['courierId'], who: ['courier'], notice: courierCancelled },
   },
   'Picked Up': {
     Delivered: { type: 'ErrandDelivered', sets: ['deliveredAt'], clears: [], who: ['courier'], notice: delivered },
     // System only (the 24h timer): the requester cannot cancel once picked up.
-    Cancelled: cancel(sys, ['PICKUP_TIME_EXCEEDED']),
+    Cancelled: cancel(sys, ['PICKUP_TIME_EXCEEDED'], release, true),
   },
   Delivered: {
     // System too: the 24h auto-complete (ADR 0007).
@@ -328,12 +350,12 @@ export const EDGES: Partial<
         amount: c.rewardCredits,
       },
     })),
-    Incomplete: plain('ErrandIncomplete', ['requester']),
+    Incomplete: plain('ErrandIncomplete', ['requester'], update('MARKED_INCOMPLETE')),
   },
   'Transferring-Credit': {
-    Completed: plain('CreditTransferSucceeded', sys),
+    Completed: plain('CreditTransferSucceeded', sys, update('TRANSFER_SETTLED')),
     // Credit rejected the transfer (terminal on its side too): park in Incomplete for an admin to settle (dispute resolution).
-    Incomplete: plain('CreditTransferRejected', sys),
+    Incomplete: plain('CreditTransferRejected', sys, update('TRANSFER_FAILED')),
   },
   // Dispute resolution: an admin settles; credit's reply resolves or returns the errand.
   Incomplete: {
@@ -360,7 +382,7 @@ export const EDGES: Partial<
     },
   },
   'Settling-Credit': {
-    Resolved: plain('CreditSettlementSucceeded', sys),
+    Resolved: plain('CreditSettlementSucceeded', sys, update('DISPUTE_RESOLVED', resolved)),
     Incomplete: {
       type: CREDIT_SETTLEMENT_REJECTED,
       sets: [],

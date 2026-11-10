@@ -277,6 +277,8 @@ type Returned = {
   requesterId: string;
   courierId: string | null;
   rewardCredits: number;
+  settlementAmount: number | null;
+  settlementNote: string | null;
   expiresAt: Date | null;
 };
 
@@ -330,6 +332,8 @@ async function updateErrand(
         requesterId: errands.requesterId,
         courierId: errands.courierId,
         rewardCredits: errands.rewardCredits,
+        settlementAmount: errands.settlementAmount,
+        settlementNote: errands.settlementNote,
         expiresAt: errands.expiresAt,
       });
 
@@ -487,6 +491,8 @@ async function apply(
     courierId: row.row.courierId,
     actorUserId: actor,
     rewardCredits: row.row.rewardCredits,
+    settlementAmount: row.row.settlementAmount,
+    settlementNote: row.row.settlementNote,
     payload: { ...i.payload, ...i.set },
     attempt:
       edge.type === 'SettlementRequested'
