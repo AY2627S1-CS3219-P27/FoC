@@ -112,18 +112,24 @@ const courierCancelled: NoticeBuilder = (c) => ({
   },
 });
 // Push-only note to the requester and/or courier (notification-service picks who from `kind`).
+// Every kind happens at or after pickup, so a courier always exists; a courier-less edge has
+// nobody to push to, so the notice is skipped rather than failing the schema's required UUID
+// inside the transition.
 const update =
   (kind: ErrandUpdateKind, extra?: (c: NoticeContext) => object): NoticeBuilder =>
-  (c) => ({
-    key: ORDER_ERRAND_UPDATE_V1_ROUTING_KEY,
-    payload: {
-      errandId: c.errandId,
-      requesterUserId: c.requesterId,
-      courierUserId: c.courierId,
-      kind,
-      ...extra?.(c),
-    },
-  });
+  (c) => {
+    if (!c.courierId) return undefined;
+    return {
+      key: ORDER_ERRAND_UPDATE_V1_ROUTING_KEY,
+      payload: {
+        errandId: c.errandId,
+        requesterUserId: c.requesterId,
+        courierUserId: c.courierId,
+        kind,
+        ...extra?.(c),
+      },
+    };
+  };
 // Dispute outcome: the admin's split and note, read from the row.
 const resolved = (c: NoticeContext) => ({
   courierAmount: c.settlementAmount,

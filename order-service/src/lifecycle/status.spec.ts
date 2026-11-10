@@ -248,4 +248,13 @@ describe('errand-update notices', () => {
     const n = findEdge('Settling-Credit', 'Resolved')?.notice?.(ctx(4, 'fair')) as { payload: object };
     expect(n.payload).toMatchObject({ courierAmount: 4, requesterAmount: 6, note: 'fair' });
   });
+
+  it('skips the update when the errand has no courier (the schema requires its UUID)', () => {
+    const none = { ...ctx(null, null), courierId: null };
+    expect(findEdge('Accepted', 'Picked Up')?.notice?.(none)).toBeUndefined();
+    // A composed cancel keeps its other notices and drops only the courier's update.
+    const cancel = [findEdge('Picked Up', 'Cancelled')?.notice?.({ ...none, payload: { cancellationReason: 'PICKUP_TIME_EXCEEDED' } })].flat();
+    expect(cancel.map((n) => (n?.payload as { kind?: string }).kind)).not.toContain('CANCELLED');
+    expect(cancel).toHaveLength(2); // the release to credit and the requester's own notice
+  });
 });
