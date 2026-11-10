@@ -428,20 +428,20 @@ export class UsersController {
   }
 
   /**
-   * Admin-only user update: admin status and archival state
-   * Returns the stored account projected as the admin view, so
-   * the caller can read back the flags their change produced.
+   * Admin-only user update: particulars, roles, admin status and archival
+   * state (F11.1). Returns the stored account projected as the admin view, so
+   * the caller can read back the values their change produced.
    *
    * The admin's token is forwarded to order-service, which checks the
    * target's roles for ongoing errands and blocks them before an archive
-   * commits.
+   * commits or a role is removed.
    */
   @Patch(':uuid')
   @UseGuards(AdminGuard, AdminBlockGuard)
   @ApiOperation({
-    summary: 'Admin-only user update (admin status, archival state)',
+    summary: 'Admin-only user update',
     description:
-      'Returns the stored account projected as the admin view, so the caller can read back the flags their change produced.',
+      'Updates the particulars from F10.1, participant roles, admin status and archival state. Changing the email locks the account until the user completes the password-reset flow. Returns the stored account projected as the admin view.',
   })
   @ApiBody({ type: AdminUpdateUserDto })
   @ApiOkResponse(

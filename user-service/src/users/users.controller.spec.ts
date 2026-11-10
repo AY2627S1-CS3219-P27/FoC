@@ -821,6 +821,88 @@ describe('admin update user body validation', () => {
       pipe.transform({ isArchived: null }, bodyMetadata(AdminUpdateUserDto)),
     ).rejects.toThrow(BadRequestException);
   });
+
+  it('accepts a valid email outside NUS domains and lowercases it (F11.1)', async () => {
+    const value = await pipe.transform(
+      { email: 'Alex.Teo@Company.COM' },
+      bodyMetadata(AdminUpdateUserDto),
+    );
+    expect(value.email).toBe('alex.teo@company.com');
+  });
+
+  it('rejects an invalid email (F11.1.2)', async () => {
+    await expect(
+      pipe.transform(
+        { email: 'not-an-email' },
+        bodyMetadata(AdminUpdateUserDto),
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('accepts and trims a display name, rejecting a blank one (F11.1.2)', async () => {
+    const value = await pipe.transform(
+      { displayName: '  Alex Teo  ' },
+      bodyMetadata(AdminUpdateUserDto),
+    );
+    expect(value.displayName).toBe('Alex Teo');
+
+    await expect(
+      pipe.transform({ displayName: '   ' }, bodyMetadata(AdminUpdateUserDto)),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('accepts a participant role set and rejects unknown roles (F11.1)', async () => {
+    const value = await pipe.transform(
+      { roles: [Role.Requester, Role.Courier] },
+      bodyMetadata(AdminUpdateUserDto),
+    );
+    expect(value.roles).toEqual([Role.Requester, Role.Courier]);
+
+    await expect(
+      pipe.transform({ roles: ['admin'] }, bodyMetadata(AdminUpdateUserDto)),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('accepts a profile picture URL and an explicit null (F11.1.2)', async () => {
+    const value = await pipe.transform(
+      { profilePictureUrl: 'https://example.com/avatar.png' },
+      bodyMetadata(AdminUpdateUserDto),
+    );
+    expect(value.profilePictureUrl).toBe('https://example.com/avatar.png');
+
+    const cleared = await pipe.transform(
+      { profilePictureUrl: null },
+      bodyMetadata(AdminUpdateUserDto),
+    );
+    expect(cleared.profilePictureUrl).toBeNull();
+
+    await expect(
+      pipe.transform(
+        { profilePictureUrl: 'javascript:alert(1)' },
+        bodyMetadata(AdminUpdateUserDto),
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a null email, display name or role set instead of treating it as absent', async () => {
+    for (const body of [
+      { email: null },
+      { displayName: null },
+      { roles: null },
+    ]) {
+      await expect(
+        pipe.transform(body, bodyMetadata(AdminUpdateUserDto)),
+      ).rejects.toThrow(BadRequestException);
+    }
+  });
+
+  it('strips a UserID from the body, which is taken from the path only (F11.1.1)', async () => {
+    const value = await pipe.transform(
+      { uuid: '11111111-1111-4111-8111-111111111111', isAdmin: true },
+      bodyMetadata(AdminUpdateUserDto),
+    );
+    expect(value).not.toHaveProperty('uuid');
+  });
 });
 
 describe('admin create user body validation', () => {
