@@ -19,7 +19,8 @@ import { dispatchRequesterErrandCancelled } from './dispatchers/requester-errand
  * drifts from its contract fails to compile instead of silently skipping.
  *
  * Contracts without an entry here are still validated and recorded by the
- * inbox, but fan out to nobody — the intended policy for a `#` subscription.
+ * inbox, but fan out to nobody — expected for order events the `order.#`
+ * binding admits before a dispatcher exists.
  */
 export function createDispatchHandlers(
   dispatch: DispatchService,

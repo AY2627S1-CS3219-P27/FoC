@@ -15,10 +15,11 @@ consumer binds its own queue; it must not declare or publish to `foc.events`.
 ## Decision
 
 1. Root `rabbitmq/definitions.json` owns one durable queue,
-   `notification-service.inbox`, bound to `foc.pubsub` with routing key `#`.
-   The broad binding keeps the inbox independent of individual errand
-   lifecycles; unregistered routing keys are skipped and acknowledged, as
-   ADR 0002 requires.
+   `notification-service.inbox`, bound to `foc.pubsub` with routing key
+   `order.#`. The filter admits the whole order lifecycle — including contracts
+   this service does not push yet — without consuming the credit, supplier, and
+   user traffic on the same exchange. Unregistered routing keys are skipped and
+   acknowledged, as ADR 0002 requires.
 2. The service owns only its retry chain on the shared headers exchange
    `foc.retry` (`foc-delay` selects one of five delay buckets), its return
    binding on `foc.back`, and its dead-letter queue on `foc.dlq`.
@@ -52,7 +53,8 @@ consumer binds its own queue; it must not declare or publish to `foc.events`.
   existed when the event was dispatched; subscriptions created later do not
   receive historical events.
 - The schema is migration-owned (`DB_MIGRATIONS_RUN`); synchronize is disabled.
-- Adding a user-facing event needs one dispatcher file and one entry in
-  `dispatch-handlers.ts`, not a new queue or a string-keyed map.
+- Adding a user-facing order event needs one dispatcher file and one entry in
+  `dispatch-handlers.ts`, not a new queue or a string-keyed map; a non-order
+  event also needs its routing key added to the queue's `foc.pubsub` binding.
 - A dead-lettered event leaves its still-pending deliveries visible in the
   table for inspection; they are not retried automatically.

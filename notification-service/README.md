@@ -3,8 +3,8 @@
 Owns the push destinations a user has registered and delivers platform events
 to them. The service exposes **subscription management** (authenticated users
 register and unregister Web Push endpoints) and an **event consumer** that
-records every validated fact event in a transactional inbox and pushes it to
-the recipients' active subscriptions.
+records every validated order event admitted by its binding in a transactional
+inbox and pushes it to the recipients' active subscriptions.
 
 Built with NestJS and TypeScript, PostgreSQL with TypeORM migrations, RabbitMQ,
 Joi environment validation, and Vitest.
@@ -72,8 +72,10 @@ before that migration can create the index.
 ## Notification delivery
 
 The consumer binds one durable queue, `notification-service.inbox`, to the
-shared `foc.pubsub` topic exchange with routing key `#` (topology is owned by
-`rabbitmq/definitions.json`). Retry, return, and dead-letter topology on
+shared `foc.pubsub` topic exchange with routing key `order.#` (topology is
+owned by `rabbitmq/definitions.json`). The filter keeps the service's stream to
+the order lifecycle events it can act on and out of the credit, supplier, and
+user traffic on the same exchange. Retry, return, and dead-letter topology on
 `foc.retry`, `foc.back`, and `foc.dlq` is provisioned idempotently at startup;
 the service fails fast if the primary queue or exchange is missing.
 
@@ -84,8 +86,9 @@ Each message is validated against `@foc/contracts` before persistence:
   record;
 - an event id reused with different evidence, an invalid envelope/payload, or
   malformed JSON is dead-lettered;
-- an unregistered routing key is skipped and acknowledged, because the `#`
-  binding is intentionally broader than this service's contracts.
+- an unregistered routing key is skipped and acknowledged: the `order.#`
+  binding admits order events this service has no dispatcher for yet (and a
+  message already queued when the binding changes must not be dead-lettered).
 
 The inbox only records facts. Dispatch is a separate module: each pushable
 contract has one typed handler in `src/dispatch/dispatchers/`, wired through
@@ -97,7 +100,7 @@ silently pushing to nobody. A handler decides the recipients and message, then
 subscription (idempotent on `(event_id, subscription_id)`); the consumer then
 calls `deliverPending` to send whatever is still pending.
 
-Contracts without a dispatcher (for example credit events) are recorded and
+Contracts without a dispatcher (for example `ErrandCancelled`) are recorded and
 acknowledged without a push. `ErrandCancelled` is in that group today: its
 payload carries only `errandId`, so there is no recipient to address.
 
