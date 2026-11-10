@@ -9,7 +9,7 @@ locals {
 
 resource "aws_vpc" "main" {
   cidr_block = "10.0.0.0/16"
-  # CloudFront (step 9) needs the server's public DNS name as its origin.
+  # CloudFront's VPC origin addresses the server by its DNS name.
   enable_dns_hostnames = true
 
   tags = { Name = "foc" }
@@ -26,6 +26,29 @@ resource "aws_subnet" "public" {
   map_public_ip_on_launch = true
 
   tags = { Name = "foc-public" }
+}
+
+# The server's subnet: no public addresses, internet only outbound through the NAT instance.
+resource "aws_subnet" "app" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.1.0/24"
+  availability_zone = local.az_a
+
+  tags = { Name = "foc-app" }
+}
+
+resource "aws_route_table" "app" {
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block           = "0.0.0.0/0"
+    network_interface_id = aws_instance.nat.primary_network_interface_id
+  }
+}
+
+resource "aws_route_table_association" "app" {
+  subnet_id      = aws_subnet.app.id
+  route_table_id = aws_route_table.app.id
 }
 
 # RDS requires subnets in two zones. They have no internet route, which keeps the database private.
@@ -65,13 +88,14 @@ resource "aws_security_group" "app" {
   vpc_id      = aws_vpc.main.id
 }
 
+# The server has no public address; CloudFront's VPC origin connects from inside the VPC.
 resource "aws_vpc_security_group_ingress_rule" "app_frontend" {
   security_group_id = aws_security_group.app.id
-  description       = "Frontend (step 9 narrows this to CloudFront)"
+  description       = "Frontend, from the CloudFront VPC origin"
   ip_protocol       = "tcp"
   from_port         = 3001
   to_port           = 3001
-  cidr_ipv4         = "0.0.0.0/0"
+  cidr_ipv4         = aws_vpc.main.cidr_block
 }
 
 resource "aws_vpc_security_group_egress_rule" "app_all" {

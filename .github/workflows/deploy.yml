@@ -1,0 +1,76 @@
+name: Deploy release
+
+on:
+  release:
+    types: [released] # not drafts or pre-releases
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to deploy, e.g. v1.2.0 (an older one rolls back)
+        required: true
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # lets the job sign in to AWS through GitHub OIDC
+
+jobs:
+  deploy:
+    # Skips cleanly until the AWS role is configured (repo variable AWS_DEPLOY_ROLE_ARN).
+    if: vars.AWS_DEPLOY_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Find the release's commit
+        id: release
+        run: |
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName >/dev/null
+          echo "sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha)" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-southeast-1
+
+      # Images are built on merge to main, so catch a release cut before its build finished.
+      - name: Check all images exist
+        env:
+          SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          for service in user-service supplier-service order-service credit-service comms-service notification-service email-service frontend; do
+            aws ecr describe-images --repository-name "foc/$service" --image-ids "imageTag=${SHA::12}" >/dev/null || {
+              echo "::error::No foc/$service image for ${SHA::12}. Is that commit on main with a finished build?"
+              exit 1
+            }
+          done
+
+      - name: Deploy to the server
+        env:
+          SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          id=$(aws ssm send-command --document-name foc-deploy \
+            --targets Key=tag:Name,Values=foc-server \
+            --parameters "commit=$SHA" \
+            --query Command.CommandId --output text)
+          echo "Deploying $TAG ($SHA), SSM command $id"
+          while :; do
+            status=$(aws ssm list-command-invocations --command-id "$id" \
+              --query 'CommandInvocations[0].Status' --output text)
+            case "$status" in
+              Success) exit 0 ;;
+              Pending | InProgress | Delayed | None) sleep 15 ;;
+              *)
+                echo "Deploy ended with status $status"
+                aws ssm list-command-invocations --command-id "$id" --details \
+                  --query 'CommandInvocations[0].CommandPlugins[0].Output' --output text
+                exit 1
+                ;;
+            esac
+          done

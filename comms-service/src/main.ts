@@ -13,7 +13,8 @@ async function bootstrap(): Promise<void> {
   const { Logger } = await import('nestjs-pino');
   const { AppModule } = await import('./app.module.js');
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
-  registerShutdown(app, telemetry);
+  // Above the 60s maximum archive drain, below the 75s stop_grace_period in compose.yml.
+  registerShutdown(app, telemetry, { closeTimeoutMs: 70_000 });
   app.useLogger(app.get(Logger));
 
   configureHttp(app);

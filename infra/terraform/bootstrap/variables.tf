@@ -17,9 +17,9 @@ variable "aws_profile" {
 }
 
 variable "github_repo" {
-  description = "owner/name of the repo whose Actions may push images."
+  description = "owner@id/name@id of the repo whose Actions may push images, as in GitHub's immutable OIDC subject (repos/<repo>/actions/oidc/customization/sub)."
   type        = string
-  default     = "AY2627S1-CS3219-P27/FoC"
+  default     = "AY2627S1-CS3219-P27@323409630/FoC@1376673792"
 }
 
 variable "services" {
@@ -40,7 +40,7 @@ variable "services" {
 variable "budget_limit_usd" {
   description = "Monthly spend that triggers the budget alarm."
   type        = number
-  default     = 50
+  default     = 200
 }
 
 variable "budget_email" {
