@@ -55,4 +55,4 @@ A reward change together with a supplier/building change used to be `422 ONE_PEN
 
 **Not done**
 - Push/in-app notice to the requester through the outbox (not checked against notification-service's contract); `lastEditResult` is the source of truth, the notice would only be a nudge.
-- Frontend: `editProblem` in `edit-errand.ts` still blocks the combination, and the app does not yet know `Updating` or `lastEditResult`.
+- Frontend: the app does not yet show `lastEditResult`. The edit form checks that a raised reward is available (only the raise, since the rest is already reserved) before Save.

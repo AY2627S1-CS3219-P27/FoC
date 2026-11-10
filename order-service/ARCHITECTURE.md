@@ -207,6 +207,8 @@ So a requester accepting their own errand gets `403 FORBIDDEN`, and so does an u
 
 Cancelling (requester cancel, expiry, `PICKUP_TIME_EXCEEDED`) is a direct edge to `Cancelled`; the release notice to credit is fire-and-forget. A reply timeout never reverts: re-send, then leave the errand in its in-flight status and alert an admin.
 
+In the diagram, the edit edges keep their numbers from the list above. `Updating` is not a stored status: it groups `Adjusting-Credit`, `Revalidating-Supplier` and `Editing`, which the API shows as one status.
+
 ```mermaid
 stateDiagram-v2
   [*] --> PendingSupplier: create
@@ -220,11 +222,22 @@ stateDiagram-v2
   Open --> Accepted: courier accepts
   Open --> Cancelled: requester cancels
   Open --> Cancelled: expiry deadline reached (ERRAND_EXPIRED)
-  Open --> AdjustingCredit: requester edits reward
-  AdjustingCredit --> Open: adjusted / rejected
-  Open --> Open: requester edits in place
-  Open --> RevalidatingSupplier: requester edits supplier / building
-  RevalidatingSupplier --> Open: revalidated / refused / timed out
+  Open --> Open: 21 requester edits in place
+  %% The three edit statuses are one client-facing status, Updating: the edit waits on credit or supplier-service.
+  state Updating {
+    AdjustingCredit
+    RevalidatingSupplier
+    Editing
+    Editing --> AdjustingCredit: 26 supplier confirmed, now ask credit
+  }
+  Open --> AdjustingCredit: 7 reward only
+  Open --> RevalidatingSupplier: 22 supplier / building only
+  Open --> Editing: 25 reward and supplier / building, supplier asked first
+  AdjustingCredit --> Open: 8 adjusted (reward and any held supplier applied)
+  AdjustingCredit --> Open: 9 rejected (local fields restored)
+  RevalidatingSupplier --> Open: 23 revalidated (supplier switched)
+  RevalidatingSupplier --> Open: 24 refused / timed out (local fields restored)
+  Editing --> Open: 27 supplier refused / timed out (local fields restored)
   Accepted --> PickedUp: courier marks picked up
   Accepted --> Open: courier cancels
   PickedUp --> Delivered: courier marks delivered
