@@ -1,6 +1,6 @@
 {
   "name": "comms-service",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "Communication service for Friend on Campus",
   "private": true,
   "license": "UNLICENSED",
