@@ -7,9 +7,10 @@ import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { ArrowUpIcon, ChevronLeftIcon } from "@/components/ui/icons";
 import { useChatConversation } from "@/lib/chat/use-chat-conversation";
-import { formatErrandTitle, useChatErrand } from "@/lib/chat/use-chat-errand";
+import { formatErrandTitle, refreshErrandSummary, useChatErrand, type ChatErrandSummary } from "@/lib/chat/use-chat-errand";
 import { useDisplayName } from "@/lib/users/names";
 import { useHomeContext } from "../../_shell/home-shell";
+import { ErrandDetailsSheet } from "./errand-details-sheet";
 
 const MAX_MESSAGE_LENGTH = 4_000;
 const ARCHIVE_RECOVERY_INTERVAL_MS = 5_000;
@@ -69,6 +70,9 @@ export function ChatConversation({ chatId }: { chatId: string }) {
   const counterpartStatusLine = counterpartName
     ? `${counterpartName} is your ${(counterpartRoleLabel ?? "chat partner").toLowerCase()}.`
     : counterpartRoleLabel ?? "Participant";
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [freshErrand, setFreshErrand] = useState<{ errandId: string; summary: ChatErrandSummary } | null>(null);
+  const [detailsFailed, setDetailsFailed] = useState(false);
   const [draft, setDraft] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const transcriptRef = useRef<HTMLDivElement | null>(null);
@@ -132,6 +136,21 @@ export function ChatConversation({ chatId }: { chatId: string }) {
       document.removeEventListener("visibilitychange", reconcile);
     };
   }, [recoverArchive, state.archived]);
+
+  const detailsErrand =
+    freshErrand !== null && freshErrand.errandId === state.errandId ? freshErrand.summary : errand;
+
+  function openDetails() {
+    const errandId = state.errandId;
+    if (errandId === null) return;
+    setDetailsFailed(false);
+    setDetailsOpen(true);
+    // Refetch so the sheet never shows delivery details older than the moment it opened.
+    void refreshErrandSummary(errandId).then((summary) => {
+      if (summary) setFreshErrand({ errandId, summary });
+      else setDetailsFailed(true);
+    });
+  }
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -198,9 +217,19 @@ export function ChatConversation({ chatId }: { chatId: string }) {
             <span className="text-[15px] max-sm:sr-only">Chats</span>
           </Link>
           <Avatar url={null} name={counterpartName ?? counterpartRoleLabel ?? "Chat"} size={36} />
-          <div className="min-w-0 flex-1">
+          <div className="btn-press relative min-w-0 flex-1 rounded-lg">
             <h1 id="conversation-heading" title={counterpartName ?? heading} className="truncate text-[16px] leading-tight font-semibold">
-              {counterpartName ?? heading}
+              {/* The button's ::after stretches over the subtitle too, so the whole title block is the tap target. */}
+              <button
+                type="button"
+                disabled={state.errandId === null}
+                aria-haspopup="dialog"
+                aria-label={`${counterpartName ?? heading}, show errand details`}
+                onClick={openDetails}
+                className="max-w-full truncate text-left after:absolute after:inset-0 after:content-[''] disabled:pointer-events-none"
+              >
+                {counterpartName ?? heading}
+              </button>
             </h1>
             <p title={subtitle} className="truncate text-xs text-muted">
               {subtitle}
@@ -225,6 +254,24 @@ export function ChatConversation({ chatId }: { chatId: string }) {
           </p>
         )}
       </header>
+
+      {detailsOpen && detailsErrand && (
+        <ErrandDetailsSheet
+          counterpartName={counterpartName}
+          counterpartRole={counterpartRoleLabel}
+          errand={detailsErrand}
+          onClose={() => setDetailsOpen(false)}
+        />
+      )}
+      {detailsOpen && !detailsErrand && detailsFailed && (
+        <div role="alert" className="flex shrink-0 items-center justify-between gap-3 bg-danger/10 px-4 py-2.5 text-[13px] text-danger">
+          <span>Couldn&apos;t load errand details.</span>
+          <span className="flex gap-2">
+            <Button intent="tinted" size="xs" onClick={openDetails}>Retry</Button>
+            <Button intent="tinted" size="xs" onClick={() => setDetailsOpen(false)}>Dismiss</Button>
+          </span>
+        </div>
+      )}
 
       {state.error && <p role="alert" className="shrink-0 bg-danger/10 px-4 py-2.5 text-[13px] text-danger">{state.error}</p>}
       {state.archived && (

@@ -6,7 +6,10 @@ import type { Errand } from "@/app/home/_errands/types";
 
 export interface ChatErrandSummary {
   pickupName: string | null;
+  pickupLocation: string | null;
   deliveryLocation: string | null;
+  deliveryDetail: string;
+  deliveryVenue: string | null;
   collectionItems: string;
 }
 
@@ -18,9 +21,11 @@ interface ResolvedErrandSummary {
 const summaryCache = new Map<string, ChatErrandSummary>();
 const summaryInFlight = new Map<string, Promise<ChatErrandSummary | null>>();
 
-async function fetchErrandSummary(errandId: string): Promise<ChatErrandSummary | null> {
-  const cached = summaryCache.get(errandId);
-  if (cached !== undefined) return cached;
+async function fetchErrandSummary(errandId: string, fresh = false): Promise<ChatErrandSummary | null> {
+  if (!fresh) {
+    const cached = summaryCache.get(errandId);
+    if (cached !== undefined) return cached;
+  }
 
   const pending = summaryInFlight.get(errandId);
   if (pending) return pending;
@@ -31,17 +36,23 @@ async function fetchErrandSummary(errandId: string): Promise<ChatErrandSummary |
     const errand = res.data;
 
     let pickupName = errand.pickupName;
+    let complete = true;
     if (pickupName === null) {
       const supplier = await api<{ name: string }>("GET", `/api/suppliers/${errand.supplierId}`);
       if (supplier.ok && supplier.data) pickupName = supplier.data.name;
+      else complete = false;
     }
 
     const summary: ChatErrandSummary = {
       pickupName,
+      pickupLocation: errand.pickupLocation,
       deliveryLocation: errand.deliveryLocation,
+      deliveryDetail: errand.deliveryDetail,
+      deliveryVenue: errand.deliveryVenue,
       collectionItems: errand.collectionItems,
     };
-    summaryCache.set(errandId, summary);
+    // Don't cache a summary missing its supplier name, so the next load retries.
+    if (complete) summaryCache.set(errandId, summary);
     return summary;
   })().finally(() => {
     summaryInFlight.delete(errandId);
@@ -49,6 +60,11 @@ async function fetchErrandSummary(errandId: string): Promise<ChatErrandSummary |
 
   summaryInFlight.set(errandId, request);
   return request;
+}
+
+/** Refetches the errand, bypassing the session cache (used when the details sheet opens). */
+export function refreshErrandSummary(errandId: string): Promise<ChatErrandSummary | null> {
+  return fetchErrandSummary(errandId, true);
 }
 
 export function useChatErrand(errandId: string | null): ChatErrandSummary | null {

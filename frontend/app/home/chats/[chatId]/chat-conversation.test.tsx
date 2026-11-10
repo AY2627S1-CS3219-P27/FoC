@@ -11,9 +11,17 @@ const mocks = vi.hoisted(() => ({
   loadOlder: vi.fn(),
   reconnect: vi.fn(),
   recoverArchive: vi.fn(),
+  errand: vi.fn(),
+  refresh: vi.fn(),
 }));
 
 vi.mock("@/lib/chat/use-chat-conversation", () => ({ useChatConversation: mocks.useConversation }));
+vi.mock("@/lib/chat/use-chat-errand", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/chat/use-chat-errand")>()),
+  useChatErrand: () => mocks.errand(),
+  refreshErrandSummary: (id: string) => mocks.refresh(id),
+}));
+vi.mock("@/lib/users/names", () => ({ useDisplayName: (id: string | null) => (id ? "Alex Tan" : null) }));
 vi.mock("../../_shell/home-shell", () => ({
   useHomeContext: () => ({
     user: {
@@ -74,7 +82,81 @@ function provide(current: ConversationState) {
 }
 
 describe("ChatConversation", () => {
-  beforeEach(() => provide(state()));
+  beforeEach(() => {
+    mocks.errand.mockReturnValue(null);
+    mocks.refresh.mockResolvedValue(null);
+    provide(state());
+  });
+
+  it("opens errand details from the chat title and closes them with Done", async () => {
+    const user = userEvent.setup();
+    mocks.errand.mockReturnValue({
+      pickupName: "The Deck",
+      pickupLocation: "Level 2 canteen",
+      deliveryLocation: "COM1",
+      deliveryDetail: "Level 3 04-02",
+      deliveryVenue: null,
+      collectionItems: "2x chicken rice",
+    });
+    provide(state({ participantRole: "REQUESTER", errandId: "e1", counterpartUserId: otherId }));
+    render(<ChatConversation chatId={chatId} />);
+
+    await user.click(screen.getByRole("button", { name: /show errand details/i }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Alex Tan");
+    expect(dialog).toHaveTextContent("Courier");
+    expect(dialog).toHaveTextContent("The Deck · Level 2 canteen");
+    expect(dialog).toHaveTextContent("COM1 · Level 3 04-02");
+    expect(dialog).toHaveTextContent("2x chicken rice");
+
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("disables the errand details trigger when the chat has no errand", () => {
+    render(<ChatConversation chatId={chatId} />);
+    expect(screen.getByRole("button", { name: /show errand details/i })).toBeDisabled();
+  });
+
+  it("shows an error with Retry when the errand fails to load, then recovers", async () => {
+    const user = userEvent.setup();
+    const summary = {
+      pickupName: "The Deck",
+      pickupLocation: null,
+      deliveryLocation: "COM1",
+      deliveryDetail: "Level 3 04-02",
+      deliveryVenue: null,
+      collectionItems: "2x chicken rice",
+    };
+    mocks.refresh.mockResolvedValueOnce(null).mockResolvedValueOnce(summary);
+    provide(state({ participantRole: "REQUESTER", errandId: "e1", counterpartUserId: otherId }));
+    render(<ChatConversation chatId={chatId} />);
+
+    await user.click(screen.getByRole("button", { name: /show errand details/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't load errand details.");
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent("COM1 · Level 3 04-02");
+    expect(mocks.refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows freshly fetched details instead of the cached summary", async () => {
+    const user = userEvent.setup();
+    const base = {
+      pickupName: "The Deck",
+      pickupLocation: null,
+      deliveryLocation: "COM1",
+      deliveryVenue: null,
+      collectionItems: "2x chicken rice",
+    };
+    mocks.errand.mockReturnValue({ ...base, deliveryDetail: "Old room" });
+    mocks.refresh.mockResolvedValue({ ...base, deliveryDetail: "New room" });
+    provide(state({ participantRole: "REQUESTER", errandId: "e1", counterpartUserId: otherId }));
+    render(<ChatConversation chatId={chatId} />);
+
+    await user.click(screen.getByRole("button", { name: /show errand details/i }));
+    await waitFor(() => expect(screen.getByRole("dialog")).toHaveTextContent("New room"));
+  });
 
   it("keeps lifecycle status outside the fixed transcript and supports natural keyboard sending", async () => {
     const user = userEvent.setup();
