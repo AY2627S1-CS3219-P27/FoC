@@ -11,6 +11,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { AdminUserErrands } from "../_errands/admin-user-errands";
 import type { UserListItem } from "../_shared/types";
 import { CreateUserForm } from "./create-user-form";
+import { EditUserForm } from "./edit-user-form";
 import { UserAdminActions } from "./user-admin-actions";
 
 function statusOf(user: UserListItem): { label: string; tone: "danger" | "neutral" | null } {
@@ -119,7 +120,7 @@ export function UsersTab({
   );
 }
 
-// A contact card for one user; their errands push inside the same sheet.
+// A contact card for one user; their errands and details push inside the same sheet.
 function UserSheet({
   user,
   isSelf,
@@ -132,19 +133,36 @@ function UserSheet({
   onClose: () => void;
 }) {
   const [showErrands, setShowErrands] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
   const status = statusOf(user);
+  const back = showErrands
+    ? () => setShowErrands(false)
+    : showEdit
+      ? () => setShowEdit(false)
+      : undefined;
 
   return (
     <Sheet
-      title={showErrands ? "Errands" : user.displayName}
+      title={showErrands ? "Errands" : showEdit ? "Edit details" : user.displayName}
       description={showErrands ? user.displayName : undefined}
       onClose={onClose}
-      onBack={showErrands ? () => setShowErrands(false) : undefined}
+      onBack={back}
       backLabel="User"
     >
       {showErrands ? (
         <div key="errands" className="push-enter">
           <AdminUserErrands user={user} />
+        </div>
+      ) : showEdit ? (
+        <div key="edit" className="push-enter">
+          <EditUserForm
+            user={user}
+            onCancel={() => setShowEdit(false)}
+            onSaved={(updated) => {
+              onUpdated(updated);
+              setShowEdit(false);
+            }}
+          />
         </div>
       ) : (
         <div key="user" className="pop-enter space-y-6">
@@ -178,6 +196,13 @@ function UserSheet({
           </Section>
 
           <List>
+            <ListRow
+              title="Edit details"
+              onClick={() => {
+                pulseNavigation("forward");
+                setShowEdit(true);
+              }}
+            />
             <ListRow
               title="Errands"
               onClick={() => {

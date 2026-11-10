@@ -39,6 +39,7 @@ import {
 import { OutboxEvent } from '@foc/outbox';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { OrderServiceClient } from '../order/order-service.client.js';
+import { RefreshToken } from '../auth/refresh-token.entity.js';
 
 /** The PostgreSQL driver error code for a unique-constraint violation. */
 const UNIQUE_VIOLATION_CODE = '23505';
@@ -54,6 +55,14 @@ const eventContractValidator = new AccountEventContractValidator();
  */
 const MAX_FAILED_LOGIN_ATTEMPTS = 10;
 
+/** Conflict text when archiving is blocked by ongoing errands. */
+const ONGOING_ERRANDS_ARCHIVE_MESSAGE =
+  'You have ongoing errands. Finish or cancel them before archiving your account.';
+
+/** Conflict text when role removal is blocked by errands in that role. */
+const ONGOING_ERRANDS_ROLE_MESSAGE =
+  "You can't turn off a role while you still have ongoing errands in it. Finish or cancel those errands first.";
+
 /**
  * Generates a stable numeric key used based on account UUID.
  */
@@ -67,6 +76,14 @@ function accountLockKey(uuid: string): number {
 /** Set equality for role lists, which the set-replace path keeps canonical. */
 function sameRoles(a: Role[], b: Role[]): boolean {
   return a.length === b.length && a.every((role) => b.includes(role));
+}
+
+/**
+ * Implements set-replace semantics: duplicates are dropped and the result is
+ * ordered by the enum, so stored role sets are canonical.
+ */
+function canonicaliseRoles(roles: Role[]): Role[] {
+  return Object.values(Role).filter((role) => roles.includes(role));
 }
 
 /**
@@ -105,6 +122,16 @@ export interface AdminCreateUserParams {
   roles?: Role[];
   profilePictureUrl?: string | null;
   isAdmin?: boolean;
+}
+
+/** Fields an admin may change on an existing account (F11.1). */
+export interface AdminUpdateUserParams {
+  email?: string;
+  displayName?: string;
+  roles?: Role[];
+  profilePictureUrl?: string | null;
+  isAdmin?: boolean;
+  isArchived?: boolean;
 }
 
 export interface PublicUserInfo {
@@ -387,7 +414,7 @@ export class UsersService {
         // Set-replace: the stored roles are exactly the requested set, in the
         // enum's canonical order, so duplicate and out-of-order input never
         // survives. The order-service calls above only gate the change.
-        user.roles = roleList.filter((role) => roles.includes(role));
+        user.roles = canonicaliseRoles(roles);
 
         await manager.save(user);
       } catch (error) {
@@ -428,16 +455,12 @@ export class UsersService {
       return;
     }
 
-    const canRemove = await this.orderServiceClient.blockRoles(
-      user.uuid,
+    await this.blockRolesForUpdate(
+      user,
       roles,
+      ONGOING_ERRANDS_ROLE_MESSAGE,
       accessToken,
     );
-    if (!canRemove) {
-      throw new ConflictException(
-        "You can't turn off a role while you still have ongoing errands in it. Finish or cancel those errands first.",
-      );
-    }
   }
 
   /**
@@ -503,7 +526,7 @@ export class UsersService {
   }
 
   /**
-   * Applies an admin-initiated update to a target account.
+   * Applies an admin-initiated update to a target account (F11.1).
    *
    * Runs in one transaction so the audit entry is written if and
    * only if the change commits. The acting admin is re-read from the database
@@ -513,12 +536,18 @@ export class UsersService {
    *
    * Archiving asks order-service to block every role the target still holds
    * (and un-archiving lifts that block), so a stale access token cannot keep
-   * starting errands in an archived account.
+   * starting errands in an archived account. A role change asks order-service
+   * to block the roles leaving the account, rejecting the change while any of
+   * them has ongoing errands (F11.3).
+   *
+   * Changing the email locks the account: ownership of the new address is
+   * only proven when the user completes the password-reset flow, which
+   * unlocks it.
    */
   async adminUpdateUser(
     actorUuid: string,
     targetUuid: string,
-    fields: { isAdmin?: boolean; isArchived?: boolean },
+    fields: AdminUpdateUserParams,
     accessToken: string,
   ): Promise<User> {
     // Read the roles outside the transaction: order-service may take up to
@@ -529,10 +558,37 @@ export class UsersService {
     const archiving =
       existing != null && fields.isArchived === true && !existing.isArchived;
     const expectedRoles = existing?.roles ?? [];
+    const desiredRoles =
+      fields.roles === undefined
+        ? expectedRoles
+        : canonicaliseRoles(fields.roles);
+    const rolesToAdd = desiredRoles.filter(
+      (role) => !expectedRoles.includes(role),
+    );
+    const rolesToRemove = expectedRoles.filter(
+      (role) => !desiredRoles.includes(role),
+    );
+    // One all-or-nothing call: order-service blocks none of the roles when any
+    // one is in use. Archiving blocks every role the account holds after the
+    // change; otherwise only the roles leaving it.
+    const rolesToBlock = archiving
+      ? canonicaliseRoles([...expectedRoles, ...desiredRoles])
+      : rolesToRemove;
+
     let blockedRoles: Role[] = [];
-    if (existing != null && archiving && expectedRoles.length > 0) {
-      await this.blockErrands(existing, accessToken);
-      blockedRoles = expectedRoles;
+    if (existing != null && rolesToBlock.length > 0) {
+      await this.blockRolesForUpdate(
+        existing,
+        rolesToBlock,
+        archiving
+          ? ONGOING_ERRANDS_ARCHIVE_MESSAGE
+          : ONGOING_ERRANDS_ROLE_MESSAGE,
+        accessToken,
+      );
+      blockedRoles = rolesToBlock;
+    }
+    if (existing != null && !archiving && rolesToAdd.length > 0) {
+      await this.addRoles(existing, rolesToAdd, accessToken);
     }
 
     let demoted;
@@ -544,7 +600,7 @@ export class UsersService {
           ADMIN_MUTATION_LOCK_KEY,
         ]);
         // Order: admin lock, then the account lock shared with updateRoles,
-        // so an archive cannot interleave with a concurrent role change.
+        // so an update cannot interleave with a concurrent role change.
         await manager.query('SELECT pg_advisory_xact_lock($1::bigint)', [
           accountLockKey(targetUuid),
         ]);
@@ -557,10 +613,13 @@ export class UsersService {
         }
 
         // The block above covers the roles read before the transaction. If
-        // they moved since, archiving would leave a held role unblocked.
-        if (archiving && !sameRoles(expectedRoles, target.roles)) {
+        // they moved since, the change would leave a held role unblocked.
+        if (
+          (archiving || fields.roles !== undefined) &&
+          !sameRoles(expectedRoles, target.roles)
+        ) {
           throw new ConflictException(
-            'Account roles changed concurrently; retry the archive.',
+            'Account roles changed concurrently; retry the update.',
           );
         }
 
@@ -584,6 +643,22 @@ export class UsersService {
           unarchived = !archiveChange.to;
         }
 
+        // Perform particulars changes
+        this.applyProfileChanges(target, fields, changedFields);
+
+        // Only write roles when the caller supplied them (an omitted field
+        // means "leave roles alone") and the canonical set actually differs.
+        // The guarded no-op keeps a no-change request from emitting an audit
+        // entry; the concurrency check above guarantees target.roles still
+        // equals the set the order-service block was placed against.
+        if (
+          fields.roles !== undefined &&
+          !sameRoles(desiredRoles, target.roles)
+        ) {
+          changedFields.roles = { from: target.roles, to: desiredRoles };
+          target.roles = desiredRoles;
+        }
+
         // No change; return early without saving
         if (Object.keys(changedFields).length === 0) {
           return target;
@@ -601,7 +676,7 @@ export class UsersService {
         return target;
       });
     } catch (error) {
-      // The archive never committed, so lift the block placed above; the
+      // The change never committed, so lift the block placed above; the
       // account keeps its roles and must stay usable. Best effort: a missed
       // unblock expires on its own.
       if (blockedRoles.length > 0) {
@@ -610,6 +685,13 @@ export class UsersService {
           blockedRoles,
           accessToken,
         );
+      }
+      if (
+        error instanceof QueryFailedError &&
+        (error.driverError as { code?: string } | null)?.code ===
+          UNIQUE_VIOLATION_CODE
+      ) {
+        throw new ConflictException('Email is already registered.');
       }
       throw error;
     }
@@ -633,6 +715,49 @@ export class UsersService {
     }
 
     return target;
+  }
+
+  /**
+   * Applies the admin-updatable particulars to the target row, recording each
+   * actual change. An email change also locks the account: the new address is
+   * only proven owned when the user completes the password-reset flow, which
+   * unlocks it (F8, F11.1).
+   */
+  private applyProfileChanges(
+    target: User,
+    fields: AdminUpdateUserParams,
+    changedFields: Record<string, UserUpdateAuditChangedField>,
+  ): void {
+    if (fields.email !== undefined && fields.email !== target.email) {
+      changedFields.email = { from: target.email, to: fields.email };
+      target.email = fields.email;
+      if (!target.isLocked) {
+        changedFields.isLocked = { from: false, to: true };
+        target.isLocked = true;
+      }
+    }
+
+    if (
+      fields.displayName !== undefined &&
+      fields.displayName !== target.displayName
+    ) {
+      changedFields.displayName = {
+        from: target.displayName,
+        to: fields.displayName,
+      };
+      target.displayName = fields.displayName;
+    }
+
+    if (
+      fields.profilePictureUrl !== undefined &&
+      fields.profilePictureUrl !== target.profilePictureUrl
+    ) {
+      changedFields.profilePictureUrl = {
+        from: target.profilePictureUrl,
+        to: fields.profilePictureUrl,
+      };
+      target.profilePictureUrl = fields.profilePictureUrl;
+    }
   }
 
   /**
@@ -810,12 +935,44 @@ export class UsersService {
           'Cannot archive the last remaining active admin.',
         );
       }
-      // TODO: revoke every refresh token tied to this account.
+      // F12.4: revoke every refresh token tied to the account in the same
+      // statement batch as the archive, so pre-archive sessions cannot outlive
+      // it. Revocation is recorded by collapsing expiresAt, as elsewhere.
+      await manager.update(
+        RefreshToken,
+        { userId: target.uuid },
+        { expiresAt: new Date() },
+      );
     }
 
     const change = { from: target.isArchived, to: isArchived };
     target.isArchived = isArchived;
     return change;
+  }
+
+  /**
+   * Places the order-service block that guards an update, rejecting it when
+   * any of the roles involved still has ongoing errands.
+   *
+   * A `409` (`ROLE_IN_USE`) aborts the update with the caller's message; a
+   * gateway failure propagates because whether the update is safe is unknown.
+   */
+  private async blockRolesForUpdate(
+    user: User,
+    roles: Role[],
+    conflictMessage: string,
+    accessToken: string,
+  ): Promise<void> {
+    const canUpdate = await this.orderServiceClient.blockRoles(
+      user.uuid,
+      roles,
+      accessToken,
+    );
+    if (canUpdate) {
+      return;
+    }
+
+    throw new ConflictException(conflictMessage);
   }
 
   /**
@@ -831,16 +988,12 @@ export class UsersService {
       return;
     }
 
-    const canArchive = await this.orderServiceClient.blockRoles(
-      user.uuid,
+    await this.blockRolesForUpdate(
+      user,
       user.roles,
+      ONGOING_ERRANDS_ARCHIVE_MESSAGE,
       accessToken,
     );
-    if (!canArchive) {
-      throw new ConflictException(
-        'You have ongoing errands. Finish or cancel them before archiving your account.',
-      );
-    }
   }
 
   /**
