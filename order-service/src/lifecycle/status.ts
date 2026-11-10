@@ -14,6 +14,8 @@ export const STATUSES = [
   'Incomplete',
   'Settling-Credit',
   'Resolved',
+  // F2: supplier-service is re-checking an edited supplier or building; last so the enum only appends.
+  'Revalidating-Supplier',
 ] as const;
 
 export type Status = (typeof STATUSES)[number];
@@ -24,8 +26,9 @@ export const statusEnum = pgEnum('errand_status', STATUSES);
 export const ALLOWED: Record<Status, Status[]> = {
   'Pending-Supplier': ['Reserving-Credit', 'Cancelled'],
   'Reserving-Credit': ['Open', 'Cancelled'],
-  Open: ['Accepted', 'Adjusting-Credit', 'Cancelled'],
+  Open: ['Accepted', 'Adjusting-Credit', 'Cancelled', 'Open', 'Revalidating-Supplier'],
   'Adjusting-Credit': ['Open'],
+  'Revalidating-Supplier': ['Open'],
   Accepted: ['Picked Up', 'Open'],
   'Picked Up': ['Delivered', 'Cancelled'],
   Delivered: ['Transferring-Credit', 'Incomplete'],

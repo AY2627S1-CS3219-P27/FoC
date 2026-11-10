@@ -87,7 +87,7 @@ export interface BuildingOption {
   canonicalName: string;
   coordinates: { latitude: number; longitude: number };
   venueCount: number;
-  allowsPin: boolean;
+  allowsPin?: boolean;
 }
 
 export interface VenueOption {
@@ -105,7 +105,6 @@ export type ActionName =
   | "withdraw"
   | "confirm"
   | "incomplete"
-  | "adjust"
   | "cancel";
 
 export const ACTION_LABELS: Record<ActionName, string> = {
@@ -115,10 +114,11 @@ export const ACTION_LABELS: Record<ActionName, string> = {
   withdraw: "Withdraw",
   confirm: "Confirm delivery",
   incomplete: "Report incomplete",
-  adjust: "Change reward",
   cancel: "Cancel errand",
 };
 
+// The requester may edit until the errand is taken; the backend refuses anything later.
+export const canEdit = (errand: Errand, me: string) => errand.status === "Open" && errand.requesterId === me;
 
 // Mirrors the backend's edges so only actions that should succeed are shown.
 export function availableActions(errand: Errand, me: string): ActionName[] {
@@ -126,7 +126,7 @@ export function availableActions(errand: Errand, me: string): ActionName[] {
   const isCourier = !!errand.courierId && errand.courierId === me;
   switch (errand.status) {
     case "Open":
-      return isRequester ? ["adjust", "cancel"] : ["accept"];
+      return isRequester ? ["cancel"] : ["accept"];
     case "Accepted":
       return isCourier ? ["pickup", "withdraw"] : [];
     case "Picked Up":

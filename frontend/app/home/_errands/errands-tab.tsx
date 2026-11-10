@@ -323,6 +323,7 @@ export function ErrandsTab({
           errandId={selected}
           me={me}
           suppliers={suppliers}
+          buildings={buildings}
           onChanged={refresh}
           onClose={() => setSelected(null)}
         />

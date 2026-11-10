@@ -1,0 +1,1 @@
+ALTER TABLE "supplier_validation_retries" ADD COLUMN "round" integer DEFAULT 0 NOT NULL;
