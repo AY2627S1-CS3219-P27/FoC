@@ -295,11 +295,17 @@ describe('ErrandsController', () => {
       });
     });
 
-    it('refuses a supplier and a reward change together, before any write', async () => {
-      const res = await patch({ supplierId: randomUUID(), rewardCredits: 9 }, await requesterToken());
-      expect(res.status).toBe(422);
-      expect(await res.json()).toMatchObject({ code: 'ONE_PENDING_CHANGE' });
-      expect(lifecycle.transition).not.toHaveBeenCalled();
+    it('takes the Editing edge for a supplier and a reward change together', async () => {
+      lifecycle.replyErrandOf.mockResolvedValue({ status: 'Open', supplierId: randomUUID(), deliveryBuildingId: randomUUID(), deliveryDetail: 'x' });
+      lifecycle.transition.mockResolvedValue({ ok: true, sequenceNumber: 4 });
+      const supplierId = randomUUID();
+      expect((await patch({ supplierId, rewardCredits: 9 }, await requesterToken())).status).toBe(200);
+      expect(lifecycle.transition.mock.calls[0][0]).toMatchObject({
+        expected: 'Open',
+        to: 'Editing',
+        payload: { newAmount: 9 },
+        set: { pendingSupplierId: supplierId },
+      });
     });
 
     it('answers 404 for a supplier edit on an unknown errand', async () => {

@@ -12,14 +12,14 @@ import type { TransitionResult } from '../lifecycle/transition.js';
 // Turns what create() / transition() return into an HTTP answer: the
 // success body, or a thrown Nest exception that Nest sends as the error.
 
-// NOT_CANCELLABLE, NOT_EDITABLE, ONE_PENDING_CHANGE and ERRAND_UNAVAILABLE are the
+// NOT_CANCELLABLE, NOT_EDITABLE and ERRAND_UNAVAILABLE are the
 // controller's own refusals, so they are not in TransitionResult.
 type Result =
   | CreateResult
   | TransitionResult
   | {
       ok: false;
-      reason: 'NOT_CANCELLABLE' | 'NOT_EDITABLE' | 'ONE_PENDING_CHANGE' | 'ERRAND_UNAVAILABLE';
+      reason: 'NOT_CANCELLABLE' | 'NOT_EDITABLE' | 'ERRAND_UNAVAILABLE';
     };
 
 // Every failure `reason` string from both result types.
@@ -56,10 +56,6 @@ const FAILURES: Record<FailureReason, { exception: ExceptionClass; message: stri
   NOT_EDITABLE: {
     exception: ConflictException,
     message: 'Only an Open errand can be edited.',
-  },
-  ONE_PENDING_CHANGE: {
-    exception: UnprocessableEntityException,
-    message: 'Change the reward and the supplier or building in separate edits.',
   },
   ERRAND_UNAVAILABLE: {
     exception: ConflictException,
