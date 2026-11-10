@@ -33,6 +33,7 @@ variable "services" {
     "credit-service",
     "email-service",
     "notification-service",
+    "rag-service",
     "frontend",
   ]
 }
