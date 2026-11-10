@@ -44,6 +44,7 @@ export type Role = UserRole | 'system';
 // The event that locks dispute reports; reports.service reads it.
 export const SETTLEMENT_REQUESTED = 'SettlementRequested';
 export const CREDIT_SETTLEMENT_REJECTED = 'CreditSettlementRejected';
+export const CREDIT_TRANSFER_REJECTED = 'CreditTransferRejected';
 
 // Closed set of cancellation reasons; each cancel edge allows a subset.
 export const CANCELLATION_REASONS = [

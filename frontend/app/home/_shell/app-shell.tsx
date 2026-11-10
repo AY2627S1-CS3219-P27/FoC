@@ -9,13 +9,14 @@ import {
   ArchiveBoxIcon,
   BoxIcon,
   ChatIcon,
+  FlagIcon,
   PeopleIcon,
   PersonIcon,
   SignOutIcon,
   StoreIcon,
   TrayIcon,
 } from "@/components/ui/icons";
-import { TAB_TITLES, type Tab, type UserProfile } from "../_shared/types";
+import { ADMIN_TABS, TAB_TITLES, type Tab, type UserProfile } from "../_shared/types";
 
 // Sections that live on their own routes rather than behind /home?tab=.
 export type RouteSection = "chats" | "archives";
@@ -31,6 +32,7 @@ const ICONS: Record<Section, typeof BoxIcon> = {
   profile: PersonIcon,
   users: PeopleIcon,
   requests: TrayIcon,
+  disputes: FlagIcon,
 };
 
 const TITLES: Record<Section, string> = { ...TAB_TITLES, chats: "Chats", archives: "Archives" };
@@ -39,7 +41,7 @@ const isRoute = (section: Section): section is RouteSection => section === "chat
 
 // Errands first, then the conversations about them; the rest follow the order of the tabs.
 function mainSections(tabs: Tab[]): Section[] {
-  const rest = tabs.filter((t) => t !== "users" && t !== "requests");
+  const rest = tabs.filter((t) => !ADMIN_TABS.includes(t));
   const [first, ...others] = rest;
   return first === undefined ? ["chats", "archives"] : [first, "chats", "archives", ...others];
 }
@@ -75,9 +77,9 @@ export function AppShell({
   }, []);
 
   const mainTabs = mainSections(tabs);
-  // The phone tab bar keeps Archives one tap inside Chats, so seven items never crowd it.
-  const barSections = [...mainTabs.filter((s) => s !== "archives"), ...tabs.filter((t) => t === "users" || t === "requests")];
-  const adminTabs = tabs.filter((t) => t === "users" || t === "requests");
+  const adminTabs = tabs.filter((t) => ADMIN_TABS.includes(t));
+  // The phone tab bar keeps Archives one tap inside Chats, so the items never crowd it.
+  const barSections = [...mainTabs.filter((s) => s !== "archives"), ...adminTabs];
 
   return (
     <div className="min-h-dvh md:pl-[264px]">

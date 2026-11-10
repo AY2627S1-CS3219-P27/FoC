@@ -6,7 +6,8 @@ export type ErrandStatus =
   | "Delivered"
   | "Completed"
   | "Cancelled"
-  | "Incomplete";
+  | "Incomplete"
+  | "Resolved";
 
 export const ERRAND_STATUSES: ErrandStatus[] = [
   "Pending",
@@ -17,6 +18,7 @@ export const ERRAND_STATUSES: ErrandStatus[] = [
   "Completed",
   "Cancelled",
   "Incomplete",
+  "Resolved",
 ];
 
 export interface Errand {
@@ -42,6 +44,16 @@ export interface Errand {
   requesterId?: string;
   courierId?: string | null;
   cancellationReason?: string | null;
+  /** Courier's share; parties only, and only once Resolved. */
+  settlementAmount?: number | null;
+  settlementNote?: string | null;
+  /** Parties on an Incomplete errand only: the caller's own report, and whether the form is still open. */
+  hasReported?: boolean;
+  canReport?: boolean;
+  /** Incomplete errands: SYSTEM_FAILURE = credit rejected the payout (no dispute to report). */
+  cause?: "SYSTEM_FAILURE" | "REQUESTER_DISPUTE";
+  /** Admin views only: credit service's rejection reason when cause is SYSTEM_FAILURE. */
+  causeReason?: string | null;
 }
 
 /** Venue label (order-service labels pins too), else building name, then the requester's note. */

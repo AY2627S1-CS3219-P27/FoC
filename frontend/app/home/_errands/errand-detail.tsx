@@ -21,7 +21,8 @@ import {
   type Errand,
   type SupplierOption,
 } from "./types";
-import { formatTime, shortId, StatusBadge, timeLeft } from "./ui";
+import { ReportButton } from "../_disputes/report-form";
+import { formatCredits, formatTime, shortId, StatusBadge, timeLeft } from "./ui";
 
 const POLL_MS = 3000;
 
@@ -225,6 +226,30 @@ export function ErrandDetail({
             )}
             <DetailRow label="Created">{formatTime(errand.createdAt)}</DetailRow>
           </Section>
+
+          {errand.status === "Resolved" && errand.settlementAmount != null && (
+            <Section title="Settlement">
+              <DetailRow label="Courier received">{formatCredits(errand.settlementAmount)}</DetailRow>
+              <DetailRow label="Requester refunded">
+                {formatCredits(errand.rewardCredits - errand.settlementAmount)}
+              </DetailRow>
+              {errand.settlementNote && (
+                <DetailRow label="Admin's note">
+                  <span className="whitespace-pre-wrap">{errand.settlementNote}</span>
+                </DetailRow>
+              )}
+            </Section>
+          )}
+
+          {errand.cause === "SYSTEM_FAILURE" && errand.status === "Incomplete" && (
+            <p className="text-center text-[13px] text-muted">
+              There was a payment issue. An admin is reviewing it; no report is needed.
+            </p>
+          )}
+          {errand.hasReported && (
+            <p className="text-center text-[13px] text-muted">Your report is filed. An admin will settle this errand.</p>
+          )}
+          {errand.canReport && <ReportButton errandId={errandId} onFiled={load} />}
 
           {actions.length === 0 ? (
             <p className="text-center text-[13px] text-muted">Nothing for you to do at this stage.</p>
