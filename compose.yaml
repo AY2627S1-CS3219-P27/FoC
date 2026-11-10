@@ -31,6 +31,10 @@ include:
     env_file:
       - env/shared.env
       - env/comms-service.env
+  - path: rag-service/compose.yml
+    env_file:
+      - env/shared.env
+      - env/rag-service.env
 
 services:
   rabbitmq:
@@ -198,6 +202,10 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  # No broker: a question is a direct request and reply.
+  rag-service:
+    networks: [internal]
+
   # The only service the browser reaches; it proxies /api/* to the services.
   frontend:
     networks: [public, internal]
@@ -231,6 +239,8 @@ services:
   notification-db:
     networks: [internal]
   comms-db:
+    networks: [internal]
+  rag-db:
     networks: [internal]
 
 # Communication isolation: the browser talks only to the frontend (public);
