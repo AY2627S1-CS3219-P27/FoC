@@ -33,6 +33,7 @@ An errand can show these statuses:
 - **Accepted:** a courier has taken it and is on the way to collect.
 - **Picked Up:** the courier has collected the item.
 - **Delivered:** the courier says it was delivered; the requester should now confirm.
+- **Processing transfer:** the delivery was confirmed and FoC is moving the credits to the courier. It usually takes a moment. If the transfer cannot be completed, the errand becomes Incomplete.
 - **Completed:** finished, and the reward has gone to the courier.
 - **Cancelled:** stopped, and any credits held for it are returned to the requester.
 - **Incomplete:** the delivery is disputed, and an admin needs to decide. The credits stay held until then.

@@ -8,11 +8,11 @@ Owns every errand from creation to a terminal state: validates it, gets its supp
 
 ## Client-facing states
 
-`Pending` · `Open` · `Accepted` · `Picked Up` · `Delivered` · `Completed` · `Cancelled` · `Incomplete` · `Resolved`
+`Pending` · `Open` · `Accepted` · `Picked Up` · `Delivered` · `Processing transfer` · `Completed` · `Cancelled` · `Incomplete` · `Resolved`
 
 `Pending` is internally `Pending-Supplier` (supplier not yet confirmed) then `Reserving-Credit` (reservation outstanding). Callers only ever see `Pending`.
 
-In-flight credit statuses ([ADR 0006](../docs/adr/order-service/0006-in-flight-credit-statuses.md)): `Reserving-Credit` (the `Pending` sub-state above), `Transferring-Credit` (shown as `Completed`), `Adjusting-Credit` (shown as `Open`) and `Settling-Credit` (shown as `Incomplete`) are internal while credit-service confirms a step. Cancelling does not wait on credit.
+In-flight credit statuses ([ADR 0006](../docs/adr/order-service/0006-in-flight-credit-statuses.md)): `Reserving-Credit` (the `Pending` sub-state above), `Transferring-Credit` (shown as `Processing transfer`, because credit may still reject it and send the errand to `Incomplete`; `Completed` is only ever final), `Adjusting-Credit` (shown as `Open`) and `Settling-Credit` (shown as `Incomplete`) are internal while credit-service confirms a step. Cancelling does not wait on credit.
 
 `Revalidating-Supplier` (shown as `Open`, [ADR 0013](../docs/adr/order-service/0013-editing-open-errands.md)) is internal while supplier-service re-checks a supplier or delivery building the requester edited. The errand keeps its current ones until the answer; a refusal or timeout keeps them for good.
 

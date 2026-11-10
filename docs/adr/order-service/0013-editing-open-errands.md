@@ -36,3 +36,28 @@ One transition per request keeps the single write path (only `transition()` writ
 - The requester is not told that a re-check failed; the event payload holds the outcome. That waits on notification-service, as S6 does.
 - A venue or pin cannot be chosen by an edit, only dropped by a building change. A building change on an errand with a blank `deliveryDetail` (allowed with a venue) must bring a note, or it is 400 `INVALID_FIELDS`.
 - Amends ADR 0011: the delivery building can now change after creation, through this re-check.
+
+## Follow-up: reward and supplier in one edit (design agreed, NOT built)
+
+Today a reward change together with a supplier/building change is `422 ONE_PENDING_CHANGE` (the frontend's `editProblem` in `edit-errand.ts` blocks it first). Agreed design for allowing both in one PATCH:
+
+**Rejected**
+- Sync edit (calling credit/supplier inside the request): credit is money; a timeout or a failed local write after credit applied leaves the services disagreeing, which the outbox and in-flight statuses (ADR 0006, 0008) exist to avoid.
+- True parallel in-flight (both at once): needs sub-state flags instead of one status enum; touches every transition, rebuild and sweep.
+
+**Decided**
+- **One edit, two steps in sequence**, like creation: a new internal in-flight status (working name `Editing`) chains the credit and supplier steps. Either step failing rolls the whole edit back and tells the requester.
+- **No new columns.** The tables are already wide, so pending values and previous values live in the event log, not on `errands`:
+  - The edit-request event payload carries the new values (reward, supplier, building) and a snapshot of the previous local-field values (`description`, `deliveryDetail`, `collectionItems`, expiry).
+  - Rollback reads that payload and restores the previous values in the failure transition. Rebuild stays deterministic because the values are in the events.
+  - This also means local fields follow "applied now, restored on failure" (not "held until success") for the combined edit.
+- **Client-facing status `Updating`** for the in-flight edit statuses. This also fixes the visibility gap where `Adjusting-Credit` and `Revalidating-Supplier` both read as `Open`, so a separate `pendingChange` field is not needed.
+- **Failure message is derived, not stored.** The errand detail query reads the latest event; if it is an edit-failure event it returns a computed `lastEditResult` (e.g. `{ step: 'supplier', outcome: 'INACTIVE' }`), else null. It clears itself on the next event (new edit, accept, cancel). Cost: one indexed `ORDER BY seq DESC LIMIT 1` on the detail read. A new `EditFailed` event carries `{ step: 'supplier' | 'credit', outcome }`; existing `CreditAdjustmentFailed` (`reason`, `requestedAmount`) and `SupplierRevalidationFailed` (`supplierOutcome`) already carry what single-service failures need.
+
+**Still open (decide before building)**
+1. **Order of the steps.** Stated preference: credit first, then supplier (as creation was described). Recommendation: supplier first. Credit-first means a supplier refusal must reverse an already-applied credit adjustment with a second credit call, which can itself fail or time out and strand the errand. Supplier-first moves no money until the supplier is confirmed, so neither failure needs compensation. With pending values in the event log, supplier-first no longer needs a `pending_reward_credits` column, so the earlier objection to it is gone.
+2. **Do single-service edits also adopt "restore local fields on refusal"?** Today (above) local fields stay even if credit or supplier refuses. Changing this amends the decision above.
+3. **Courier list.** Check how `GET /v1/errands` filters `Open`; errands in `Updating` must not vanish from couriers without explanation (they cannot be accepted meanwhile anyway).
+4. **Push/in-app notice to the requester** through the outbox to notification-service, modelled on `requesterCancelled` in `edges.ts`. Not checked against notification-service's contract. The derived `lastEditResult` is the source of truth; the notice is only a nudge, so it can come later.
+
+**Touches if built:** `edges.ts` and `status.ts` `ALLOWED` (new status and edges), `payloads.ts` (edit-request payload with previous values, `EditFailed`), the credit and supplier reply handlers (route by whether the edit is chained), sweeps (hold window for the new status) and rebuild, the controller's `ONE_PENDING_CHANGE` branch, `api-status.ts` (`Updating`), `errands.query.ts` (`lastEditResult`), frontend `edit-errand.ts` / `types.ts` / `ui.tsx` / the detail sheet, ARCHITECTURE §2 and CONTEXT.md, and specs.

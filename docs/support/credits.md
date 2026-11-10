@@ -30,7 +30,7 @@ The most common reason is that credits are held for an errand. Your available ba
 
 ## When does a courier receive the credits?
 
-A courier receives the reward after the requester confirms the delivery, or automatically 24 hours after the errand is marked Delivered if the requester does nothing. The errand may show Completed a moment before the credits appear. If the payment cannot be completed, the errand becomes Incomplete and an admin settles it.
+A courier receives the reward after the requester confirms the delivery, or automatically 24 hours after the errand is marked Delivered if the requester does nothing. The errand shows Processing transfer until the credits reach the courier, then Completed. If the payment cannot be completed, the errand becomes Incomplete and an admin settles it.
 
 ## When do I get my reserved credits back?
 
