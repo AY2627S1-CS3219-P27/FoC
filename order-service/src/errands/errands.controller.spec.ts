@@ -5,6 +5,7 @@ import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { signAccessToken, TEST_USER_ID, testKeys } from '../../test/access-token.js';
 import { configureHttp } from '../http/configure-http.js';
+import { CAMPUS_CONTAINS } from '../campus/campus.module.js';
 import { LifecycleService } from '../lifecycle/lifecycle.service.js';
 import { ErrandsModule } from './errands.module.js';
 import { ErrandsQueryService } from './errands.query.js';
@@ -19,6 +20,7 @@ describe('ErrandsController', () => {
     transition: vi.fn(),
     currentStatus: vi.fn(),
     lastEvent: vi.fn(),
+    replyErrandOf: vi.fn(),
   };
   let app: INestApplication;
   let base: string;
@@ -29,6 +31,8 @@ describe('ErrandsController', () => {
     })
       .overrideProvider(LifecycleService)
       .useValue(lifecycle)
+      .overrideProvider(CAMPUS_CONTAINS)
+      .useValue((lat: number) => lat < 2)
       .overrideProvider(ErrandsQueryService)
       .useValue({})
       .compile();
@@ -89,6 +93,23 @@ describe('ErrandsController', () => {
       });
     });
 
+    it('passes a venue and an optional note through', async () => {
+      lifecycle.create.mockResolvedValue({ ok: true, errandId: 'e1' });
+      const venue = { ...validBody, deliveryVenueId: randomUUID(), deliveryDetail: undefined };
+      expect((await post(venue, await signAccessToken())).status).toBe(201);
+    });
+
+    it('accepts a pin inside the campus and rejects one outside', async () => {
+      lifecycle.create.mockResolvedValue({ ok: true, errandId: 'e1' });
+      const token = await signAccessToken();
+      const pin = (latitude: number) => ({ ...validBody, deliveryPin: { latitude, longitude: 103.77 } });
+      expect((await post(pin(1.3), token)).status).toBe(201);
+      lifecycle.create.mockClear();
+      expect((await post(pin(5), token)).status).toBe(400);
+      expect((await post(pin(95), token)).status).toBe(400);
+      expect(lifecycle.create).not.toHaveBeenCalled();
+    });
+
     it('ignores a requesterId in the body: the requester is always the caller', async () => {
       lifecycle.create.mockResolvedValue({ ok: true, errandId: 'e1' });
 
@@ -102,8 +123,6 @@ describe('ErrandsController', () => {
       ['a non-uuid supplierId', { ...validBody, supplierId: 'abc' }],
       ['a missing deliveryBuildingId', { ...validBody, deliveryBuildingId: undefined }],
       ['a non-uuid deliveryBuildingId', { ...validBody, deliveryBuildingId: 'COM2' }],
-      ['a missing deliveryDetail', { ...validBody, deliveryDetail: undefined }],
-      ['a blank deliveryDetail', { ...validBody, deliveryDetail: '   ' }],
       ['an over-long deliveryDetail', { ...validBody, deliveryDetail: 'x'.repeat(201) }],
       ['only the old deliveryLocation', { ...validBody, deliveryBuildingId: undefined, deliveryDetail: undefined, deliveryLocation: 'COM2' }],
       ['zero rewardCredits', { ...validBody, rewardCredits: 0 }],
@@ -187,6 +206,165 @@ describe('ErrandsController', () => {
 
       expect(res.status).toBe(400);
       expect(await res.json()).toMatchObject({ code: 'INVALID_FIELDS' });
+    });
+  });
+
+  describe('PATCH /v1/errands/:id', () => {
+    const errandId = randomUUID();
+    const actor = { kind: 'user', id: TEST_USER_ID };
+    const patch = async (body: unknown, token?: string, id = errandId) =>
+      fetch(`${base}/${id}`, {
+        method: 'PATCH',
+        headers: {
+          'content-type': 'application/json',
+          ...(token && { authorization: `Bearer ${token}` }),
+        },
+        body: JSON.stringify(body),
+      });
+    const requesterToken = () => signAccessToken({ roles: [Role.Requester] });
+
+    it('edits local fields and expiry in place', async () => {
+      lifecycle.transition.mockResolvedValue({ ok: true, sequenceNumber: 4 });
+      const res = await patch(
+        { description: 'ring twice', collectionItems: 'two coffees', expiryDurationMinutes: 90 },
+        await requesterToken(),
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ sequenceNumber: 4 });
+      expect(lifecycle.transition).toHaveBeenCalledWith({
+        errandId, actor, expected: 'Open', to: 'Open',
+        set: { description: 'ring twice', collectionItems: 'two coffees' },
+        payload: { expiryDurationMinutes: 90 },
+      });
+    });
+
+    it('routes a reward change through credit, carrying the other changes', async () => {
+      lifecycle.transition.mockResolvedValue({ ok: true, sequenceNumber: 4 });
+      await patch({ rewardCredits: 9, deliveryDetail: 'Level 5' }, await requesterToken());
+      expect(lifecycle.transition).toHaveBeenCalledWith({
+        errandId, actor, expected: 'Open', to: 'Adjusting-Credit',
+        set: { deliveryDetail: 'Level 5' },
+        payload: { newAmount: 9 },
+      });
+    });
+
+    it('sends a new supplier to be re-checked, with the building as it stands (F2.1.1)', async () => {
+      const current = { status: 'Open', supplierId: randomUUID(), deliveryBuildingId: randomUUID() };
+      lifecycle.replyErrandOf.mockResolvedValue(current);
+      lifecycle.transition.mockResolvedValue({ ok: true, sequenceNumber: 4 });
+      const supplierId = randomUUID();
+      await patch({ supplierId, description: 'x', expiryDurationMinutes: 60 }, await requesterToken());
+      expect(lifecycle.transition).toHaveBeenCalledWith({
+        errandId, actor, expected: 'Open', to: 'Revalidating-Supplier',
+        set: { description: 'x', pendingSupplierId: supplierId, pendingDeliveryBuildingId: current.deliveryBuildingId },
+        payload: { expiryDurationMinutes: 60 },
+      });
+    });
+
+    it('sends a new building with the supplier as it stands', async () => {
+      const current = { status: 'Open', supplierId: randomUUID(), deliveryBuildingId: randomUUID(), deliveryDetail: 'Level 3' };
+      lifecycle.replyErrandOf.mockResolvedValue(current);
+      lifecycle.transition.mockResolvedValue({ ok: true, sequenceNumber: 4 });
+      const deliveryBuildingId = randomUUID();
+      await patch({ deliveryBuildingId }, await requesterToken());
+      expect(lifecycle.transition.mock.calls[0][0].set).toEqual({
+        pendingSupplierId: current.supplierId,
+        pendingDeliveryBuildingId: deliveryBuildingId,
+      });
+    });
+
+    describe('a new building on an errand with no note (a venue allowed it blank)', () => {
+      const current = { status: 'Open', supplierId: randomUUID(), deliveryBuildingId: randomUUID(), deliveryDetail: '' };
+      beforeEach(() => {
+        lifecycle.replyErrandOf.mockResolvedValue(current);
+        lifecycle.transition.mockResolvedValue({ ok: true, sequenceNumber: 4 });
+      });
+
+      it('is a 400, since the venue is dropped', async () => {
+        expect((await patch({ deliveryBuildingId: randomUUID() }, await requesterToken())).status).toBe(400);
+        expect(lifecycle.transition).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ['it brings a note', () => ({ deliveryBuildingId: randomUUID(), deliveryDetail: 'Level 5' })],
+        ['the building is the same', () => ({ deliveryBuildingId: current.deliveryBuildingId })],
+        ['only the supplier changes', () => ({ supplierId: randomUUID() })],
+      ])('goes ahead when %s', async (_, body) => {
+        expect((await patch(body(), await requesterToken())).status).toBe(200);
+        expect(lifecycle.transition).toHaveBeenCalled();
+      });
+    });
+
+    it('refuses a supplier and a reward change together, before any write', async () => {
+      const res = await patch({ supplierId: randomUUID(), rewardCredits: 9 }, await requesterToken());
+      expect(res.status).toBe(422);
+      expect(await res.json()).toMatchObject({ code: 'ONE_PENDING_CHANGE' });
+      expect(lifecycle.transition).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 for a supplier edit on an unknown errand', async () => {
+      lifecycle.replyErrandOf.mockResolvedValue(undefined);
+      expect((await patch({ supplierId: randomUUID() }, await requesterToken())).status).toBe(404);
+      expect(lifecycle.transition).not.toHaveBeenCalled();
+    });
+
+    it('rejects a supplier id that is not a uuid', async () => {
+      expect((await patch({ supplierId: 'cool-spot' }, await requesterToken())).status).toBe(400);
+    });
+
+    it('drops fields that are not editable here', async () => {
+      lifecycle.transition.mockResolvedValue({ ok: true, sequenceNumber: 4 });
+      await patch({ description: 'x', requesterId: randomUUID(), status: 'Completed' }, await requesterToken());
+      expect(lifecycle.transition.mock.calls[0][0].set).toEqual({ description: 'x' });
+    });
+
+    it.each([
+      [{ deliveryDetail: '   ' }],
+      [{ collectionItems: '' }],
+      [{ rewardCredits: 0 }],
+      [{ rewardCredits: MAX_INT + 1 }],
+      [{ expiryDurationMinutes: 14 }],
+      [{ expiryDurationMinutes: 168 * 60 + 1 }],
+      [{ description: 'x'.repeat(1001) }],
+    ])('re-runs the create checks (F2.1.1): %j is a 400', async (body) => {
+      expect((await patch(body, await requesterToken())).status).toBe(400);
+      expect(lifecycle.transition).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      'supplierId',
+      'deliveryBuildingId',
+      'deliveryDetail',
+      'rewardCredits',
+      'description',
+      'expiryDurationMinutes',
+      'collectionItems',
+    ])('treats a null %s as invalid, not as absent', async (field) => {
+      expect((await patch({ [field]: null }, await requesterToken())).status).toBe(400);
+      expect(lifecycle.replyErrandOf).not.toHaveBeenCalled();
+      expect(lifecycle.transition).not.toHaveBeenCalled();
+    });
+
+    it('refuses a caller without the requester role', async () => {
+      expect((await patch({ description: 'x' }, await signAccessToken({ roles: [Role.Courier] }))).status).toBe(403);
+      expect(lifecycle.transition).not.toHaveBeenCalled();
+    });
+
+    it('answers NOT_EDITABLE once the errand is past Open (F2.1.2)', async () => {
+      lifecycle.transition.mockResolvedValue({ ok: false, reason: 'STATE_MISMATCH', currentStatus: 'Accepted' });
+      const res = await patch({ description: 'x' }, await requesterToken());
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ code: 'NOT_EDITABLE' });
+    });
+
+    it('keeps a plain STATE_MISMATCH while a reward change is in flight', async () => {
+      lifecycle.transition.mockResolvedValue({ ok: false, reason: 'STATE_MISMATCH', currentStatus: 'Adjusting-Credit' });
+      expect(await (await patch({ description: 'x' }, await requesterToken())).json()).toMatchObject({ code: 'STATE_MISMATCH' });
+    });
+
+    it('maps an expiry already in the past to 422', async () => {
+      lifecycle.transition.mockResolvedValue({ ok: false, reason: 'EXPIRY_IN_PAST' });
+      expect((await patch({ expiryDurationMinutes: 15 }, await requesterToken())).status).toBe(422);
     });
   });
 

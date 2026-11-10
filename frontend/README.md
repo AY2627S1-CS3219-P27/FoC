@@ -1,5 +1,11 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Credit transaction history
+
+Authenticated users can open a dedicated transaction-history page from **My Account**. The responsive history view uses the existing authenticated API client to request `GET /api/credits/transactions`, which the frontend proxies to Credit Service, and paginates results in 25-item pages.
+
+The view distinguishes reservations, reservation adjustments, incoming and outgoing transfers, and releases. Credit Service remains the source of truth for ordering, totals, pagination metadata, and account-not-found behavior.
+
 ## Getting Started
 
 First, run the development server:

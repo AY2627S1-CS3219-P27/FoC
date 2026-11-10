@@ -18,14 +18,16 @@ export interface NoticeContext {
   payload: Record<string, unknown>;
   // Events of this edge's type on the errand, this one included (credit.settlement.v1).
   attempt: number;
+  sequenceNumber: number; // of the event this edge writes
 }
 
-// `key` is the contract's routing key; builders may return undefined to skip.
+// `key` is the contract's routing key; builders may return undefined to skip, or several notices.
 export interface Notice {
   key: EventContractKey;
   payload: object;
+  eventId?: string; // a derived id a sweep can re-create; random when absent
 }
-export type NoticeBuilder = (c: NoticeContext) => Notice | undefined;
+export type NoticeBuilder = (c: NoticeContext) => Notice | Notice[] | undefined;
 
 // Compiles every schema once.
 const validator = new AccountEventContractValidator();
@@ -35,7 +37,7 @@ const validator = new AccountEventContractValidator();
 export async function enqueueNotice(
   tx: Db,
   n: Notice,
-  eventId: string = randomUUID(),
+  eventId: string = n.eventId ?? randomUUID(),
 ) {
   const contract = eventRegistry[n.key];
   const envelope = {
@@ -80,18 +82,31 @@ export const enqueueRelease = (db: Db, errandId: string, replyEventId: string) =
 export const supplierRequestId = (errandId: string, attempt: number) =>
   derivedUuid(`supplier-validation:${errandId}:${attempt}`);
 
+// F2: a revalidation is a new question, keyed by the edit's event number, so
+// supplier-service never sees one id with two different payloads.
+export const supplierRevalidationId = (errandId: string, seq: number, attempt: number) =>
+  derivedUuid(`supplier-revalidation:${errandId}:${seq}:${attempt}`);
+
+export const supplierRequest = (
+  errandId: string,
+  supplierId: string,
+  deliveryBuildingId: string,
+  deliveryVenueId?: string | null,
+): Notice => ({
+  key: 'order.supplier-validation-requested.v1',
+  payload: { errandId, supplierId, deliveryBuildingId, ...(deliveryVenueId && { deliveryVenueId }) },
+});
+
 export const enqueueSupplierRequest = (
   db: Db,
   errandId: string,
   supplierId: string,
   deliveryBuildingId: string,
   attempt: number,
+  deliveryVenueId?: string | null,
 ) =>
   enqueueNotice(
     db,
-    {
-      key: 'order.supplier-validation-requested.v1',
-      payload: { errandId, supplierId, deliveryBuildingId },
-    },
+    supplierRequest(errandId, supplierId, deliveryBuildingId, deliveryVenueId),
     supplierRequestId(errandId, attempt),
   );

@@ -1,7 +1,12 @@
 import { Logger } from '@nestjs/common';
 import { and, eq, gt, lte, sql, type SQL } from 'drizzle-orm';
 import { errands, outboxEvents } from '../db/schema.js';
-import { enqueueSupplierRequest, supplierRequestId } from '../lifecycle/notice.js';
+import {
+  enqueueNotice,
+  supplierRequest,
+  supplierRequestId,
+  supplierRevalidationId,
+} from '../lifecycle/notice.js';
 import { backoffDelay } from '../retry/backoff.js';
 import type { Status } from '../lifecycle/status.js';
 import {
@@ -70,6 +75,7 @@ const cancelAll = (db: Db, from: Status, where: SQL, reason: string) =>
 const AWAITING_REPLY = {
   'Transferring-Credit': 'order.errand-completed.v1',
   'Adjusting-Credit': 'credit.reservation-adjustment.v1',
+  'Settling-Credit': 'credit.settlement.v1',
 } as const;
 
 // A timeout never reverts (ADR 0006). Re-queue the original outbox row, same
@@ -117,24 +123,39 @@ async function resendOrAlert(db: Db, cfg: SweepConfig): Promise<number> {
 
 const after = (ms: number) => sql`now() + (${ms}::bigint * interval '1 millisecond')`;
 
-// No retry row yet = due at created_at + base.
+// Covers the first validation (Pending-Supplier, timed from created_at) and an
+// edit's re-check (Revalidating-Supplier, timed from updated_at = entered, with
+// the pending ids; F2). A retry row from an earlier round counts as none.
+// No retry row yet = due at the start + base.
 async function resendSupplierRequests(db: Db, cfg: SweepConfig): Promise<number> {
   const due = await db.execute<{
     id: string;
+    round: number;
     supplier_id: string;
     delivery_building_id: string;
+    delivery_venue_id: string | null;
     attempts: number;
   }>(sql`
-    SELECT e.id, e.supplier_id, e.delivery_building_id, coalesce(r.attempts, 0) AS attempts
-    FROM errands e LEFT JOIN supplier_validation_retries r ON r.errand_id = e.id
-    WHERE e.status = 'Pending-Supplier'
-      AND e.created_at > ${ago(cfg.supplierHoldMs)}
-      AND coalesce(r.next_retry_at, e.created_at + (${cfg.supplierRetryBaseMs}::bigint * interval '1 millisecond')) <= now()
+    WITH w AS (
+      SELECT id,
+        CASE status WHEN 'Pending-Supplier' THEN 0 ELSE last_sequence_number END AS round,
+        CASE status WHEN 'Pending-Supplier' THEN created_at ELSE updated_at END AS since,
+        coalesce(pending_supplier_id, supplier_id) AS supplier_id,
+        coalesce(pending_delivery_building_id, delivery_building_id) AS delivery_building_id,
+        CASE status WHEN 'Pending-Supplier' THEN delivery_venue_id END AS delivery_venue_id
+      FROM errands
+      WHERE status IN ('Pending-Supplier', 'Revalidating-Supplier'))
+    SELECT w.id, w.round, w.supplier_id, w.delivery_building_id, w.delivery_venue_id, coalesce(r.attempts, 0) AS attempts
+    FROM w LEFT JOIN supplier_validation_retries r ON r.errand_id = w.id AND r.round = w.round
+    WHERE w.since > ${ago(cfg.supplierHoldMs)}
+      AND coalesce(r.next_retry_at, w.since + (${cfg.supplierRetryBaseMs}::bigint * interval '1 millisecond')) <= now()
     LIMIT ${BATCH}`);
 
   let resent = 0;
-  for (const { id, supplier_id, delivery_building_id, attempts } of due.rows) {
+  for (const { id, round, supplier_id, delivery_building_id, delivery_venue_id, attempts } of due.rows) {
     const sent = Number(attempts);
+    const requestId = (n: number) =>
+      Number(round) === 0 ? supplierRequestId(id, n) : supplierRevalidationId(id, Number(round), n);
     const wait = backoffDelay(sent + 2, {
       baseMs: cfg.supplierRetryBaseMs,
       maxMs: cfg.supplierRetryMaxMs,
@@ -144,18 +165,18 @@ async function resendSupplierRequests(db: Db, cfg: SweepConfig): Promise<number>
       const [last] = await tx
         .select({ publishedAt: outboxEvents.publishedAt })
         .from(outboxEvents)
-        .where(eq(outboxEvents.eventId, supplierRequestId(id, sent)));
+        .where(eq(outboxEvents.eventId, requestId(sent)));
       // Still unpublished: the relay has not sent the last one, so a new one would only queue behind it.
       const send = !last || last.publishedAt !== null;
       if (send) {
-        await enqueueSupplierRequest(tx, id, supplier_id, delivery_building_id, sent + 1);
+        await enqueueNotice(tx, supplierRequest(id, supplier_id, delivery_building_id, delivery_venue_id), requestId(sent + 1));
         resent++;
       }
       await tx.execute(sql`
-        INSERT INTO supplier_validation_retries (errand_id, attempts, next_retry_at)
-        VALUES (${id}, ${send ? sent + 1 : sent}, ${after(wait)})
+        INSERT INTO supplier_validation_retries (errand_id, attempts, next_retry_at, round)
+        VALUES (${id}, ${send ? sent + 1 : sent}, ${after(wait)}, ${round})
         ON CONFLICT (errand_id) DO UPDATE
-        SET attempts = EXCLUDED.attempts, next_retry_at = EXCLUDED.next_retry_at`);
+        SET attempts = EXCLUDED.attempts, next_retry_at = EXCLUDED.next_retry_at, round = EXCLUDED.round`);
     });
   }
 
@@ -164,7 +185,7 @@ async function resendSupplierRequests(db: Db, cfg: SweepConfig): Promise<number>
     WHERE errand_id IN (
       SELECT r.errand_id FROM supplier_validation_retries r
       JOIN errands e ON e.id = r.errand_id
-      WHERE e.status <> 'Pending-Supplier'
+      WHERE e.status NOT IN ('Pending-Supplier', 'Revalidating-Supplier')
       LIMIT ${BATCH})`);
   return resent;
 }
@@ -197,6 +218,17 @@ export async function runSweeps(db: Db, cfg: SweepConfig) {
     // Hold window first, so a resend never goes to an errand about to time out.
     supplierTimedOut: await safe('supplier hold', () => cancelAll(
       db, 'Pending-Supplier', lte(errands.createdAt, ago(cfg.supplierHoldMs)), 'SUPPLIER_VALIDATION_TIMEOUT')),
+    // F2: an unanswered re-check gives up on the edit; the old supplier is still valid.
+    revalidationTimedOut: await safe('revalidation hold', () => move(
+      db,
+      and(eq(errands.status, 'Revalidating-Supplier'), lte(errands.updatedAt, ago(cfg.supplierHoldMs))),
+      {
+        expected: 'Revalidating-Supplier',
+        to: 'Open',
+        type: 'SupplierRevalidationFailed',
+        payload: { supplierOutcome: 'TIMEOUT' },
+      },
+    )),
     supplierResent: await safe('supplier resend', () => resendSupplierRequests(db, cfg)),
     expired: await safe('expiry', () => cancelAll(
       db, 'Open', lte(errands.expiresAt, sql`now()`), 'ERRAND_EXPIRED')),

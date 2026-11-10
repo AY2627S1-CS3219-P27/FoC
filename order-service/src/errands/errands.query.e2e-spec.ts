@@ -6,9 +6,10 @@ import { Test } from '@nestjs/testing';
 import { signAccessToken, testKeys } from '../../test/access-token.js';
 import { createTestDb } from '../../test/db.js';
 import { DB } from '../db/db.module.js';
-import { errands } from '../db/schema.js';
+import { disputeReports, errandEvents, errands } from '../db/schema.js';
 import { configureHttp } from '../http/configure-http.js';
 import type { Status } from '../lifecycle/status.js';
+import { CAMPUS_CONTAINS } from '../campus/campus.module.js';
 import { ErrandsModule } from './errands.module.js';
 
 let t: Awaited<ReturnType<typeof createTestDb>>;
@@ -22,7 +23,10 @@ beforeAll(async () => {
   class TestDbModule {}
   const module = await Test.createTestingModule({
     imports: [FocAuthModule.register({ publicKey: testKeys.publicKey }), TestDbModule, ErrandsModule],
-  }).compile();
+  })
+    .overrideProvider(CAMPUS_CONTAINS)
+    .useValue(() => true)
+    .compile();
   app = module.createNestApplication();
   configureHttp(app);
   await app.listen(0, '127.0.0.1');
@@ -32,7 +36,11 @@ afterAll(async () => {
   await app.close();
   await t.close();
 });
-beforeEach(() => t.db.delete(errands));
+beforeEach(async () => {
+  await t.db.delete(disputeReports);
+  await t.db.delete(errandEvents);
+  await t.db.delete(errands);
+});
 
 const HOUR = 3_600_000;
 const inHours = (h: number) => new Date(Date.now() + h * HOUR);
@@ -47,6 +55,9 @@ const seed = async (over: Partial<typeof errands.$inferInsert> = {}) => {
     deliveryBuildingId: randomUUID(),
     deliveryDetail: 'Level 3 04-02',
     deliveryLocation: 'COM2',
+    deliveryVenue: 'COM2 · LT19 · Level 3',
+    deliveryLatitude: 1.2949,
+    deliveryLongitude: 103.7737,
     pickupLocation: 'UTown',
     pickupName: 'Cool Spot @ UTown',
     pickupDescription: 'Floor 1 · Next to LT19',
@@ -91,6 +102,9 @@ describe('GET /v1/errands', () => {
           pickupDescription: 'Floor 1 · Next to LT19',
           deliveryLocation: 'COM2',
           deliveryDetail: 'Level 3 04-02',
+          deliveryVenue: 'COM2 · LT19 · Level 3',
+          deliveryLatitude: 1.2949,
+          deliveryLongitude: 103.7737,
           collectionItems: 'bubble tea',
           description: 'leave at door',
           rewardCredits: 5,
@@ -362,6 +376,53 @@ describe('settlement visibility', () => {
       ids(await (await get(`/mine?status=${q}`, [Role.Requester], me)).json());
     expect(await mine('Resolved')).toEqual([done.id]);
     expect(new Set(await mine('Incomplete'))).toEqual(new Set([stuck.id, incomplete.id]));
+  });
+});
+
+describe('report flags (hasReported, canReport)', () => {
+  const view = async (id: string, sub: string, roles = [Role.Requester]) =>
+    (await get(`/${id}`, roles, sub)).json();
+  const file = (errandId: string, authorId: string, role: string) =>
+    t.db.insert(disputeReports).values({ errandId, authorId, role, body: 'x' });
+  const requested = (errandId: string) =>
+    t.db.insert(errandEvents).values({
+      errandId,
+      sequenceNumber: 1,
+      type: 'SettlementRequested',
+      fromStatus: 'Incomplete',
+      toStatus: 'Settling-Credit',
+      payload: {},
+      actorId: randomUUID(),
+    });
+
+  it('is open before filing and reflects only the callers own report', async () => {
+    const e = await seed({ status: 'Incomplete', courierId: courier });
+    expect(await view(e.id, e.requesterId)).toMatchObject({ hasReported: false, canReport: true });
+    await file(e.id, courier, 'courier');
+    expect(await view(e.id, courier, [Role.Courier])).toMatchObject({ hasReported: true, canReport: false });
+    // The other side's report is not leaked into their own flag.
+    expect(await view(e.id, e.requesterId)).toMatchObject({ hasReported: false, canReport: true });
+  });
+
+  it('closes once settlement was requested, in flight and after a rejection', async () => {
+    const inFlight = await seed({ status: 'Settling-Credit', courierId: courier });
+    await requested(inFlight.id);
+    expect(await view(inFlight.id, inFlight.requesterId)).toMatchObject({ hasReported: false, canReport: false });
+    const rejected = await seed({ status: 'Incomplete', courierId: courier });
+    await requested(rejected.id);
+    expect(await view(rejected.id, rejected.requesterId)).toMatchObject({ canReport: false });
+  });
+
+  it('is on /mine for Incomplete errands only, and never for non-parties or the open list', async () => {
+    const me = randomUUID();
+    const inc = await seed({ requesterId: me, status: 'Incomplete' });
+    const done = await seed({ requesterId: me, status: 'Resolved' });
+    const items: { id: string }[] = (await (await get('/mine', [Role.Requester], me)).json()).items;
+    expect(items.find((i) => i.id === inc.id)).toMatchObject({ hasReported: false, canReport: true });
+    expect(items.find((i) => i.id === done.id)).not.toHaveProperty('canReport');
+    const open = await seed({});
+    expect(await view(open.id, courier, [Role.Courier])).not.toHaveProperty('hasReported');
+    expect((await list()).body.items[0]).not.toHaveProperty('canReport');
   });
 });
 

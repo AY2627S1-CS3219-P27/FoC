@@ -6,7 +6,8 @@ export type ErrandStatus =
   | "Delivered"
   | "Completed"
   | "Cancelled"
-  | "Incomplete";
+  | "Incomplete"
+  | "Resolved";
 
 export const ERRAND_STATUSES: ErrandStatus[] = [
   "Pending",
@@ -17,6 +18,7 @@ export const ERRAND_STATUSES: ErrandStatus[] = [
   "Completed",
   "Cancelled",
   "Incomplete",
+  "Resolved",
 ];
 
 export interface Errand {
@@ -30,6 +32,10 @@ export interface Errand {
   deliveryLocation: string | null;
   /** Requester's room or level, e.g. "Level 3 04-02". */
   deliveryDetail: string;
+  /** Display label snapshotted by order-service once the venue is validated; null before. */
+  deliveryVenue: string | null;
+  deliveryLatitude: number | null;
+  deliveryLongitude: number | null;
   collectionItems: string;
   description: string | null;
   rewardCredits: number;
@@ -38,15 +44,33 @@ export interface Errand {
   requesterId?: string;
   courierId?: string | null;
   cancellationReason?: string | null;
+  /** Courier's share; parties only, and only once Resolved. */
+  settlementAmount?: number | null;
+  settlementNote?: string | null;
+  /** Parties on an Incomplete errand only: the caller's own report, and whether the form is still open. */
+  hasReported?: boolean;
+  canReport?: boolean;
+  /** Incomplete errands: SYSTEM_FAILURE = credit rejected the payout (no dispute to report). */
+  cause?: "SYSTEM_FAILURE" | "REQUESTER_DISPUTE";
+  /** Admin views only: credit service's rejection reason when cause is SYSTEM_FAILURE. */
+  causeReason?: string | null;
 }
 
-/** Building snapshot plus the requester's room/level, for display. */
+/** Venue label (order-service labels pins too), else building name, then the requester's note. */
 export function formatDelivery(
-  errand: Pick<Errand, "deliveryLocation" | "deliveryDetail">,
+  errand: Pick<Errand, "deliveryLocation" | "deliveryDetail" | "deliveryVenue">,
 ): string {
-  return `${errand.deliveryLocation ?? "—"}${
-    errand.deliveryDetail ? ` · ${errand.deliveryDetail}` : ""
-  }`;
+  const place = errand.deliveryVenue ?? errand.deliveryLocation ?? "—";
+  return `${place}${errand.deliveryDetail ? ` · ${errand.deliveryDetail}` : ""}`;
+}
+
+const CANCELLATION_TEXT: Record<string, string> = {
+  VENUE_UNAVAILABLE: "That venue is no longer available. Pick another.",
+};
+
+/** Plain-English cancellation reason; unknown reasons show as sent. */
+export function cancellationText(reason: string): string {
+  return CANCELLATION_TEXT[reason] ?? reason;
 }
 
 export interface AdminErrand extends Errand {
@@ -73,6 +97,17 @@ export interface BuildingOption {
   id: string;
   shortName: string;
   canonicalName: string;
+  coordinates: { latitude: number; longitude: number };
+  venueCount: number;
+  allowsPin?: boolean;
+}
+
+export interface VenueOption {
+  id: string;
+  code: string;
+  name: string | null;
+  floor: string;
+  coordinates: { latitude: number; longitude: number };
 }
 
 export type ActionName =
@@ -82,7 +117,6 @@ export type ActionName =
   | "withdraw"
   | "confirm"
   | "incomplete"
-  | "adjust"
   | "cancel";
 
 export const ACTION_LABELS: Record<ActionName, string> = {
@@ -92,10 +126,11 @@ export const ACTION_LABELS: Record<ActionName, string> = {
   withdraw: "Withdraw",
   confirm: "Confirm delivery",
   incomplete: "Report incomplete",
-  adjust: "Change reward",
   cancel: "Cancel errand",
 };
 
+// The requester may edit until the errand is taken; the backend refuses anything later.
+export const canEdit = (errand: Errand, me: string) => errand.status === "Open" && errand.requesterId === me;
 
 // Mirrors the backend's edges so only actions that should succeed are shown.
 export function availableActions(errand: Errand, me: string): ActionName[] {
@@ -103,7 +138,7 @@ export function availableActions(errand: Errand, me: string): ActionName[] {
   const isCourier = !!errand.courierId && errand.courierId === me;
   switch (errand.status) {
     case "Open":
-      return isRequester ? ["adjust", "cancel"] : ["accept"];
+      return isRequester ? ["cancel"] : ["accept"];
     case "Accepted":
       return isCourier ? ["pickup", "withdraw"] : [];
     case "Picked Up":

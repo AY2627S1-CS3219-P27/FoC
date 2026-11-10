@@ -186,7 +186,7 @@ export function ErrandsTab({
           <>
             <FilterSelect label="Pickup building" value={pickupBuilding} onChange={(e) => setPickupBuilding(e.target.value)}>
               <option value="">Any pickup</option>
-              {buildings.map((b) => (
+              {buildings.filter((b) => !b.allowsPin).map((b) => (
                 <option key={b.id} value={b.shortName}>
                   Pickup: {b.shortName}
                 </option>
@@ -196,7 +196,7 @@ export function ErrandsTab({
               <option value="">Any delivery</option>
               {buildings.map((b) => (
                 <option key={b.id} value={b.shortName}>
-                  Deliver: {b.shortName}
+                  Deliver: {b.allowsPin ? "Other (map pin)" : b.shortName}
                 </option>
               ))}
             </FilterSelect>
@@ -323,6 +323,7 @@ export function ErrandsTab({
           errandId={selected}
           me={me}
           suppliers={suppliers}
+          buildings={buildings}
           onChanged={refresh}
           onClose={() => setSelected(null)}
         />

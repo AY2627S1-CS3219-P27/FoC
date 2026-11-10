@@ -5,6 +5,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ErrandsTab } from "./_errands/errands-tab";
 import { SupplierRequestsTab } from "./_admin/supplier-requests-tab";
+import { DisputesTab } from "./_disputes/disputes-tab";
 import { UsersTab } from "./_admin/users-tab";
 import { AccountTab } from "./_account/account-tab";
 import { PushRegistrationSync } from "./_notifications/push-registration";
@@ -212,7 +213,11 @@ function Home() {
       body: JSON.stringify({ roles: selectedRoles }),
     });
     if (!res.ok) {
-      toast.error("Couldn't update your roles.");
+      // The save did not commit, so snap the switches back to the roles the
+      // account actually holds (the footer disappears with them), then show
+      // the reason from the 4xx body; 5xx stays on the friendly fallback.
+      setSelectedRoles(user?.roles ?? []);
+      toast.error(await errorMessage(res, "Couldn't update your roles. Please try again."));
       return;
     }
     // A refreshed token carries the new roles, so no re-login is needed.
@@ -374,6 +379,8 @@ function Home() {
             onResolved={loadSuppliers}
           />
         )}
+
+        {tab === "disputes" && user.isAdmin && <DisputesTab />}
 
         {tab === "profile" && (
           <AccountTab

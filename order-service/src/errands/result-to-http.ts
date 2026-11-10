@@ -12,12 +12,15 @@ import type { TransitionResult } from '../lifecycle/transition.js';
 // Turns what create() / transition() return into an HTTP answer: the
 // success body, or a thrown Nest exception that Nest sends as the error.
 
-// NOT_CANCELLABLE and ERRAND_UNAVAILABLE are the controller's own refusals
-// (the latter re-labels a lost accept race), so they are not in TransitionResult.
+// NOT_CANCELLABLE, NOT_EDITABLE, ONE_PENDING_CHANGE and ERRAND_UNAVAILABLE are the
+// controller's own refusals, so they are not in TransitionResult.
 type Result =
   | CreateResult
   | TransitionResult
-  | { ok: false; reason: 'NOT_CANCELLABLE' | 'ERRAND_UNAVAILABLE' };
+  | {
+      ok: false;
+      reason: 'NOT_CANCELLABLE' | 'NOT_EDITABLE' | 'ONE_PENDING_CHANGE' | 'ERRAND_UNAVAILABLE';
+    };
 
 // Every failure `reason` string from both result types.
 type FailureReason = Extract<Result, { ok: false }>['reason'];
@@ -50,13 +53,25 @@ const FAILURES: Record<FailureReason, { exception: ExceptionClass; message: stri
     exception: ConflictException,
     message: 'This errand can no longer be cancelled at its current stage.',
   },
+  NOT_EDITABLE: {
+    exception: ConflictException,
+    message: 'Only an Open errand can be edited.',
+  },
+  ONE_PENDING_CHANGE: {
+    exception: UnprocessableEntityException,
+    message: 'Change the reward and the supplier or building in separate edits.',
+  },
   ERRAND_UNAVAILABLE: {
     exception: ConflictException,
     message: 'This errand is no longer available.',
   },
   EXPIRED: {
     exception: ConflictException,
-    message: 'This errand has expired and can no longer be accepted.',
+    message: 'This errand has expired and can no longer be accepted or edited.',
+  },
+  EXPIRY_IN_PAST: {
+    exception: UnprocessableEntityException,
+    message: 'That duration would make the errand expire in the past. Choose a longer one.',
   },
   COURIER_BUSY: {
     exception: ConflictException,

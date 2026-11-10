@@ -44,6 +44,49 @@ subscription:
   conflicts and PATCH takes the endpoint back.
 - **DELETE** stays owner-scoped and idempotent.
 
+A push service can re-issue an endpoint for an otherwise unchanged browser
+subscription (`pushsubscriptionchange` — VAPID key rotation, or the previous
+subscription answering `404`/`410`). That is a *rotation*, distinct from an
+account takeover: it is the same user changing endpoints, not another account
+claiming one.
+
+- **POST** with `previousEndpoints` deactivates each `(user_id, previousEndpoint)`
+  row and stores the new endpoint in one transaction, so no moment exists where
+  the user has neither a live destination nor a stale one still receiving
+  deliveries. The deactivations are idempotent attempts: a missing or
+  already-inactive row is a no-op, and several stale endpoints can be retired
+  at once (the browser may rotate repeatedly while no page is open). If the new
+  endpoint is owned by another account on a shared browser, the takeover logic
+  above runs inside the same transaction.
+- The rotation is idempotent for the caller, too: a new endpoint this user
+  already registered (active or soft-deleted) is reactivated with the fresh
+  credentials instead of returning `409 Conflict`. A conflict would push the
+  client onto PATCH, which cannot carry the stale endpoints, and leave them
+  active — the one outcome rotation exists to prevent.
+- A failed statement aborts a Postgres transaction, so a unique-violation race
+  (concurrent registrations for the same new endpoint) cannot be recovered
+  inside it. The transaction rolls back and the rotation is retried against the
+  committed state, where the existing-row path resolves it; only after the
+  retry budget is spent does the request surface as a conflict.
+- A `previousEndpoints` entry equal to `endpoint` is not a rotation — it is a
+  re-registration that reconciles with PATCH, so it is ignored and falls
+  through to the normal create path (a `409` if the pair is already present).
+
+The frontend re-subscribes in the service worker on `pushsubscriptionchange` —
+reusing the user agent's own replacement (`newSubscription`) when it exists and
+was made under the current VAPID key, and re-subscribing otherwise — and hands
+the new subscription (plus the old endpoints) to the app. All subscription
+syncs on the page share one queue, so a slower sync can never overwrite a
+fresher rotation with an endpoint the browser no longer holds. The message only
+reaches page clients that are open, so the worker also persists each old
+endpoint in IndexedDB (one record per endpoint, so repeated rotations are not
+lost); when the next page loads with no faster path having consumed them, the
+sync sends them all as `previousEndpoints` and the rotation completes
+atomically then. Until either happens, the push service's `404`/`410` answer to
+a delivery deactivates the stale row. The persisted records are not scoped to
+an account: if a different user signs in before they are consumed, the rotation
+no-ops server-side and the delivery-time path above remains the backstop.
+
 Rows remain soft-deleted, so each account's registration history is preserved.
 
 ## Consequences

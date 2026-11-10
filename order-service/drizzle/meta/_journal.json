@@ -134,6 +134,27 @@
       "when": 1793756972581,
       "tag": "0018_errand_delivery_building",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1793977552856,
+      "tag": "0019_delivery_venue_and_point",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1794216537000,
+      "tag": "0020_errand_supplier_revalidation",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794216538000,
+      "tag": "0021_supplier_retry_round",
+      "breakpoints": true
     }
   ]
 }

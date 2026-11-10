@@ -1,5 +1,12 @@
 import { EDGES, findEdge } from './edges.js';
-import { ACTIVE_STATUSES, ALLOWED, STATUSES, TERMINAL_STATUS, canTransition } from './status.js';
+import {
+  ACTIVE_STATUSES,
+  ALLOWED,
+  STATUSES,
+  TERMINAL_STATUS,
+  canTransition,
+  type Status,
+} from './status.js';
 
 describe('status transitions', () => {
   for (const from of STATUSES) {
@@ -11,9 +18,10 @@ describe('status transitions', () => {
     }
   }
 
-  // 20 edges (ADR 0006, dispute resolution); the two Adjusting-Credit -> Open exits share one pair.
-  it('has exactly 19 distinct status pairs', () => {
-    expect(Object.values(ALLOWED).flat()).toHaveLength(19);
+  // 24 edges (ADR 0006, dispute resolution, F2 edit); the Adjusting-Credit and
+  // Revalidating-Supplier -> Open exits each share one pair.
+  it('has exactly 22 distinct status pairs', () => {
+    expect(Object.values(ALLOWED).flat()).toHaveLength(22);
   });
 });
 
@@ -37,9 +45,71 @@ describe('EDGES', () => {
     }
   });
 
-  it('has 20 edges; only Adjusting-Credit -> Open has two', () => {
+  it('lets only the requester edit an Open errand in place, before it expires (F2)', () => {
+    expect(findEdge('Open', 'Open')).toMatchObject({
+      type: 'ErrandEdited',
+      sets: [],
+      optional: ['description', 'deliveryDetail', 'collectionItems'],
+      who: ['requester'],
+      editsExpiry: true,
+      unexpiredOnly: true,
+    });
+  });
+
+  it('re-checks a new supplier or building before switching to it (F2.1.1)', () => {
+    expect(findEdge('Open', 'Revalidating-Supplier')).toMatchObject({
+      type: 'SupplierRevalidationRequested',
+      sets: ['pendingSupplierId', 'pendingDeliveryBuildingId'],
+      who: ['requester'],
+      unexpiredOnly: true,
+    });
+    expect(findEdge('Revalidating-Supplier', 'Open')).toBeUndefined(); // ambiguous without a type
+    const done = findEdge('Revalidating-Supplier', 'Open', 'SupplierRevalidated');
+    expect(done?.sets).toEqual(expect.arrayContaining(['supplierId', 'deliveryBuildingId', 'pickupName', 'deliveryLocation']));
+    expect(done?.clears).toEqual(['pendingSupplierId', 'pendingDeliveryBuildingId']);
+    expect(findEdge('Revalidating-Supplier', 'Open', 'SupplierRevalidationFailed')).toMatchObject({
+      sets: [],
+      clears: ['pendingSupplierId', 'pendingDeliveryBuildingId'],
+      who: ['system'],
+    });
+  });
+
+  it('asks supplier-service about the pending ids, under an id tied to the edit', () => {
+    const c = {
+      errandId: '11111111-1111-4111-8111-111111111111',
+      requesterId: '22222222-2222-4222-8222-222222222222',
+      courierId: null,
+      actorUserId: '22222222-2222-4222-8222-222222222222',
+      rewardCredits: 5,
+      payload: {
+        pendingSupplierId: '33333333-3333-4333-8333-333333333333',
+        pendingDeliveryBuildingId: '44444444-4444-4444-8444-444444444444',
+      },
+      attempt: 1,
+      sequenceNumber: 7,
+    };
+    const notice = findEdge('Open', 'Revalidating-Supplier')?.notice?.(c);
+    expect(notice).toEqual({
+      key: 'order.supplier-validation-requested.v1',
+      payload: {
+        errandId: c.errandId,
+        supplierId: c.payload.pendingSupplierId,
+        deliveryBuildingId: c.payload.pendingDeliveryBuildingId,
+      },
+      eventId: expect.any(String),
+    });
+    const again = findEdge('Open', 'Revalidating-Supplier')?.notice?.({ ...c, sequenceNumber: 8 });
+    expect(again?.eventId).not.toBe(notice?.eventId);
+  });
+
+  it('has 24 edges; only the Adjusting-Credit and Revalidating-Supplier -> Open pairs have two', () => {
     const edges = Object.values(EDGES).flatMap((m) => Object.values(m!)).flat();
-    expect(edges).toHaveLength(20);
+    expect(edges).toHaveLength(24);
+    for (const [from, tos] of Object.entries(EDGES)) {
+      for (const [to, e] of Object.entries(tos!)) {
+        expect(Array.isArray(e)).toBe(to === 'Open' && ['Adjusting-Credit', 'Revalidating-Supplier'].includes(from));
+      }
+    }
     expect(findEdge('Adjusting-Credit', 'Open')).toBeUndefined(); // ambiguous without a type
     expect(
       findEdge('Adjusting-Credit', 'Open', 'CreditAdjusted')?.sets,
@@ -49,11 +119,14 @@ describe('EDGES', () => {
     ).toEqual([]);
   });
 
-  it('lets the supplier validation write the delivery snapshot and cancel for a missing building', () => {
-    expect(findEdge('Pending-Supplier', 'Reserving-Credit')?.sets).toContain('deliveryLocation');
+  it('lets the supplier validation write the delivery snapshot and cancel for a missing building or venue', () => {
+    expect(findEdge('Pending-Supplier', 'Reserving-Credit')?.sets).toEqual(
+      expect.arrayContaining(['deliveryLocation', 'deliveryVenue', 'deliveryLatitude', 'deliveryLongitude']),
+    );
     expect(findEdge('Pending-Supplier', 'Cancelled')?.reasons).toEqual([
       'SUPPLIER_UNAVAILABLE',
       'BUILDING_UNAVAILABLE',
+      'VENUE_UNAVAILABLE',
       'SUPPLIER_VALIDATION_TIMEOUT',
     ]);
   });
@@ -75,7 +148,9 @@ describe('EDGES', () => {
       courierId: '33333333-3333-4333-8333-333333333333',
       actorUserId: '44444444-4444-4444-8444-444444444444',
       rewardCredits: 5,
+      attempt: 1,
       payload: {},
+      attempt: 1,
     };
 
     expect(findEdge('Open', 'Accepted')?.notice?.(context)).toEqual({
@@ -107,5 +182,32 @@ describe('EDGES', () => {
         courierUserId: context.actorUserId,
       },
     });
+  });
+  it('tells the requester about a system cancel, alongside the release to credit, but not about their own', () => {
+    const ctx = (cancellationReason: string) => ({
+      errandId: '11111111-1111-4111-8111-111111111111',
+      requesterId: '22222222-2222-4222-8222-222222222222',
+      courierId: null,
+      actorUserId: null,
+      rewardCredits: 5,
+      attempt: 1,
+      payload: { cancellationReason },
+    });
+    const keys = (from: Status, reason: string) =>
+      [findEdge(from, 'Cancelled')?.notice?.(ctx(reason))]
+        .flat()
+        .map((n) => n?.key);
+
+    // Nothing reserved: only the requester notice.
+    expect(keys('Pending-Supplier', 'SUPPLIER_VALIDATION_TIMEOUT')).toEqual([
+      'order.requester-errand-cancelled.v1',
+    ]);
+    // A timeout may leave a reservation behind, so credit gets a release too.
+    expect(keys('Reserving-Credit', 'CREDIT_TIMEOUT')).toEqual([
+      'order.errand-cancelled.v1',
+      'order.requester-errand-cancelled.v1',
+    ]);
+    // The requester's own cancel: release only.
+    expect(keys('Open', 'REQUESTER_CANCELLED')).toEqual(['order.errand-cancelled.v1']);
   });
 });

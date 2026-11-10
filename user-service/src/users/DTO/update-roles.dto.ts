@@ -1,3 +1,4 @@
+import { ApiProperty } from '@nestjs/swagger';
 import { IsArray, IsEnum } from 'class-validator';
 import { Role } from '@foc/contracts';
 
@@ -8,6 +9,13 @@ import { Role } from '@foc/contracts';
  * participant roles exist, and `admin` cannot appear here by construction.
  */
 export class UpdateRolesDto {
+  @ApiProperty({
+    type: [String],
+    enum: Role,
+    example: [Role.Requester, Role.Courier],
+    description:
+      'Set-replaces the participant roles. An empty array opts out of every role.',
+  })
   @IsArray()
   @IsEnum(Role, { each: true })
   roles: Role[];

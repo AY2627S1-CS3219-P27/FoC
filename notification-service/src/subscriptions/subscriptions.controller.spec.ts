@@ -283,6 +283,44 @@ describe('SubscriptionsController', () => {
     expect(createWebPush).not.toHaveBeenCalled();
   });
 
+  it('passes the previous endpoints through on rotation', async () => {
+    const previousEndpoints = ['https://push.example.com/prev'];
+
+    await request(app.getHttpServer())
+      .post('/v1/subscriptions/web')
+      .set('Authorization', `Bearer ${await accessToken()}`)
+      .send({ ...body, previousEndpoints })
+      .expect(201);
+
+    expect(createWebPush).toHaveBeenCalledWith(userId, {
+      ...body,
+      previousEndpoints,
+    });
+  });
+
+  it('rejects a previous endpoint that is not https', async () => {
+    await request(app.getHttpServer())
+      .post('/v1/subscriptions/web')
+      .set('Authorization', `Bearer ${await accessToken()}`)
+      .send({ ...body, previousEndpoints: ['http://example.com/push'] })
+      .expect(400);
+
+    expect(createWebPush).not.toHaveBeenCalled();
+  });
+
+  it('accepts an explicit null previous endpoints list on a plain create', async () => {
+    await request(app.getHttpServer())
+      .post('/v1/subscriptions/web')
+      .set('Authorization', `Bearer ${await accessToken()}`)
+      .send({ ...body, previousEndpoints: null })
+      .expect(201);
+
+    expect(createWebPush).toHaveBeenCalledWith(userId, {
+      ...body,
+      previousEndpoints: null,
+    });
+  });
+
   it('rejects a delete without the endpoint query parameter', async () => {
     await request(app.getHttpServer())
       .delete('/v1/subscriptions/web')

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { Logger } from '@nestjs/common';
 import { eq, sql } from 'drizzle-orm';
 import { createTestDb } from '../../test/db.js';
 import { creditReserved, supplierValidated } from '../../test/payloads.js';
@@ -10,9 +11,9 @@ import {
   supplierValidationRetries,
 } from '../db/schema.js';
 import { createErrand } from '../lifecycle/create.js';
-import { supplierRequestId } from '../lifecycle/notice.js';
+import { supplierRequestId, supplierRevalidationId } from '../lifecycle/notice.js';
 import type { Status } from '../lifecycle/status.js';
-import { SYSTEM, transition } from '../lifecycle/transition.js';
+import { SYSTEM, admin, transition } from '../lifecycle/transition.js';
 import { withAdvisoryLock } from './sweep-lock.js';
 import { runSweeps, type SweepConfig } from './sweeps.js';
 
@@ -111,7 +112,8 @@ describe('sweeps', () => {
     });
     expect((await row(live)).status).toBe('Open');
     expect((await row(noExpiry)).status).toBe('Open');
-    expect(await outboxFor(expired)).toHaveLength(1);
+    // credit's release plus the requester's notice
+    expect(await outboxFor(expired)).toHaveLength(2);
   });
 
   it('cancels Picked Up errands 24h after pickup', async () => {
@@ -134,7 +136,7 @@ describe('sweeps', () => {
       cancellationReason: 'CREDIT_TIMEOUT',
     });
     expect((await row(fresh)).status).toBe('Reserving-Credit');
-    expect(await outboxFor(stuck)).toHaveLength(1);
+    expect(await outboxFor(stuck)).toHaveLength(2);
   });
 
   it('auto-completes a Delivered errand after 24h, sending the transfer notice', async () => {
@@ -166,15 +168,27 @@ describe('sweeps', () => {
     const id = await seed('Open', { expiresAt: ago(MIN) });
     await Promise.all([runSweeps(t.db, cfg), runSweeps(t.db, cfg)]);
     expect((await row(id)).status).toBe('Cancelled');
-    expect(await outboxFor(id)).toHaveLength(1);
+    expect(await outboxFor(id)).toHaveLength(2);
     expect((await row(id)).lastSequenceNumber).toBe(1);
   });
 });
 
 describe('credit reply timeout', () => {
-  async function inFlight(status: 'Transferring-Credit' | 'Adjusting-Credit', ageMs: number) {
+  async function inFlight(status: 'Transferring-Credit' | 'Adjusting-Credit' | 'Settling-Credit', ageMs: number) {
     const id = await seed('Delivered', { deliveredAt: ago(25 * HOUR) });
-    if (status === 'Transferring-Credit') {
+    if (status === 'Settling-Credit') {
+      await t.db
+        .update(errands)
+        .set({ status: 'Incomplete', courierId: randomUUID() })
+        .where(eq(errands.id, id));
+      await transition(t.db, {
+        errandId: id,
+        expected: 'Incomplete',
+        to: status,
+        actor: admin(randomUUID()),
+        set: { settlementAmount: 2, settlementNote: 'split it' },
+      });
+    } else if (status === 'Transferring-Credit') {
       await transition(t.db, { errandId: id, expected: 'Delivered', to: status, actor: SYSTEM });
     } else {
       await t.db.update(errands).set({ status: 'Open' }).where(eq(errands.id, id));
@@ -209,10 +223,65 @@ describe('credit reply timeout', () => {
     expect((await runSweeps(t.db, cfg)).resent).toBe(0);
   });
 
+  it('re-sends a settlement notice and never reverts it', async () => {
+    const id = await inFlight('Settling-Credit', 3 * MIN);
+    const [before] = await outboxFor(id);
+    expect(before.routingKey).toBe('credit.settlement.v1');
+
+    expect((await runSweeps(t.db, cfg)).resent).toBe(1);
+
+    const [after] = await outboxFor(id);
+    expect(after.eventId).toBe(before.eventId);
+    expect(after.publishedAt).toBeNull();
+    expect((await row(id)).status).toBe('Settling-Credit');
+  });
+
   it('does the same for an adjustment', async () => {
     const id = await inFlight('Adjusting-Credit', 3 * MIN);
     expect((await runSweeps(t.db, cfg)).resent).toBe(1);
     expect((await row(id)).status).toBe('Adjusting-Credit');
+  });
+
+  it('re-sends the latest settlement notice after a retry, not the first attempt', async () => {
+    const id = await inFlight('Settling-Credit', 3 * MIN);
+    // attempt 1 is rejected, the admin settles again: a fresh notice for attempt 2
+    await transition(t.db, {
+      errandId: id,
+      expected: 'Settling-Credit',
+      to: 'Incomplete',
+      actor: SYSTEM,
+      payload: { creditEventId: randomUUID(), reason: 'AMOUNT_MISMATCH' },
+    });
+    await transition(t.db, {
+      errandId: id,
+      expected: 'Incomplete',
+      to: 'Settling-Credit',
+      actor: admin(randomUUID()),
+      set: { settlementAmount: 3, settlementNote: 'again' },
+    });
+    await t.db.update(errands).set({ updatedAt: ago(3 * MIN) }).where(eq(errands.id, id));
+    await t.db
+      .update(outboxEvents)
+      .set({ publishedAt: ago(3 * MIN) })
+      .where(sql`envelope->'payload'->>'errandId' = ${id}`);
+
+    expect((await runSweeps(t.db, cfg)).resent).toBe(1);
+
+    const unpublished = (await outboxFor(id)).filter((r) => r.publishedAt === null);
+    expect(unpublished.map((r) => (r.envelope.payload as { attempt: number }).attempt)).toEqual([2]);
+  });
+
+  it('alerts past the cap for a settlement, and never re-sends or reverts it', async () => {
+    const id = await inFlight('Settling-Credit', 7 * MIN); // > 2 * (2 + 1) windows
+    const alert = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    try {
+      expect((await runSweeps(t.db, cfg)).resent).toBe(0);
+      expect(alert).toHaveBeenCalledWith(expect.stringContaining(`errand ${id} still Settling-Credit`));
+    } finally {
+      alert.mockRestore();
+    }
+    expect((await outboxFor(id))[0].publishedAt).not.toBeNull();
+    expect((await row(id)).status).toBe('Settling-Credit');
   });
 
   it('leaves a recent errand alone and stops re-sending past the cap', async () => {
@@ -244,12 +313,13 @@ describe('idempotency key retention', () => {
 });
 
 describe('Pending-Supplier', () => {
-  async function waiting(ageMs: number, published = true) {
+  async function waiting(ageMs: number, published = true, venueId?: string) {
     const res = await createErrand(t.db, {
       requesterId: randomUUID(),
       supplierId: randomUUID(),
       deliveryBuildingId: randomUUID(),
       deliveryDetail: 'Level 3 04-02',
+      deliveryVenueId: venueId,
       rewardCredits: 5,
       expiryDurationMinutes: 60,
       collectionItems: 'bubble tea',
@@ -275,6 +345,14 @@ describe('Pending-Supplier', () => {
       status: 'Cancelled',
       cancellationReason: 'SUPPLIER_VALIDATION_TIMEOUT',
     });
+  });
+
+  it('carries the venue id on a resent request', async () => {
+    const venueId = randomUUID();
+    const id = await waiting(2 * MIN, true, venueId);
+    await runSweeps(t.db, cfg);
+    const resent = (await outboxFor(id)).find((r) => r.eventId === supplierRequestId(id, 1))!;
+    expect(resent.envelope.payload).toMatchObject({ deliveryVenueId: venueId });
   });
 
   it('sends a new request when due and backs off the next one', async () => {
@@ -350,6 +428,67 @@ describe('Pending-Supplier', () => {
     });
     await runSweeps(t.db, cfg);
     expect(await retry(id)).toBeUndefined();
+  });
+});
+
+describe('Revalidating-Supplier (F2)', () => {
+  const pendingSupplierId = randomUUID();
+  const pendingDeliveryBuildingId = randomUUID();
+  // An Open errand whose edit asked about a new supplier ageMs ago; returns the request's round.
+  async function revalidating(ageMs: number, id?: string) {
+    id ??= await seed('Open');
+    const requesterId = (await row(id)).requesterId;
+    const res = await transition(t.db, {
+      errandId: id, expected: 'Open', to: 'Revalidating-Supplier', actor: { kind: 'user', id: requesterId },
+      set: { pendingSupplierId, pendingDeliveryBuildingId },
+    });
+    if (!res.ok) throw new Error(res.reason);
+    await t.db.update(errands).set({ updatedAt: ago(ageMs) }).where(eq(errands.id, id));
+    await t.db.update(outboxEvents).set({ publishedAt: ago(ageMs) }).where(sql`envelope->'payload'->>'errandId' = ${id}`);
+    return { id, round: res.sequenceNumber };
+  }
+  const requests = async (id: string) =>
+    t.db.select().from(outboxEvents).where(sql`envelope->'payload'->>'errandId' = ${id}`);
+  const retry = async (id: string) =>
+    (await t.db.select().from(supplierValidationRetries).where(eq(supplierValidationRetries.errandId, id)))[0];
+
+  it('re-sends the question about the pending supplier under the round id', async () => {
+    const { id, round } = await revalidating(2 * MIN);
+    await runSweeps(t.db, cfg);
+
+    const resent = (await requests(id)).find((r) => r.eventId === supplierRevalidationId(id, round, 1));
+    expect(resent?.envelope.payload).toEqual({ errandId: id, supplierId: pendingSupplierId, deliveryBuildingId: pendingDeliveryBuildingId });
+    expect(await retry(id)).toMatchObject({ attempts: 1, round });
+    expect((await row(id)).status).toBe('Revalidating-Supplier');
+  });
+
+  it('gives up on the edit after the hold window, keeping the old supplier', async () => {
+    const { id } = await revalidating(31 * MIN);
+    const before = await row(id);
+    expect((await runSweeps(t.db, cfg)).revalidationTimedOut).toBeGreaterThanOrEqual(1);
+    expect(await row(id)).toMatchObject({
+      status: 'Open',
+      supplierId: before.supplierId,
+      pendingSupplierId: null,
+      pendingDeliveryBuildingId: null,
+    });
+    expect(await lastEvent(id)).toMatchObject({ type: 'SupplierRevalidationFailed', payload: { supplierOutcome: 'TIMEOUT' }, actorId: null });
+  });
+
+  it('starts the count again for a later edit', async () => {
+    const first = await revalidating(2 * MIN);
+    await runSweeps(t.db, cfg);
+    expect((await retry(first.id)).attempts).toBe(1);
+    await transition(t.db, {
+      errandId: first.id, expected: 'Revalidating-Supplier', to: 'Open', actor: SYSTEM,
+      type: 'SupplierRevalidationFailed', payload: { supplierOutcome: 'TIMEOUT' },
+    });
+
+    const second = await revalidating(2 * MIN, first.id);
+    await runSweeps(t.db, cfg);
+
+    expect(await retry(first.id)).toMatchObject({ attempts: 1, round: second.round });
+    expect((await requests(first.id)).map((r) => r.eventId)).toContain(supplierRevalidationId(first.id, second.round, 1));
   });
 });
 

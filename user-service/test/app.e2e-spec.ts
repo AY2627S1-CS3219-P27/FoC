@@ -63,7 +63,13 @@ describe('user-service (e2e)', () => {
       imports: [AppModule],
     })
       .overrideProvider(REDIS)
-      .useValue({})
+      .useValue({
+        // AdminBlockGuard fails closed (503) when it cannot read the block
+        // status, so the fake must answer: no caller is blocked in these tests.
+        get: async () => null,
+        set: async () => 'OK',
+        DEL: async () => 1,
+      })
       // The TypeORM DataSource factory would otherwise try to reach the
       // Postgres container during app.init(); the stub only needs to satisfy
       // the repository providers that inject it.
@@ -122,7 +128,7 @@ describe('user-service (e2e)', () => {
           roles,
           isAdmin: false,
         })),
-        archiveSelf: vi.fn(async (uuid: string) => ({
+        archiveSelf: vi.fn(async (uuid: string, _accessToken: string) => ({
           uuid,
           email: 'eve@example.com',
           displayName: 'Eve',
@@ -137,6 +143,7 @@ describe('user-service (e2e)', () => {
             _actorUuid: string,
             targetUuid: string,
             fields: { isAdmin?: boolean; isArchived?: boolean },
+            _accessToken: string,
           ) => ({
             uuid: targetUuid,
             email: 'mallory@example.com',
@@ -248,9 +255,11 @@ describe('user-service (e2e)', () => {
     });
 
     it('applies a role change from the cookie and clears it', async () => {
+      const token = await signAccessToken();
+
       const response = await request(app.getHttpServer())
         .patch('/users/me/roles')
-        .set('Cookie', `${ACCESS_TOKEN_COOKIE}=${await signAccessToken()}`)
+        .set('Cookie', `${ACCESS_TOKEN_COOKIE}=${token}`)
         .send({ roles: [Role.Requester, Role.Courier] })
         .expect(200);
 
@@ -258,6 +267,20 @@ describe('user-service (e2e)', () => {
         roles: [Role.Requester, Role.Courier],
       });
       expect(response.headers['set-cookie']).toBeDefined();
+
+      // The acting user's own token is what order-service verifies and checks
+      // its "admin or self" rule against, so it must reach the service layer
+      // unchanged.
+      const updateRoles = (
+        app.get(UsersService) as unknown as {
+          updateRoles: ReturnType<typeof vi.fn>;
+        }
+      ).updateRoles;
+      expect(updateRoles).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111',
+        [Role.Requester, Role.Courier],
+        token,
+      );
     });
   });
 

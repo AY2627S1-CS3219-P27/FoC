@@ -103,11 +103,20 @@ export class SubscriptionsService {
    * The endpoint belongs to the browser, not the account, so a violation may
    * also mean another account is signed in elsewhere on the same browser. That
    * case is resolved by taking the endpoint over — see `reconcileWebPush`.
+   *
+   * When the browser re-issued its subscription (`pushsubscriptionchange`), the
+   * client presents the stale endpoints with the new one and the rotation
+   * applies atomically instead — see `rotateWebPush`.
    */
   async createWebPush(
     userId: string,
     input: RegisterWebPushSubscriptionDto,
   ): Promise<Subscription> {
+    const previousEndpoints = this.previousEndpointsOf(input);
+    if (previousEndpoints.length > 0) {
+      return this.rotateWebPush(userId, input, previousEndpoints);
+    }
+
     const created = this.subscriptions.create(
       registrationFields(userId, input),
     );
@@ -120,6 +129,100 @@ export class SubscriptionsService {
       }
       throw error;
     }
+  }
+
+  /**
+   * The stale endpoints a rotation POST asks the service to deactivate: present,
+   * deduplicated, and never the new endpoint itself (an entry equal to it is a
+   * re-registration, not a rotation).
+   */
+  private previousEndpointsOf(
+    input: RegisterWebPushSubscriptionDto,
+  ): string[] {
+    const previous = input.previousEndpoints;
+    if (!Array.isArray(previous)) return [];
+    return [
+      ...new Set(
+        previous.filter(
+          (candidate): candidate is string =>
+            typeof candidate === 'string' &&
+            candidate !== '' &&
+            candidate !== input.endpoint,
+        ),
+      ),
+    ];
+  }
+
+  /**
+   * Rotation: the browser re-issued its subscription and the push service
+   * handed back a new endpoint. Deactivate every previous `(userId, endpoint)`
+   * row and store the new endpoint in a single transaction, so no moment exists
+   * where the user has neither a live destination nor a stale one still
+   * receiving deliveries. If the new endpoint is owned by another account on a
+   * shared browser, the takeover deactivation runs inside the same transaction
+   * (NS6.2).
+   *
+   * The rotation is idempotent: an endpoint the caller already registered
+   * (active or soft-deleted) is reactivated with the fresh credentials rather
+   * than reported as a conflict — a `409` would push the client onto PATCH,
+   * which cannot carry the stale endpoints, and leave them active.
+   *
+   * A failed statement aborts the whole transaction in Postgres, so a
+   * unique-violation race cannot be recovered inside it: the transaction rolls
+   * back and the rotation is retried against the committed state, where the
+   * existing-row path above resolves it. Only after the retry budget is spent
+   * does the request surface as a conflict.
+   */
+  private async rotateWebPush(
+    userId: string,
+    input: RegisterWebPushSubscriptionDto,
+    previousEndpoints: readonly string[],
+  ): Promise<Subscription> {
+    const rotationAttempts = 3;
+    for (let attempt = 0; attempt < rotationAttempts; attempt += 1) {
+      try {
+        return await this.subscriptions.manager.transaction(async (manager) => {
+          const repository = manager.getRepository(Subscription);
+
+          // NS6.2.1 — deactivate the stale endpoints (idempotent: a missing or
+          // already-inactive row is a no-op).
+          for (const previousEndpoint of previousEndpoints) {
+            await this.deactivateWebPush(userId, previousEndpoint, manager);
+          }
+
+          // NS6.2.2 — the new endpoint may already belong to this user (a
+          // concurrent sync, or a retry after a lost race below): reactivate it
+          // with the fresh credentials instead of inserting.
+          const existing = await repository.findOne({
+            where: { userId, endpoint: input.endpoint },
+          });
+          if (existing !== null) {
+            existing.status = SubscriptionStatus.Active;
+            existing.deactivatedAt = null;
+            existing.credentials = {
+              p256dh: input.keys.p256dh,
+              auth: input.keys.auth,
+            };
+            existing.expirationTime = toExpirationDate(input.expirationTime);
+            return repository.save(existing);
+          }
+
+          // NS6.2.3 — another account holds the new endpoint's live
+          // subscription on this browser: the endpoint changes hands.
+          await repository.update(
+            { endpoint: input.endpoint, status: SubscriptionStatus.Active },
+            { status: SubscriptionStatus.Inactive, deactivatedAt: new Date() },
+          );
+
+          return repository.save(
+            repository.create(registrationFields(userId, input)),
+          );
+        });
+      } catch (error) {
+        if (!isUniqueViolation(error)) throw error;
+      }
+    }
+    throw alreadyExists();
   }
 
   /**

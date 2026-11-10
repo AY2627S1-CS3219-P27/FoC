@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module.js';
 import { errandEvents, errands } from '../db/schema.js';
 import { enqueueRelease } from './notice.js';
@@ -7,6 +7,14 @@ import { createErrand, type CreateRequestInputs } from './create.js';
 import { rebuildProjection } from './rebuild.js';
 import type { Status } from './status.js';
 import { transition, type Db, type TransitionInput } from './transition.js';
+
+export interface ReplyErrand {
+  status: Status;
+  supplierId: string;
+  deliveryBuildingId: string; // the pending one while revalidating
+  storedDeliveryBuildingId: string;
+  deliveryDetail: string;
+}
 
 
 @Injectable()
@@ -40,12 +48,35 @@ export class LifecycleService {
     return row?.status;
   }
 
+  // The supplier a reply should be about: the pending one while revalidating (F2).
   async supplierIdOf(errandId: string): Promise<string | undefined> {
+    return (await this.replyErrandOf(errandId))?.supplierId;
+  }
+
+  // What a supplier reply is checked against.
+  async replyErrandOf(errandId: string): Promise<ReplyErrand | undefined> {
     const [row] = await this.db
-      .select({ supplierId: errands.supplierId })
+      .select({
+        status: errands.status,
+        supplierId: sql<string>`coalesce(${errands.pendingSupplierId}, ${errands.supplierId})`,
+        deliveryBuildingId: sql<string>`coalesce(${errands.pendingDeliveryBuildingId}, ${errands.deliveryBuildingId})`,
+        storedDeliveryBuildingId: errands.deliveryBuildingId,
+        deliveryDetail: errands.deliveryDetail,
+      })
       .from(errands)
       .where(eq(errands.id, errandId));
-    return row?.supplierId;
+    return row;
+  }
+
+  // The pin given at creation. Read from the ErrandCreated event, not the row: validation
+  // overwrites the row's coordinates, and a redelivered reply must see the same answer.
+  async pinOf(errandId: string): Promise<{ latitude: number; longitude: number } | undefined> {
+    const [row] = await this.db
+      .select({ payload: errandEvents.payload })
+      .from(errandEvents)
+      .where(and(eq(errandEvents.errandId, errandId), eq(errandEvents.sequenceNumber, 1)));
+    const { deliveryLatitude: latitude, deliveryLongitude: longitude } = (row?.payload ?? {}) as Record<string, unknown>;
+    return typeof latitude === 'number' && typeof longitude === 'number' ? { latitude, longitude } : undefined;
   }
 
   async lastEvent(

@@ -33,6 +33,7 @@ const deliveryBuilding = () => ({
   id: id(),
   shortName: 'SOC',
   canonicalName: 'School of Computing',
+  coordinates: { latitude: 1.2945, longitude: 103.7736 },
 });
 
 const deliveryVenue = () => ({
@@ -158,6 +159,24 @@ describe('supplier validation event contracts (Supplier FR F15.7)', () => {
       }
     },
   );
+
+  it.each([
+    ['missing', undefined],
+    ['partial', { latitude: 1.29 }],
+    ['out of range', { latitude: 91, longitude: 103.77 }],
+  ])('rejects a delivery building with %s coordinates', (_label, coordinates) => {
+    const input = found() as {
+      payload: { deliveryBuilding: Record<string, unknown> };
+    };
+    if (coordinates) {
+      input.payload.deliveryBuilding.coordinates = coordinates;
+    } else {
+      delete input.payload.deliveryBuilding.coordinates;
+    }
+    expect(
+      validator.validate(SUPPLIER_VALIDATION_COMPLETED_V1_ROUTING_KEY, input),
+    ).toMatchObject({ valid: false, code: 'INVALID_PAYLOAD' });
+  });
 
   it('requires the delivery building when FOUND', () => {
     const foundWithout = found() as { payload: Record<string, unknown> };

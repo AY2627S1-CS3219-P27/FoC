@@ -87,6 +87,9 @@ export function AccountTab({
             </Button>
           </div>
         )}
+        <ul className="border-t border-border">
+          <ListRow title="Transaction history" href="/home/transactions" chevron />
+        </ul>
       </Section>
 
       <Section

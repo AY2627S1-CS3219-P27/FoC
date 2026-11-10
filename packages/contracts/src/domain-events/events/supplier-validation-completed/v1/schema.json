@@ -116,7 +116,7 @@
             "deliveryBuilding": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["id", "shortName", "canonicalName"],
+              "required": ["id", "shortName", "canonicalName", "coordinates"],
               "properties": {
                 "id": {
                   "type": "string",
@@ -129,6 +129,23 @@
                 "canonicalName": {
                   "type": "string",
                   "minLength": 1
+                },
+                "coordinates": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["latitude", "longitude"],
+                  "properties": {
+                    "latitude": {
+                      "type": "number",
+                      "minimum": -90,
+                      "maximum": 90
+                    },
+                    "longitude": {
+                      "type": "number",
+                      "minimum": -180,
+                      "maximum": 180
+                    }
+                  }
                 }
               }
             },

@@ -12,6 +12,7 @@ const STATUS_TONES: Record<ErrandStatus, React.ComponentProps<typeof Pill>["tone
   Completed: "success",
   Cancelled: "danger",
   Incomplete: "danger",
+  Resolved: "success",
 };
 
 const TONE_COLORS: Record<NonNullable<React.ComponentProps<typeof Pill>["tone"]>, string> = {

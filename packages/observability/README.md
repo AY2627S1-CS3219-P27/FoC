@@ -6,7 +6,7 @@ Shared **OpenTelemetry tracing** and **Prometheus metrics** for Friend on Campus
 
 | Export | Purpose |
 | --- | --- |
-| `initTelemetry({ serviceName, otlpEndpoint })` | Initialize OpenTelemetry with instrumentation for Express, HTTP, PostgreSQL, RabbitMQ, Redis, and NestJS controllers. Must be called before `NestFactory.create()`. |
+| `initTelemetry({ serviceName, otlpEndpoint })` | Initialize OpenTelemetry with instrumentation for Express, HTTP, undici (global `fetch`), PostgreSQL, RabbitMQ, Redis, and NestJS controllers. Must be called before `NestFactory.create()`. |
 | `Telemetry.flush()` | Force-flush pending spans/logs. The SDK keeps running. |
 | `Telemetry.shutdown()` | Force-flush, then gracefully stop the SDK. Safe to call repeatedly. |
 | `registerShutdown(app, telemetry)` | On SIGINT/SIGTERM: close the Nest app (running all of its shutdown hooks), then flush and stop the SDK, then exit. Call once from `main.ts`, right after `NestFactory.create()`. |

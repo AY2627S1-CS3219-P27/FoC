@@ -6,6 +6,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AuthKeyModule } from './auth/auth-key.module.js';
 import { AuthKeyService } from './auth/auth-key.service.js';
 import { environmentSchema } from './config/environment.schema.js';
+import { CampusModule } from './campus/campus.module.js';
 import { CreditRepliesModule } from './credit-replies/credit-replies.module.js';
 import { DbModule } from './db/db.module.js';
 import { ErrandsModule } from './errands/errands.module.js';
@@ -35,6 +36,7 @@ import { SweepsModule } from './sweeps/sweeps.module.js';
       }),
     }),
     DbModule,
+    CampusModule,
     CreditRepliesModule,
     ErrandsModule,
     LifecycleModule,

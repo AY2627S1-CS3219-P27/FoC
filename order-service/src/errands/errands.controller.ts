@@ -1,12 +1,15 @@
 import { type AuthenticatedRequest, JwtAuthGuard, Roles, RolesGuard } from '@foc/auth';
 import { Role } from '@foc/contracts';
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
   HttpCode,
+  Inject,
   NotFoundException,
   Param,
+  Patch,
   ParseUUIDPipe,
   Post,
   Query,
@@ -15,17 +18,21 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { CAMPUS_CONTAINS } from '../campus/campus.module.js';
+import type { CampusContains } from '../campus/campus-boundary.js';
 import { LifecycleService } from '../lifecycle/lifecycle.service.js';
 import {
   WithdrawErrandDto,
   AdjustErrandDto,
   CreateErrandDto,
+  EditErrandDto,
   ListErrandsQuery,
   MineErrandsQuery,
 } from './errands.dto.js';
 import { ErrandsQueryService } from './errands.query.js';
 import { requesterCanCancel } from '../lifecycle/edges.js';
-import { user } from '../lifecycle/transition.js';
+import { toApiStatus } from './api-status.js';
+import { user, type TransitionInput } from '../lifecycle/transition.js';
 import { ACTIONS, type ActionContext, type ActionName } from './actions.js';
 import { IdempotencyKey } from './idempotency-key.js';
 import { isReplay, REPLAYED_HEADER, resultToHttp } from './result-to-http.js';
@@ -39,6 +46,7 @@ export class ErrandsController {
   constructor(
     private readonly lifecycle: LifecycleService,
     private readonly queries: ErrandsQueryService,
+    @Inject(CAMPUS_CONTAINS) private readonly campusContains: CampusContains,
   ) {}
 
   // Reads go to the query service, never through transition().
@@ -71,6 +79,10 @@ export class ErrandsController {
     @IdempotencyKey() idempotencyKey: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ) {
+    const pin = body.deliveryPin;
+    if (pin && !this.campusContains(pin.latitude, pin.longitude)) {
+      throw new BadRequestException('The delivery pin is outside the campus.');
+    }
     const result = await this.lifecycle.create({
       ...body,
       requesterId: req.user.sub,
@@ -165,6 +177,74 @@ export class ErrandsController {
     @Res({ passthrough: true }) res: Response,
   ) {
     return this.run('adjust', id, req.user.sub, idempotencyKey, res, body);
+  }
+
+  // F2: one transition per edit, carrying the local changes with it. A new supplier
+  // or building is re-checked by supplier-service (Revalidating-Supplier), a new
+  // reward goes through credit (Adjusting-Credit), anything else changes in place.
+  // Routing looks only at the body, so a retried request takes the same edge.
+  @Patch(':id')
+  @Roles(Role.Requester)
+  @HttpCode(200)
+  async edit(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: EditErrandDto,
+    @Req() req: AuthenticatedRequest,
+    @IdempotencyKey() idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { rewardCredits, expiryDurationMinutes, supplierId, deliveryBuildingId, ...fields } = body;
+    // Absent fields must not reach transition() as explicit undefineds.
+    const set = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined));
+    const expiry = expiryDurationMinutes === undefined ? {} : { expiryDurationMinutes };
+    let edge: Pick<TransitionInput, 'to' | 'payload' | 'set'>;
+    if (supplierId !== undefined || deliveryBuildingId !== undefined) {
+      // One in-flight status at a time.
+      if (rewardCredits !== undefined) {
+        return resultToHttp({ ok: false, reason: 'ONE_PENDING_CHANGE' });
+      }
+      // The half not being changed is re-checked as it stands.
+      const current = await this.lifecycle.replyErrandOf(id);
+      if (!current) return resultToHttp({ ok: false, reason: 'NOT_FOUND' });
+      // A new building drops the venue, and without a venue the note is required (F2.1.1).
+      if (
+        deliveryBuildingId !== undefined &&
+        deliveryBuildingId.toLowerCase() !== current.deliveryBuildingId.toLowerCase() &&
+        fields.deliveryDetail === undefined &&
+        !current.deliveryDetail.trim()
+      ) {
+        return resultToHttp({ ok: false, reason: 'INVALID_FIELDS' });
+      }
+      edge = {
+        to: 'Revalidating-Supplier',
+        payload: expiry,
+        set: {
+          ...set,
+          pendingSupplierId: supplierId ?? current.supplierId,
+          pendingDeliveryBuildingId: deliveryBuildingId ?? current.deliveryBuildingId,
+        },
+      };
+    } else if (rewardCredits !== undefined) {
+      edge = { to: 'Adjusting-Credit', payload: { ...expiry, newAmount: rewardCredits }, set };
+    } else {
+      edge = { to: 'Open', payload: expiry, set };
+    }
+    const result = await this.lifecycle.transition({
+      errandId: id,
+      expected: 'Open',
+      ...edge,
+      actor: user(req.user.sub),
+      idempotencyKey,
+    });
+    // F2.1.2: past Open (Adjusting-Credit still reads as Open, so that stays a plain retry).
+    if (
+      !result.ok &&
+      result.reason === 'STATE_MISMATCH' &&
+      toApiStatus(result.currentStatus) !== 'Open'
+    ) {
+      return resultToHttp({ ok: false, reason: 'NOT_EDITABLE' });
+    }
+    return this.answer(result, res);
   }
 
   @Post(':id/cancel')

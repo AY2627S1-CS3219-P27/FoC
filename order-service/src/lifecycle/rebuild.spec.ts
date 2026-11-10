@@ -35,6 +35,10 @@ describe('foldEvents', () => {
       deliveryBuildingId: '55555555-5555-5555-5555-555555555555',
       deliveryDetail: 'Level 3 04-02',
       deliveryLocation: null,
+      deliveryVenueId: null,
+      deliveryLatitude: null,
+      deliveryLongitude: null,
+      deliveryVenue: null,
       rewardCredits: 5,
       pickupLocation: null,
       pickupName: null,
@@ -48,6 +52,8 @@ describe('foldEvents', () => {
       cancellationReason: null,
       settlementAmount: null,
       settlementNote: null,
+      pendingSupplierId: null,
+      pendingDeliveryBuildingId: null,
     });
   });
 

@@ -3,6 +3,7 @@ import { eq, sql } from 'drizzle-orm';
 import { createTestDb } from '../../test/db.js';
 import { errandEvents, errands, outboxEvents } from '../db/schema.js';
 import type { Status } from './status.js';
+import { supplierRevalidationId } from './notice.js';
 import { SYSTEM, transition, user } from './transition.js';
 
 let t: Awaited<ReturnType<typeof createTestDb>>;
@@ -10,6 +11,10 @@ beforeAll(async () => {
   t = await createTestDb();
 });
 afterAll(() => t.close());
+beforeEach(async () => {
+  await t.db.delete(errandEvents);
+  await t.db.delete(errands);
+});
 
 const requester = randomUUID();
 const courier = randomUUID();
@@ -248,7 +253,7 @@ describe('transition notices', () => {
     expect(await outbox(id)).toHaveLength(0);
   });
 
-  it('emits nothing on a rejection cancel, a release on timeout', async () => {
+  it('tells only the requester on a rejection cancel, and credit too on timeout', async () => {
     const rejected = await seed('Reserving-Credit');
     await transition(t.db, {
       errandId: rejected,
@@ -258,7 +263,9 @@ describe('transition notices', () => {
       payload: { creditEventId: randomUUID(), requestedAmount: 5 },
       set: { cancellationReason: 'INSUFFICIENT_CREDITS' },
     });
-    expect(await outbox(rejected)).toHaveLength(0);
+    expect(await outbox(rejected)).toMatchObject([
+      { routingKey: 'order.requester-errand-cancelled.v1' },
+    ]);
 
     const timedOut = await seed('Reserving-Credit');
     await transition(t.db, {
@@ -270,6 +277,47 @@ describe('transition notices', () => {
     });
     expect(await outbox(timedOut)).toMatchObject([
       { routingKey: 'order.errand-cancelled.v1' },
+      { routingKey: 'order.requester-errand-cancelled.v1' },
     ]);
+  });
+
+  it('asks supplier-service about an edited supplier, keeping the old one until it answers (F2.1.1)', async () => {
+    const id = await seed('Open');
+    const before = (await t.db.select().from(errands).where(eq(errands.id, id)))[0];
+    const pendingSupplierId = randomUUID();
+    const pendingDeliveryBuildingId = randomUUID();
+
+    const res = await transition(t.db, {
+      errandId: id, expected: 'Open', to: 'Revalidating-Supplier', actor: user(requester),
+      set: { pendingSupplierId, pendingDeliveryBuildingId, description: 'new spot' },
+    });
+
+    expect(res).toEqual({ ok: true, sequenceNumber: 1 });
+    expect((await t.db.select().from(errands).where(eq(errands.id, id)))[0]).toMatchObject({
+      status: 'Revalidating-Supplier',
+      supplierId: before.supplierId,
+      deliveryBuildingId: before.deliveryBuildingId,
+      pendingSupplierId,
+      pendingDeliveryBuildingId,
+      description: 'new spot',
+    });
+    expect(await outbox(id)).toMatchObject([
+      {
+        eventId: supplierRevalidationId(id, 1, 0),
+        routingKey: 'order.supplier-validation-requested.v1',
+        envelope: { payload: { errandId: id, supplierId: pendingSupplierId, deliveryBuildingId: pendingDeliveryBuildingId } },
+      },
+    ]);
+  });
+
+  it('refuses a revalidation without both pending ids', async () => {
+    const id = await seed('Open');
+    expect(
+      await transition(t.db, {
+        errandId: id, expected: 'Open', to: 'Revalidating-Supplier', actor: user(requester),
+        set: { pendingSupplierId: randomUUID() },
+      }),
+    ).toEqual({ ok: false, reason: 'INVALID_FIELDS' });
+    expect(await outbox(id)).toHaveLength(0);
   });
 });

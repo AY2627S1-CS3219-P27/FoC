@@ -26,7 +26,7 @@ describe('dispatchCourierCancelled', () => {
     await dispatchCourierCancelled(event, dispatch);
 
     expect(enqueue).toHaveBeenCalledWith(event, {
-      recipients: [REQUESTER, COURIER],
+      recipients: [REQUESTER],
       message: {
         title: 'Courier cancelled',
         body: 'The courier cancelled the errand.',
