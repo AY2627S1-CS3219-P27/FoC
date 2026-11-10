@@ -84,9 +84,9 @@ describe("editProblem", () => {
     expect(editProblem(initial, edit({ collectionItems: "coffee" }))).toBeNull();
   });
 
-  it("refuses a reward and a supplier or building change together", () => {
-    expect(editProblem(initial, edit({ rewardCredits: "9", supplierId: "s2" }))).toMatch(/separate edits/);
-    expect(editProblem(initial, edit({ rewardCredits: "9", deliveryBuildingId: "b-as6" }))).toMatch(/separate edits/);
+  it("allows a reward and a supplier or building change together", () => {
+    expect(editProblem(initial, edit({ rewardCredits: "9", supplierId: "s2" }))).toBeNull();
+    expect(editProblem(initial, edit({ rewardCredits: "9", deliveryBuildingId: "b-as6", deliveryDetail: "Level 2" }))).toBeNull();
   });
 
   it.each(["", "0", "1.5", "-1", "2147483648"])("refuses the reward %j", (rewardCredits) => {

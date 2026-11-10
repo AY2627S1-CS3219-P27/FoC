@@ -2,9 +2,12 @@ import {
   ORDER_COURIER_CANCELLED_V1_ROUTING_KEY,
   ORDER_ERRAND_ACCEPTED_V1_ROUTING_KEY,
   ORDER_ERRAND_DELIVERED_V1_ROUTING_KEY,
+  ORDER_ERRAND_UPDATE_V1_ROUTING_KEY,
+  type ErrandUpdateKind,
+  ORDER_REQUESTER_EDIT_FAILED_V1_ROUTING_KEY,
   ORDER_REQUESTER_ERRAND_CANCELLED_V1_ROUTING_KEY,
 } from '@foc/contracts';
-import { supplierRequest, supplierRevalidationId, type NoticeBuilder, type Notice } from './notice.js';
+import { supplierRequest, supplierRevalidationId, type NoticeBuilder, type Notice, type NoticeContext } from './notice.js';
 import type { Status } from './status.js';
 
 // Projection columns a transition may write; values come from the caller.
@@ -31,7 +34,8 @@ export type Col =
   | 'supplierId'
   | 'deliveryBuildingId'
   | 'pendingSupplierId'
-  | 'pendingDeliveryBuildingId';
+  | 'pendingDeliveryBuildingId'
+  | 'expiresAt';
 
 // F2.1: create fields a requester may change on an Open errand without asking another service.
 export const EDITABLE: Col[] = ['description', 'deliveryDetail', 'collectionItems'];
@@ -74,6 +78,8 @@ export interface Edge {
   setsExpiry?: true; // expires_at = now + the duration in event 1 (ADR 0007)
   editsExpiry?: true; // payload expiryDurationMinutes: expires_at = opened-at + it, must be in the future
   notice?: NoticeBuilder; // outbox notice written in the transition's transaction (ADR 0008)
+  snapshots?: true; // event records `previous`: the local fields as they stood before this edit
+  restores?: true; // refused edit: local fields go back to the latest `previous` in the log
 }
 
 // Release notice for credit; payload is just the errand (agree changes with credit: a change is a v2).
@@ -105,6 +111,31 @@ const courierCancelled: NoticeBuilder = (c) => ({
     courierUserId: c.actorUserId,
   },
 });
+// Push-only note to the requester and/or courier (notification-service picks who from `kind`).
+// Every kind happens at or after pickup, so a courier always exists; a courier-less edge has
+// nobody to push to, so the notice is skipped rather than failing the schema's required UUID
+// inside the transition.
+const update =
+  (kind: ErrandUpdateKind, extra?: (c: NoticeContext) => object): NoticeBuilder =>
+  (c) => {
+    if (!c.courierId) return undefined;
+    return {
+      key: ORDER_ERRAND_UPDATE_V1_ROUTING_KEY,
+      payload: {
+        errandId: c.errandId,
+        requesterUserId: c.requesterId,
+        courierUserId: c.courierId,
+        kind,
+        ...extra?.(c),
+      },
+    };
+  };
+// Dispute outcome: the admin's split and note, read from the row.
+const resolved = (c: NoticeContext) => ({
+  courierAmount: c.settlementAmount,
+  requesterAmount: c.rewardCredits - (c.settlementAmount ?? 0),
+  ...(c.settlementNote && { note: c.settlementNote }),
+});
 // Tells the requester why the system cancelled; their own cancel needs no notice.
 const requesterCancelled: NoticeBuilder = (c) =>
   USER_REASONS.includes(c.payload.cancellationReason as CancellationReason)
@@ -117,10 +148,23 @@ const requesterCancelled: NoticeBuilder = (c) =>
           cancellationReason: c.payload.cancellationReason,
         },
       };
+// Tells the requester which step refused their edit; the fields are already back (`restores`).
+const editFailed =
+  (step: 'supplier' | 'credit'): NoticeBuilder =>
+  (c) => ({
+    key: ORDER_REQUESTER_EDIT_FAILED_V1_ROUTING_KEY,
+    payload: {
+      errandId: c.errandId,
+      requesterUserId: c.requesterId,
+      step,
+      reason: step === 'credit' ? c.payload.reason : c.payload.supplierOutcome,
+    },
+  });
 const cancel = (
   who: Role[],
   reasons: CancellationReason[],
   notice: NoticeBuilder | null = release,
+  tellCourier = false,
 ): Edge => ({
   type: 'ErrandCancelled',
   sets: ['cancellationReason'],
@@ -128,7 +172,7 @@ const cancel = (
   who,
   reasons,
   notice: (c) =>
-    [notice?.(c), requesterCancelled(c)].flat().filter((n): n is Notice => !!n),
+    [notice?.(c), requesterCancelled(c), tellCourier ? update('CANCELLED')(c) : undefined].flat().filter((n): n is Notice => !!n),
 });
 const plain = (type: string, who: Role[], notice?: NoticeBuilder): Edge => ({
   type,
@@ -141,6 +185,20 @@ const sys: Role[] = ['system'];
 // F2: requester edits on an Open errand; refused once it has expired.
 const editable = { optional: EDITABLE, editsExpiry: true, unexpiredOnly: true } as const;
 const PENDING: Col[] = ['pendingSupplierId', 'pendingDeliveryBuildingId'];
+// Supplier columns a chained edit applies once credit has agreed.
+const CONFIRMED: Col[] = [
+  'supplierId',
+  'deliveryBuildingId',
+  'supplierValidatedAt',
+  'pickupName',
+  'pickupLocation',
+  'pickupDescription',
+  'deliveryLocation',
+  'deliveryVenueId',
+  'deliveryVenue',
+  'deliveryLatitude',
+  'deliveryLongitude',
+];
 // Attempt 0 here; the resend sweep re-creates this id and counts on from it.
 const revalidation: NoticeBuilder = (c) => ({
   ...supplierRequest(
@@ -151,7 +209,7 @@ const revalidation: NoticeBuilder = (c) => ({
   eventId: supplierRevalidationId(c.errandId, c.sequenceNumber, 0),
 });
 
-// 24 edges in total
+// 27 edges in total
 export const EDGES: Partial<
   Record<Status, Partial<Record<Status, Edge | Edge[]>>>
 > = {
@@ -212,6 +270,7 @@ export const EDGES: Partial<
         },
       })),
       ...editable,
+      snapshots: true,
     },
     // F2.1: fields that need no other service change in place.
     Open: { ...plain('ErrandEdited', ['requester']), ...editable },
@@ -220,13 +279,38 @@ export const EDGES: Partial<
       ...plain('SupplierRevalidationRequested', ['requester'], revalidation),
       sets: PENDING,
       ...editable,
+      snapshots: true,
+    },
+    // Reward and supplier in one edit: supplier first, then credit (ADR 0014 follow-up).
+    Editing: {
+      ...plain('EditRequested', ['requester'], revalidation),
+      sets: PENDING,
+      ...editable,
+      snapshots: true,
     },
     Cancelled: cancel(['requester', 'system'], ['REQUESTER_CANCELLED', 'ERRAND_EXPIRED']),
   },
+  // Supplier confirmed: hold its answer in the event and ask credit. Nothing is applied until credit agrees.
+  Editing: {
+    'Adjusting-Credit': {
+      ...plain('SupplierConfirmed', sys, (c) => ({
+        key: 'credit.reservation-adjustment.v1',
+        payload: {
+          errandId: c.errandId,
+          oldAmount: c.rewardCredits,
+          newAmount: c.payload.newAmount,
+        },
+      })),
+      clears: PENDING,
+    },
+    // Supplier refused or did not answer: the old supplier stays and the local fields go back.
+    Open: { ...plain('EditFailed', sys, editFailed('supplier')), clears: PENDING, restores: true },
+  },
   'Adjusting-Credit': {
     Open: [
-      { type: 'CreditAdjusted', sets: ['rewardCredits'], clears: [], who: sys },
-      plain('CreditAdjustmentFailed', sys),
+      // After SupplierConfirmed the supplier columns land together with the reward.
+      { type: 'CreditAdjusted', sets: ['rewardCredits'], optional: CONFIRMED, clears: [], who: sys },
+      { ...plain('CreditAdjustmentFailed', sys, editFailed('credit')), restores: true },
     ],
   },
   // Supplier-service's answer (or the hold sweep) settles the edit; a refusal keeps the old supplier.
@@ -248,18 +332,18 @@ export const EDGES: Partial<
         clears: PENDING,
         who: sys,
       },
-      { type: 'SupplierRevalidationFailed', sets: [], clears: PENDING, who: sys },
+      { type: 'SupplierRevalidationFailed', sets: [], clears: PENDING, who: sys, restores: true, notice: editFailed('supplier') },
     ],
   },
   Accepted: {
-    'Picked Up': { type: 'ErrandPickedUp', sets: ['pickedUpAt'], clears: [], who: ['courier'] },
+    'Picked Up': { type: 'ErrandPickedUp', sets: ['pickedUpAt'], clears: [], who: ['courier'], notice: update('PICKED_UP') },
     // No Cancelled edge: the requester cannot cancel once accepted; the courier withdraws instead.
     Open: { type: 'CourierWithdrew', sets: [], clears: ['courierId'], who: ['courier'], notice: courierCancelled },
   },
   'Picked Up': {
     Delivered: { type: 'ErrandDelivered', sets: ['deliveredAt'], clears: [], who: ['courier'], notice: delivered },
     // System only (the 24h timer): the requester cannot cancel once picked up.
-    Cancelled: cancel(sys, ['PICKUP_TIME_EXCEEDED']),
+    Cancelled: cancel(sys, ['PICKUP_TIME_EXCEEDED'], release, true),
   },
   Delivered: {
     // System too: the 24h auto-complete (ADR 0007).
@@ -272,12 +356,12 @@ export const EDGES: Partial<
         amount: c.rewardCredits,
       },
     })),
-    Incomplete: plain('ErrandIncomplete', ['requester']),
+    Incomplete: plain('ErrandIncomplete', ['requester'], update('MARKED_INCOMPLETE')),
   },
   'Transferring-Credit': {
-    Completed: plain('CreditTransferSucceeded', sys),
+    Completed: plain('CreditTransferSucceeded', sys, update('TRANSFER_SETTLED')),
     // Credit rejected the transfer (terminal on its side too): park in Incomplete for an admin to settle (dispute resolution).
-    Incomplete: plain('CreditTransferRejected', sys),
+    Incomplete: plain('CreditTransferRejected', sys, update('TRANSFER_FAILED')),
   },
   // Dispute resolution: an admin settles; credit's reply resolves or returns the errand.
   Incomplete: {
@@ -304,7 +388,7 @@ export const EDGES: Partial<
     },
   },
   'Settling-Credit': {
-    Resolved: plain('CreditSettlementSucceeded', sys),
+    Resolved: plain('CreditSettlementSucceeded', sys, update('DISPUTE_RESOLVED', resolved)),
     Incomplete: {
       type: CREDIT_SETTLEMENT_REJECTED,
       sets: [],

@@ -122,7 +122,7 @@ function errand(n: number, over: Record<string, unknown> = {}) {
   };
 }
 
-const STATUSES = ["Pending", "Open", "Accepted", "Picked Up", "Delivered", "Completed", "Cancelled", "Incomplete"];
+const STATUSES = ["Pending", "Open", "Accepted", "Picked Up", "Delivered", "Processing transfer", "Completed", "Cancelled", "Incomplete"];
 
 const ERRANDS = {
   demo: [

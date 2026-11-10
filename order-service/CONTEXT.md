@@ -4,17 +4,17 @@ Service-level view of the errand lifecycle. Shared terms (Requester, Courier, Er
 
 ## What the service does
 
-Owns every errand from creation to a terminal state: validates it, gets its supplier confirmed and its credits reserved, lets a courier claim and fulfil it, and expires or cancels it. It tells Credit Service when credits must be transferred or released and publishes accepted, delivered, and courier-cancelled lifecycle notices for Communication Service.
+Owns every errand from creation to a terminal state: validates it, gets its supplier confirmed and its credits reserved, lets a courier claim and fulfil it, and expires or cancels it. It tells Credit Service when credits must be transferred or released, publishes accepted, delivered, and courier-cancelled lifecycle notices for Communication Service, and tells the requester through Notification Service when the system cancels their errand or an edit is refused.
 
 ## Client-facing states
 
-`Pending` · `Open` · `Accepted` · `Picked Up` · `Delivered` · `Completed` · `Cancelled` · `Incomplete` · `Resolved`
+`Pending` · `Open` · `Updating` · `Accepted` · `Picked Up` · `Delivered` · `Processing transfer` · `Completed` · `Cancelled` · `Incomplete` · `Resolved`
 
-`Pending` is internally `Pending-Supplier` (supplier not yet confirmed) then `Reserving-Credit` (reservation outstanding). Callers only ever see `Pending`.
+`Pending` is internally `Pending-Supplier` (supplier not yet confirmed) then `Reserving-Credit` (reservation outstanding). Callers only ever see `Pending`. `Updating` is an `Open` errand whose edit is waiting on credit-service or supplier-service (below); couriers still see it but cannot accept it.
 
-In-flight credit statuses ([ADR 0006](../docs/adr/order-service/0006-in-flight-credit-statuses.md)): `Reserving-Credit` (the `Pending` sub-state above), `Transferring-Credit` (shown as `Completed`), `Adjusting-Credit` (shown as `Open`) and `Settling-Credit` (shown as `Incomplete`) are internal while credit-service confirms a step. Cancelling does not wait on credit.
+In-flight credit statuses ([ADR 0006](../docs/adr/order-service/0006-in-flight-credit-statuses.md)): `Reserving-Credit` (the `Pending` sub-state above), `Transferring-Credit` (shown as `Processing transfer`, because credit may still reject it and send the errand to `Incomplete`; `Completed` is only ever final), `Adjusting-Credit` (shown as `Updating`) and `Settling-Credit` (shown as `Incomplete`) are internal while credit-service confirms a step. Cancelling does not wait on credit.
 
-`Revalidating-Supplier` (shown as `Open`, [ADR 0013](../docs/adr/order-service/0013-editing-open-errands.md)) is internal while supplier-service re-checks a supplier or delivery building the requester edited. The errand keeps its current ones until the answer; a refusal or timeout keeps them for good.
+`Revalidating-Supplier` (shown as `Updating`, [ADR 0014](../docs/adr/order-service/0014-editing-open-errands.md)) is internal while supplier-service re-checks a supplier or delivery building the requester edited. The errand keeps its current ones until the answer; a refusal or timeout keeps them for good. `Editing` (also `Updating`) is the same re-check when the reward changed in the same edit: supplier-service answers first, then credit; either refusing puts everything back.
 
 Terminal: `Completed`, `Cancelled`, `Resolved`. `Incomplete` is not terminal: an admin settles it to `Resolved`. There is no `Expired` state: an `Open` errand whose deadline passes is `Cancelled` with reason `ERRAND_EXPIRED`. `Incomplete` is reached from `Delivered` when the requester rejects the delivery, or from `Transferring-Credit` when credit-service rejects the transfer. The full transition list is in [`ARCHITECTURE.md`](./ARCHITECTURE.md) §2.
 
@@ -22,9 +22,9 @@ Terminal: `Completed`, `Cancelled`, `Resolved`. `Incomplete` is not terminal: an
 
 - **Transition**: an accepted change of an errand's state. Each one appends exactly one errand event and updates the projection in the same transaction.
 - **Sweep**: a scheduled job that finds errands whose deadline has passed or that are stuck, and transitions them. Runs on one instance at a time.
-- **Hold window**: how long an errand may stay in `Pending-Supplier` (or an in-flight credit status) before it is cancelled or escalated; for `Revalidating-Supplier`, before the edit is dropped.
-- **Edit**: a requester's change to an `Open` errand's create fields (F2.1). One edit is one transition: in place, through credit (reward), or through supplier-service (supplier or building).
-- **Pending supplier**: the supplier and delivery building an edit asked for, held while `Revalidating-Supplier`.
+- **Hold window**: how long an errand may stay in `Pending-Supplier` (or an in-flight credit status) before it is cancelled or escalated; for `Revalidating-Supplier` and `Editing`, before the edit is dropped.
+- **Edit**: a requester's change to an `Open` errand's create fields (F2.1). One edit is one transition: in place, through credit (reward), through supplier-service (supplier or building), or through both, supplier first (`Editing`). If a service refuses, the whole edit is undone, local fields included, and the requester is told.
+- **Pending supplier**: the supplier and delivery building an edit asked for, held while `Revalidating-Supplier` or `Editing`.
 - **In-flight status**: an internal status held while credit-service confirms a step. A reply moves the errand on; an explicit rejection reverts it. A timeout never reverts it.
 - **Expiry deadline** (`expiresAt`): the time an `Open` errand lapses. The requester supplies a duration (15 minutes to 168 hours, default 60 minutes); `expiresAt` is the moment the errand becomes `Open` plus that duration, so time in `Pending` does not count ([ADR 0007](../docs/adr/order-service/0007-expiry-duration-autocomplete-and-supplier-validation.md); implemented 2026-10-11).
 - **Single-assignment**: at most one courier is ever assigned to an errand; a concurrent second accept loses.

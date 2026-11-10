@@ -117,10 +117,10 @@ describe('GET /v1/errands', () => {
     });
   });
 
-  it('shows Adjusting-Credit as Open', async () => {
-    await seed({ status: 'Adjusting-Credit' });
+  it('keeps an errand being edited on the courier list, shown as Updating', async () => {
+    for (const status of ['Adjusting-Credit', 'Revalidating-Supplier', 'Editing'] as const) await seed({ status });
     const { body } = await list();
-    expect(body.items.map((i: { status: string }) => i.status)).toEqual(['Open']);
+    expect(body.items.map((i: { status: string }) => i.status)).toEqual(['Updating', 'Updating', 'Updating']);
   });
 
   it('leaves out other statuses, expired, never-opened and own errands', async () => {
@@ -301,7 +301,7 @@ describe('GET /v1/errands/:id', () => {
     expect(body).toMatchObject({ requesterId: e.requesterId, courierId: courier });
   });
 
-  it('shows an Open errand to any caller without the party ids, Adjusting-Credit as Open', async () => {
+  it('shows an Open errand to any caller without the party ids, Adjusting-Credit as Updating', async () => {
     const open = await seed();
     const adjusting = await seed({ status: 'Adjusting-Credit' });
     const a = await detail(open.id, courier, [Role.Courier]);
@@ -309,7 +309,7 @@ describe('GET /v1/errands/:id', () => {
     expect(a.body).not.toHaveProperty('requesterId');
     expect(a.body).not.toHaveProperty('courierId');
     expect(a.body).not.toHaveProperty('idempotencyKey');
-    expect((await detail(adjusting.id, courier, [Role.Courier])).body.status).toBe('Open');
+    expect((await detail(adjusting.id, courier, [Role.Courier])).body.status).toBe('Updating');
   });
 
   it('hides an expired Open errand from non-parties but not from its requester', async () => {
@@ -326,9 +326,9 @@ describe('GET /v1/errands/:id', () => {
     expect((await detail(randomUUID(), courier)).res.status).toBe(404);
   });
 
-  it('maps Transferring-Credit to Completed', async () => {
+  it('maps Transferring-Credit to Processing transfer', async () => {
     const e = await seed({ status: 'Transferring-Credit', courierId: courier });
-    expect((await detail(e.id, courier, [Role.Courier])).body.status).toBe('Completed');
+    expect((await detail(e.id, courier, [Role.Courier])).body.status).toBe('Processing transfer');
   });
 });
 
@@ -463,7 +463,7 @@ describe('GET /v1/admin/users/:userId/errands', () => {
     expect(res.status).toBe(200);
     expect(ids(body)).toEqual([asCourier.id, asRequester.id]);
     expect(body.items[0]).toMatchObject({
-      status: 'Completed',
+      status: 'Processing transfer',
       internalStatus: 'Transferring-Credit',
       requesterId: asCourier.requesterId,
       courierId: target,

@@ -28,7 +28,6 @@ describe('resultToHttp', () => {
     ['EXPIRED', 409],
     ['EXPIRY_IN_PAST', 422],
     ['NOT_EDITABLE', 409],
-    ['ONE_PENDING_CHANGE', 422],
     ['COURIER_BUSY', 409],
     ['ROLE_BLOCKED', 403],
     ['IDEMPOTENCY_KEY_REUSED', 422],

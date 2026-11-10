@@ -42,6 +42,24 @@ export const PAYLOADS: Record<string, Joi.ObjectSchema> = {
       .uuid()
       .when('supplierOutcome', { is: 'TIMEOUT', then: Joi.forbidden(), otherwise: Joi.required() }),
   }),
+  // Reward and supplier together: the new reward waits in the payload until credit agrees.
+  EditRequested: Joi.object({ newAmount: amount.required(), expiryDurationMinutes }),
+  // Supplier agreed. `apply` holds the supplier columns to write once credit agrees (nested, so rebuild ignores it).
+  SupplierConfirmed: Joi.object({
+    supplierEventId: uuid,
+    supplier: Joi.object().required(),
+    newAmount: amount.required(),
+    apply: Joi.object().required(),
+  }),
+  EditFailed: Joi.object({
+    step: Joi.string().valid('supplier').required(),
+    supplierOutcome: Joi.string()
+      .valid('NOT_FOUND', 'INACTIVE', 'BUILDING_NOT_FOUND', 'VENUE_NOT_FOUND', 'TIMEOUT')
+      .required(),
+    supplierEventId: Joi.string()
+      .uuid()
+      .when('supplierOutcome', { is: 'TIMEOUT', then: Joi.forbidden(), otherwise: Joi.required() }),
+  }),
   ErrandAccepted: none,
   // Edited columns ride in `set`; only the new duration is payload.
   ErrandEdited: Joi.object({ expiryDurationMinutes }),

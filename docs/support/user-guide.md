@@ -48,7 +48,7 @@ A normal errand goes through these stages:
 4. **Collect:** the courier collects the item and marks the errand as Picked Up.
 5. **Deliver:** the courier delivers it and marks the errand as Delivered.
 6. **Confirm:** the requester confirms, or FoC confirms automatically after 24 hours.
-7. **Pay:** the held credits go to the courier, and the errand is Completed.
+7. **Pay:** the errand shows Processing transfer while the held credits go to the courier, then Completed.
 
 ## How do I use FoC as a requester?
 
@@ -77,7 +77,7 @@ These are FoC's time limits:
 
 ## Why does FoC sometimes take a moment to update?
 
-Some steps finish just after you act, so they can take a moment to show. For example, a new errand shows as Pending until its checks finish, and a Completed errand may appear just before the credits reach the courier.
+Some steps finish just after you act, so they can take a moment to show. For example, a new errand shows as Pending until its checks finish, and a confirmed errand shows Processing transfer until the credits reach the courier.
 
 A brief delay does not lose your request. Refresh the page after a moment if something looks out of date.
 

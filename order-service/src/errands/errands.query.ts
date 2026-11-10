@@ -5,7 +5,7 @@ import { DB } from '../db/db.module.js';
 import { disputeReports, errandEvents, errands } from '../db/schema.js';
 import { CREDIT_SETTLEMENT_REJECTED, CREDIT_TRANSFER_REJECTED, SETTLEMENT_REQUESTED } from '../lifecycle/edges.js';
 import type { Db } from '../lifecycle/transition.js';
-import { INTERNAL_STATUSES_OF, toApiStatus } from './api-status.js';
+import { INTERNAL_STATUSES_OF, OFFERED, toApiStatus } from './api-status.js';
 import type { ListErrandsQuery, ListSort, MineErrandsQuery, PageQuery } from './errands.dto.js';
 
 const ORDER: Record<ListSort, () => ReturnType<typeof asc>[]> = {
@@ -96,7 +96,7 @@ export class ErrandsQueryService {
       .from(errands)
       .where(
         and(
-          inArray(errands.status, [...INTERNAL_STATUSES_OF.Open]),
+          inArray(errands.status, [...OFFERED]),
           gt(errands.expiresAt, sql`now()`),
           ne(errands.requesterId, callerId),
           q.pickupBuilding ? sameText(errands.pickupLocation, q.pickupBuilding) : undefined,
@@ -277,10 +277,30 @@ export class ErrandsQueryService {
     if (!row) return null;
     const party = callerId === row.requesterId || callerId === row.courierId;
     const open =
-      (INTERNAL_STATUSES_OF.Open as readonly string[]).includes(row.status) &&
+      (OFFERED as readonly string[]).includes(row.status) &&
       row.expiresAt !== null &&
       row.expiresAt > new Date();
     if (!party && !open) return null;
-    return { ...toView(row, callerId), ...(party ? (await this.reportFlags(callerId, [row])).get(row.id) : {}) };
+    return {
+      ...toView(row, callerId),
+      ...(party ? (await this.reportFlags(callerId, [row])).get(row.id) : {}),
+      ...(callerId === row.requesterId ? { lastEditResult: await this.lastEditResult(id) } : {}),
+    };
+  }
+
+  // Which step of the last edit was refused, read from the latest event so it clears itself
+  // on the next one (a new edit, an accept, a cancel). Null when the last event is anything else.
+  private async lastEditResult(id: string): Promise<{ step: 'supplier' | 'credit'; outcome: string } | null> {
+    const [last] = await this.db
+      .select({ type: errandEvents.type, payload: errandEvents.payload })
+      .from(errandEvents)
+      .where(eq(errandEvents.errandId, id))
+      .orderBy(desc(errandEvents.sequenceNumber))
+      .limit(1);
+    const p = (last?.payload ?? {}) as { supplierOutcome?: string; reason?: string };
+    if (last?.type === 'EditFailed' || last?.type === 'SupplierRevalidationFailed') {
+      return { step: 'supplier', outcome: p.supplierOutcome! };
+    }
+    return last?.type === 'CreditAdjustmentFailed' ? { step: 'credit', outcome: p.reason! } : null;
   }
 }

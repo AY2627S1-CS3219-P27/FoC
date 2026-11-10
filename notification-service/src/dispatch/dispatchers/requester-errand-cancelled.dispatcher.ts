@@ -15,6 +15,8 @@ const BODY: Record<SystemCancellationReason, string> = {
     'That supplier is no longer available. Resubmit with another one.',
   BUILDING_UNAVAILABLE:
     'That building is no longer available. Resubmit with another one.',
+  VENUE_UNAVAILABLE:
+    'That venue is no longer available. Resubmit with another one.',
   INSUFFICIENT_CREDITS:
     "You didn't have enough credits. Top up, then resubmit your errand.",
   MISSING_BALANCE:

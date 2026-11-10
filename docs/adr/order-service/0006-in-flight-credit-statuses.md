@@ -17,7 +17,7 @@ into a visible one, so users never see a "pending" state appear.
 | Credit activity | In-flight status | Success | Explicit rejection | Shown as |
 | --- | --- | --- | --- | --- |
 | Reserve | `Reserving-Credit` (renamed from `Pending-Credit`) | `Open` | `Cancelled`, with the credit reason (nothing earlier to revert to) | `Pending` |
-| Transfer (`Delivered` → `Completed`) | `Transferring-Credit` | `Completed` | `Incomplete` (awaiting dispute handling, not built) | `Completed` |
+| Transfer (`Delivered` → `Completed`) | `Transferring-Credit` | `Completed` | `Incomplete` (awaiting dispute handling, not built) | `Processing transfer` (was `Completed`; a rejection made it go backwards) |
 | Adjust (edit an `Open` errand, F2) | `Adjusting-Credit` | `Open` with the new `rewardCredits` | `Open`, amount unchanged | `Open` |
 
 **Release is fire-and-forget.** Every cancellation (requester cancel, expiry,

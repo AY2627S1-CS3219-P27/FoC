@@ -35,6 +35,4 @@ Copying user data would duplicate personal data, and every rename would need an 
 
 ## Not built yet
 
-- The F10 check-and-lock endpoint (#355–#368), which user-service #121–#147 wait on.
 - The supplier usage endpoint that supplier-service needs for hard delete (F5.3.1, #211).
-- Admin resolution of `Incomplete` errands. See ARCHITECTURE §6.

@@ -11,8 +11,10 @@ describe('toApiStatus', () => {
     ['Pending-Supplier', 'Pending'],
     ['Reserving-Credit', 'Pending'],
     ['Open', 'Open'],
-    ['Adjusting-Credit', 'Open'],
-    ['Transferring-Credit', 'Completed'],
+    ['Adjusting-Credit', 'Updating'],
+    ['Revalidating-Supplier', 'Updating'],
+    ['Editing', 'Updating'],
+    ['Transferring-Credit', 'Processing transfer'],
     ['Completed', 'Completed'],
     ['Accepted', 'Accepted'],
     ['Picked Up', 'Picked Up'],
@@ -46,5 +48,14 @@ describe('isApiStatus', () => {
     for (const s of ['Pending-Supplier', 'Reserving-Credit', 'Adjusting-Credit', 'Transferring-Credit', 'Settling-Credit', 'open', '', 42, null]) {
       expect(isApiStatus(s)).toBe(false);
     }
+  });
+
+  it('accepts Processing transfer', () => {
+    expect(isApiStatus('Processing transfer')).toBe(true);
+  });
+
+  it('does not let a Completed filter match the in-flight transfer', () => {
+    expect(INTERNAL_STATUSES_OF.Completed).toEqual(['Completed']);
+    expect(INTERNAL_STATUSES_OF['Processing transfer']).toEqual(['Transferring-Credit']);
   });
 });

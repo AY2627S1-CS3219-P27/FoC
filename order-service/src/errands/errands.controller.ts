@@ -199,10 +199,6 @@ export class ErrandsController {
     const expiry = expiryDurationMinutes === undefined ? {} : { expiryDurationMinutes };
     let edge: Pick<TransitionInput, 'to' | 'payload' | 'set'>;
     if (supplierId !== undefined || deliveryBuildingId !== undefined) {
-      // One in-flight status at a time.
-      if (rewardCredits !== undefined) {
-        return resultToHttp({ ok: false, reason: 'ONE_PENDING_CHANGE' });
-      }
       // The half not being changed is re-checked as it stands.
       const current = await this.lifecycle.replyErrandOf(id);
       if (!current) return resultToHttp({ ok: false, reason: 'NOT_FOUND' });
@@ -215,9 +211,10 @@ export class ErrandsController {
       ) {
         return resultToHttp({ ok: false, reason: 'INVALID_FIELDS' });
       }
+      // With a new reward too, supplier-service answers first, then credit (Editing).
       edge = {
-        to: 'Revalidating-Supplier',
-        payload: expiry,
+        to: rewardCredits === undefined ? 'Revalidating-Supplier' : 'Editing',
+        payload: rewardCredits === undefined ? expiry : { ...expiry, newAmount: rewardCredits },
         set: {
           ...set,
           pendingSupplierId: supplierId ?? current.supplierId,
@@ -236,11 +233,11 @@ export class ErrandsController {
       actor: user(req.user.sub),
       idempotencyKey,
     });
-    // F2.1.2: past Open (Adjusting-Credit still reads as Open, so that stays a plain retry).
+    // F2.1.2: past Open. An edit already in flight (Updating) stays a plain retry.
     if (
       !result.ok &&
       result.reason === 'STATE_MISMATCH' &&
-      toApiStatus(result.currentStatus) !== 'Open'
+      !['Open', 'Updating'].includes(toApiStatus(result.currentStatus))
     ) {
       return resultToHttp({ ok: false, reason: 'NOT_EDITABLE' });
     }

@@ -15,6 +15,8 @@ export interface NoticeContext {
   courierId: string | null;
   actorUserId: string | null;
   rewardCredits: number;
+  settlementAmount: number | null; // courier's share, set once an admin settles
+  settlementNote: string | null;
   payload: Record<string, unknown>;
   // Events of this edge's type on the errand, this one included (credit.settlement.v1).
   attempt: number;

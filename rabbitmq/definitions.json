@@ -762,6 +762,22 @@
     },
     {
       "arguments": {},
+      "destination": "foc.pubsub",
+      "destination_type": "exchange",
+      "routing_key": "order.requester-edit-failed.v1",
+      "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
+      "destination": "foc.pubsub",
+      "destination_type": "exchange",
+      "routing_key": "order.errand-update.v1",
+      "source": "foc.events",
+      "vhost": "/foc"
+    },
+    {
+      "arguments": {},
       "destination": "credit-service.events",
       "destination_type": "queue",
       "routing_key": "user.registered.v1",

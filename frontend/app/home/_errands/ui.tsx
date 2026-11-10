@@ -6,9 +6,11 @@ export { Field, inputClass } from "@/components/ui/field";
 const STATUS_TONES: Record<ErrandStatus, React.ComponentProps<typeof Pill>["tone"]> = {
   Pending: "neutral",
   Open: "orange",
+  Updating: "orange",
   Accepted: "blue",
   "Picked Up": "blue",
   Delivered: "blue",
+  "Processing transfer": "blue",
   Completed: "success",
   Cancelled: "danger",
   Incomplete: "danger",

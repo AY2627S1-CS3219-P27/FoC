@@ -32,6 +32,9 @@ export type ErrandDeliveredEvent = EventOf<'order.errand-delivered.v1'>;
 export type CourierCancelledEvent = EventOf<'order.courier-cancelled.v1'>;
 export type RequesterErrandCancelledEvent =
   EventOf<'order.requester-errand-cancelled.v1'>;
+export type RequesterEditFailedEvent =
+  EventOf<'order.requester-edit-failed.v1'>;
+export type ErrandUpdateEvent = EventOf<'order.errand-update.v1'>;
 export type ErrandCompletedEvent = EventOf<'order.errand-completed.v1'>;
 export type ErrandCancelledEvent = EventOf<'order.errand-cancelled.v1'>;
 export type CreditTransferSucceededEvent =

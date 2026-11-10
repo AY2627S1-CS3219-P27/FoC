@@ -47,7 +47,7 @@ What to do: act within 24 hours, because after that FoC confirms the delivery au
 
 Cause: the requester has not confirmed yet, or they have disputed the delivery.
 
-What to do: check the errand's status. If it is Delivered, FoC pays you automatically within 24 hours if the requester does nothing. If it is Incomplete, an admin will decide; you can file a report. If it is Completed but your balance has not changed, wait a moment and refresh. If it still has not changed, contact an admin.
+What to do: check the errand's status. If it is Delivered, FoC pays you automatically within 24 hours if the requester does nothing. If it is Incomplete, an admin will decide; you can file a report. If it is Processing transfer, the credits are on their way; wait a moment and refresh. If it is Completed but your balance has not changed, refresh. If it still has not changed, contact an admin.
 
 ## I cannot accept an errand. What is wrong?
 

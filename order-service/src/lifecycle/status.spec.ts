@@ -18,10 +18,10 @@ describe('status transitions', () => {
     }
   }
 
-  // 24 edges (ADR 0006, dispute resolution, F2 edit); the Adjusting-Credit and
+  // 27 edges (ADR 0006, dispute resolution, F2 edit, chained edit); the Adjusting-Credit and
   // Revalidating-Supplier -> Open exits each share one pair.
-  it('has exactly 22 distinct status pairs', () => {
-    expect(Object.values(ALLOWED).flat()).toHaveLength(22);
+  it('has exactly 25 distinct status pairs', () => {
+    expect(Object.values(ALLOWED).flat()).toHaveLength(25);
   });
 });
 
@@ -81,6 +81,8 @@ describe('EDGES', () => {
       courierId: null,
       actorUserId: '22222222-2222-4222-8222-222222222222',
       rewardCredits: 5,
+      settlementAmount: null,
+      settlementNote: null,
       payload: {
         pendingSupplierId: '33333333-3333-4333-8333-333333333333',
         pendingDeliveryBuildingId: '44444444-4444-4444-8444-444444444444',
@@ -102,9 +104,9 @@ describe('EDGES', () => {
     expect(again?.eventId).not.toBe(notice?.eventId);
   });
 
-  it('has 24 edges; only the Adjusting-Credit and Revalidating-Supplier -> Open pairs have two', () => {
+  it('has 27 edges; only the Adjusting-Credit and Revalidating-Supplier -> Open pairs have two', () => {
     const edges = Object.values(EDGES).flatMap((m) => Object.values(m!)).flat();
-    expect(edges).toHaveLength(24);
+    expect(edges).toHaveLength(27);
     for (const [from, tos] of Object.entries(EDGES)) {
       for (const [to, e] of Object.entries(tos!)) {
         expect(Array.isArray(e)).toBe(to === 'Open' && ['Adjusting-Credit', 'Revalidating-Supplier'].includes(from));
@@ -148,6 +150,8 @@ describe('EDGES', () => {
       courierId: '33333333-3333-4333-8333-333333333333',
       actorUserId: '44444444-4444-4444-8444-444444444444',
       rewardCredits: 5,
+      settlementAmount: null,
+      settlementNote: null,
       attempt: 1,
       payload: {},
       attempt: 1,
@@ -190,6 +194,8 @@ describe('EDGES', () => {
       courierId: null,
       actorUserId: null,
       rewardCredits: 5,
+      settlementAmount: null,
+      settlementNote: null,
       attempt: 1,
       payload: { cancellationReason },
     });
@@ -209,5 +215,46 @@ describe('EDGES', () => {
     ]);
     // The requester's own cancel: release only.
     expect(keys('Open', 'REQUESTER_CANCELLED')).toEqual(['order.errand-cancelled.v1']);
+  });
+});
+
+describe('errand-update notices', () => {
+  const ctx = (settlementAmount: number | null, settlementNote: string | null) => ({
+    errandId: '11111111-1111-4111-8111-111111111111',
+    requesterId: '22222222-2222-4222-8222-222222222222',
+    courierId: '33333333-3333-4333-8333-333333333333',
+    actorUserId: null,
+    rewardCredits: 10,
+    settlementAmount,
+    settlementNote,
+    payload: {},
+    attempt: 1,
+    sequenceNumber: 5,
+  });
+  const kind = (from: Status, to: Status, type?: string) =>
+    (findEdge(from, to, type)?.notice?.(ctx(4, 'n')) as { payload: { kind: string } }).payload.kind;
+
+  it('notifies on pickup, system pickup-cancel, incomplete, transfer outcome and resolution', () => {
+    expect(kind('Accepted', 'Picked Up')).toBe('PICKED_UP');
+    expect(kind('Delivered', 'Incomplete')).toBe('MARKED_INCOMPLETE');
+    expect(kind('Transferring-Credit', 'Completed')).toBe('TRANSFER_SETTLED');
+    expect(kind('Transferring-Credit', 'Incomplete')).toBe('TRANSFER_FAILED');
+    expect(kind('Settling-Credit', 'Resolved')).toBe('DISPUTE_RESOLVED');
+    const cancel = [findEdge('Picked Up', 'Cancelled')?.notice?.({ ...ctx(null, null), payload: { cancellationReason: 'PICKUP_TIME_EXCEEDED' } })].flat();
+    expect(cancel.map((n) => (n?.payload as { kind?: string }).kind)).toContain('CANCELLED');
+  });
+
+  it('puts the admin split and note on the resolution', () => {
+    const n = findEdge('Settling-Credit', 'Resolved')?.notice?.(ctx(4, 'fair')) as { payload: object };
+    expect(n.payload).toMatchObject({ courierAmount: 4, requesterAmount: 6, note: 'fair' });
+  });
+
+  it('skips the update when the errand has no courier (the schema requires its UUID)', () => {
+    const none = { ...ctx(null, null), courierId: null };
+    expect(findEdge('Accepted', 'Picked Up')?.notice?.(none)).toBeUndefined();
+    // A composed cancel keeps its other notices and drops only the courier's update.
+    const cancel = [findEdge('Picked Up', 'Cancelled')?.notice?.({ ...none, payload: { cancellationReason: 'PICKUP_TIME_EXCEEDED' } })].flat();
+    expect(cancel.map((n) => (n?.payload as { kind?: string }).kind)).not.toContain('CANCELLED');
+    expect(cancel).toHaveLength(2); // the release to credit and the requester's own notice
   });
 });

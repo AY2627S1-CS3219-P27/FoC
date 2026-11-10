@@ -27,4 +27,4 @@ Reusing the validation round trip adds no new event pair and no synchronous call
 
 ## Amendment
 
-[ADR 0013](./0013-editing-open-errands.md) lets a requester change the delivery building of an `Open` errand; supplier-service re-checks it before the snapshot is replaced.
+[ADR 0014](./0014-editing-open-errands.md) lets a requester change the delivery building of an `Open` errand; supplier-service re-checks it before the snapshot is replaced.

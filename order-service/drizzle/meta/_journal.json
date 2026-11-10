@@ -155,6 +155,13 @@
       "when": 1794216538000,
       "tag": "0021_supplier_retry_round",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1794316247147,
+      "tag": "0022_errand_editing_status",
+      "breakpoints": true
     }
   ]
 }
