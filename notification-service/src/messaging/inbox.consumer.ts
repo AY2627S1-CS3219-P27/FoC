@@ -40,7 +40,7 @@ interface ConsumerState {
 /**
  * Owns the RabbitMQ connection lifecycle for the notification inbox.
  *
- * The primary queue and its `#` binding are root infrastructure. This service
+ * The primary queue and its `order.#` binding are root infrastructure. This service
  * owns the retry chain on the shared headers exchange, the return binding that
  * replays retries onto its own queue, and its dead-letter queue. Message
  * handling lives in `inbox-event-handler.ts`; this class only installs the

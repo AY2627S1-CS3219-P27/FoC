@@ -4,7 +4,7 @@ import type { Channel } from 'amqplib';
  * Broker names owned by the notification inbox.
  *
  * The topic exchange is shared infrastructure: root `rabbitmq/definitions.json`
- * owns the durable primary queue and its `#` binding to `foc.pubsub`. The
+ * owns the durable primary queue and its `order.#` binding to `foc.pubsub`. The
  * service owns only its retry chain, return binding, and dead-letter queue,
  * mirroring the Communication Service contract (ADR 0002).
  */

@@ -804,7 +804,7 @@
       "arguments": {},
       "destination": "notification-service.inbox",
       "destination_type": "queue",
-      "routing_key": "#",
+      "routing_key": "order.#",
       "source": "foc.pubsub",
       "vhost": "/foc"
     }

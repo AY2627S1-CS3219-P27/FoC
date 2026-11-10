@@ -199,8 +199,8 @@ async function handleInvalidContract(
   failure: ContractFailure,
 ): Promise<void> {
   if (failure.code === 'UNSUPPORTED_EVENT_TYPE') {
-    // Broad `#` subscriptions must not dead-letter contracts they do not
-    // implement.
+    // The `order.#` filter admits contracts this service does not implement
+    // (and messages queued before a filter change); do not dead-letter them.
     deps.logger.debug(`Skipped unregistered event ${prepared.routingKey}`);
     ack(message, consumerChannel);
     return;
