@@ -110,13 +110,13 @@ A refusal or "can't find it" is also a 200, with `answered: false` and no source
 | 400 `VALIDATION_FAILED` | Bad question |
 | 401 `UNAUTHENTICATED` | No valid login |
 | 429 `RATE_LIMITED`, `retryAfterSeconds` and a `Retry-After` header | Over the limit |
-| 503 `DEPENDENCY_UNAVAILABLE`, `retryable: true` | OpenRouter or the database is down |
+| 503 `DEPENDENCY_UNAVAILABLE`, `retryable: true` | OpenRouter or the database is down, or the index is empty |
 
 How a question is answered:
 
 1. The user's limit is checked and a `chat_log` row written, before any paid call.
 2. The question is turned into numbers with the embedding model.
-3. The 4 nearest sections are found. Any below `RAG_RELEVANCE_CUTOFF` are dropped.
+3. The 4 nearest sections are found. If there are none at all, the index is empty, so the answer is a 503 rather than a refusal. Any below `RAG_RELEVANCE_CUTOFF` are dropped.
 4. If none are left, the bot says it can't find the answer, **without calling the chat model**.
 5. Otherwise the chat model gets fixed rules, the sections and the question, and answers only from those sections.
 6. The reply's `SOURCES` line picks which sections to show. The titles come from our database, so a source can't be invented.
@@ -151,7 +151,7 @@ Each user can ask `RAG_RATE_LIMIT_PER_MINUTE` questions (default 10) in any roll
 | `answered` | The model answered |
 | `no_match` | Nothing was relevant enough, so the model wasn't called |
 | `refused` | The model declined, under its rules |
-| `error` | OpenRouter failed; the user got a 503 |
+| `error` | OpenRouter failed or the index was empty; the user got a 503 |
 
 To find what the documents couldn't answer:
 
@@ -177,7 +177,7 @@ The bot answers from an index of `docs/support/`, not from the files directly. A
 - **Restart the service.** On startup it compares the documents with the index and re-indexes if they differ. Checking costs nothing; re-indexing every section costs a tiny fraction of a cent.
 - **Re-index without a restart:** `docker compose exec rag-service npm run index-docs`
 
-Until then the bot keeps answering from the old version. If re-indexing fails, for example because OpenRouter is down or a document breaks the format rules, the old index stays in use. Each document needs `title` and `service` in its front matter, and its `##` headings must be unique.
+Until then the bot keeps answering from the old version. If re-indexing fails, for example because OpenRouter is down or a document breaks the format rules, the old index stays in use. A failed startup re-index is retried, with the wait growing from 15 seconds to 2 minutes, until it works. Each document needs `title` and `service` in its front matter, and its `##` headings must be unique.
 
 ## 8. Evaluation
 

@@ -174,10 +174,10 @@ describe('answering (real PostgreSQL with pgvector)', () => {
       expect(row.sections[0].score).toBeCloseTo(1);
     });
 
-    it('makes no chat call on an empty index', async () => {
-      await expect(assistant.ask(USER, 'how?')).resolves.toMatchObject({
-        answered: false,
-      });
+    it('answers 503 with no chat call on an empty index', async () => {
+      await expect(assistant.ask(USER, 'how?')).rejects.toThrow(
+        /temporarily unavailable/,
+      );
       expect(complete).not.toHaveBeenCalled();
     });
   });

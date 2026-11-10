@@ -115,6 +115,12 @@ export class AssistantService {
     result.searchMs = Date.now() - started;
     result.sections = nearest.map(({ id, score }) => ({ id, score }));
 
+    // No sections at all means the index is missing, not an off-topic question.
+    if (nearest.length === 0) {
+      this.logger.warn('The search index is empty');
+      throw unavailable();
+    }
+
     const cutoff = this.config.get('RELEVANCE_CUTOFF', { infer: true });
     const sections = nearest.filter(({ score }) => score >= cutoff);
 
