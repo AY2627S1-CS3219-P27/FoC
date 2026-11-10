@@ -157,7 +157,9 @@ describe('OtpService', () => {
 
       // Silently: no Redis record, no broker emit — the caller cannot tell
       // the account exists from any observable side effect.
-      expect(usersService.existsByEmail).toHaveBeenCalledWith('eve@example.com');
+      expect(usersService.existsByEmail).toHaveBeenCalledWith(
+        'eve@example.com',
+      );
       expect(redis.eval).not.toHaveBeenCalled();
       expect(emailClient.emit).not.toHaveBeenCalled();
     });
@@ -202,8 +204,9 @@ describe('OtpService', () => {
           'otp:deadbeef',
           'otp:count:eve@example.com',
           'regtoken:deadbeef',
+          'otp:attempts:eve@example.com',
         ],
-        arguments: [expect.any(String), '600', 'eve@example.com'],
+        arguments: [expect.any(String), '600', 'eve@example.com', '5', '600'],
       });
 
       // The validity reported back matches the TTL stamped inside the script,
@@ -241,6 +244,28 @@ describe('OtpService', () => {
     it('never deletes or extends the OTP record', () => {
       expect(VALIDATE_OTP_SCRIPT).not.toContain('"DEL"');
       expect(VALIDATE_OTP_SCRIPT).not.toContain('"EXPIRE", KEYS[1]');
+    });
+
+    it('counts failed guesses against the issued OTP and revokes it at the limit (F1.7, F1.7.1)', () => {
+      // One hash field per generation: a wrong guess cannot be tied to a
+      // record (its key includes the guessed OTP), so attempts are counted
+      // against the generation currently issued to the email.
+      expect(VALIDATE_OTP_SCRIPT).toContain(
+        'redis.call("HINCRBY", KEYS[4], counter, 1)',
+      );
+      expect(VALIDATE_OTP_SCRIPT).toContain(
+        'if attempts >= tonumber(ARGV[4]) then',
+      );
+      // Revoking bumps the generation: the issued record is stamped with the
+      // old generation, so it can never match again.
+      expect(VALIDATE_OTP_SCRIPT).toContain('redis.call("INCR", KEYS[2])');
+    });
+
+    it('does not count attempts when no OTP is currently issued', () => {
+      // Random emails must not accrue state; only a live generation is counted.
+      expect(VALIDATE_OTP_SCRIPT.indexOf('if not counter then')).toBeLessThan(
+        VALIDATE_OTP_SCRIPT.indexOf('HINCRBY'),
+      );
     });
 
     it('does not touch the email broker', async () => {
