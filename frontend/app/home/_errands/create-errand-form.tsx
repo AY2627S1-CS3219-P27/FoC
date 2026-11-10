@@ -129,6 +129,14 @@ export function CreateErrandForm({
       })),
     [suppliers],
   );
+  const venueOptions = useMemo<ComboboxOption<string>[]>(
+    () =>
+      venueList.map((v) => ({
+        value: v.id,
+        label: [v.code, v.name, `Level ${v.floor}`].filter(Boolean).join(" · "),
+      })),
+    [venueList],
+  );
   const rewardAmount = parseCreditAmount(rewardCredits);
   const canSubmit =
     !pending &&
@@ -288,20 +296,12 @@ export function CreateErrandForm({
 
         {building && building.venueCount > 0 && (
           <Field label="Venue">
-            <select
+            <OptionCombobox
+              options={venueOptions}
               value={location.kind === "venue" ? location.id : ""}
-              onChange={(e) =>
-                setLocation(e.target.value ? { kind: "venue", id: e.target.value } : { kind: "building" })
-              }
-              className={`w-full ${inputClass}`}
-            >
-              <option value="">No venue (describe below)</option>
-              {venueList.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {[v.code, v.name, `Level ${v.floor}`].filter(Boolean).join(" · ")}
-                </option>
-              ))}
-            </select>
+              onValueChange={(id) => setLocation(id ? { kind: "venue", id } : { kind: "building" })}
+              placeholder="No venue (describe below)"
+            />
             {pinBuilding && (
               <Button type="button" intent="tinted" size="md" block onClick={chooseOnMap} className="mt-2">
                 <PinIcon size={16} />
