@@ -28,6 +28,29 @@ resource "aws_subnet" "public" {
   tags = { Name = "foc-public" }
 }
 
+# The server's subnet: no public addresses, internet only outbound through the NAT instance.
+resource "aws_subnet" "app" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.1.0/24"
+  availability_zone = local.az_a
+
+  tags = { Name = "foc-app" }
+}
+
+resource "aws_route_table" "app" {
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block           = "0.0.0.0/0"
+    network_interface_id = aws_instance.nat.primary_network_interface_id
+  }
+}
+
+resource "aws_route_table_association" "app" {
+  subnet_id      = aws_subnet.app.id
+  route_table_id = aws_route_table.app.id
+}
+
 # RDS requires subnets in two zones. They have no internet route, which keeps the database private.
 resource "aws_subnet" "private_a" {
   vpc_id            = aws_vpc.main.id
