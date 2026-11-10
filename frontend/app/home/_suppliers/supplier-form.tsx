@@ -26,7 +26,6 @@ interface Values {
   locationDescription: string;
   latitude: string;
   longitude: string;
-  photoUrl: string;
 }
 
 interface SupplierDetail {
@@ -37,7 +36,6 @@ interface SupplierDetail {
   floor: string;
   locationDescription: string;
   coordinates: { latitude: number; longitude: number };
-  thumbnailUrl?: string | null;
 }
 
 const EMPTY: Values = {
@@ -49,7 +47,6 @@ const EMPTY: Values = {
   locationDescription: "",
   latitude: "",
   longitude: "",
-  photoUrl: "",
 };
 
 const TITLES: Record<SupplierFormMode, string> = {
@@ -68,7 +65,6 @@ const fromDetail = (d: SupplierDetail): Values => ({
   locationDescription: d.locationDescription,
   latitude: String(d.coordinates.latitude),
   longitude: String(d.coordinates.longitude),
-  photoUrl: d.thumbnailUrl ?? "",
 });
 
 function toBody(v: Values) {
@@ -80,7 +76,6 @@ function toBody(v: Values) {
     floor: v.floor,
     locationDescription: v.locationDescription,
     coordinates: { latitude: Number(v.latitude), longitude: Number(v.longitude) },
-    ...(v.photoUrl.trim() ? { photoUrl: v.photoUrl.trim() } : {}),
   };
 }
 
