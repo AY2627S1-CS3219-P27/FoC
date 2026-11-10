@@ -18,10 +18,10 @@ describe('status transitions', () => {
     }
   }
 
-  // 24 edges (ADR 0006, dispute resolution, F2 edit); the Adjusting-Credit and
+  // 27 edges (ADR 0006, dispute resolution, F2 edit, chained edit); the Adjusting-Credit and
   // Revalidating-Supplier -> Open exits each share one pair.
-  it('has exactly 22 distinct status pairs', () => {
-    expect(Object.values(ALLOWED).flat()).toHaveLength(22);
+  it('has exactly 25 distinct status pairs', () => {
+    expect(Object.values(ALLOWED).flat()).toHaveLength(25);
   });
 });
 
@@ -102,9 +102,9 @@ describe('EDGES', () => {
     expect(again?.eventId).not.toBe(notice?.eventId);
   });
 
-  it('has 24 edges; only the Adjusting-Credit and Revalidating-Supplier -> Open pairs have two', () => {
+  it('has 27 edges; only the Adjusting-Credit and Revalidating-Supplier -> Open pairs have two', () => {
     const edges = Object.values(EDGES).flatMap((m) => Object.values(m!)).flat();
-    expect(edges).toHaveLength(24);
+    expect(edges).toHaveLength(27);
     for (const [from, tos] of Object.entries(EDGES)) {
       for (const [to, e] of Object.entries(tos!)) {
         expect(Array.isArray(e)).toBe(to === 'Open' && ['Adjusting-Credit', 'Revalidating-Supplier'].includes(from));

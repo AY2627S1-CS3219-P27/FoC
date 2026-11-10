@@ -1,0 +1,1 @@
+ALTER TYPE "public"."errand_status" ADD VALUE 'Editing';

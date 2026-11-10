@@ -216,3 +216,102 @@ describe('rebuildProjection', () => {
     expect(await rebuildProjection(t.db, id)).not.toEqual(await liveRow(id));
   });
 });
+
+// ADR 0014 follow-up: a reward + supplier edit, and a refused edit putting the local fields back.
+describe('chained edit and rollback', () => {
+  const pending = () => ({ pendingSupplierId: randomUUID(), pendingDeliveryBuildingId: randomUUID() });
+  const confirmed = { supplierEventId: randomUUID(), supplier: {} };
+
+  async function open() {
+    const id = await create();
+    await step(id, 'Pending-Supplier', 'Reserving-Credit', supplierValidated());
+    await step(id, 'Reserving-Credit', 'Open', { payload: creditReserved() });
+    const before = await liveRow(id);
+    return { id, before };
+  }
+  const startEditing = (id: string, next = pending()) =>
+    step(id, 'Open', 'Editing', {
+      actor: user(requester),
+      set: { ...next, description: 'changed', deliveryDetail: 'Level 9' },
+      payload: { newAmount: 9, expiryDurationMinutes: 600 },
+    });
+  const restored = async (id: string, before: Awaited<ReturnType<typeof liveRow>>) => {
+    const live = await liveRow(id);
+    expect(live).toMatchObject({
+      status: 'Open',
+      description: before.description,
+      deliveryDetail: before.deliveryDetail,
+      collectionItems: before.collectionItems,
+      expiresAt: before.expiresAt,
+      rewardCredits: 5,
+      supplierId: before.supplierId,
+      pendingSupplierId: null,
+    });
+    expect(await rebuildProjection(t.db, id)).toEqual(live);
+  };
+
+  it('switches reward and supplier together once both agree', async () => {
+    const { id } = await open();
+    const next = pending();
+    await startEditing(id, next);
+    await step(id, 'Editing', 'Adjusting-Credit', {
+      type: 'SupplierConfirmed',
+      payload: { ...confirmed, newAmount: 9, apply: {} },
+    });
+    // Nothing of the supplier has moved while credit decides.
+    expect(await liveRow(id)).toMatchObject({ rewardCredits: 5, pendingSupplierId: null });
+    await step(id, 'Adjusting-Credit', 'Open', {
+      type: 'CreditAdjusted',
+      payload: creditIds(),
+      set: { rewardCredits: 9, supplierId: next.pendingSupplierId, deliveryBuildingId: next.pendingDeliveryBuildingId, pickupName: 'New Spot' },
+    });
+    const live = await liveRow(id);
+    expect(live).toMatchObject({ status: 'Open', rewardCredits: 9, supplierId: next.pendingSupplierId, pickupName: 'New Spot', description: 'changed' });
+    expect(await rebuildProjection(t.db, id)).toEqual(live);
+  });
+
+  it('puts the local fields back when the supplier step is refused', async () => {
+    const { id, before } = await open();
+    await startEditing(id);
+    expect(await liveRow(id)).toMatchObject({ description: 'changed', status: 'Editing' });
+    await step(id, 'Editing', 'Open', { type: 'EditFailed', payload: { step: 'supplier', supplierEventId: randomUUID(), supplierOutcome: 'INACTIVE' } });
+    await restored(id, before);
+  });
+
+  it('puts the local fields back when credit refuses after the supplier agreed', async () => {
+    const { id, before } = await open();
+    await startEditing(id);
+    await step(id, 'Editing', 'Adjusting-Credit', { type: 'SupplierConfirmed', payload: { ...confirmed, newAmount: 9, apply: {} } });
+    await step(id, 'Adjusting-Credit', 'Open', {
+      type: 'CreditAdjustmentFailed',
+      payload: { creditEventId: randomUUID(), reason: 'INSUFFICIENT_CREDITS', requestedAmount: 9 },
+    });
+    await restored(id, before);
+  });
+
+  it('does the same for a reward-only edit and a supplier-only edit', async () => {
+    const reward = await open();
+    await step(reward.id, 'Open', 'Adjusting-Credit', {
+      actor: user(requester),
+      set: { description: 'changed' },
+      payload: { newAmount: 9, expiryDurationMinutes: 600 },
+    });
+    await step(reward.id, 'Adjusting-Credit', 'Open', {
+      type: 'CreditAdjustmentFailed',
+      payload: { creditEventId: randomUUID(), reason: 'INSUFFICIENT_CREDITS', requestedAmount: 9 },
+    });
+    await restored(reward.id, reward.before);
+
+    const supplier = await open();
+    await step(supplier.id, 'Open', 'Revalidating-Supplier', {
+      actor: user(requester),
+      set: { ...pending(), description: 'changed' },
+      payload: { expiryDurationMinutes: 600 },
+    });
+    await step(supplier.id, 'Revalidating-Supplier', 'Open', {
+      type: 'SupplierRevalidationFailed',
+      payload: { supplierOutcome: 'TIMEOUT' },
+    });
+    await restored(supplier.id, supplier.before);
+  });
+});

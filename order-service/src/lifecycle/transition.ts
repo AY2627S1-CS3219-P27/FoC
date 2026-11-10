@@ -434,25 +434,51 @@ const countEvents = async (tx: Db, errandId: string, type: string) =>
       .where(and(eq(errandEvents.errandId, errandId), eq(errandEvents.type, type)))
   )[0].n;
 
+// The fields an edit can change in place, as they stand now (row locked). An edit that waits on another
+// service records them in its event, so a refusal can put them back (ADR 0014).
+async function localFieldsOf(tx: Db, errandId: string) {
+  const [r] = await tx
+    .select({
+      description: errands.description,
+      deliveryDetail: errands.deliveryDetail,
+      collectionItems: errands.collectionItems,
+      expiresAt: errands.expiresAt,
+    })
+    .from(errands)
+    .where(eq(errands.id, errandId))
+    .for('update');
+  return r && { ...r, expiresAt: r.expiresAt?.toISOString() ?? null };
+}
+
+// The `previous` of the edit still in flight: only an edit's request event carries one.
+async function restoredBy(tx: Db, errandId: string): Promise<TransitionInput['set']> {
+  const [r] = await tx
+    .select({ previous: sql<Record<string, unknown> | null>`${errandEvents.payload}->'previous'` })
+    .from(errandEvents)
+    .where(and(eq(errandEvents.errandId, errandId), sql`${errandEvents.payload}->'previous' IS NOT NULL`))
+    .orderBy(desc(errandEvents.sequenceNumber))
+    .limit(1);
+  if (!r?.previous) return undefined; // an edit that began before snapshots existed: nothing to restore
+  const { expiresAt, ...rest } = r.previous;
+  return { ...rest, expiresAt: expiresAt ? new Date(expiresAt as string) : null } as TransitionInput['set'];
+}
+
 async function apply(
   tx: Db,
-  i: TransitionInput,
+  given: TransitionInput,
   edge: Edge,
   actor: string | null,
 ): Promise<TransitionResult> {
+  // A refusal puts the local fields back; the restored values ride in `set`, so the event rebuilds the same row.
+  const i = edge.restores ? { ...given, set: { ...given.set, ...(await restoredBy(tx, given.errandId)) } } : given;
+  const previous = edge.snapshots ? await localFieldsOf(tx, i.errandId) : undefined;
   const row = await updateErrand(tx, i, edge, actor);
   if (row === 'COURIER_BUSY') return BUSY;
   if (!row) return explainNoRow(tx, i, edge, actor);
-  await appendEvent(
-    tx,
-    i,
-    edge,
-    actor,
-    row.seq,
-    edge.setsExpiry || expiryEditOf(i, edge) !== undefined
-      ? { expiresAt: row.row.expiresAt }
-      : {},
-  );
+  await appendEvent(tx, i, edge, actor, row.seq, {
+    ...((edge.setsExpiry || expiryEditOf(i, edge) !== undefined) && { expiresAt: row.row.expiresAt }),
+    ...(previous && { previous }),
+  });
   // Same transaction as the event: both commit or neither does (ADR 0008).
   // Payload includes the stored columns, so the builder sees e.g. cancellationReason.
   const notice = edge.notice?.({

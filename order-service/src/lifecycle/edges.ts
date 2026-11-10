@@ -31,7 +31,8 @@ export type Col =
   | 'supplierId'
   | 'deliveryBuildingId'
   | 'pendingSupplierId'
-  | 'pendingDeliveryBuildingId';
+  | 'pendingDeliveryBuildingId'
+  | 'expiresAt';
 
 // F2.1: create fields a requester may change on an Open errand without asking another service.
 export const EDITABLE: Col[] = ['description', 'deliveryDetail', 'collectionItems'];
@@ -74,6 +75,8 @@ export interface Edge {
   setsExpiry?: true; // expires_at = now + the duration in event 1 (ADR 0007)
   editsExpiry?: true; // payload expiryDurationMinutes: expires_at = opened-at + it, must be in the future
   notice?: NoticeBuilder; // outbox notice written in the transition's transaction (ADR 0008)
+  snapshots?: true; // event records `previous`: the local fields as they stood before this edit
+  restores?: true; // refused edit: local fields go back to the latest `previous` in the log
 }
 
 // Release notice for credit; payload is just the errand (agree changes with credit: a change is a v2).
@@ -141,6 +144,20 @@ const sys: Role[] = ['system'];
 // F2: requester edits on an Open errand; refused once it has expired.
 const editable = { optional: EDITABLE, editsExpiry: true, unexpiredOnly: true } as const;
 const PENDING: Col[] = ['pendingSupplierId', 'pendingDeliveryBuildingId'];
+// Supplier columns a chained edit applies once credit has agreed.
+const CONFIRMED: Col[] = [
+  'supplierId',
+  'deliveryBuildingId',
+  'supplierValidatedAt',
+  'pickupName',
+  'pickupLocation',
+  'pickupDescription',
+  'deliveryLocation',
+  'deliveryVenueId',
+  'deliveryVenue',
+  'deliveryLatitude',
+  'deliveryLongitude',
+];
 // Attempt 0 here; the resend sweep re-creates this id and counts on from it.
 const revalidation: NoticeBuilder = (c) => ({
   ...supplierRequest(
@@ -151,7 +168,7 @@ const revalidation: NoticeBuilder = (c) => ({
   eventId: supplierRevalidationId(c.errandId, c.sequenceNumber, 0),
 });
 
-// 24 edges in total
+// 27 edges in total
 export const EDGES: Partial<
   Record<Status, Partial<Record<Status, Edge | Edge[]>>>
 > = {
@@ -212,6 +229,7 @@ export const EDGES: Partial<
         },
       })),
       ...editable,
+      snapshots: true,
     },
     // F2.1: fields that need no other service change in place.
     Open: { ...plain('ErrandEdited', ['requester']), ...editable },
@@ -220,13 +238,38 @@ export const EDGES: Partial<
       ...plain('SupplierRevalidationRequested', ['requester'], revalidation),
       sets: PENDING,
       ...editable,
+      snapshots: true,
+    },
+    // Reward and supplier in one edit: supplier first, then credit (ADR 0014 follow-up).
+    Editing: {
+      ...plain('EditRequested', ['requester'], revalidation),
+      sets: PENDING,
+      ...editable,
+      snapshots: true,
     },
     Cancelled: cancel(['requester', 'system'], ['REQUESTER_CANCELLED', 'ERRAND_EXPIRED']),
   },
+  // Supplier confirmed: hold its answer in the event and ask credit. Nothing is applied until credit agrees.
+  Editing: {
+    'Adjusting-Credit': {
+      ...plain('SupplierConfirmed', sys, (c) => ({
+        key: 'credit.reservation-adjustment.v1',
+        payload: {
+          errandId: c.errandId,
+          oldAmount: c.rewardCredits,
+          newAmount: c.payload.newAmount,
+        },
+      })),
+      clears: PENDING,
+    },
+    // Supplier refused or did not answer: the old supplier stays and the local fields go back.
+    Open: { ...plain('EditFailed', sys), clears: PENDING, restores: true },
+  },
   'Adjusting-Credit': {
     Open: [
-      { type: 'CreditAdjusted', sets: ['rewardCredits'], clears: [], who: sys },
-      plain('CreditAdjustmentFailed', sys),
+      // After SupplierConfirmed the supplier columns land together with the reward.
+      { type: 'CreditAdjusted', sets: ['rewardCredits'], optional: CONFIRMED, clears: [], who: sys },
+      { ...plain('CreditAdjustmentFailed', sys), restores: true },
     ],
   },
   // Supplier-service's answer (or the hold sweep) settles the edit; a refusal keeps the old supplier.
@@ -248,7 +291,7 @@ export const EDGES: Partial<
         clears: PENDING,
         who: sys,
       },
-      { type: 'SupplierRevalidationFailed', sets: [], clears: PENDING, who: sys },
+      { type: 'SupplierRevalidationFailed', sets: [], clears: PENDING, who: sys, restores: true },
     ],
   },
   Accepted: {
