@@ -91,7 +91,7 @@ resource "aws_security_group" "app" {
 # The server has no public address; CloudFront's VPC origin connects from inside the VPC.
 resource "aws_vpc_security_group_ingress_rule" "app_frontend" {
   security_group_id = aws_security_group.app.id
-  description       = "Frontend, from CloudFront's VPC origin"
+  description       = "Frontend, from the CloudFront VPC origin"
   ip_protocol       = "tcp"
   from_port         = 3001
   to_port           = 3001
