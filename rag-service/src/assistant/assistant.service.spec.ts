@@ -83,13 +83,17 @@ describe('AssistantService', () => {
     expect(complete).not.toHaveBeenCalled();
   });
 
-  it('skips the chat model when the index is empty', async () => {
+  it('answers 503, not a refusal, when the index is empty', async () => {
     nearest.mockResolvedValue([]);
 
-    await expect(service.ask(USER, 'how?')).resolves.toMatchObject({
-      answered: false,
-    });
+    await expect(service.ask(USER, 'how?')).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
     expect(complete).not.toHaveBeenCalled();
+    expect(record).toHaveBeenCalledWith(
+      'row',
+      expect.objectContaining({ outcome: 'error' }),
+    );
   });
 
   it('sends only the sections above the cutoff', async () => {

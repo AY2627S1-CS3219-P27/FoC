@@ -21,6 +21,7 @@ describe('StartupIndexerService', () => {
     );
 
   beforeEach(() => {
+    vi.useFakeTimers();
     indexing = {
       isUpToDate: vi.fn().mockResolvedValue(false),
       reindex: vi.fn().mockResolvedValue(3),
@@ -33,6 +34,7 @@ describe('StartupIndexerService', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -67,6 +69,62 @@ describe('StartupIndexerService', () => {
 
     expect(indexing.reindex).not.toHaveBeenCalled();
     expect(errorLog).toHaveBeenCalled();
+  });
+
+  it('tries again after a failure, and stops once it works', async () => {
+    indexing.reindex.mockRejectedValueOnce(new Error('OpenRouter is down'));
+    const indexer = service();
+
+    await indexer.bringUpToDate();
+    expect(indexing.reindex).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(indexing.reindex).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('waits longer after each failure, up to the limit', async () => {
+    indexing.reindex.mockRejectedValue(new Error('OpenRouter is down'));
+    const indexer = service();
+    await indexer.bringUpToDate();
+
+    let attempts = 1;
+    for (const delayMs of [15_000, 30_000, 60_000, 120_000, 120_000]) {
+      await vi.advanceTimersByTimeAsync(delayMs - 1);
+      expect(indexing.reindex).toHaveBeenCalledTimes(attempts);
+      await vi.advanceTimersByTimeAsync(1);
+      attempts += 1;
+      expect(indexing.reindex).toHaveBeenCalledTimes(attempts);
+    }
+    indexer.onApplicationShutdown();
+  });
+
+  it('stops retrying when the service shuts down', async () => {
+    indexing.reindex.mockRejectedValue(new Error('OpenRouter is down'));
+    const indexer = service();
+    await indexer.bringUpToDate();
+
+    indexer.onApplicationShutdown();
+
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('does not schedule a retry if shutdown came during the attempt', async () => {
+    let fail!: (error: Error) => void;
+    indexing.reindex.mockReturnValue(
+      new Promise((_resolve, reject) => {
+        fail = reject;
+      }),
+    );
+    const indexer = service();
+    const attempt = indexer.bringUpToDate();
+    await vi.advanceTimersByTimeAsync(0);
+
+    indexer.onApplicationShutdown();
+    fail(new Error('OpenRouter is down'));
+    await attempt;
+
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('does nothing when switched off', () => {

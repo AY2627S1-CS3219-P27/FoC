@@ -72,7 +72,7 @@ The evaluation in `rag-service/eval/` measures the bot through the real API. On 
 | The bot makes things up | A relevance cutoff, answer-only-from-sections rules, and sources taken from our database rather than the model |
 | Prompt injection | The question is escaped and treated as data; the bot has no tools or user data |
 | Cost or abuse | Login required, a per-user rate limit written before any paid call, a question length limit, an answer length limit, and a spending limit on the key |
-| OpenRouter is down or slow | Timeouts and a retryable 503, never a wrong answer. A reply cut off at the token limit gets the same 503, never half an answer. Startup does not wait for it |
+| OpenRouter is down or slow | Timeouts and a retryable 503, never a wrong answer. A reply cut off at the token limit gets the same 503, never half an answer. Startup does not wait for it, and keeps retrying the index until it works |
 | A bad re-index | Embeddings are fetched before the transaction and the swap is all or nothing, so the old index stays in use |
 | Personal data | The user's id only, never email or token. Questions stay out of the logs and are deleted after 30 days |
 

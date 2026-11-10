@@ -1,19 +1,34 @@
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnApplicationBootstrap,
+  OnApplicationShutdown,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { EnvironmentVariables } from '../config/environment.schema.js';
 import { IndexingService } from './indexing.service.js';
+
+/** Doubles from the first delay; a failed attempt costs next to nothing. */
+const RETRY_FIRST_DELAY_MS = 15_000;
+const RETRY_MAX_DELAY_MS = 120_000;
 
 /**
  * Brings the index up to date when the service starts, so a fresh stack needs
  * no manual step and an edited document takes effect on the next restart.
  *
  * Unlike supplier-service's seed, which only reads a local file, this depends
- * on an outside company. So startup does not wait for it, and a failure is
- * logged and leaves any existing index answering.
+ * on an outside company. So startup does not wait for it. A failure leaves any
+ * existing index answering and is retried until it works, so the bot recovers
+ * from an outage without a restart.
  */
 @Injectable()
-export class StartupIndexerService implements OnApplicationBootstrap {
+export class StartupIndexerService
+  implements OnApplicationBootstrap, OnApplicationShutdown
+{
   private readonly logger = new Logger(StartupIndexerService.name);
+  private retryTimer?: NodeJS.Timeout;
+  private failedAttempts = 0;
+  private stopped = false;
 
   constructor(
     private readonly config: ConfigService<EnvironmentVariables, true>,
@@ -30,6 +45,11 @@ export class StartupIndexerService implements OnApplicationBootstrap {
     void this.bringUpToDate();
   }
 
+  onApplicationShutdown(): void {
+    this.stopped = true;
+    clearTimeout(this.retryTimer);
+  }
+
   /** Never rejects. */
   async bringUpToDate(): Promise<void> {
     try {
@@ -40,11 +60,25 @@ export class StartupIndexerService implements OnApplicationBootstrap {
       this.logger.log('The help documents changed: re-indexing.');
       await this.indexing.reindex();
     } catch (error) {
-      this.logger.error(
-        `Startup indexing failed; any existing index stays in use: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
+      this.retryLater(error);
     }
+  }
+
+  private retryLater(error: unknown): void {
+    const delayMs = Math.min(
+      RETRY_FIRST_DELAY_MS * 2 ** this.failedAttempts,
+      RETRY_MAX_DELAY_MS,
+    );
+    this.failedAttempts += 1;
+    this.logger.error(
+      `Startup indexing failed; any existing index stays in use, retrying in ${
+        delayMs / 1000
+      } s: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    if (this.stopped) {
+      return;
+    }
+    this.retryTimer = setTimeout(() => void this.bringUpToDate(), delayMs);
+    this.retryTimer.unref();
   }
 }

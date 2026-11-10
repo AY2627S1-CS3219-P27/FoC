@@ -147,12 +147,27 @@ describe('POST /assistant/questions (e2e)', () => {
   });
 
   it('answers 200 with answered false when nothing is relevant', async () => {
-    nearest.mockResolvedValue([]);
+    nearest.mockResolvedValue([
+      { id: 'far', title: 'Errands', section: 'Far', text: 'Far', score: 0.1 },
+    ]);
 
     const response = await ask({ question: 'weather?' });
 
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({ answered: false, sources: [] });
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it('answers a retryable 503 when the index is empty', async () => {
+    nearest.mockResolvedValue([]);
+
+    const response = await ask({ question: 'how do credits work?' });
+
+    expect(response.status).toBe(503);
+    expect(response.body).toMatchObject({
+      code: 'DEPENDENCY_UNAVAILABLE',
+      retryable: true,
+    });
     expect(complete).not.toHaveBeenCalled();
   });
 
