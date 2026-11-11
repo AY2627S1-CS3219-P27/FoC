@@ -105,12 +105,14 @@ outside of Docker.
 3. **RabbitMQ passwords.** Each service's RabbitMQ password must match its hash
    in `rabbitmq/definitions.json`; see [RabbitMQ set-up](#rabbitmq-set-up).
 
-   > [!IMPORTANT] **What if I don't have the RabbitMQ passwords?**
+   > [!IMPORTANT]
+   >
+   >**What if I don't have the RabbitMQ passwords?**
    >
    > If no secrets file containing the service's RabbitMQ passwords
-   > (`rabbitmq_<service>_password.secret`) was provided, the definitions file
-   > will not match your passwords. You will need to provide your own passwords
-   > and update the hashes in `rabbitmq/definitions.json`.
+   > (`rabbitmq_<service>_password.secret`) was provided, the definitions file will
+   > not match your passwords. You will need to provide your own passwords and
+   > update the hashes in `rabbitmq/definitions.json`.
    >
    > Assuming a `rabbitmq_temp` instance is running, calculate a hash with:
    >
@@ -151,7 +153,8 @@ outside of Docker.
    reaches the frontend at <http://localhost:3001>; see the next section for
    direct service access.
 
-   > [!NOTE] The initial build **will** take a while - expect ~8 minutes.
+   > [!NOTE]
+   > The initial build **will** take a while - expect ~8 minutes.
 
 ### Debug Docker Compose Config
 
