@@ -3682,3 +3682,542 @@ Chat summaries are condensed from the prompts. Prompt counts include only messag
 |Implement credit settlement handling|Made credit-service consume `credit-settlement` events, with the business logic flow documented.|2026-11-06 18:01|Implementation, Documentation|
 |Implement comms-service frontend, verification and documentation|Implemented the comms-service frontend, verification and documentation.|2026-11-07 04:56|Implementation, frontend, Documentation|
 |Updating AI usage logs|Updated AI Logs with summarized details of entire codex history|2026-11-10 18:24|Documentation|
+
+# Zheng Ting
+## Session summaries
+
+63 Claude Code sessions on the FoC (friend on campus) monorepo, from 2026-10-11 to 2026-11-11. Each entry links to the full transcript in this folder. Sessions are in chronological order, and the theme index below groups them by workstream.
+
+### Themes
+
+#### Order-service core: lifecycle, contracts, messaging and spec drift (5)
+
+- 2026-10-11: [publishConfirmed unroutable message loss](2026-10-11_publishconfirmed-unroutable-message-loss_28b8ef89.md)
+- 2026-10-13: [AuthKeyModule and AuthKeyService imports](2026-10-13_authkeymodule-and-authkeyservice-imports_e2b2616e.md)
+- 2026-10-16: [PR breakdown and components](2026-10-16_pr-breakdown-and-components_da5ed621.md)
+- 2026-10-16: [Order service auth implementation](2026-10-16_order-service-auth-implementation_0486e7f4.md)
+- 2026-10-19: [Spec fixes](2026-10-19_spec-fixes_63a10201.md)
+
+#### Order-service read endpoints (2)
+
+- 2026-10-19: [Next step](2026-10-19_next-step_daf1ac0c.md)
+- 2026-10-19: [Order-service query endpoints](2026-10-19_order-service-query-endpoints_c7922ec8.md)
+
+#### F10 role locks (check and block endpoint) (1)
+
+- 2026-10-20: [Role locks migrations](2026-10-20_role-locks-migrations_75373a61.md)
+
+#### Supplier integration and delivery venues (16)
+
+- 2026-10-20: [Jiong Rui's PR commit walkthrough](2026-10-20_jiong-rui-s-pr-commit-walkthrough_5b2d4803.md)
+- 2026-10-27: [Building_not_found edge cases](2026-10-27_building-not-found-edge-cases_52060a30.md)
+- 2026-10-27: [Delivery-building spec steps 5 and 6](2026-10-27_delivery-building-spec-steps-5-and-6_bc55edf5.md)
+- 2026-11-05: [Supplier service delivery venues](2026-11-05_supplier-service-delivery-venues_223d3915.md)
+- 2026-11-05: [Delivery-venues-spec step 2 in supplier service](2026-11-05_delivery-venues-spec-step-2-in-supplier-service_320a9841.md)
+- 2026-11-05: [Delivery venue-spec part 4 in supplier service-spec](2026-11-05_delivery-venue-spec-part-4-in-supplier-service-spec_c88e7076.md)
+- 2026-11-05: [Supplier service delivery-venue part 5](2026-11-05_supplier-service-delivery-venue-part-5_a5014831.md)
+- 2026-11-05: [Delivery venue 5a spec](2026-11-05_delivery-venue-5a-spec_a03ff6e8.md)
+- 2026-11-05: [Optional deliverybuildingid in errand schema](2026-11-05_optional-deliverybuildingid-in-errand-schema_28f04219.md)
+- 2026-11-06: [Order-service enhancements spec part C](2026-11-06_order-service-enhancements-spec-part-c_4ade4ee0.md)
+- 2026-11-08: [Campus-boundary.ts inRing boolean return](2026-11-08_campus-boundary-ts-inring-boolean-return_bc571a0f.md)
+- 2026-11-08: [Order-service enhancements spec part D](2026-11-08_order-service-enhancements-spec-part-d_a2d74564.md)
+- 2026-11-08: [Delivery venue reply path](2026-11-08_delivery-venue-reply-path_86bbdbb9.md)
+- 2026-11-08: [Order-service enhancements frontend](2026-11-08_order-service-enhancements-frontend_f5f1c9d3.md)
+- 2026-11-09: [Current branch merge with main](2026-11-09_current-branch-merge-with-main_1230078b.md)
+- 2026-11-09: [COURIER_COPY errand expired message](2026-11-09_courier-copy-errand-expired-message_ffec3cfc.md)
+
+#### Dispute resolution and system-failure handling (9)
+
+- 2026-10-28: [Dispute resolution spec sheet](2026-10-28_dispute-resolution-spec-sheet_1d4ddb4e.md)
+- 2026-10-31: [Reporters object literal line](2026-10-31_reporters-object-literal-line_2c777afb.md)
+- 2026-10-31: [Dispute resolution spec and standards reviews](2026-10-31_dispute-resolution-spec-and-standards-reviews_15a6f1e8.md)
+- 2026-10-31: [Admin field visibility](2026-10-31_admin-field-visibility_9468fd31.md)
+- 2026-11-06: [Credit service settlement implementation status](2026-11-06_credit-service-settlement-implementation-status_216fe08e.md)
+- 2026-11-08: [Dispute resolution backend](2026-11-08_dispute-resolution-backend_e59eb196.md)
+- 2026-11-08: [Dispute resolution frontend](2026-11-08_dispute-resolution-frontend_5182b882.md)
+- 2026-11-08: [Report button visibility after filing](2026-11-08_report-button-visibility-after-filing_2ca9549d.md)
+- 2026-11-09: [Report form 409 silent failure](2026-11-09_report-form-409-silent-failure_cfba0e25.md)
+
+#### Editing open errands, statuses and notifications (3)
+
+- 2026-11-08: [Current PR code review](2026-11-08_current-pr-code-review_0d01c751.md)
+- 2026-11-09: [Architecture.md state diagram](2026-11-09_architecture-md-state-diagram_b73fe474.md)
+- 2026-11-10: [Frontend proxy ECONNREFUSED to user-service](2026-11-10_frontend-proxy-econnrefused-to-user-service_108ba6be.md)
+
+#### Code and PR reviews (14)
+
+- 2026-10-17: [PR rq review](2026-10-17_pr-rq-review_32251518.md)
+- 2026-10-17: [Pull request code review](2026-10-17_pull-request-code-review_5fc15fc8.md)
+- 2026-10-17: [PR endpoints and behavior overview](2026-10-17_pr-endpoints-and-behavior-overview_213e6d8f.md)
+- 2026-10-18: [Code review of PR](2026-10-18_code-review-of-pr_f4e1e9b4.md)
+- 2026-10-20: [Order service PR status](2026-10-20_order-service-pr-status_a084b4bf.md)
+- 2026-11-02: [PR review](2026-11-02_pr-review_35e0a568.md)
+- 2026-11-03: [PR review](2026-11-03_pr-review_48d95d35.md)
+- 2026-11-04: [Pull request code review](2026-11-04_pull-request-code-review_19d85b7f.md)
+- 2026-11-06: [Pull request issues](2026-11-06_pull-request-issues_f66e9774.md)
+- 2026-11-08: [Pull request code review](2026-11-08_pull-request-code-review_2a721479.md)
+- 2026-11-08: [PR code review](2026-11-08_pr-code-review_0661b3e8.md)
+- 2026-11-09: [PR code review findings](2026-11-09_pr-code-review-findings_011fb923.md)
+- 2026-11-09: [PR code review validation](2026-11-09_pr-code-review-validation_2402712e.md)
+- 2026-11-09: [Recent branch commits](2026-11-09_recent-branch-commits_855b5b46.md)
+
+#### Docker, env, CI and local stack troubleshooting (10)
+
+- 2026-10-14: [Running all services command](2026-10-14_running-all-services-command_52b8a48d.md)
+- 2026-10-19: [Docker compose pull access denied](2026-10-19_docker-compose-pull-access-denied_f16ba1ed.md)
+- 2026-10-21: [E2E frontend with RabbitMQ credentials](2026-10-21_e2e-frontend-with-rabbitmq-credentials_5b3704fc.md)
+- 2026-10-31: [Supplier service test failures](2026-10-31_supplier-service-test-failures_da5b1036.md)
+- 2026-11-02: [Running all Docker containers](2026-11-02_running-all-docker-containers_88a21229.md)
+- 2026-11-03: [User-service RabbitMQ invalid credentials](2026-11-03_user-service-rabbitmq-invalid-credentials_ad2f0ac7.md)
+- 2026-11-04: [0014_tidy_riptide drizzle migration](2026-11-04_0014-tidy-riptide-drizzle-migration_efb7e1ae.md)
+- 2026-11-05: [Running clean-venues.mjs](2026-11-05_running-clean-venues-mjs_fc8c35a0.md)
+- 2026-11-06: [Building seed duplicates after rename](2026-11-06_building-seed-duplicates-after-rename_e3f1e3b0.md)
+- 2026-11-08: [Notification service ECONNREFUSED proxy error](2026-11-08_notification-service-econnrefused-proxy-error_4863acda.md)
+
+#### Empty sessions (3)
+
+- 2026-10-17: [Empty session (exit only)](2026-10-17_empty-session-exit-only_9108dc0b.md)
+- 2026-10-31: [Empty session (clear only)](2026-10-31_empty-session-clear-only_e7292243.md)
+- 2026-11-11: [Empty session (model switch only)](2026-11-11_empty-session-model-switch-only_5bb15fe7.md)
+
+### Sessions in chronological order
+
+#### 2026-10-11: publishConfirmed unroutable message loss
+Transcript: [2026-10-11_publishconfirmed-unroutable-message-loss_28b8ef89.md](2026-10-11_publishconfirmed-unroutable-message-loss_28b8ef89.md)  
+Branch: `features/order-service/Contract-wiring`  
+Session: 28b8ef89
+
+Q&A on the RabbitMQ publisher-confirm change in order-service: what the problem was before, why an `x-publish-id` header was added, and why the retry count is derived from `retryDelays.length`. The answer: RabbitMQ has no per-message delay, so the transport chains one TTL retry queue per delay, which makes the delay list and the retry count the same thing.
+
+#### 2026-10-13: AuthKeyModule and AuthKeyService imports
+Transcript: [2026-10-13_authkeymodule-and-authkeyservice-imports_e2b2616e.md](2026-10-13_authkeymodule-and-authkeyservice-imports_e2b2616e.md)  
+Branch: `feature/order-service/checkthrough`  
+Session: e2b2616e
+
+Explained Nest module imports versus provider injection (why `AuthKeyModule` is imported even though it exports `AuthKeyService`), then ran a code review of the checkthrough PR. After you challenged one finding, I checked `rabbitmq/definitions.json` and conceded the outbox bindings were already declared, so that finding was overstated.
+
+#### 2026-10-14: Running all services command
+Transcript: [2026-10-14_running-all-services-command_52b8a48d.md](2026-10-14_running-all-services-command_52b8a48d.md)  
+Branch: `main`  
+Session: 52b8a48d
+
+Long session (31 prompts) on getting the whole stack running with Docker Compose: the start command, a missing `.env` error, moving service env vars into shared env folders, and making the root compose use them. Edited the CI stack secrets script and the stack-smoke workflow. Ended on replicas, which share one database and therefore risk racing migrations.
+
+#### 2026-10-16: PR breakdown and components
+Transcript: [2026-10-16_pr-breakdown-and-components_da5ed621.md](2026-10-16_pr-breakdown-and-components_da5ed621.md)  
+Branch: `feature/packages/outbox`  
+Session: da5ed621
+
+Detailed breakdown of PR #624, which moves the transactional outbox out of credit-service into a reusable `@foc/outbox` package. Noted it is TypeORM-specific, so order-service (which has its own outbox) cannot use it.
+
+#### 2026-10-16: Order service auth implementation
+Transcript: [2026-10-16_order-service-auth-implementation_0486e7f4.md](2026-10-16_order-service-auth-implementation_0486e7f4.md)  
+Branch: `main`  
+Session: 0486e7f4
+
+Explored why order-service implements auth, whether `user(id)` is called anywhere, and what a call looks like, then reviewed a new user-service PR. The final answer corrected one wrong claim about an `isAdmin: false` plus `isArchived: true` PATCH on the last active admin.
+
+#### 2026-10-17: PR rq review
+Transcript: [2026-10-17_pr-rq-review_32251518.md](2026-10-17_pr-rq-review_32251518.md)  
+Branch: `feature/user-service/refresh-tokens`  
+Session: 32251518
+
+Reviewed the user-service refresh-token PR. Follow-up explained the cookie `path: '/'` finding: the 7-day refresh credential would be sent on every request to the service, widening its exposure in logs and proxies.
+
+#### 2026-10-17: Pull request code review
+Transcript: [2026-10-17_pull-request-code-review_5fc15fc8.md](2026-10-17_pull-request-code-review_5fc15fc8.md)  
+Branch: `feature/user-service/refresh-tokens`  
+Session: 5fc15fc8
+
+In-depth review of the refresh-token PR, with side questions on how sweeps work in order-service, passing the idempotency key in the body, and why `AuthKeyService` exists instead of coming from `@foc/auth`. Ended correcting an earlier explanation: `null` and `undefined` both end up as NULL for the nullable expiry columns, but `null` fails the integer check.
+
+#### 2026-10-17: Empty session (exit only)
+Transcript: [2026-10-17_empty-session-exit-only_9108dc0b.md](2026-10-17_empty-session-exit-only_9108dc0b.md)  
+Branch: `feature/user-service/refresh-tokens`  
+Session: 9108dc0b
+
+Empty session: no conversation recorded.
+
+#### 2026-10-17: PR endpoints and behavior overview
+Transcript: [2026-10-17_pr-endpoints-and-behavior-overview_213e6d8f.md](2026-10-17_pr-endpoints-and-behavior-overview_213e6d8f.md)  
+Branch: `supplier-service`  
+Session: 213e6d8f
+
+Overview of PR #620, the whole Supplier Service (75 files, about 8.1k lines): suppliers as campus pickup points (Store, Facility, Landmark), its own Postgres, TypeORM migrations, and the endpoints it exposes.
+
+#### 2026-10-18: Code review of PR
+Transcript: [2026-10-18_code-review-of-pr_f4e1e9b4.md](2026-10-18_code-review-of-pr_f4e1e9b4.md)  
+Branch: `supplier-service`  
+Session: f4e1e9b4
+
+Code review of the supplier-service PR. Clarified how requests go stale (key created directly or building retired) and whether seeding runs on every start. Agreed the major issues were stale requests that cannot be approved (worse for Update than Create) and seed recreating renamed or moved suppliers, plus a third.
+
+#### 2026-10-19: Spec fixes
+Transcript: [2026-10-19_spec-fixes_63a10201.md](2026-10-19_spec-fixes_63a10201.md)  
+Branch: `features/order-service/resolve-spec-drift`  
+Session: 63a10201
+
+Resolved order-service spec drift without committing: made `expiryDurationMinutes` mandatory, simplified `collectionItems` to a string, and discussed whether expiry should be a stored row and shown in the UI. Edited `create.ts`, the DTO, controller and e2e specs, and ARCHITECTURE.md. Ended with how to run order-service in isolation using the shared env files.
+
+#### 2026-10-19: Next step
+Transcript: [2026-10-19_next-step_daf1ac0c.md](2026-10-19_next-step_daf1ac0c.md)  
+Branch: `features/order-service/Query-endpoints-api`  
+Session: daf1ac0c
+
+Continued the read endpoints: handled null pickups and empty `pickupBuilding` filters, then added a Progress section to the local spec and produced a handoff prompt for a fresh session.
+
+#### 2026-10-19: Order-service query endpoints
+Transcript: [2026-10-19_order-service-query-endpoints_c7922ec8.md](2026-10-19_order-service-query-endpoints_c7922ec8.md)  
+Branch: `features/order-service/Query-endpoints-api`  
+Session: c7922ec8
+
+Clarified what the `:id` route does versus the list and detail views, and the need for a role check since a user can have no role. Finished with a PR summary: three JWT-protected read-only routes (`GET /`, `/mine`, `/:id`) that return only client-facing statuses.
+
+#### 2026-10-19: Docker compose pull access denied
+Transcript: [2026-10-19_docker-compose-pull-access-denied_f16ba1ed.md](2026-10-19_docker-compose-pull-access-denied_f16ba1ed.md)  
+Branch: `features/order-service/role-locks`  
+Session: f16ba1ed
+
+Diagnosed `pull access denied for foc/order-service` on `docker compose up`: the image was never built locally, so Compose tried Docker Hub. Fix is to build first.
+
+#### 2026-10-20: Jiong Rui's PR commit walkthrough
+Transcript: [2026-10-20_jiong-rui-s-pr-commit-walkthrough_5b2d4803.md](2026-10-20_jiong-rui-s-pr-commit-walkthrough_5b2d4803.md)  
+Branch: `feature/order-service/supplier-service-integration`  
+Session: 5b2d4803
+
+Detailed review of the supplier-service integration PR, going commit by commit through an implementer's changes. Checked whether supplier-service gives an idempotent answer, whether multiple RabbitMQ passwords are needed in the root compose, and listed outstanding issues (a stale ARCHITECTURE.md line, backoff behaviour).
+
+#### 2026-10-20: Role locks migrations
+Transcript: [2026-10-20_role-locks-migrations_75373a61.md](2026-10-20_role-locks-migrations_75373a61.md)  
+Branch: `features/order-service/role-locks`  
+Session: 75373a61
+
+Fixed out-of-sync Drizzle migrations for the role-locks table (generating and naming the migration), explained updating the RabbitMQ password hash for order-service, and gave the from-scratch command sequence to bring the stack up.
+
+#### 2026-10-20: Order service PR status
+Transcript: [2026-10-20_order-service-pr-status_a084b4bf.md](2026-10-20_order-service-pr-status_a084b4bf.md)  
+Branch: `feature/order-serivce/checkthrough-D3`  
+Session: a084b4bf
+
+Status check on the checkthrough-D3 order-service PR: no blocking errors, CI green, merges cleanly. Remaining items were process (needs a review) plus a stale PR description.
+
+#### 2026-10-21: E2E frontend with RabbitMQ credentials
+Transcript: [2026-10-21_e2e-frontend-with-rabbitmq-credentials_5b3704fc.md](2026-10-21_e2e-frontend-with-rabbitmq-credentials_5b3704fc.md)  
+Branch: `main`  
+Session: 5b3704fc
+
+Brought the whole stack up end to end for frontend testing: wired in the credit and supplier RabbitMQ passwords, rebuilt from scratch with `down -v`, ran both credit and order migrations, started the frontend and listed the email service URLs. Also chased a 500 on `/api/otp`.
+
+#### 2026-10-27: Building_not_found edge cases
+Transcript: [2026-10-27_building-not-found-edge-cases_52060a30.md](2026-10-27_building-not-found-edge-cases_52060a30.md)  
+Branch: `features/order-service/Implement-complete-order-adjustments`  
+Session: 52060a30
+
+Followed up on `BUILDING_NOT_FOUND` versus a missing `BUILDING_UNAVAILABLE` edge, updated the delivery spec, and explained what step 5 (seeds and specs that now fail type-checks on the new not-null columns) involves.
+
+#### 2026-10-27: Delivery-building spec steps 5 and 6
+Transcript: [2026-10-27_delivery-building-spec-steps-5-and-6_bc55edf5.md](2026-10-27_delivery-building-spec-steps-5-and-6_bc55edf5.md)  
+Branch: `features/order-service/Implement-complete-order-adjustments`  
+Session: bc55edf5
+
+No prompts recorded in this transcript. Completed steps 5 and 6 of the delivery-building spec: updated six e2e specs, tests pass, a code review found no hard violations, nothing committed.
+
+#### 2026-10-28: Dispute resolution spec sheet
+Transcript: [2026-10-28_dispute-resolution-spec-sheet_1d4ddb4e.md](2026-10-28_dispute-resolution-spec-sheet_1d4ddb4e.md)  
+Branch: `features/order-service/dispute-resolution`  
+Session: 1d4ddb4e
+
+Checked the built work against the dispute-resolution spec and built out the reports feature (table, controller, DTO, module, e2e and controller specs). Interrupted before regenerating the migration and ticking off 3.1.
+
+#### 2026-10-31: Reporters object literal line
+Transcript: [2026-10-31_reporters-object-literal-line_2c777afb.md](2026-10-31_reporters-object-literal-line_2c777afb.md)  
+Branch: `features/order-service/dispute-resolution`  
+Session: 2c777afb
+
+Explained the `reports` object literal, updated the progress spec, and settled that credit settlement stays part of the Incomplete state because it is still in flight. Added e2e coverage and updated the 3.2 spec entry (12 tests, read-only REPEATABLE READ transaction, response allowlists).
+
+#### 2026-10-31: Dispute resolution spec and standards reviews
+Transcript: [2026-10-31_dispute-resolution-spec-and-standards-reviews_15a6f1e8.md](2026-10-31_dispute-resolution-spec-and-standards-reviews_15a6f1e8.md)  
+Branch: `features/order-service/dispute-resolution`  
+Session: 15a6f1e8
+
+No prompts recorded. Ran spec and standards reviews of the dispute work and surfaced findings such as a same-admin double-submit returning 200 instead of 409. Touched the query service, DTO, admin controller and specs; nothing committed.
+
+#### 2026-10-31: Admin field visibility
+Transcript: [2026-10-31_admin-field-visibility_9468fd31.md](2026-10-31_admin-field-visibility_9468fd31.md)  
+Branch: `features/order-service/dispute-resolution`  
+Session: 9468fd31
+
+Changed admins to see all errand fields: removed the stripping from `toAdminView` so settlement amount and note appear on Resolved errands, flipped the e2e test, and updated README, ARCHITECTURE.md and CONTEXT.md. 125 errand and role-block e2e tests pass.
+
+#### 2026-10-31: Supplier service test failures
+Transcript: [2026-10-31_supplier-service-test-failures_da5b1036.md](2026-10-31_supplier-service-test-failures_da5b1036.md)  
+Branch: `features/order-service/dispute-resolution`  
+Session: da5b1036
+
+Ran the supplier-service tests without changing anything: 4 of 205 fail, all in one handler spec whose fixture lacks `deliveryBuildingId`, which the contract now requires.
+
+#### 2026-10-31: Empty session (clear only)
+Transcript: [2026-10-31_empty-session-clear-only_e7292243.md](2026-10-31_empty-session-clear-only_e7292243.md)  
+Branch: `features/order-service/Add-delivery-location-verification`  
+Session: e7292243
+
+Empty session: no conversation recorded.
+
+#### 2026-11-02: PR review
+Transcript: [2026-11-02_pr-review_35e0a568.md](2026-11-02_pr-review_35e0a568.md)  
+Branch: `feature/user-service/change-password-token-revokal`  
+Session: 35e0a568
+
+Reviewed the change-password token revocation PR: it revokes all refresh tokens after a successful reset using the existing `revokeAllRefreshTokens`. Looks good to merge with one optional fix.
+
+#### 2026-11-02: Running all Docker containers
+Transcript: [2026-11-02_running-all-docker-containers_88a21229.md](2026-11-02_running-all-docker-containers_88a21229.md)  
+Branch: `HEAD`  
+Session: 88a21229
+
+Gave the command sequence for running every service plus the frontend after pulling a new PR: start broker and DBs, build, run credit and order migrations, then `docker compose up --watch`.
+
+#### 2026-11-03: User-service RabbitMQ invalid credentials
+Transcript: [2026-11-03_user-service-rabbitmq-invalid-credentials_ad2f0ac7.md](2026-11-03_user-service-rabbitmq-invalid-credentials_ad2f0ac7.md)  
+Branch: `HEAD`  
+Session: ad2f0ac7
+
+Debugged RabbitMQ credentials across services, missing OTP emails (Papercut was empty), and a type error. The type error came from a stale `@foc/contracts` copy in supplier-service `node_modules`, and was fixed.
+
+#### 2026-11-03: PR review
+Transcript: [2026-11-03_pr-review_48d95d35.md](2026-11-03_pr-review_48d95d35.md)  
+Branch: `HEAD`  
+Session: 48d95d35
+
+Quick review of PR #758: looks good with no blockers. Checked supplier-then-building lookup ordering, transaction handling and hash stability. Did not run tests.
+
+#### 2026-11-04: 0014_tidy_riptide drizzle migration
+Transcript: [2026-11-04_0014-tidy-riptide-drizzle-migration_efb7e1ae.md](2026-11-04_0014-tidy-riptide-drizzle-migration_efb7e1ae.md)  
+Branch: `features/order-service/Add-delivery-location-verification`  
+Session: efb7e1ae
+
+Regenerated and renamed the stale `0014_tidy_riptide` Drizzle migration after a merge, checked the root README startup instructions, and diagnosed the failing workflow on PR 669. Updated tests for an intentional contract change and removed the rollout bridge from supplier-service; the supplier-service and contracts test suites both pass (205 tests each). Nothing committed.
+
+#### 2026-11-04: Pull request code review
+Transcript: [2026-11-04_pull-request-code-review_19d85b7f.md](2026-11-04_pull-request-code-review_19d85b7f.md)  
+Branch: `feature/supplier-service/moderation`  
+Session: 19d85b7f
+
+Code review of the supplier-service moderation PR. You skipped finding 1; of the other nine, none is a bug needing an immediate fix, with a status-cast guard (#4) and the `openNow` SQL versus `openStatus()` drift (#7) worth doing.
+
+#### 2026-11-05: Running clean-venues.mjs
+Transcript: [2026-11-05_running-clean-venues-mjs_fc8c35a0.md](2026-11-05_running-clean-venues-mjs_fc8c35a0.md)  
+Branch: `features/supplier-service/Initial-venue-contracts`  
+Session: fc8c35a0
+
+Short answer on how to run `clean-venues.mjs` from the supplier-service seeding folder, with its required argument and optional flags.
+
+#### 2026-11-05: Supplier service delivery venues
+Transcript: [2026-11-05_supplier-service-delivery-venues_223d3915.md](2026-11-05_supplier-service-delivery-venues_223d3915.md)  
+Branch: `features/supplier-service/Initial-venue-contracts`  
+Session: 223d3915
+
+Worked through the delivery-venues spec decisions (a single cleaned JSON, keep existing coordinates, rename AS8) and updated `DELIVERY-VENUES-SPEC.md`. Confirmed order-service unit tests still pass (519) because contract changes are additive, but flagged what will break once supplier-service emits `VENUE_NOT_FOUND`.
+
+#### 2026-11-05: Delivery-venues-spec step 2 in supplier service
+Transcript: [2026-11-05_delivery-venues-spec-step-2-in-supplier-service_320a9841.md](2026-11-05_delivery-venues-spec-step-2-in-supplier-service_320a9841.md)  
+Branch: `features/supplier-service/Initial-venue-contracts`  
+Session: 320a9841
+
+Implemented step 2 of the delivery-venues spec in supplier-service (venues table and entity) from the supplied seed JSON, ran a code review, kept the spec and progress files local and untracked, and made two header-only commits.
+
+#### 2026-11-05: Delivery venue-spec part 4 in supplier service-spec
+Transcript: [2026-11-05_delivery-venue-spec-part-4-in-supplier-service-spec_c88e7076.md](2026-11-05_delivery-venue-spec-part-4-in-supplier-service-spec_c88e7076.md)  
+Branch: `features/supplier-service/Add-venues-to-buildings`  
+Session: c88e7076
+
+Part 4: venue validation in the supplier validation round trip, committed header-only. Proposed a flagged dummy building, Other (map pin), for map pins, and clarified that step 5 (seed loader) is the one that needs the venues JSON.
+
+#### 2026-11-05: Supplier service delivery-venue part 5
+Transcript: [2026-11-05_supplier-service-delivery-venue-part-5_a5014831.md](2026-11-05_supplier-service-delivery-venue-part-5_a5014831.md)  
+Branch: `features/supplier-service/Add-venues-to-buildings`  
+Session: a5014831
+
+Part 5: added the venue seed JSON and parser and loaded buildings and venues from it. Raised missing buildings (PGP, The Ridge, YIH, Frontier), preserved original reference data, corrected E3 and E4 coordinates, and listed problematic coordinates. Ended with three new commits.
+
+#### 2026-11-05: Delivery venue 5a spec
+Transcript: [2026-11-05_delivery-venue-5a-spec_a03ff6e8.md](2026-11-05_delivery-venue-5a-spec_a03ff6e8.md)  
+Branch: `features/supplier-service/Add-venues-to-buildings`  
+Session: a03ff6e8
+
+Committed the 5a work (header only), created a remote branch, and sent the untracked `DELIVERY-VENUES-SPEC.md` and progress tracker. The work covered the pin migration, guards and seed services across 12 files.
+
+#### 2026-11-05: Optional deliverybuildingid in errand schema
+Transcript: [2026-11-05_optional-deliverybuildingid-in-errand-schema_28f04219.md](2026-11-05_optional-deliverybuildingid-in-errand-schema_28f04219.md)  
+Branch: `features/supplier-service/Add-venues-to-buildings`  
+Session: 28f04219
+
+Made the delivery building id optional temporarily because the frontend does not send it and errand creation was failing. Three header-only commits on a new `bug/delivery-building-optional` branch.
+
+#### 2026-11-06: Pull request issues
+Transcript: [2026-11-06_pull-request-issues_f66e9774.md](2026-11-06_pull-request-issues_f66e9774.md)  
+Branch: `feature/supplier-service/moderation`  
+Session: f66e9774
+
+Detailed code review of the supplier-service moderation PR, plus an honest answer on its limits: source was read closely, but tests were only skimmed and integration suites not run. Discussed conflicts with #763 (three migrations with matching timestamps).
+
+#### 2026-11-06: Building seed duplicates after rename
+Transcript: [2026-11-06_building-seed-duplicates-after-rename_e3f1e3b0.md](2026-11-06_building-seed-duplicates-after-rename_e3f1e3b0.md)  
+Branch: `features/supplier-service/Add-venues-to-buildings`  
+Session: e3f1e3b0
+
+Made header-only commits for the seed work, then troubleshot the stack: running the frontend without comms-service, an unhealthy credit-service, resetting RabbitMQ volumes, and the fact that `--wait` and `--watch` cannot be combined in Compose.
+
+#### 2026-11-06: Credit service settlement implementation status
+Transcript: [2026-11-06_credit-service-settlement-implementation-status_216fe08e.md](2026-11-06_credit-service-settlement-implementation-status_216fe08e.md)  
+Branch: `main`  
+Session: 216fe08e
+
+Checked whether credit-service handles settlement: the `credit.settlement.v1` contract exists and order-service publishes it, but credit-service does not handle it yet.
+
+#### 2026-11-06: Order-service enhancements spec part C
+Transcript: [2026-11-06_order-service-enhancements-spec-part-c_4ade4ee0.md](2026-11-06_order-service-enhancements-spec-part-c_4ade4ee0.md)  
+Branch: `features/order-service/Add-proper-venues-to-errands`  
+Session: 4ade4ee0
+
+No prompts recorded. Part C standards and spec reviews came back clean: most flagged items are later steps (docs lag for `VENUE_UNAVAILABLE`, reason not yet on an edge).
+
+#### 2026-11-08: Campus-boundary.ts inRing boolean return
+Transcript: [2026-11-08_campus-boundary-ts-inring-boolean-return_bc571a0f.md](2026-11-08_campus-boundary-ts-inring-boolean-return_bc571a0f.md)  
+Branch: `HEAD`  
+Session: bc571a0f
+
+Refactored campus-boundary: one exported `CampusContains` type, and `inRing` now returns a plain boolean with edges and vertices counted as outside. Updated the spec test; tests and lint not run.
+
+#### 2026-11-08: Order-service enhancements spec part D
+Transcript: [2026-11-08_order-service-enhancements-spec-part-d_a2d74564.md](2026-11-08_order-service-enhancements-spec-part-d_a2d74564.md)  
+Branch: `HEAD`  
+Session: a2d74564
+
+Made header-only logical commits for part D, then updated the enhancements spec: steps B to D built, E to G not started. The two new e2e specs had not run because Docker was down.
+
+#### 2026-11-08: Delivery venue reply path
+Transcript: [2026-11-08_delivery-venue-reply-path_86bbdbb9.md](2026-11-08_delivery-venue-reply-path_86bbdbb9.md)  
+Branch: `HEAD`  
+Session: 86bbdbb9
+
+Investigated an e2e spec that could not boot (CampusModule config dependency), ran it without committing, confirmed the existing frontend will not break, and updated the spec for E1 to E3 and F1.
+
+#### 2026-11-08: Notification service ECONNREFUSED proxy error
+Transcript: [2026-11-08_notification-service-econnrefused-proxy-error_4863acda.md](2026-11-08_notification-service-econnrefused-proxy-error_4863acda.md)  
+Branch: `HEAD`  
+Session: 4863acda
+
+Fixed notification-service crash-looping (frontend proxy ECONNREFUSED): `vapid_private_key.secret` was a directory created by a Docker bind mount, causing EISDIR. Replaced it with the example key file and recreated the container.
+
+#### 2026-11-08: Current PR code review
+Transcript: [2026-11-08_current-pr-code-review_0d01c751.md](2026-11-08_current-pr-code-review_0d01c751.md)  
+Branch: `HEAD`  
+Session: 0d01c751
+
+Code review of the errand edit endpoint, with you asking for the claims to be checked first. Partial edits on failure are by design (ADR 0012); the one confirmed bug is that `@IsOptional()` lets `null` through PATCH, triggering pointless revalidation.
+
+#### 2026-11-08: Order-service enhancements frontend
+Transcript: [2026-11-08_order-service-enhancements-frontend_f5f1c9d3.md](2026-11-08_order-service-enhancements-frontend_f5f1c9d3.md)  
+Branch: `HEAD`  
+Session: f5f1c9d3
+
+Long frontend session for the venue and pin UI (15 prompts): fixed the missing `CAMPUS_BOUNDARY_PATH` config error, the campus map failing to load, and errands stuck at pending, and made form edits with helper scripts. Concluded the work covers #798 and #814 but closed neither.
+
+#### 2026-11-08: Pull request code review
+Transcript: [2026-11-08_pull-request-code-review_2a721479.md](2026-11-08_pull-request-code-review_2a721479.md)  
+Branch: `HEAD`  
+Session: 2a721479
+
+Code review with a verification pass over both services. Final answer: the branch is 0 behind and 2 ahead of `origin/main` with only merge commits, so a rebase is safe and leaves it equal to `main`.
+
+#### 2026-11-08: Dispute resolution backend
+Transcript: [2026-11-08_dispute-resolution-backend_e59eb196.md](2026-11-08_dispute-resolution-backend_e59eb196.md)  
+Branch: `HEAD`  
+Session: e59eb196
+
+Checked whether dispute backend is done in both order and credit services, made then dropped logical commits, and investigated e2e failures on code that came from main. Finished with a PR summary for handling credit settlement replies and timeouts in order-service.
+
+#### 2026-11-08: Dispute resolution frontend
+Transcript: [2026-11-08_dispute-resolution-frontend_5182b882.md](2026-11-08_dispute-resolution-frontend_5182b882.md)  
+Branch: `HEAD`  
+Session: 5182b882
+
+Built the dispute-resolution frontend on a new branch (types, disputes tab, dispute detail, report form), then added `hasReported` and `canReport` flags to the backend query so the UI knows when to show the report button. Order-service query spec passes (54 tests); nothing committed.
+
+#### 2026-11-08: Report button visibility after filing
+Transcript: [2026-11-08_report-button-visibility-after-filing_2ca9549d.md](2026-11-08_report-button-visibility-after-filing_2ca9549d.md)  
+Branch: `HEAD`  
+Session: 2ca9549d
+
+Investigated the report button reappearing after a report was filed: the API correctly returns `hasReported: true, canReport: false`, so the cause is a stale frontend build.
+
+#### 2026-11-08: PR code review
+Transcript: [2026-11-08_pr-code-review_0661b3e8.md](2026-11-08_pr-code-review_0661b3e8.md)  
+Branch: `HEAD`  
+Session: 0661b3e8
+
+Code review of the credit transaction-history PR, with each finding checked against the code. Six of seven hold up, including that Sign out does not revoke the session and a dead `tabs.ts` file.
+
+#### 2026-11-09: PR code review findings
+Transcript: [2026-11-09_pr-code-review-findings_011fb923.md](2026-11-09_pr-code-review-findings_011fb923.md)  
+Branch: `feature/credit-service/transaction-history-endpoint`  
+Session: 011fb923
+
+Review of PR #844 (credit transaction-history endpoint), then re-checked after you noted the PR was old: nothing had been resolved on `main`, so every confirmed finding still applies.
+
+#### 2026-11-09: PR code review validation
+Transcript: [2026-11-09_pr-code-review-validation_2402712e.md](2026-11-09_pr-code-review-validation_2402712e.md)  
+Branch: `feature/credit-service/transaction-history-endpoint`  
+Session: 2402712e
+
+Validated review findings on the same PR. One finding explained in detail: the frontend `server.mjs` shutdown handler never exits on SIGTERM because `server.close()` waits on open connections, so Docker force-kills it after ten seconds.
+
+#### 2026-11-09: Current branch merge with main
+Transcript: [2026-11-09_current-branch-merge-with-main_1230078b.md](2026-11-09_current-branch-merge-with-main_1230078b.md)  
+Branch: `features/order-service/Update-frontend-for-venues`  
+Session: 1230078b
+
+Merged the current branch with main and resolved conflicts, then diagnosed run #859 failing: `frontend/package-lock.json` lacks `leaflet` entries after the merge, so `npm ci` fails.
+
+#### 2026-11-09: Architecture.md state diagram
+Transcript: [2026-11-09_architecture-md-state-diagram_b73fe474.md](2026-11-09_architecture-md-state-diagram_b73fe474.md)  
+Branch: `main`  
+Session: b73fe474
+
+Updated the ARCHITECTURE.md state diagram so each client-facing status is a box containing its internal in-flight states (Pending, Open, Completed, Incomplete). Mermaid not rendered.
+
+#### 2026-11-09: COURIER_COPY errand expired message
+Transcript: [2026-11-09_courier-copy-errand-expired-message_ffec3cfc.md](2026-11-09_courier-copy-errand-expired-message_ffec3cfc.md)  
+Branch: `features/order-service/Issues-roundup`  
+Session: ffec3cfc
+
+Questioned why a courier could see the errand expired copy, checked CodeQL commits, and diagnosed #859 failing from a duplicate import. Fixed it, and added `VENUE_UNAVAILABLE` requester copy. `tsc` passes; no `next build` and nothing committed.
+
+#### 2026-11-09: Recent branch commits
+Transcript: [2026-11-09_recent-branch-commits_855b5b46.md](2026-11-09_recent-branch-commits_855b5b46.md)  
+Branch: `feature/order-service/adjust-fields`  
+Session: 855b5b46
+
+Explained recent branch commits and reviewed commit `8861263` on adjust-fields: nothing blocking. Traced event-log rebuild handling of a null `deliveryVenueId`.
+
+#### 2026-11-09: Report form 409 silent failure
+Transcript: [2026-11-09_report-form-409-silent-failure_cfba0e25.md](2026-11-09_report-form-409-silent-failure_cfba0e25.md)  
+Branch: `features/order-service/Add-dispute-resolution-frontend`  
+Session: cfba0e25
+
+No prompts recorded. Fixed the dispute report form so a failure keeps the dialog open and shows the error in the dialog and as a toast, rather than losing the report on a 409 refetch. Nothing committed.
+
+#### 2026-11-10: Frontend proxy ECONNREFUSED to user-service
+Transcript: [2026-11-10_frontend-proxy-econnrefused-to-user-service_108ba6be.md](2026-11-10_frontend-proxy-econnrefused-to-user-service_108ba6be.md)  
+Branch: `HEAD`  
+Session: 108ba6be
+
+Restarted user-service after a frontend proxy ECONNREFUSED, explained when supplier revalidation is triggered, and located the forward-facing states (`api-status.ts`, with the internal list in `status.ts`).
+
+#### 2026-11-11: Empty session (model switch only)
+Transcript: [2026-11-11_empty-session-model-switch-only_5bb15fe7.md](2026-11-11_empty-session-model-switch-only_5bb15fe7.md)  
+Branch: `features/order-service/General-bug-fixes`  
+Session: 5bb15fe7
+
