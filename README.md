@@ -51,6 +51,11 @@ microservice (`user-service/`, `supplier-service/`, `order-service/`,
 
 ## Architectural diagram
 ```mermaid
+---
+config:
+  flowchart:
+    curve: basis
+---
 flowchart TB
   Browser["<b>Browser (PWA)</b><br/>Service worker receives Web Push"]
 
