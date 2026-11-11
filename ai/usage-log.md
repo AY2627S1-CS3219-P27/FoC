@@ -4221,3 +4221,58 @@ Transcript: [2026-11-11_empty-session-model-switch-only_5bb15fe7.md](2026-11-11_
 Branch: `features/order-service/General-bug-fixes`  
 Session: 5bb15fe7
 
+
+# Jiong Rui
+
+Claude Code conversations run in `/Users/j.r.u.i/Documents/26-27_Sem1/CS3219/FoC` (VS Code extension).
+
+**Participant:** Jiong Rui (sole human user).
+
+**Sessions:** 27 · **Prompts:** 283 · **Unique files touched:** 143
+
+Covers the frontend, the cloud deployment and the order-service enhancements (editing errands after creation), from 2026-10-20 to 2026-11-11. Chat summaries are condensed from the prompts. Prompt counts include only messages typed by the user; resumed and forked sessions are counted once, and injected context, subagent notifications and auto-generated continuation summaries are omitted. Files touched are those edited or written through Claude Code's `Edit` and `Write` tools, counted once even if several chats changed them. Work was done in steps: Claude stopped at checkpoints, and I reviewed each step and made every commit myself. Timestamps are UTC and show the last activity recorded in each chat.
+
+|Summarized chat title|Chat convo summary|Timestamp of last message (UTC)|Usage scenario|
+|---|---|---|---|
+|Wire order-service into the frontend for D3|Checked the D3 brief and the open order-service issues for gaps, added a migrate-on-startup option, then wired the frontend to order-service in small commits (admin errand view, supplier-sourced pickup). Ended with the PR body for #651, following #649's format.|2026-10-20 16:34|Planning, implementation, frontend|
+|Test the frontend end-to-end|Had Claude walk the frontend end-to-end and report failures, then fixed the two I had found myself: errands could not be submitted without a building, and the frontend was not wired to the backend correctly. Settled on keeping the supplier name from when the errand was created (#655).|2026-10-21 14:24|Testing, debugging, frontend|
+|Explain order-service API design for D3|Built an explainer artifact on order-service's API design, integration and demo: request flow for validation, unauthorised actions, invalid transitions and conflicts, and how order and credit data change during an errand.|2026-10-21 10:34|Documentation, learning|
+|Close remaining D3 frontend gaps|Re-checked the D3 brief against the UI and added the missing screens (creating users, editing supplier fields, categories, student supplier requests), the "Archive my account" button and a credit pre-check on the new errand form (#657).|2026-10-21 18:30|Implementation, frontend|
+|Plan the cloud deployment|Drafted a deployment plan artifact: one tech choice per layer on AWS, a comparison of three hosting options by difficulty (picked EC2 + Docker Compose), and a short rollout plan of phases and deliverables.|2026-10-21 18:08|Planning|
+|Prepare D3 messaging answers|Talked through the D3 questions: whether message ordering matters, RabbitMQ vs Kafka for this project, whether we have DLQs, single-courier acceptance and where we use synchronous calls. I wrote the answers; Claude checked them against the codebase.|2026-10-22 03:27|Learning, review|
+|Prepare the D3 demo|Reverted changes already covered by teammates' PRs, resolved merge conflicts and split the demo into frontend scenarios and CLI scenarios, with setup steps for both.|2026-10-22 08:07|Demo prep, debugging|
+|Scope the deployment|Estimated time for each piece (Kubernetes, CI/CD, RDS, Terraform, HTTPS), then cut Kubernetes for now and updated the plan to EC2 + Terraform + CI/CD, keeping a path to add Kubernetes later.|2026-11-02 15:53|Planning|
+|Redesign the frontend|Redesigned the frontend with the existing colour scheme, using UI design skills, and committed at each checkpoint. Added URL state for sections and "Load more", removed demo-only features (demo checkbox, API log, raw status codes in errors), fixed issues from a worst-case data stress test, and addressed the CodeQL findings (#755).|2026-11-02 15:15|Implementation, frontend, debugging|
+|Make service images production-ready|Step 1 of the deployment plan: what each service's Dockerfile needed for production, starting with the frontend.|2026-11-02 16:25|Implementation, deployment|
+|RabbitMQ and CI/CD on AWS|Asked how RabbitMQ would run on AWS (self-hosted vs Amazon MQ) to answer a teammate's question about a serverless notification service, and whether AWS would replace GitHub CI/CD.|2026-11-03 16:09|Learning|
+|Review the pub/sub topology PR|Checked whether PR #764 makes our events real broadcast events rather than point-to-point messages, and whether that fixes a problem in the original design.|2026-11-05 01:27|Code review, learning|
+|Bootstrap Terraform on AWS|Checked whether the merged PRs changed anything for a self-hosted RabbitMQ, deployed without buying a domain, set up access through SSO when IAM users were blocked by the organisation, and applied the bootstrap stack (ECR, GitHub CI role) for #765.|2026-11-05 07:40|Deployment, debugging|
+|Edit errands after creation|Order-service feature to edit all fields of an open errand, on a new branch, in steps I committed one by one. Ended with a PR draft on the design choices (#766).|2026-11-05 10:14|Implementation, documentation|
+|Fix the redesign PR after the new contract|Resolved merge conflicts and review comments on #755, and fixed errand creation after the new order/supplier contract (aligned with #843 rather than copying another fix). Checked a Firefox credits bug and the "People" section, and wrote commit messages.|2026-11-08 14:45|Debugging, frontend|
+|Terraform PR follow-ups|Drafted replies to Arjun on #765, checked the ECR repositories before the first CI run, and confirmed the Terraform covers the comms and notification services.|2026-11-09 03:54|Deployment, review|
+|Test teammates' PRs|Picked open PRs by teammates, tested them against what the authors claimed (including #858 and #862) and drafted comments in my own style for me to post.|2026-11-09 05:15|Code review, testing|
+|Test and update the edit-errand PR|Tested #766, resolved conflicts, reviewed #847 with screenshots reproducing the rate cap error, and drafted short replies to review comments.|2026-11-09 09:41|Testing, code review|
+|First production deploy on EC2|Logged in through SSO, found the ECR repositories were empty before the first build, set up the instance (Docker, cloud-init, repo), read `deploy.sh` and SSM errors, port-forwarded Papercut, and moved deploys from every merge to releases.|2026-11-09 12:12|Deployment, debugging|
+|Edit errand form on the frontend|Built the frontend for the edit-errand feature on its own branch, fixed a bug on main found while deploying, and addressed review comments, such as a cleared time field still sending the old value (#867).|2026-11-10 01:20|Implementation, frontend|
+|Review frontend PRs|Code review of #869 and #870, tested as a user, with comments drafted in my style and updated after new commits.|2026-11-10 01:12|Code review, testing|
+|Put the server behind CloudFront|Checked the cost of a NAT gateway against our AWS budget and chose a small NAT instance. Moved the server into a private subnet behind a CloudFront VPC origin in commits, applied the plan, waited for the new server's first boot, and wrote the PR body for #866.|2026-11-10 06:40|Deployment, planning|
+|Deploy the rag-service|Added the rag-service to the deployment: database password and OpenRouter key in SSM, a fix for a VPC origin update error, and the switch to the new server. Wrote up key decisions for secrets and the deployment strategy (#877).|2026-11-10 15:28|Deployment, documentation|
+|Add alarms and monitoring|CloudWatch status and budget alarms, Grafana admin login through SSM, and checks that Terraform matches the latest PRs. Reviewed comments on #877 and #883 before merging, and listed next steps.|2026-11-10 16:47|Deployment, monitoring|
+|Fix the 504 and WebSockets|After release v1.0.0 returned 504, let CloudFront's VPC origin reach the frontend through its security group (#884), then put a small nginx in front of production so chat WebSockets work (#885). Wrote handover notes so teammates could test.|2026-11-10 17:50|Debugging, deployment|
+|Deployment slides and diagram|Checked the slide deck for missing or unique points, then drew a deployment diagram, compared it with an existing one and produced a clearer combined version with a reliability and observability section.|2026-11-10 18:52|Documentation|
+|Updating AI usage logs|Extended the AI usage log with my Claude Code history.|2026-11-11 01:54|Documentation|
+
+# Anthony
+
+Tool: Claude Code (CLI), models claude-opus-5-5 and claude-sonnet-5-5 · Period: 25 Sep to 11 Nov 2026
+
+**Participant:** Anthony (sole human user).
+
+Conversations: 9 (14 transcript files, counting resumed and forked copies once) · Typed prompts: 494 · Files edited directly by Claude Code: at least 143 (116 inside the repo: supplier-service 84, frontend 14, rag-service 9, docs and config the rest)
+
+|Summarized chat title|Chat convo summary|Timestamp of last message (UTC)|Usage scenario| |
+|---|---|---|---|---|
+| Supplier service: login check (step 2) | Used the team's @foc/auth package; you chose "follow user-service for consistency" and Postman over Bruno. | 2026-09-28 03:25 | Implementation, learning | ✅ |
+| Supplier service: CRUD and moderation (steps 5-12) | Read, admin write and request flows with tests; fixed review comments; carried the UUID migration through. You decided scope ("CRUD incomplete, do Phase B"). | 2026-09-29 17:27 | Implementation, tests, debugging | ✅ |
+| RAG: frontend and review fixes | Help tab following the existing UI style, PR description, fixes for a teammate's review comments, CI failures. | 2026-11-10 03:57 | Implementation, frontend, debugging | ✅ |
+| Docker, secrets bundle, hotfix, this summary | Explained images vs containers; built and tested the secrets bundle for submission; hotfix removing the photo URL field (3 commits); copied the user guides; wrote this summary. | 2026-11-11 01:42 | Learning, boilerplate, implementation | ✅ |
