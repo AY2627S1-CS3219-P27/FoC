@@ -80,10 +80,11 @@ Documentation lives in `docs/`.
 
 ---
 
-## Running via Docker Compose
+## Developer Guide
 
-Everything runs from the repository root. Prerequisites: Docker with Compose.
-Node is only needed to run a service's tests or tooling outside Docker.
+You are strongly recommended to use Docker with Compose to work on FoC. Node is
+needed on the main development environment to run service tests and tooling
+outside of Docker.
 
 ### First-time set-up
 
@@ -94,16 +95,33 @@ Node is only needed to run a service's tests or tooling outside Docker.
    for f in env/*.env.example; do cp "$f" "${f%.example}"; done
    ```
 
+   This creates configuration for a basic development environment.
+
 2. **Secrets.** Each service keeps git-ignored `*.secret` files in its own
    `secrets/` folder (DB password, RabbitMQ password, and for `user-service` the
    JWT keypair and server secret). Where a `*.secret.example` exists, copy it
    and replace the value; otherwise create the file named in the service's
-   `compose.yml`. Every service reads
-   `user-service/secrets/jwt_public_key.secret`. `scripts/ci-stack-secrets.sh`
-   shows a complete set, but it overwrites `rabbitmq/definitions.json`, so only
-   run it on a throwaway checkout.
+   `compose.yml`.
 3. **RabbitMQ passwords.** Each service's RabbitMQ password must match its hash
    in `rabbitmq/definitions.json`; see [RabbitMQ set-up](#rabbitmq-set-up).
+
+   > [!IMPORTANT] **What if I don't have the RabbitMQ passwords?**
+   >
+   > If no secrets file containing the service's RabbitMQ passwords
+   > (`rabbitmq_<service>_password.secret`) was provided, the definitions file
+   > will not match your passwords. You will need to provide your own passwords
+   > and update the hashes in `rabbitmq/definitions.json`.
+   >
+   > Assuming a `rabbitmq_temp` instance is running, calculate a hash with:
+   >
+   > ```bash
+   > docker exec rabbitmq_temp rabbitmqctl hash_password '{YOUR PASSWORD HERE}'
+   > ```
+   >
+   > Replace the matching service user's hash. Once the hashes in
+   > `definitions.json` match the corresponding
+   > `rabbitmq_<service>_password.secret` values, RabbitMQ setup is complete.
+
 4. **Create the Credit and Communication Service database schemas.** Neither
    service migrates on startup: Credit's consumers and outbox relay fail on an
    empty schema, and Communication Service's TypeORM `synchronize` is disabled
@@ -133,6 +151,19 @@ Node is only needed to run a service's tests or tooling outside Docker.
    reaches the frontend at <http://localhost:3001>; see the next section for
    direct service access.
 
+   > [!NOTE] The initial build **will** take a while - expect ~8 minutes.
+
+### Debug Docker Compose Config
+
+The debug profile provides host port mappings so that services may directly be
+reached (e.g. with an API client) without using the frontend proxy.
+Additionally, it allows for the `/docs` page of services that expose them to be
+reached. Run the debug config with:
+
+```sh
+docker compose -f compose.yaml -f compose.debug.yaml up
+```
+
 ### Day to day
 
 | Situation                                                                   | What to run                                                                                                                                                   |
@@ -155,28 +186,6 @@ Node is only needed to run a service's tests or tooling outside Docker.
 Service-specific workflows and verification commands are in each service's
 README, e.g. [Credit Service](credit-service/README.md#run-with-docker-compose)
 or [Communication Service](comms-service/README.md#local-commands).
-
-### RabbitMQ set-up
-
-Notably, RabbitMQ requires a password hash in its `definitions.json` for setup.
-There already is a password hash defined in them - these should directly
-correspond with the `rabbitmq_<service>_password.secret` files that modules have
-(e.g. `rabbitmq_user_password.secret`, `rabbitmq_email_password.secret`). You
-may either match the password with the one in the hash (ask a dev), or create
-your own secret and overwrite the one in `definitions.json`. You may create a
-hash by running the following, assuming `rabbitmq_temp` is a running rabbitmq
-container:
-
-```sh
-docker exec rabbitmq_temp rabbitmqctl hash_password {YOUR PASSWORD HERE}
-```
-
-Replace only the matching service user's hash. Broker definitions, including
-password hashes, remain sensitive configuration. They also seed critical durable
-ingress queues and bindings before their consumers start; services reassert
-their matching service-owned topology at runtime. Credit Service uses the root
-`/foc` broker in normal development; its local RabbitMQ containers are reserved
-for isolated messaging and recovery tests.
 
 ## AI Declaration
 
