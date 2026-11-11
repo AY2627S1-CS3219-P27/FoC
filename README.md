@@ -49,6 +49,112 @@ microservice (`user-service/`, `supplier-service/`, `order-service/`,
   added as needed, but must still **respect the one-service-per-folder
   skeleton** for core implementation.
 
+## Architectural diagram
+```mermaid
+flowchart TB
+  Browser["<b>Browser (PWA)</b><br/>Service worker receives Web Push"]
+
+  subgraph PUBLIC["PUBLIC NETWORK"]
+    FE["<b>frontend</b> · Next.js 16 with custom server.mjs · :3001 · same-origin gateway<br/>next.config.ts rewrites route each /api prefix to its service, and server.mjs proxies WebSocket /socket.io to comms-service.<br/>There is no API gateway service."]
+  end
+
+  OpenRouter["<b>OpenRouter</b><br/>embeddings and chat over HTTPS"]
+  SMTP["<b>SMTP</b> (Papercut, dev mail catcher)"]
+  PushSvc["<b>Browser push services</b><br/>Web Push (VAPID)"]
+
+  subgraph INTERNAL["INTERNAL NETWORK · NO HOST PORTS · ONE DATABASE PER SERVICE, NO CROSS-DATABASE READS"]
+    direction TB
+
+    RAG["<b>rag-service</b><br/>Help chatbot over docs and support.<br/>Rate limit 10 questions per minute per user.<br/>NestJS · no broker connection"]
+    SUP["<b>supplier-service</b><br/>Suppliers, brands, categories, buildings, venues, change requests, audit.<br/>NestJS · consumes + publishes"]
+    CRE["<b>credit-service</b><br/>Balances, reservations, transfers, releases, settlements.<br/>NestJS · consumes + publishes"]
+    ORD["<b>order-service</b><br/>Errand lifecycle (event-sourced state machine), disputes, role blocks, sweeps. Saga orchestrator.<br/>NestJS · consumes + publishes"]
+    USR["<b>user-service</b><br/>Registration, login, OTP, password reset, roles, admin.<br/>NestJS · publishes"]
+    COM["<b>comms-service</b><br/>Chat accepted errand, grace deadlines, immutable archives.<br/>Socket.IO /chat, WebSocket only.<br/>NestJS · consumes only"]
+    EML["<b>email-service</b><br/>OTP and password-reset emails.<br/>Bare amqplib worker with no HTTP, so no route from the frontend.<br/>amqplib · consumes only"]
+    NOT["<b>notification-service</b><br/>Web Push for order events.<br/>NestJS · consumes only"]
+
+    RAGDB[("<b>rag-db</b><br/>pgvector: chunks, chat_log (30-day retention)")]
+    SUPDB[("<b>supplier-db</b><br/>TypeORM")]
+    CREDB[("<b>credit-db</b><br/>TypeORM")]
+    ORDDB[("<b>order-db</b><br/>Drizzle")]
+    USRDB[("<b>user-db</b><br/>TypeORM")]
+    COMDB[("<b>comms-db</b><br/>TypeORM")]
+    NOTDB[("<b>notification-db</b><br/>TypeORM")]
+
+    Redis[("<b>Redis</b> (shared instance)<br/>One Redis: user (OTPs, reset tokens), comms (Socket.IO adapter), email (email:seen:id dedup)")]
+
+    MQ[["<b>RabbitMQ 4 · vhost /foc</b><br/>foc.events (direct, one key per event version) · foc.pubsub (topic)<br/>one broker user per service with regex-scoped permissions · topology on board B"]]
+  end
+
+  subgraph LIBS["SHARED LIBRARIES · BAKED INTO IMAGES, NOT RUNTIME SERVICES"]
+    direction LR
+    L1["<b>@foc/contracts</b><br/>JSON Schema event contracts, routing keys, AJV validator, DomainEventDispatcher"]
+    L2["<b>@foc/auth</b><br/>JwtAuthGuard, RolesGuard, AdminGuard, AccessTokenVerifier"]
+    L3["<b>@foc/outbox</b><br/>Used by user, supplier, credit. Order has its own Drizzle outbox"]
+    L4["<b>@foc/observability</b><br/>OpenTelemetry, Prometheus, pino log shipping"]
+  end
+
+  %% Browser path
+  Browser -->|"HTTPS, cookies"| FE
+  Browser <-->|"WebSocket /socket.io"| FE
+  PushSvc -->|"Web Push to the service worker"| Browser
+
+  FE -->|"/api/assistant"| RAG
+  FE -->|"/api/suppliers, buildings, categories, supplier-requests"| SUP
+  FE -->|"/api/credits"| CRE
+  FE -->|"/api/errands, /api/admin"| ORD
+  FE -->|"/api/auth, otp, users, password-reset"| USR
+  FE -->|"/api/chats + WS proxy"| COM
+  FE -->|"/api/notifications"| NOT
+
+  %% Sync service REST
+  USR -.->|"sync REST POST/DELETE v1/role-blocks (5 s timeout) before role removal or account archive"| ORD
+
+  %% External systems
+  RAG -.-> OpenRouter
+  EML -.-> SMTP
+  NOT -.-> PushSvc
+
+  %% Owned stores
+  RAG --- RAGDB
+  SUP --- SUPDB
+  CRE --- CREDB
+  ORD --- ORDDB
+  USR --- USRDB
+  COM --- COMDB
+  NOT --- NOTDB
+
+  %% Shared Redis
+  USR --- Redis
+  COM --- Redis
+  EML --- Redis
+
+  %% AMQP (arrow direction shows publish into broker / consume into service)
+  SUP <==> MQ
+  CRE <==> MQ
+  ORD <==> MQ
+  USR ==> MQ
+  MQ ==> COM
+  MQ ==> EML
+  MQ ==> NOT
+
+  %% Styles
+  classDef mandatory fill:#eef0fb,stroke:#5b5fc7,color:#1a1a4d
+  classDef additional fill:#f3ecff,stroke:#7c4dbd,color:#2d1a4d
+  classDef store fill:#e8f8f0,stroke:#2e9e6b,color:#0b4d2f
+  classDef broker fill:#fff4d6,stroke:#e08a00,color:#5a3900
+  classDef external fill:#f5f6f8,stroke:#7a8594,stroke-dasharray:4 3,color:#333
+  classDef browser fill:#fff0e6,stroke:#e06a1a,color:#7a2e00
+
+  class SUP,CRE,ORD,USR mandatory
+  class RAG,COM,EML,NOT additional
+  class RAGDB,SUPDB,CREDB,ORDDB,USRDB,COMDB,NOTDB,Redis store
+  class MQ broker
+  class OpenRouter,SMTP,PushSvc external
+  class Browser browser
+```
+
 ### Shared Packages
 
 Shared packages that are built in-house are stored in the `packages/` directory.
