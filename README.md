@@ -36,6 +36,8 @@ microservice (`user-service/`, `supplier-service/`, `order-service/`,
 ├── credit-service/
 ├── comms-service/
 ├── email-service/
+├── notification-service/
+├── rag-service/
 ├── frontend/
 └── README.md
 ```
@@ -46,6 +48,35 @@ microservice (`user-service/`, `supplier-service/`, `order-service/`,
 - Files for agentic coding tools (e.g. agent configs, prompts, skills) may be
   added as needed, but must still **respect the one-service-per-folder
   skeleton** for core implementation.
+
+### Shared Packages
+
+Shared packages that are built in-house are stored in the `packages/` directory.
+There are 4 packages:
+
+- Auth
+- Contracts
+- Observability
+- Outbox
+
+### Tooling Configuration
+
+FoC additionally runs several tools that require configuration.
+
+- Grafana, Loki, Tempo, Prometheus have general configurations in the root
+  `observability/` directory.
+- RabbitMQ has its configuration and definitions stored in the root `rabbitmq/`
+  directory.
+- Infrastructure-related configurations live in `infra/`. Terraform and nginx
+  configs are present.
+
+### Documentation
+
+Documentation lives in `docs/`.
+
+- We maintain an ADR record that documents key design decisions when required.
+  They are numbered and are per-service - these are stored in `docs/adr/`
+- Support documentation, including a basic user guide, is in `docs/support/`
 
 ---
 
